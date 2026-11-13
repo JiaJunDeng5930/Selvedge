@@ -307,6 +307,7 @@ Definition core namespace snapshot lagged input state:Authoring.result:=match in
 |Input.CompletionUnknown ticket reason=>Authoring.keep(SS.with_authoring
  (set SS.awaiting(map(SS.unknown_outcome ticket reason))(SS.authoring_state state))state)
 |Input.NativeFailed reason=>Authoring.alert_diagnostic state(JString reason)
+|Input.CopyPath path=>Authoring.changed state[Authoring.emit "clipboard"[("text",JString path)]]
 |Input.Snapshot|Input.EnvironmentObserved=>Authoring.keep state
 |Input.Stream source=>match Streams.decode_event_in_namespace (Origin.valid_namespace namespace) namespace source with
  |Some event=>let '(streams,_) :=Streams.step Streams.browser_configuration event(SS.stream_state state)in Authoring.keep(SS.with_streams streams state)

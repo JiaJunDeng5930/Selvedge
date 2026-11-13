@@ -342,11 +342,11 @@ function gitResponse(page, primary) {
 
 async function replaceWorkspace(page, environment, directory) {
   await environment.locator('button[data-logical-key="composer/workspace"]').click();
-  const dialog = page.getByRole('dialog', { name: 'Workspace', exact: true });
-  const remove = dialog.getByRole('button', { name: 'Remove directory', exact: true });
+  const dialog = page.getByRole('dialog', { name: '工作目录', exact: true });
+  const remove = dialog.getByRole('button', { name: '移除目录', exact: true });
   while (await remove.count()) await remove.first().click();
-  await dialog.getByRole('textbox', { name: 'Directory path', exact: true }).fill(directory);
-  await dialog.getByRole('button', { name: 'Add directory', exact: true }).click();
+  await dialog.getByRole('textbox', { name: '目录路径', exact: true }).fill(directory);
+  await dialog.getByRole('button', { name: '添加目录', exact: true }).click();
   await dialog.getByText(directory, { exact: true }).waitFor();
   await page.keyboard.press('Escape');
   await dialog.waitFor({ state: 'hidden' });
@@ -369,7 +369,7 @@ test('an unavailable Git worktree preserves Local intent and a stale Git reply c
   const message = page.getByRole('combobox', { name: 'Task', exact: true });
   const start = page.getByRole('button', { name: 'Start task', exact: true });
   const ready = page.getByRole('button', { name: 'Start task', exact: true, disabled: false });
-  const repositoryRequired = 'Choose a Git repository with a commit, or use the working directory as is.';
+  const repositoryRequired = '请选择包含提交的 Git 仓库，或直接使用当前工作目录。';
   const required = page.getByRole('status').filter({ hasText: repositoryRequired });
   await page.setViewportSize({ width: 390, height: 700 });
   await message.fill('Keep my selected run environment.');
@@ -410,7 +410,7 @@ test('an unavailable Git worktree preserves Local intent and a stale Git reply c
   });
   await replaceWorkspace(page, environment, source);
   assert.equal((await started.promise).available, true);
-  await environment.getByRole('status').filter({ hasText: 'Checking the working directory for Git…' }).waitFor();
+  await environment.getByRole('status').filter({ hasText: '正在检查工作目录是否支持 Git 工作树…' }).waitFor();
   await worktree(true).waitFor();
   await page.keyboard.press('Escape');
   await environment.waitFor({ state: 'hidden' });

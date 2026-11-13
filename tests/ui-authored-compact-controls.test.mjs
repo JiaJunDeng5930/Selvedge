@@ -59,6 +59,10 @@ test('authored forms and state adjustments keep related controls together', { ti
   const main = page.getByRole('main');
   const notes = main.getByRole('textbox', { name: '备注', exact: true });
   const details = main.getByRole('checkbox', { name: '显示计算明细', exact: true });
+  const cardByLabel = label => main.locator('[data-interactive-component="card"]')
+    .filter({ has: page.getByText(label, { exact: true }) });
+  const textFields = cardByLabel('文本与选择');
+  const numberFields = cardByLabel('数字与开关');
   const counter = main.locator('[data-interactive-component="card"]').filter({ has: page.getByText('本地状态操作', { exact: true }) });
   const metric = counter.locator('[data-interactive-component="metric"]');
   const action = label => counter.getByRole('button', { name: label, exact: true });
@@ -72,6 +76,7 @@ test('authored forms and state adjustments keep related controls together', { ti
   for (const width of [1280, 390, 320]) {
     await page.setViewportSize({ width, height: 900 });
     if (width < 500) await page.getByRole('button', { name: 'Open Task list', exact: true }).waitFor();
+    await textFields.locator(`xpath=parent::*[@data-native-row-direction="${width === 1280 ? 'row' : 'column'}"]`).waitFor();
     const note = await notes.evaluate(node => {
       const style = getComputedStyle(node);
       return { height: node.offsetHeight, line: parseFloat(style.lineHeight), resize: style.resize,
@@ -82,16 +87,23 @@ test('authored forms and state adjustments keep related controls together', { ti
     assert.ok(note.bounds.left >= 0 && note.bounds.right <= width);
     const right = await details.boundingBox();
     assert.ok(right && right.x >= 0 && right.x + right.width <= width);
+    const [firstForm, secondForm] = await Promise.all([textFields.boundingBox(), numberFields.boundingBox()]);
+    assert.ok(firstForm && secondForm);
     const [card, value, ...buttons] = await Promise.all([counter, metric, action('加一'), action('减一'), action('归零')].map(node => node.boundingBox()));
     assert.ok(card && value && card.x >= 0 && card.x + card.width <= width);
     assert.ok(buttons.every(box => box && box.x >= card.x && box.x + box.width <= card.x + card.width));
     if (width === 1280) {
-      assert.ok(Math.abs(note.bounds.bottom - (right.y + right.height)) <= 24, 'The two form columns end near the same line');
+      assert.ok(Math.abs(firstForm.y - secondForm.y) <= 1 &&
+        Math.abs(firstForm.y + firstForm.height - secondForm.y - secondForm.height) <= 1,
+        'Side-by-side form cards have aligned top and bottom edges');
       assert.ok(value.y < buttons[0].y + buttons[0].height && buttons[0].y < value.y + value.height);
       assert.ok(buttons[0].x - (value.x + value.width) >= -1 && buttons[0].x - (value.x + value.width) <= 16,
         'The first adjustment is next to the metric');
       const trailingInset = card.x + card.width - Math.max(...buttons.map(box => box.x + box.width));
       assert.ok(trailingInset <= 24, 'The counter border ends just beyond its last button');
+    } else {
+      assert.ok(firstForm.y + firstForm.height <= secondForm.y + 1 &&
+        firstForm.x >= 0 && secondForm.x + secondForm.width <= width, 'Forms stack within the narrow viewport');
     }
     for (let i = 1; i < buttons.length; i++) {
       if (Math.abs(buttons[i].y - buttons[i - 1].y) <= 1) {

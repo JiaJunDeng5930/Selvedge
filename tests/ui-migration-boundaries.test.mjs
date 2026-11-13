@@ -53,10 +53,10 @@ test('a submitted Task survives directory preparation while newer writing and na
   await openProjectTask(fixture, 'Captured submission Project', workspace);
   const environment = await openCreationEnvironment(page);
   await environment.locator('button[data-logical-key="composer/workspace"]').click();
-  const directories = page.getByRole('dialog', { name: 'Workspace', exact: true });
-  await directories.getByRole('button', { name: 'Remove directory', exact: true }).click();
-  await directories.getByRole('textbox', { name: 'Directory path', exact: true }).fill(workspace);
-  await directories.getByRole('button', { name: 'Add directory', exact: true }).click();
+  const directories = page.getByRole('dialog', { name: '工作目录', exact: true });
+  await directories.getByRole('button', { name: '移除目录', exact: true }).click();
+  await directories.getByRole('textbox', { name: '目录路径', exact: true }).fill(workspace);
+  await directories.getByRole('button', { name: '添加目录', exact: true }).click();
   await directories.getByText(workspace, { exact: true }).waitFor();
   await page.keyboard.press('Escape');
   await directories.waitFor({ state: 'hidden' });

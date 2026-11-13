@@ -67,9 +67,20 @@ test('opening conversation details preserves the desktop reading position and co
   });
   await page.waitForFunction(() => document.querySelector('[data-reading-root]')?.scrollTop > 200);
   const tail = await readingPosition();
+  const dockAtTail = await composer.boundingBox();
+  const readingAtTail = await reading.boundingBox();
   await reading.hover({ position: { x: 4, y: 100 } });
   await page.mouse.wheel(0, -160);
-  await page.getByRole('button', { name: 'Return to latest', exact: true }).waitFor();
+  const latest = page.getByRole('button', { name: 'Return to latest', exact: true });
+  await latest.waitFor();
+  const [latestBounds, readingBounds, dockBounds] = await Promise.all([
+    latest.boundingBox(), reading.boundingBox(), composer.boundingBox(),
+  ]);
+  assert.ok(latestBounds.x >= readingBounds.x && latestBounds.x + latestBounds.width <= readingBounds.x + readingBounds.width &&
+    latestBounds.y >= readingBounds.y && latestBounds.y + latestBounds.height <= readingBounds.y + readingBounds.height,
+  'The return button overlays the reading area');
+  assert.deepEqual(readingBounds, readingAtTail, 'Showing the return button preserves reading height');
+  assert.deepEqual(dockBounds, dockAtTail, 'Showing the return button preserves the composer position');
   await page.waitForFunction(last => {
     const top = document.querySelector('[data-reading-root]')?.scrollTop;
     return top > 0 && top < last - 100;

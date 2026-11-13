@@ -245,11 +245,12 @@ Definition graphs_page snapshot s parent :=
   page_region parent Composition.TaskGraphEntries Composition.BodyPosition
    (match graphs with
     |Some []=>[region parent "task-graph/empty" "" Roles.Section
-      [region parent "task-graph/empty-route" "转发方向" Roles.Section
+      [group_title (part parent "empty-relay-heading") "对话转发";
+       information parent "task-graph/empty-description" Information.Description "让来源对话的新回复自动转发给接收对话。";
+       region parent "task-graph/empty-route" "转发方向" Roles.Section
        [Node (part parent "graph/empty-source") "task-graph/empty-endpoint" "" Roles.Content (ReadOnly GraphAuthoring.source_endpoint_label) [];
         Node (part parent "graph/empty-direction") "task-graph/empty-direction" "" Roles.Decorative (Fact "→") [];
         Node (part parent "graph/empty-target") "task-graph/empty-endpoint" "" Roles.Content (ReadOnly GraphAuthoring.target_endpoint_label) []];
-       information parent "task-graph/empty-description" Information.Description "让来源对话的新回复自动转发给接收对话。";
        create]]
     |Some entries=>map(graph_node snapshot s parent)entries
     |None=>[read_only parent "unavailable" task_graphs_label "任务图暂不可用。"]end)].

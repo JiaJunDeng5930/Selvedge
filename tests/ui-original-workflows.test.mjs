@@ -8,8 +8,8 @@ import { taskIdle } from './support.mjs';
 
 test('a Project task keeps its readable context and its primary and supporting actions', async t => {
   const { page, command, root } = await browserFixture(t);
-  const workspace = path.join(root, 'Original project workspace');
-  await mkdir(workspace);
+  const workspace = path.join(root, 'Long path '.repeat(10).trim(), 'Original project workspace');
+  await mkdir(workspace, { recursive: true });
   await writeFile(path.join(workspace, 'AGENTS.md'), 'Original Project guidance.');
   const project = await command({ op: 'create_project', name: 'Harbour 海港',
     workspace: { roots: [workspace], primary_root: workspace } });
@@ -66,6 +66,18 @@ test('a Project task keeps its readable context and its primary and supporting a
   await pathText.waitFor();
   assert.equal(await details.getByText(workspace, { exact: true }).count(), 1,
     'Task details show a shared working and guidance directory once');
+  const pathLayout = await pathText.evaluate(node => {
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    const lines = [...range.getClientRects()];
+    const region = node.closest('details').getBoundingClientRect();
+    return { lines: lines.length, fits: lines.every(line => line.left >= region.left && line.right <= region.right) };
+  });
+  assert.ok(pathLayout.lines > 1 && pathLayout.fits, 'The full directory path wraps inside the narrow details');
+  const copy = details.getByRole('button', { name: '复制工作目录路径', exact: true });
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await copy.press('Enter');
+  assert.equal(await page.evaluate(() => navigator.clipboard.readText()), workspace);
   await details.getByText('指引版本', { exact: true }).waitFor();
   await details.getByText(revision, { exact: true }).waitFor();
 });

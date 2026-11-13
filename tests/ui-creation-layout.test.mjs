@@ -59,25 +59,39 @@ test('the composer gear opens upward and preserves the draft at desktop and mobi
 
 test('project and directory choices open inside the composer menu and return to it', async t => {
   const { page } = await browserFixture(t);
-  const menu = await openCreationEnvironment(page);
-  await menu.getByText('未关联项目', { exact: true }).waitFor();
-  await menu.locator('button[data-logical-key="composer/project"]').click();
+  const menu = page.getByRole('dialog', { name: '工作环境', exact: true });
   const project = page.getByRole('dialog', { name: '选择项目', exact: true });
-  await project.waitFor();
-  assert.equal(await menu.isVisible(), false);
-  await project.getByRole('button', { name: '返回工作环境', exact: true }).click();
-  await menu.waitFor();
-  assert.equal(await project.isVisible(), false);
+  const workspace = page.getByRole('dialog', { name: '工作目录', exact: true });
+  for (const viewport of [{ width: 1280, height: 720 }, { width: 320, height: 620 },
+    { width: 740, height: 390 }]) {
+    await page.setViewportSize(viewport);
+    await openCreationEnvironment(page);
+    const settings = await menu.boundingBox();
+    await menu.getByText('未关联项目', { exact: true }).click();
+    await project.waitFor();
+    assert.equal(await menu.isVisible(), false);
+    const projects = await project.boundingBox();
+    await project.getByRole('button', { name: '返回工作环境', exact: true }).click();
+    await menu.waitFor();
+    assert.equal(await project.isVisible(), false);
 
-  await menu.locator('button[data-logical-key="composer/workspace"]').click();
-  const workspace = page.getByRole('dialog', { name: 'Workspace', exact: true });
-  await workspace.waitFor();
-  assert.equal(await menu.isVisible(), false);
-  await page.keyboard.press('Escape');
-  await menu.waitFor();
-  assert.equal(await workspace.isVisible(), false);
-  await page.keyboard.press('Escape');
-  await menu.waitFor({ state: 'hidden' });
+    await menu.locator('button[data-logical-key="composer/workspace"]').click();
+    await workspace.getByRole('textbox', { name: '目录路径', exact: true }).waitFor();
+    assert.equal(await menu.isVisible(), false);
+    const directories = await workspace.boundingBox();
+    for (const panel of [projects, directories]) {
+      assert.ok(insideViewport(panel, viewport));
+      assert.ok(Math.abs(panel.x - settings.x) <= 2, 'Each level shares the same left edge');
+      assert.ok(Math.abs(panel.width - settings.width) <= 2, 'Each level shares the same width');
+      assert.ok(Math.abs(panel.y + panel.height - settings.y - settings.height) <= 2,
+        'Each level opens above the same composer gear');
+    }
+    await page.keyboard.press('Escape');
+    await menu.waitFor();
+    assert.equal(await workspace.isVisible(), false);
+    await page.keyboard.press('Escape');
+    await menu.waitFor({ state: 'hidden' });
+  }
 });
 
 test('configured run environments show the current choice in the gear menu', async t => {

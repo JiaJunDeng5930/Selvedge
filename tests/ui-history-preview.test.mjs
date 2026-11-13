@@ -70,7 +70,7 @@ test('conversation search excerpts show rendered text around a match and label s
 test('Search groups an interleaved title and message hits and returns to each selected hit', { timeout: 60000 }, async t => {
   const firstTitle = '发布前检查清单';
   const secondTitle = '后续复核记录';
-  const firstPrompt = '发布前要检查哪些项目？';
+  const firstPrompt = '发布前要检查哪些项目？请按上线验证、回滚准备和通知负责人这三项整理成容易阅读的清单。';
   const firstReply = '请在发布前确认构建通过。';
   const secondReply = '请在发布前记录复核结果。';
   const fixture = await browserFixture(t, { taskTitle: prompt => prompt === firstPrompt ? firstTitle : secondTitle });
@@ -108,12 +108,21 @@ test('Search groups an interleaved title and message hits and returns to each se
   assert.equal((await first.innerText()).split(firstTitle).length - 1, 1);
   assert.equal((await second.innerText()).split(secondTitle).length - 1, 1);
 
-  const checkIndent = card => card.evaluate(node => {
-    const title = node.querySelector('[data-semantic-key="result-title"]').getBoundingClientRect();
-    return [...node.querySelectorAll('[data-semantic-key="result-excerpt"]')]
-      .every(excerpt => excerpt.getBoundingClientRect().left >= title.left + 8);
+  const checkActionRows = card => card.evaluate(node => {
+    const heading = node.firstElementChild.getBoundingClientRect();
+    const messages = [...node.querySelectorAll('[data-semantic-key="result-excerpt"]')];
+    return messages.every(excerpt => {
+      const button = excerpt.closest('button');
+      const bounds = button.getBoundingClientRect();
+      const snippet = excerpt.getBoundingClientRect();
+      const border = getComputedStyle(button).borderBlockStartWidth;
+      return button.previousElementSibling.getBoundingClientRect().bottom <= bounds.top
+        && Math.abs(bounds.left - heading.left) <= 1 && Math.abs(bounds.width - heading.width) <= 1
+        && excerpt.scrollWidth <= snippet.width + 1
+        && Number.parseFloat(border) >= 1;
+    });
   });
-  for (const card of [first, second]) assert.ok(await checkIndent(card));
+  for (const card of [first, second]) assert.ok(await checkActionRows(card));
 
   const openAndReturn = async (hit, located) => {
     await hit.press('Enter');
@@ -125,7 +134,7 @@ test('Search groups an interleaved title and message hits and returns to each se
   await openAndReturn(titleHit, () => main.getByText(firstReply, { exact: true }).waitFor());
   await page.setViewportSize({ width: 320, height: 740 });
   await page.locator('[data-semantic-key="compact-header"]').waitFor();
-  for (const card of [first, second]) assert.ok(await checkIndent(card));
+  for (const card of [first, second]) assert.ok(await checkActionRows(card));
   for (const [card, text] of [[first, firstReply], [first, firstPrompt], [second, secondReply]]) {
     const hit = card.getByRole('button').filter({ hasText: text });
     await openAndReturn(hit, () => page.waitForFunction(text => {

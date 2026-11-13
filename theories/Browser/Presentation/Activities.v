@@ -96,10 +96,8 @@ Definition workspace_nodes {e} s occurrence parent (members:UX.collection e) :=
  let workspace:=UX.collection_workspace members in
  let roots:=Domain.workspace_roots workspace in
  let editable:=Parameters.editable e Fields.WorkspaceDirectories in
- let label (project other:string):=match e with Identity.Project _=>project|_=>other end in
- let heading:=label
-  (if Selvedge.Browser.Session.Observation.worktree_required(State.current_draft s e)
-   then "工作目录" else "工作目录（可选）") "Working directories" in
+ let heading:=if Selvedge.Browser.Session.Observation.worktree_required(State.current_draft s e)
+  then "工作目录" else "工作目录（可选）" in
  let buffer:=match find(fun layer=>N.eqb occurrence(State.layer_occurrence layer))(State.layers(State.navigation_state s))with
  |Some layer=>value_or ""(State.layer_parameter_buffer layer)|None=>""end in
  Node parent "workspace-collection" heading Roles.Section(WorkspaceCollection e members)
@@ -110,40 +108,40 @@ Definition workspace_nodes {e} s occurrence parent (members:UX.collection e) :=
    [region key "workspace-member-copy" "" Roles.Section
      [region key "workspace-member-heading" "" Roles.Section
        ([information key "name" Information.FieldValue (UX.directory_basename path)] ++
-        if primary then [information key "primary-state" Information.Description (label "主目录" "Primary directory")] else []);
+        if primary then [information key "primary-state" Information.Description "主目录"] else []);
       information key "full-path" Information.Description path];
     region key "workspace-member-actions" "" Roles.Section
      (if editable then
-       ((if primary then [] else [declared key Roles.Button(secondary "primary" (label "设为主目录" "Use as primary")
+       ((if primary then [] else [declared key Roles.Button(secondary "primary" "设为主目录"
           (Input.ActivityWorkspaceChange occurrence(Input.ChoosePrimaryDirectory path)))]) ++
-        [declared key Roles.Button(secondary "remove" (label "移除目录" "Remove directory")
+        [declared key Roles.Button(secondary "remove" "移除目录"
           (Input.ActivityWorkspaceChange occurrence(Input.RemoveDirectory path)))])%list else [])])roots ++
   if editable then
    (if String.eqb buffer ""then[]else[information parent "unadded-directory" Information.Status
-     (label Observation.unadded_project_directory "Add or clear the directory before saving")])++
+     Observation.unadded_project_directory])++
    (let entry_label:=match e with
       |Identity.Project _=>match roots with []=>"目录路径"|_=>"添加另一个目录" end
-      |_=>"Directory path" end in
+      |_=>"目录路径" end in
     let entry:=Node(part parent "directory")"directory" entry_label Roles.Field
     (EnterDirectory e buffer(fun value=>option_map(Input.ActivityParameter occurrence)(as_string value))
       (if String.eqb buffer ""then None else Some(Input.ActivityWorkspaceChange occurrence(Input.AddDirectory buffer))))[] in
-    let add:=declared parent Roles.Button(Control "add" (label "添加目录" "Add directory") Secondary
+    let add:=declared parent Roles.Button(Control "add" "添加目录" Secondary
        (Input.ActivityWorkspaceChange occurrence(Input.AddDirectory buffer))
-       (if String.eqb buffer ""then Unavailable (label "请输入目录路径" "Enter a directory")else Available)) in
+       (if String.eqb buffer ""then Unavailable "请输入目录路径" else Available)) in
     let clear:=if String.eqb buffer "" then [] else
-       [declared parent Roles.Button(secondary "clear" (label "清空" "Clear")(Input.ActivityParameter occurrence ""))] in
-    let browse:=declared parent Roles.Button(Control "browse" (label "浏览…" "Browse…") Secondary
+       [declared parent Roles.Button(secondary "clear" "清空"(Input.ActivityParameter occurrence ""))] in
+    let browse:=declared parent Roles.Button(Control "browse" "浏览…" Secondary
        (Input.ServiceInput(Services.OpenDirectory e
          (if String.eqb buffer ""then value_or ""(Domain.workspace_primary workspace)else buffer)(part parent "browse")))
-       (if State.pending_editor e s then Unavailable (label "请等待当前操作完成。" "Wait for the current action to finish")else Available)) in
+       (if State.pending_editor e s then Unavailable "请等待当前操作完成。" else Available)) in
     let actions more:=region parent "directory-entry-actions" ""Roles.Toolbar (add::clear++more)%list in
     match e with
     |Identity.Project _=>
-      let path_entry:=region parent "project-directory-input" entry_label Roles.Toolbar [entry;browse] in
-      [region parent "project-directory-entry" "" Roles.Section [path_entry;actions []]]
+      let controls:=if String.eqb buffer "" then [browse] else [browse;add]++clear in
+      [region parent "project-directory-input" entry_label Roles.Section (entry::controls)]
     |_=>[entry;actions [browse]]end) ++
    if Parameters.inheritable e && negb(UX.collection_inherited members)then
-    [declared parent Roles.Button(secondary "inherit" "Use inherited workspace"(Input.ActivityWorkspaceChange occurrence Input.InheritWorkspace))]else[]
+    [declared parent Roles.Button(secondary "inherit" "使用继承的工作目录"(Input.ActivityWorkspaceChange occurrence Input.InheritWorkspace))]else[]
   else[])%list.
 Definition field_specification snapshot (s:State.state) {e} occurrence parent(subject:UX.subject e) :=
  let original:=Parameters.native_value(UX.subject_declaration subject)(Observation.observe_subject snapshot s subject)in
@@ -388,20 +386,20 @@ Definition run_environment_menu snapshot (s:State.state) e occurrence parent beh
  let cloud_help:=if Selvedge.Browser.Session.Observation.cloud_workspace_configured snapshot &&
     Selvedge.Browser.Session.Observation.cloud_workspace_requested draft then
   [information parent "cloud-workspace-help" Information.Description
-    (Observation.cloud_source_caption snapshot draft++" Push the current commit with .selvedge/env.sh. Use directories inside that repository.")]
+    (Observation.cloud_source_caption snapshot draft++"请推送包含 .selvedge/env.sh 的当前提交，并选择该仓库内的目录。")]
   else[]in
  let workspace label:=declared parent Roles.Button(secondary "cloud-workspace" label
   (Input.OpenActivity e (Act.PropertyActivity UX.WorkspaceProperty)(part parent "cloud-workspace")))in
  let repair:=match Observation.run_environment_problem_for snapshot s draft with
   |None=>[]
   |Some problem=>((match Observation.environment_problem_repair problem with
-    |Some Observation.ChooseCloudDirectory=>[workspace "Choose working directory…"]
-    |Some Observation.UseCloudProjectDirectory=>[workspace "Use project directory…"]
-    |Some(Observation.EditCloudProject project)=>[declared parent Roles.Button(secondary "cloud-project" "Edit project…"
+    |Some Observation.ChooseCloudDirectory=>[workspace "选择工作目录…"]
+    |Some Observation.UseCloudProjectDirectory=>[workspace "使用项目目录…"]
+    |Some(Observation.EditCloudProject project)=>[declared parent Roles.Button(secondary "cloud-project" "编辑项目…"
        (Input.OpenEditor(Identity.Project(Some project))(part parent "cloud-project")))]
     |None=>[]end)++
     (if Observation.environment_problem_recheck problem then
-      [declared parent Roles.Button(secondary "cloud-check" "Check again"(Input.ServiceInput(Services.RefreshCloudRepository e)))]
+      [declared parent Roles.Button(secondary "cloud-check" "重新检查"(Input.ServiceInput(Services.RefreshCloudRepository e)))]
      else[]))%list end in
  let context:=filter(fun property=>match UX.property_kind_of property with
   |UX.ProjectProperty|UX.WorkspaceProperty=>true|_=>false end)(Observation.observe_properties snapshot s e)in
@@ -412,11 +410,11 @@ Definition run_environment_menu snapshot (s:State.state) e occurrence parent beh
   (title parent "工作环境"::(run_environment_choices snapshot s e occurrence parent ++
     Editors.property_controls snapshot s e parent context++cloud_help++status++repair)%list).
 Definition workspace_menu snapshot (s:State.state) e occurrence parent behavior:=
- Node parent "workspace-settings" "Workspace"Roles.Menu(LayerRegion behavior)
-  (workspace_context_header s e occurrence parent "Workspace"::
+ Node parent "workspace-settings" "工作目录"Roles.Menu(LayerRegion behavior)
+  (workspace_context_header s e occurrence parent "工作目录"::
    (match Observation.observe_collection snapshot s e with
     |Some members=>[workspace_nodes s occurrence(part parent "workspace")members]
-    |None=>[read_only parent "unavailable" "Workspace" "The working directory observation is unavailable"]end)++
+    |None=>[read_only parent "unavailable" "工作目录" "无法读取工作目录。"]end)++
    [])%list.
 Definition workspace_request request:=match request with
 |Act.WorkspaceActivity|Act.PropertyActivity UX.WorkspaceProperty=>true|_=>false end.

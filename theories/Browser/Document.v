@@ -191,7 +191,8 @@ Definition editor {A} env (activity:bool) key label generation owner field (valu
  (match Model.editing_input value with None=>[]|Some _=>[event key generation "change" "value" Gesture.Change] end)
  metadata (choices key text (Model.editing_choices value))
  | Fields.Multiline | Fields.StructuredText=>DOM.Element key "textarea"
- (attrs ++ [("value",text);("data-field-entry","multiline")])
+ (attrs ++ [("value",text);("data-field-entry","multiline")] ++
+  (match Model.editing_entry value with Fields.StructuredText=>[("wrap","off")]|_=>[]end))
  (styles ++ [("field-sizing","content")] ++
  (match field with
  |Fields.MessageText=>[("min-block-size",Typography.px
@@ -297,7 +298,7 @@ Definition area_for {A} inherited role (meaning:S.meaning A) := match meaning wi
  |S.NavigationRegion NavigationIdentity.TasksDrawer _=>TouchNavigationArea
  |S.ActionUnit _ _=>ComposerArea
  |S.ActivityGroup _ _ _ behavior|S.LayerRegion behavior=>
-   match Model.layer_presentation behavior with Model.AnchoredMenu=>MenuArea|_=>DialogArea end
+   match Model.layer_presentation behavior with Model.AnchoredMenu|Model.ComposerMenu=>MenuArea|_=>DialogArea end
  |S.ChoiceGroup|S.DecisionGroup _ _=>match inherited with MenuArea=>MenuArea|_=>ChoiceGroupArea end
  |S.BoardGroup S.ViewChoices=>BoardViewArea
  |S.BoardGroup S.SecondaryActions|S.BoardGroup S.PrimaryAction=>ToolbarArea
@@ -331,6 +332,7 @@ Definition purpose_icon purpose := let purpose:=C.action_purpose purpose in matc
  |C.ApprovalDecision false|C.RemoveValue=>Some "close-cross"|C.DeleteItem=>Some "trash"
  |C.ArchiveItem true=>Some "restore"|C.ArchiveItem false=>Some "archive-box"
  |C.PinItem _=>Some "pin"|C.Regenerate|C.RetryTransfer=>Some "refresh"
+ |C.CopyPath=>Some "copy-sheets"
  |C.CopyCode state=>Some(match state with CodeBlock.Idle=>"copy-sheets"|CodeBlock.Pending _=>"spinner"
  |CodeBlock.Feedback _ true=>"check"|CodeBlock.Feedback _ false=>"warning"end)
  |C.WrapCode _=>Some "wrap-lines"|C.Latest=>Some "arrow-down"
@@ -346,7 +348,7 @@ Definition icon_only purpose area := let purpose:=C.action_purpose purpose in ma
  |C.ActivityBack,_
  |C.ProjectTaskCreation,NavigationArea|C.ProjectTaskCreation,TouchNavigationArea|C.CreateItem,BoardLaneArea
  |C.OpenPanel "inspector" _ _,ToolbarArea|C.OpenPanel "settings" _ _,_|C.ApplicationSettings _,_|C.GlobalDestinations _,_|C.OpenPanel "filter-funnel" _ _,_
- |C.OpenPanel "archive-box" _ _,ToolbarArea|C.CopyCode _,CodeArea|C.WrapCode _,CodeArea
+ |C.OpenPanel "archive-box" _ _,ToolbarArea|C.CopyPath,_|C.CopyCode _,CodeArea|C.WrapCode _,CodeArea
  |C.RemoveValue,CollectionArea|C.StopExecution,ToolbarArea|C.PauseExecution,ToolbarArea
  |C.ResumeExecution,ToolbarArea|C.InterruptExecution,ToolbarArea=>true|_,_=>false end.
 
@@ -594,7 +596,7 @@ Definition node_styles {A} (describe:A->C.purpose) env activity (source:S.meanin
 let styles:=NativeAppearance.role_properties_at env activity role ++
  native_node_dimensions role current_area meaning ++
  (match meaning with S.LayerRegion behavior|S.NavigationRegion _ behavior|S.ActivityGroup _ _ _ behavior=>match Model.layer_presentation behavior with
- |Model.AnchoredMenu|Model.AnchoredDialog=>
+ |Model.AnchoredMenu|Model.ComposerMenu|Model.AnchoredDialog=>
   let above:=match meaning with S.ActivityGroup _ _ _ _=>true|_=>false end in
   let trailing:=match Model.layer_presentation behavior with Model.AnchoredDialog=>true|_=>false end in
   [("position","fixed");("inset","auto");
@@ -663,7 +665,7 @@ let styles:=NativeAppearance.role_properties_at env activity role ++
     let maximum_width:=Nat.min reading_width viewport_width in
     let maximum_height:=Nat.sub(Layout.viewport_height env)(2*clearance) in
     match Model.layer_presentation behavior with
-    |Model.AnchoredMenu=>
+    |Model.AnchoredMenu|Model.ComposerMenu=>
      (* The position area is the available side of the trigger; constrain a tall
         menu to that area so every action remains reachable by scrolling. *)
      set_style "max-block-size" (Typography.px maximum_height)
@@ -1037,6 +1039,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  ([("role",if Model.modal_layer behavior then "dialog" else "complementary");("aria-modal",flag (Model.modal_layer behavior))] ++
  match Model.layer_presentation behavior with
  |Model.AnchoredMenu=>[("data-anchor",Model.layer_anchor behavior);("data-native-layer","menu")]
+ |Model.ComposerMenu=>[("data-anchor",Model.layer_anchor behavior);("data-native-layer","menu");("data-composer-menu","true")]
  |Model.AnchoredDialog=>[("data-anchor",Model.layer_anchor behavior);("data-native-layer","anchored-dialog")]
  |_=>[]end)
  [event key generation "cancel" "dismiss" Gesture.Dismiss] (layer_metadata key behavior)
@@ -1044,7 +1047,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
     the menu role required by the choices it contains. *)
  (match meaning, Model.layer_presentation behavior with
  |S.NavigationRegion NavigationIdentity.GlobalMenu _,_=>children
- |_,Model.AnchoredMenu=>
+ |_,(Model.AnchoredMenu|Model.ComposerMenu)=>
    [DOM.Element (key++"/menu")%string "div" [("role","menu");("aria-label",label)]
     [("display","flex");("flex-direction","column");("gap","inherit")] [] empty children]
   |_,_=>children end)
@@ -1239,16 +1242,14 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  (match opened with []=>[DOM.Text(Model.card_title face)]|_=>opened end);
  row "more-group" false(card_part describe true paired)];
  row "metadata" false
- ([text "reference"(Model.card_reference face)]++
+ ([text "reference"(Model.card_reference face)]++optional "updated"(Model.card_updated face)++grip++
  (match Model.card_priority face with Selvedge.Features.Domain.NoPriority=>[]
   |priority=>[text "priority"(Selvedge.Features.Domain.priority_label priority)]end)++
- (if Model.card_pinned face then[text "pinned" "置顶"]else[])++slot "card/activity")]++
+ (if Model.card_pinned face then[text "pinned" "置顶"]else[])++
+ optional "owner"(Model.card_owner face)++slot "card/activity")]++
  optional "description"(Model.card_description face)++
  (match context with []=>[]|_=>[row "context" true context]end)++
- (match conversation with []=>[]|_=>[row "conversation" true conversation]end)++
- [DOM.Element(key++"/footer")%string "footer"[("data-card-footer","")]
- (Layout.row_properties Layout.Horizontal++[("gap","12px")])[]empty
- (optional "owner"(Model.card_owner face)++optional "updated"(Model.card_updated face)++grip)])
+ (match conversation with []=>[]|_=>[row "conversation" false conversation]end))
  end.
 Fixpoint compile_node {A} (describe:A->C.purpose) env generation inherited_area activity (source:S.meaning A) view component (value:S.node A) : DOM.node :=
  compile_element describe env generation inherited_area activity source view component value

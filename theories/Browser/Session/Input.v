@@ -41,6 +41,7 @@ Inductive input :=
 | Command(command:State.public_command)
 | Completed(ticket:N)(outcome:sum string json) | CompletionUnknown(ticket:N)(reason:string)
 | NativeFailed(reason:string)
+| CopyPath(value:string)
 | ServiceInput(input:service_input) | SpeechInput(input:speech_input)
 | TogglePropertySource(owner:editor)(occurrence:N)
 | InspectSource(owner:editor)(request:activity_request)(trigger:string)
@@ -67,7 +68,7 @@ Inductive input :=
 (* Geometry, motion, parser and reading observations change presentation, without
    making already published product content semantically stale. *)
 Definition semantic_change incoming := match incoming with
- |EnvironmentObserved|CodeObserved _|ReadTimeline _ _ _|FollowLatest _=>false
+ |EnvironmentObserved|CodeObserved _|ReadTimeline _ _ _|FollowLatest _|CopyPath _=>false
  |_=>true end.
 
 (* Only semantic user actions acknowledge a displayed command receipt. Focus,

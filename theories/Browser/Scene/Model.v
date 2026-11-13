@@ -65,7 +65,7 @@ Record capacity := Capacity {
   details_beside_timeline : bool
 }.
 
-Inductive layer_kind := ModalDialog | AnchoredDialog | AnchoredMenu | TrailingDetails.
+Inductive layer_kind := ModalDialog | AnchoredDialog | AnchoredMenu | ComposerMenu | TrailingDetails.
 Record layer_behavior (Action : Type) := LayerBehavior {
   layer_presentation : layer_kind;
   layer_beside : bool;
@@ -93,7 +93,7 @@ Arguments layer_escape {Action}.
 Definition modal_layer {A} (value : layer_behavior A) :=
   match layer_presentation value with
   | TrailingDetails => negb (layer_beside value)
-  | ModalDialog | AnchoredDialog | AnchoredMenu => true
+  | ModalDialog | AnchoredDialog | AnchoredMenu | ComposerMenu => true
   end.
 
 Definition map_layer_behavior {A B} (f : A -> B) (value : layer_behavior A) :=

@@ -195,7 +195,7 @@ h1, h2, h3, h4, h5, h6, p, ul, ol, dl, dd { margin: 0; }
 dialog[data-native-layer="menu"]:is(
   [data-semantic-key="activity"], [data-semantic-key="project-selection"], [data-semantic-key="property-source"],
   [data-semantic-key="work-overview"]
-):not([data-anchor-available="false"]) {
+):not([data-anchor-available="false"], [data-composer-menu]) {
   /* Percentages refer to the anchor's available area. Let the menu
      scroll, but reject a side that cannot fit the title and an item. */
   max-block-size: calc(100% - 2 * var(--layer-clearance)) !important;
@@ -1007,21 +1007,21 @@ main:has(> [data-page-region="creation-introduction"]) {
   border-radius: 50% !important;
   padding: 0 !important;
 }
-[data-native-layer="menu"][data-semantic-key="creation-environment"] {
-  inline-size: min(260px, calc(100dvw - 16px)) !important;
+[data-composer-menu] {
+  inline-size: min(18rem, calc(100dvw - 2 * var(--layer-clearance))) !important;
   max-block-size: calc(100dvb - 2 * var(--layer-clearance)) !important;
   overflow: auto !important;
   overscroll-behavior: contain;
 }
-[data-native-layer="menu"][data-semantic-key="creation-environment"]::backdrop { background: transparent; }
-[data-semantic-key="creation-environment"] h2[tabindex="-1"] { outline: none; }
-[data-native-layer="menu"][data-semantic-key="creation-environment"]:not([data-anchor-available="false"]) {
+[data-composer-menu]::backdrop { background: transparent; }
+[data-composer-menu] h2[tabindex="-1"] { outline: none; }
+[data-composer-menu]:not([data-anchor-available="false"]) {
   max-block-size: calc(100% - 2 * var(--layer-clearance)) !important;
   position-area: top span-left !important;
+  position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline, --native-menu-confined !important;
   align-self: end !important;
   justify-self: end !important;
-  inset-inline: auto calc(0px - var(--layer-clearance)) !important;
-  inset-block: auto calc(var(--layer-gap) - var(--layer-clearance)) !important;
+  inset: auto calc(0px - var(--layer-clearance)) calc(var(--layer-gap) - var(--layer-clearance)) auto !important;
 }
 [data-semantic-key="creation-worktree"] > span:last-child {
   position: relative;
@@ -1242,17 +1242,25 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
 [data-chart-viewport] > svg > text {
   font-size: clamp(11px, calc(22px - 1.5cqi), 17px);
   font-variant-numeric: tabular-nums;
-  opacity: .88;
 }
 [data-chart-viewport] > svg > line {
-  opacity: .38;
+  opacity: .16;
+  vector-effect: non-scaling-stroke;
+}
+[data-chart-viewport] > svg > line:is([stroke="var(--color-token-text-primary)"], :last-of-type) {
+  opacity: .3;
+}
+[data-chart-viewport] > svg > path[stroke] {
+  stroke-width: 1.5px;
+  vector-effect: non-scaling-stroke;
+}
+[data-chart-viewport] > svg > path[stroke]:first-of-type {
+  stroke-width: 2.25px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 [data-interactive-component]:is([data-interactive-component="bar-chart"], [data-interactive-component="line-chart"]) {
   gap: .25rem !important;
-}
-[data-semantic-key="interactive-markdown/chart-heading"] {
-  position: relative;
-  min-block-size: 2rem;
 }
 [data-semantic-key="interactive-markdown/chart-title"] {
   min-block-size: 2rem;
@@ -1263,25 +1271,14 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
   font-weight: 600 !important;
   line-height: 1.35 !important;
 }
-[data-semantic-key="interactive-markdown/chart-heading"]:has(> [data-semantic-key="interactive-markdown/chart-disclosure"])
-  > [data-semantic-key="interactive-markdown/chart-title"] {
-  padding-inline-end: 6rem !important;
-}
-[data-semantic-key="interactive-markdown/chart-heading"]:not(:has(> [data-semantic-key="interactive-markdown/chart-title"]))
-  > [data-semantic-key="interactive-markdown/chart-disclosure"] {
-  padding-block-start: 2rem !important;
-}
 [data-semantic-key="interactive-markdown/chart-disclosure"] > summary {
-  position: absolute;
-  inset-block-start: 0;
-  inset-inline-end: 0;
   list-style: none;
   --control-rest-background: transparent !important;
   display: inline-flex !important;
   align-items: center;
   gap: .4rem !important;
   inline-size: fit-content;
-  min-block-size: 2rem !important;
+  min-block-size: 2.25rem !important;
   padding: .35rem .45rem !important;
   border-color: transparent !important;
   border-radius: 6px !important;
@@ -1314,10 +1311,32 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
   overflow-x: auto;
 }
 [data-semantic-key="interactive-markdown/chart-data"] {
-  inline-size: 100% !important;
+  inline-size: auto !important;
+  max-inline-size: min(100%, 22rem) !important;
 
-  & th { text-align: start; }
-  & :is(th, td):last-child { text-align: end; }
+  & caption {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  & :is(th, td) {
+    min-inline-size: 0 !important;
+    padding: .25rem .625rem !important;
+    text-align: start;
+  }
+  & :is(th, td):last-child {
+    text-align: end;
+    font-variant-numeric: tabular-nums;
+  }
+}
+[data-interactive-component="row-layout"][data-native-row-direction="row"] > [data-interactive-component="card"] {
+  block-size: auto !important;
+}
+[data-interactive-component="row-layout"] > [data-interactive-component="card"]:has(:is(input, select, textarea)) {
+  /* Preserve room for the control as well as the label when measuring a row. */
+  min-inline-size: min(100%, 12rem) !important;
 }
 [data-interactive-component="row-layout"][data-native-equal-columns] > * { align-self: stretch !important; }
 [data-interactive-component="row-layout"][data-native-equal-columns][data-native-row-direction="row"] {
@@ -1374,6 +1393,15 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
   & > [data-interactive-component] input { min-inline-size: 0 !important; }
 }
 
+[data-interactive-component="checkbox"] [data-checkbox-mark],
+[data-interactive-component="button"] button[aria-pressed] > [data-checkbox-mark] {
+  border-color: var(--selvedge-muted) !important;
+}
+[data-interactive-component="checkbox"] input:checked + [data-checkbox-mark],
+[data-interactive-component="button"] button[aria-pressed="true"] > [data-checkbox-mark] {
+  border-color: var(--selvedge-accent) !important;
+  color: var(--selvedge-accent) !important;
+}
 [data-semantic-key="interactive-markdown/compact-card-list"] {
   display: grid !important;
   grid-template-columns: fit-content(36%) minmax(0, 1fr) minmax(0, max-content) fit-content(34%);
@@ -1384,6 +1412,12 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
     justify-self: end;
     text-align: end;
     overflow-wrap: anywhere;
+  }
+  &:has(> [data-interactive-component="card"] > [data-interactive-component="button"] > button[aria-pressed]) {
+    grid-template-columns: max-content fit-content(45%) minmax(0, 1fr) minmax(0, max-content);
+
+    & > [data-semantic-key="interactive-markdown/summary-metric-heading"] { grid-column: 4; }
+    & > [data-interactive-component="card"] { column-gap: .25rem !important; }
   }
 
   & > [data-interactive-component="card"] {
@@ -1423,9 +1457,6 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
     & > [data-interactive-component="button"] { justify-self: end; }
     & > [data-interactive-component="button"] button[aria-pressed] {
       justify-content: center !important;
-    }
-    & > [data-interactive-component="button"] button[aria-pressed="true"] > [data-checkbox-mark] {
-      color: var(--selvedge-accent) !important;
     }
   }
   & > [data-interactive-component="card"] + [data-interactive-component="card"] {

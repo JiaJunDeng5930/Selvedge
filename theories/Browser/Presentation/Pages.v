@@ -113,10 +113,12 @@ Definition worktree_feedback {A} snapshot task parent:list(node A):=match Read.t
  |"create_failed"|"archive_failed"=>[region parent "worktree/error" "Workspace" Roles.Alert
    [read_only (part parent "worktree/error") "message" "Workspace"(String.concat ": "[Read.worktree_caption value;Read.worktree_message value])]]
  |_=>[]end end.
-Definition directory_details {A} parent identity label path : node A :=
+Definition directory_details parent identity label path : node Input.input :=
  let key:=part parent identity in
  Node key "directory-path" (label++" · "++UX.directory_basename path) Roles.Content ContentDisclosure
-  [read_only key "path" "" path].
+  [region key "directory-path-body" "" Roles.Content
+    [read_only key "path" "" path;
+     declared key Roles.Button(secondary "copy-path" ("复制"++label++"路径")(Input.CopyPath path))]].
 Definition worktree_details snapshot s task parent:=match Read.task_workspace task snapshot with
 |None=>[]|Some value=>List.app
  [read_only parent "worktree/status" "工作区状态"(Read.worktree_caption value);
@@ -212,10 +214,10 @@ Definition task_contents snapshot s view parent task :=
  [page_region parent Composition.TimelineContent Composition.BodyPosition
    (discarded_unfinished_notice s id parent ++
     [Node(NavigationIdentity.task_view_key view "timeline")"timeline" "Conversation"Roles.Timeline
-      (ReadingTimeline view(State.reader_generation(SessionNavigation.reader_for s id)))timeline])] ++
- (if SessionNavigation.return_latest s id then
- [page_region parent Composition.LatestAction Composition.DockPosition
-  [declared parent Roles.Button(secondary "latest" "Return to latest"(Input.FollowLatest id))]]else[]) ++
+      (ReadingTimeline view(State.reader_generation(SessionNavigation.reader_for s id)))timeline] ++
+    if SessionNavigation.return_latest s id then
+    [page_region parent Composition.LatestAction Composition.BodyPosition
+      [declared parent Roles.Button(secondary "latest" "Return to latest"(Input.FollowLatest id))]]else[])] ++
  approvals snapshot s id parent operations ++
  match task_composer snapshot s view parent task with Some composer=>[composer]|None=>[]end)%list.
 Definition conversation_page snapshot s view parent :=
@@ -353,8 +355,7 @@ Definition page_kind snapshot s :=match State.location(State.navigation_state s)
 |Conversation task=>match find_task task snapshot with
  |None=>Composition.Unavailable
  |Some value=>Composition.Conversation(task_has_composer s value)
-   (match Read.pending_approvals(value_or[](Read.task_operations(task_id value)snapshot))with []=>false|_=>true end)
-   (SessionNavigation.return_latest s task)end
+   (match Read.pending_approvals(value_or[](Read.task_operations(task_id value)snapshot))with []=>false|_=>true end)end
 |Projects=>Composition.ProjectCollection
 |ProjectHome id=>match find_project id snapshot with Some _=>Composition.ProjectOverview|None=>Composition.Unavailable end
 |Board=>Composition.TaskBoard|Graphs=>Composition.TaskGraphCollection

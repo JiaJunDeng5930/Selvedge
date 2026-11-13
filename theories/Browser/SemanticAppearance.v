@@ -127,7 +127,7 @@ Definition meaning_properties {Action} env activity (value : Surface.meaning Act
   | Surface.ActivityGroup _ _ _ _ => surface_properties env ++
       [("padding",pixels env 8); ("gap",pixels env 4)]
   | Surface.LayerRegion behavior =>
-      match Model.layer_presentation behavior with Model.AnchoredMenu => surface_properties env | _ => [] end
+      match Model.layer_presentation behavior with Model.AnchoredMenu | Model.ComposerMenu => surface_properties env | _ => [] end
   | Surface.ContextSummary _ => [("display","flex"); ("flex-direction","column"); ("gap","4px"); ("padding-inline","8px")]
   | Surface.DirectoryRow _ _ | Surface.WorkspaceMember _ _ _ => member_properties env activity
   | Surface.ChoiceGroup | Surface.DecisionGroup _ _ | Surface.WorkspaceCollection _ _ =>

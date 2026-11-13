@@ -205,8 +205,11 @@ Export PlotProof(chart_axis_covers_values, chart_axis_coordinates_reach_both_plo
     retain native size within their own scrollable enclosures, with a readable
     list equivalent. Charts display categories or numeric ticks along the axes,
     using authored axis labels for units. The axes enclose the plotted range
-    and their endpoints agree with its coordinates. The chart's data disclosure
-    preserves the exact plotted rows in source order.
+    and their endpoints agree with its coordinates. Grid lines remain subordinate
+    to the marks. A compact data disclosure below each plot preserves its exact
+    plotted rows in source order and aligns the numbers for comparison.
+    Compact list choices keep the check mark beside its label, and paired form
+    cards share their row height when the available width keeps them side by side.
     [chart_accessible_values_keep_order] constrains that rendering projection.
     [builtin_budget_safe] establishes that metered
     builtins cannot replenish their remaining work budget.
@@ -273,6 +276,8 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     the current viewport while a new layout observation is pending.
     Collapsed desktop navigation keeps the new conversation and search actions
     beside the control that reopens the sidebar.
+    Returning to the latest message remains available within the reading area
+    without changing how much of the conversation or composer is visible.
 
     A Work scopes the conversation tree, graph views and shared interface.
     Project groups organize the conversations in that scope independently of
@@ -284,7 +289,8 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     Its execution count uses the same filters and observations as the execution
     view. Each stage retains a visible heading, count, and drop target when empty.
     Stage lanes wrap within the board's available width and keep a consistent
-    boundary across each row. The assignee filter keeps its options searchable
+    boundary across each row. Their minimum width leaves room to read a card
+    title alongside its action menu. The assignee filter keeps its options searchable
     and its selected values available while filtering the list.
     Curved tree branches represent conversation lineage. Directed graph connections
     represent output routing, with the same rules and receipts available as text.
@@ -294,6 +300,8 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     title. Optional settings remain available at the corresponding editor.
     A project can be created with its name alone. Its editor marks the default
     working directory as optional and uses the language of the project page.
+    Browse and actions on a typed path share its input row. Saved directory
+    choices have a separate list.
     The project empty state groups its explanation with the creation action.
     A directory chooser identifies the execution environment that owns its paths.
     Confirmation applies to an opened directory that matches the address
@@ -315,18 +323,23 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     the task directories must lie within that repository.
     The new conversation composer exposes a compact settings icon in its
     toolbar. The menu displays project, actual directory and run settings
-    with the current choices. Opening it keeps the composer in place.
+    with the current choices. Its submenus open at the same anchor and use
+    the same language. Opening them keeps the composer in place.
+    Conversation details show the full working directory after expansion
+    and offer to copy it.
     On desktop, the model menu keeps the new conversation heading clear when
     the viewport has room for both.
     The permissions menu describes who approves each choice and presents
     shared filesystem and network limits once.
     A graph can route new replies between existing conversations by selecting
     its source and receiver in the current scope. The empty graph page
-    shows the same direction beside its creation action. The entry action, form
+    identifies conversation relay as the available relation and shows its
+    direction beside the creation action. The entry action, form
     title and commit label use the same name for creating a conversation relay.
     Each endpoint choice leads with its conversation title and includes an
     identifier for titles shared by multiple choices in the scope.
-    The same graph editor can also accept a structured declaration for other rules.
+    The same graph editor can also accept a structured declaration for other
+    rules. The expanded declaration offers multiple lines in a monospace editor.
     When the current scope has too few conversations, the source and receiver
     form and its unavailable commit identify how many more are needed.
     A conversation created from graph setup belongs to that scope. The
@@ -336,8 +349,9 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
 
     Opening a search result leaves the query, filters and page of results
     available for further comparison. Results lead with a short readable
-    excerpt and distinguish the matching text within it. A result group names
-    its conversation once and identifies each message by its speaker role.
+    excerpt and mark the matching text with a contrasting foreground and
+    background. A result group names its conversation once, separates each
+    actionable row and identifies each message by its speaker role.
     A source-only match links to the original message and shows a short label.
     Opening a readable match scrolls to the matching text once it is rendered
     and marks it long enough to identify the landing point.
@@ -350,9 +364,10 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     unfilled required field gives a neutral prompt while submission is unavailable.
     Invalid entered text names the repair beside the relevant field when both fit.
     The assignee filter keeps complete rows in its scrollable list. Action menus
-    align their labels and keep their order while service checks change their
-    availability. Unavailable actions explain why they cannot be used.
+    show actions relevant to the card and keep their order while service checks
+    change their availability. Applicable actions explain any current refusal.
     A linked conversation's execution state appears beside its open action.
+    The card reference and timestamp share a metadata row.
     Assisted capture places its model controls beside the card title and description.
     Assisted capture offers the board default when it names an eligible
     drafting model. When models are available and no default applies, the picker
@@ -363,6 +378,8 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     The action area shows progress while a submitted edit is being processed.
     The fixed action area shows the same repair when the field or its inline
     explanation does not fit in view. Each repair is visible in one place.
+    Settings editors retain their category context when opened from a setting.
+    A scrolling settings form separates its fields from the fixed action area.
     Selected project directories show the short name and role before the full
     path. An unadded directory path shows one reminder beside its input.
     The automatic execution setting explains which cards can start and when,

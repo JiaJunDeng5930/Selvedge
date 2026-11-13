@@ -182,10 +182,10 @@ test('Project task creation restores Project workspace inheritance through the b
   assert.equal(await page.locator('button[data-logical-key="composer/workspace"]').isVisible(), false);
   const environment = await openCreationEnvironment(page);
   await environment.locator('button[data-logical-key="composer/workspace"]').click();
-  const workspace = page.getByRole('dialog', { name: 'Workspace', exact: true });
-  await workspace.getByRole('button', { name: 'Remove directory', exact: true }).click();
-  await workspace.getByRole('button', { name: 'Use inherited workspace', exact: true }).click();
-  await workspace.getByRole('button', { name: 'Remove directory', exact: true }).waitFor();
+  const workspace = page.getByRole('dialog', { name: '工作目录', exact: true });
+  await workspace.getByRole('button', { name: '移除目录', exact: true }).click();
+  await workspace.getByRole('button', { name: '使用继承的工作目录', exact: true }).click();
+  await workspace.getByRole('button', { name: '移除目录', exact: true }).waitFor();
   await page.keyboard.press('Escape');
   await workspace.waitFor({ state: 'hidden' });
   await environment.waitFor();
@@ -204,9 +204,9 @@ test('Project task creation preserves explicitly empty workspaces through the br
   await projectTask(page);
   const environment = await openCreationEnvironment(page);
   await environment.locator('button[data-logical-key="composer/workspace"]').click();
-  const workspace = page.getByRole('dialog', { name: 'Workspace', exact: true });
-  await workspace.getByRole('button', { name: 'Remove directory', exact: true }).click();
-  await workspace.getByRole('button', { name: 'Use inherited workspace', exact: true }).waitFor();
+  const workspace = page.getByRole('dialog', { name: '工作目录', exact: true });
+  await workspace.getByRole('button', { name: '移除目录', exact: true }).click();
+  await workspace.getByRole('button', { name: '使用继承的工作目录', exact: true }).waitFor();
   await page.keyboard.press('Escape');
   await workspace.waitFor({ state: 'hidden' });
   await environment.waitFor();
@@ -304,12 +304,12 @@ test('task graph setup creates its conversations in scope and routes replies', {
     await page.setViewportSize({ width, height: 780 });
     const geometry = await emptyRoute.evaluate(node => {
       const [from, arrow, to] = Array.from(node.children, child => child.getBoundingClientRect());
-      const description = node.nextElementSibling.getBoundingClientRect();
+      const description = node.previousElementSibling.getBoundingClientRect();
       const create = node.parentElement.querySelector('button').getBoundingClientRect();
       const center = box => box.top + box.height / 2;
       return { row: from.right < arrow.left && arrow.right < to.left &&
         Math.abs(center(from) - center(arrow)) < 1 && Math.abs(center(arrow) - center(to)) < 1,
-      follows: description.top >= to.bottom && create.top >= description.bottom,
+      follows: from.top >= description.bottom && create.top >= to.bottom,
       fits: from.left >= 0 && to.right <= innerWidth };
     });
     assert.deepEqual(geometry, { row: true, follows: true, fits: true }, 'Empty route at ' + width + 'px');
@@ -320,7 +320,14 @@ test('task graph setup creates its conversations in scope and routes replies', {
   const dialog = page.getByRole('dialog', { name: '创建对话转发', exact: true });
   const create = dialog.getByRole('button', { name: '创建对话转发', exact: true });
   await create.waitFor();
-  assert.equal(await dialog.getByRole('textbox', { name: 'JSON 定义', exact: true }).isVisible(), false);
+  const declaration = dialog.getByRole('textbox', { name: 'JSON 定义', exact: true });
+  const advanced = dialog.getByText('编辑 JSON 定义', { exact: true });
+  assert.equal(await declaration.isVisible(), false);
+  await advanced.click();
+  const declarationBounds = await declaration.boundingBox();
+  assert.ok(declarationBounds?.height >= 140, 'The expanded JSON editor has room for multiple lines');
+  assert.equal(await dialog.getByText('JSON 定义', { exact: true }).isVisible(), false);
+  await advanced.click();
   assert.equal(await dialog.getByRole('alert').count(), 0);
   assert.equal(await create.isDisabled(), true);
   const name = dialog.getByRole('textbox', { name: '转发名称', exact: true });

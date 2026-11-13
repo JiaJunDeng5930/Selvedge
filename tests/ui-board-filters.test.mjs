@@ -209,8 +209,12 @@ test('the archive opens near its desktop trigger and fits a compact viewport wit
   assert.ok(compact && compact.x >= 0 && compact.y >= 0 &&
     compact.x + compact.width <= 390 && compact.y + compact.height <= 520);
   await card.getByRole('button', { name: '卡片操作', exact: true }).click();
-  await page.getByRole('menu', { name: '卡片操作', exact: true })
-    .getByRole('button', { name: '恢复卡片', exact: true }).click();
+  const actions = page.getByRole('menu', { name: '卡片操作', exact: true });
+  const restore = actions.getByRole('button', { name: '恢复卡片', exact: true });
+  await restore.waitFor();
+  assert.deepEqual(await actions.getByRole('button').evaluateAll(buttons =>
+    buttons.map(button => button.getAttribute('aria-label'))), ['恢复卡片', '删除卡片']);
+  await restore.click();
   await empty.waitFor();
   assert.equal((await read()).archived, false);
 });
@@ -641,8 +645,9 @@ test('the mobile card editor keeps real repairs visible and missing model choice
 
 test('the card action menu keeps positions while service assessments settle', async t => {
   const { page, command } = await browserFixture(t);
-  const title = 'An unassigned card';
-  await command({ op: 'create_card', title });
+  await command({ op: 'board_settings', automatic: false, draft_profile: '' });
+  const title = 'A model-assigned card';
+  await command({ op: 'create_card', title, assignee: 'profile/interactive' });
   const archiveCheck = Promise.withResolvers();
   const otherChecks = Promise.withResolvers();
   await page.route('**/api/assess', async route => {
@@ -660,7 +665,7 @@ test('the card action menu keeps positions while service assessments settle', as
       disabled: button.disabled || button.getAttribute('aria-disabled') === 'true',
       y: button.getBoundingClientRect().y, labelX: label?.getBoundingClientRect().x };
   }));
-  const order = ['移动卡片', '编辑卡片', '启动对话', '归档卡片', '置顶卡片', '删除卡片', '重新生成标题'];
+  const order = ['移动卡片', '编辑卡片', '启动对话', '归档卡片', '置顶卡片', '删除卡片'];
   let opening;
   function assertMenu(current, available) {
     assert.deepEqual(current.map(({ name }) => name), order);
@@ -676,7 +681,7 @@ test('the card action menu keeps positions while service assessments settle', as
       .getByRole('button', { name: '卡片看板', exact: true }).click();
     await page.getByRole('article', { name: title, exact: true })
       .getByRole('button', { name: '卡片操作', exact: true }).click();
-    await action('重新生成标题').waitFor();
+    await action('启动对话').waitFor();
     opening = await rows();
     assertMenu(opening, ['移动卡片', '编辑卡片']);
     assert.ok(opening.every((row, index) => index === 0 || row.y > opening[index - 1].y),
@@ -692,37 +697,30 @@ test('the card action menu keeps positions while service assessments settle', as
     archiveCheck.resolve();
     otherChecks.resolve();
   }
-  for (const name of ['启动对话', '重新生成标题'])
-    await action(name).and(page.locator('[aria-disabled="true"][title]:not([title="正在检查"])')).waitFor();
-  for (const name of ['置顶卡片', '删除卡片'])
+  for (const name of ['启动对话', '置顶卡片', '删除卡片'])
     await action(name).and(page.locator(':not([aria-disabled="true"])')).waitFor();
-  const boxes = await rows();
-  assertMenu(boxes, ['移动卡片', '编辑卡片', '归档卡片', '置顶卡片', '删除卡片']);
-  const reasons = boxes.filter(row => row.disabled).map(row => row.reason);
-  assert.ok(reasons.every(Boolean) && new Set(reasons).size === reasons.length,
-    'Unavailable actions expose their individual refusal reasons');
+  assertMenu(await rows(), order);
   await action('移动卡片').click();
   await page.getByRole('dialog', { name: '移动卡片', exact: true }).waitFor();
 });
 
 test('the board keeps empty stages visible and counts only matching cards linked to executing conversations', async t => {
-  const { page, command } = await browserFixture(t);
+  const { page, browser, command } = await browserFixture(t);
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
     .getByRole('button', { name: '卡片看板', exact: true }).click();
   const board = page.locator('[data-page-region="board-stages"]');
-  for (const viewport of [{ width: 1280, height: 900 }, { width: 760, height: 500 }]) {
+  for (const viewport of [{ width: 1280, height: 900 }, { width: 760, height: 500 }, { width: 390, height: 620 }]) {
     await page.setViewportSize(viewport);
-    await page.waitForFunction(singleRow => {
+    await page.waitForFunction(() => {
       const scrollport = document.querySelector('[data-page-region="board-stages"]');
       const stages = [...(scrollport?.querySelectorAll('[data-board-stage]') ?? [])];
       if (stages.length !== 6 || scrollport.scrollWidth > scrollport.clientWidth) return false;
       const bounds = scrollport.getBoundingClientRect();
       return stages.every(stage => {
-        const { top, bottom, height } = stage.getBoundingClientRect();
-        return top >= bounds.top && bottom <= bounds.bottom + 1 && height <= 80
-          && (!singleRow || top <= bounds.top + 1);
+        const { top, height, width } = stage.getBoundingClientRect();
+        return top >= bounds.top - 1 && height <= 80 && width >= Math.min(200, scrollport.clientWidth) - 1;
       });
-    }, viewport.width === 1280);
+    });
     await board.getByRole('region', { name: '已完成，0 张卡片', exact: true }).waitFor();
     await board.getByRole('region', { name: '已阻塞，0 张卡片', exact: true }).waitFor();
   }
@@ -740,9 +738,10 @@ test('the board keeps empty stages visible and counts only matching cards linked
   const card = board.getByRole('article', { name: title, exact: true });
   await card.waitFor();
   const tracks = await board.locator('[data-board-stage]').evaluateAll(stages =>
-    stages.map(stage => ({ bottom: stage.getBoundingClientRect().bottom, height: stage.getBoundingClientRect().height })));
-  assert.ok(Math.max(...tracks.map(track => track.height)) > 80
-    && tracks.every(track => Math.abs(track.bottom - tracks[0].bottom) < 1),
+    stages.map(stage => ({ top: stage.getBoundingClientRect().top, bottom: stage.getBoundingClientRect().bottom })));
+  const firstRow = tracks.filter(track => Math.abs(track.top - tracks[0].top) < 1);
+  assert.ok(firstRow.length > 1 && tracks[0].bottom - tracks[0].top > 80
+    && firstRow.every(track => Math.abs(track.bottom - tracks[0].bottom) < 1),
     'Empty stages have the same track extent as a populated neighbor');
   const completed = board.locator('[data-board-stage="done"]');
   await card.locator('[data-card-grip]').dragTo(completed);
@@ -794,20 +793,23 @@ test('the board keeps empty stages visible and counts only matching cards linked
 
   // The card can still reference a conversation omitted by the current
   // observation. Keep the disabled link without a stale running label.
-  await page.route('**/api/browser/state', async route => {
+  const limitedObservation = await browser.newPage({ viewport: page.viewportSize() });
+  limitedObservation.setDefaultTimeout(10000);
+  await limitedObservation.route('**/api/browser/state', async route => {
     const response = await route.fetch();
     const snapshot = await response.json();
     snapshot.program.tasks = snapshot.program.tasks.filter(task => String(task.id) !== String(task_id));
     await route.fulfill({ response, json: snapshot });
   });
-  await page.reload();
-  await page.getByRole('navigation', { name: 'Global navigation', exact: true })
+  await limitedObservation.goto(page.url());
+  await limitedObservation.getByRole('navigation', { name: 'Global navigation', exact: true })
     .getByRole('button', { name: '卡片看板', exact: true }).click();
-  await page.getByRole('radio', { name: '全部卡片', exact: true }).click();
-  const unavailable = card.getByRole('button', { name: '打开对话', exact: true });
-  await unavailable.and(page.locator('[aria-disabled="true"]')).waitFor();
+  await limitedObservation.getByRole('radio', { name: '全部卡片', exact: true }).click();
+  const observedCard = limitedObservation.getByRole('article', { name: title, exact: true });
+  const unavailable = observedCard.getByRole('button', { name: '打开对话', exact: true });
+  await unavailable.and(limitedObservation.locator('[aria-disabled="true"]')).waitFor();
   assert.equal(await unavailable.getAttribute('title'), '关联的对话不可用');
-  assert.equal(await card.getByText('工作中', { exact: true }).count(), 0);
+  assert.equal(await observedCard.getByText('工作中', { exact: true }).count(), 0);
 });
 
 test('a conversation can be added to the board without starting another conversation', async t => {
@@ -881,16 +883,25 @@ test('a conversation can be added to the board without starting another conversa
   await assertConversationActivity(reviewCard, '对话已完成');
   const heading = reviewCard.getByText(title, { exact: true });
   const reference = reviewCard.getByText(cards[0].identifier, { exact: true });
-  const [headingBounds, referenceBounds, activityBounds] = await Promise.all(
-    [heading, reference, completed].map(element => element.boundingBox()));
-  assert.ok(headingBounds && referenceBounds && activityBounds);
+  const updated = reviewCard.getByText(/^(刚刚|\d+分钟前)$/u);
+  const [headingBounds, referenceBounds, activityBounds, updateBounds] = await Promise.all(
+    [heading, reference, completed, updated].map(element => element.boundingBox()));
+  assert.ok(headingBounds && referenceBounds && activityBounds && updateBounds);
   assert.ok(headingBounds.y < referenceBounds.y && headingBounds.y < activityBounds.y,
     'The card title is above the secondary ID and the separate conversation status');
+  assert.ok(Math.abs(referenceBounds.y - updateBounds.y) <= 1 && updateBounds.x > referenceBounds.x,
+    'The card reference and update time share one metadata line');
   for (const absent of ['无', '未分配']) {
     assert.equal(await reviewCard.getByText(absent, { exact: true }).count(), 0);
   }
   await reviewCard.locator('[data-card-grip]').waitFor();
   await reviewCard.getByRole('button', { name: '卡片操作', exact: true }).waitFor();
+  await reviewCard.getByRole('button', { name: '卡片操作', exact: true }).click();
+  const cardActions = page.getByRole('menu', { name: '卡片操作', exact: true });
+  await cardActions.getByRole('button', { name: '编辑卡片', exact: true }).waitFor();
+  assert.equal(await cardActions.getByRole('button', { name: '启动对话', exact: true }).count(), 0);
+  await page.keyboard.press('Escape');
+  await cardActions.waitFor({ state: 'hidden' });
   const titleAction = reviewCard.getByRole('button', { name: `打开 ${title}`, exact: true });
   await titleAction.press('Enter');
   await details.getByText(title, { exact: true }).waitFor();

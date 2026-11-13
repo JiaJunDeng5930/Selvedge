@@ -62,6 +62,14 @@ dialog[data-semantic-key="settings"][open] {
   padding-inline: min(var(--settings-edge), 5vi) !important;
 }
 dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canvas); }
+/* Settings owns these foreground dialogs. Keep its page visible beneath
+   their backdrop while the native modal makes the page inert. */
+[data-layer-stack] > dialog[data-semantic-key="settings"][open]:has(
+  ~ dialog:modal:is([data-semantic-key="settings-configuration-editor"],
+    [data-semantic-key="settings-title-editor"], [data-semantic-key="account-sign-in"])
+) {
+  visibility: visible !important;
+}
 [data-semantic-key="settings"] > [data-surface-role="dialog-header"] {
   flex: none !important;
   flex-flow: row nowrap !important;
@@ -1012,7 +1020,14 @@ dialog:is([data-semantic-key="settings-title-editor"], [data-semantic-key="setti
 }
 :is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) > [data-surface-role="dialog-header"] {
   flex: none !important;
+  gap: .25rem !important;
   padding: 0 .1875rem .375rem !important;
+}
+[data-semantic-key="settings-editor-context"] {
+  margin: 0 !important;
+  color: var(--settings-muted) !important;
+  font-size: .8125rem !important;
+  line-height: 1.25 !important;
 }
 :is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) > [data-surface-role="dialog-header"] > h2 {
   margin: 0 !important;
@@ -1036,11 +1051,12 @@ dialog:is([data-semantic-key="settings-title-editor"], [data-semantic-key="setti
 :is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) [data-surface-role="dialog-body"] {
   flex: 1 1 auto !important;
   min-block-size: 0 !important;
-  padding: .25rem .1875rem .5rem !important;
+  padding: .25rem .1875rem .75rem !important;
   gap: .625rem !important;
   overflow: hidden auto !important;
   overscroll-behavior: contain;
-  scroll-padding-block: .375rem;
+  scrollbar-width: thin;
+  scroll-padding-block: .5rem;
 }
 [data-semantic-key="settings-title-editor"] [data-semantic-key="title-prompts/help"] {
   color: var(--settings-muted) !important;
@@ -1053,44 +1069,9 @@ dialog:is([data-semantic-key="settings-title-editor"], [data-semantic-key="setti
   flex-flow: row wrap !important;
   justify-content: flex-end !important;
   gap: .5rem !important;
-  padding: .625rem .1875rem 0 !important;
-}
-/* A fitted form is continuous. Mark a fixed edge only when fields continue
-   behind it, using the form scrollport as the source of that state. */
-@supports (timeline-scope: --settings-form-scroll) and (animation-range: 0px 1px) {
-  dialog:is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) {
-    timeline-scope: --settings-form-scroll;
-  }
-  :is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) [data-surface-role="dialog-body"] {
-    scroll-timeline: --settings-form-scroll block;
-  }
-  :is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) :is([data-surface-role="dialog-header"], [data-surface-role="dialog-actions"]) {
-    position: relative;
-  }
-  :is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) :is([data-surface-role="dialog-header"], [data-surface-role="dialog-actions"])::after {
-    position: absolute;
-    inset-inline: .1875rem;
-    block-size: 1px;
-    background: var(--settings-rule);
-    pointer-events: none;
-    content: "";
-    opacity: 0;
-    animation: settings-form-edge auto linear both;
-    animation-timeline: --settings-form-scroll;
-  }
-  :is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) [data-surface-role="dialog-header"]::after {
-    inset-block-end: 0;
-    animation-range: 0px .375rem;
-  }
-  :is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) [data-surface-role="dialog-actions"]::after {
-    inset-block-start: 0;
-    animation-direction: reverse;
-    animation-range: calc(100% - .375rem) 100%;
-  }
-  @keyframes settings-form-edge {
-    from { opacity: 0; }
-    to { opacity: 1; }
-  }
+  margin-block-start: .375rem !important;
+  padding: .75rem .1875rem 0 !important;
+  border-block-start: 1px solid var(--settings-rule) !important;
 }
 :is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) [data-surface-role="dialog-actions"] button > svg {
   display: none !important;

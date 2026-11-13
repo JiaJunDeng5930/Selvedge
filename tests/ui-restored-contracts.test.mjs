@@ -241,26 +241,19 @@ test('model charts and range controls keep their values readable', { timeout: 60
   };
   assert.deepEqual(await line.evaluate(plotEdges), await monthlyBars.evaluate(plotEdges),
     'Both monthly charts have the same plot margins despite their different scales');
-  const headingGeometry = svg => {
+  const chartGeometry = svg => {
     const chart = svg.parentElement.parentElement;
-    const summary = chart.querySelector('summary');
-    const title = chart.querySelector('[data-semantic-key="interactive-markdown/chart-title"]');
-    const action = summary.getBoundingClientRect();
-    const heading = summary.parentElement.parentElement.getBoundingClientRect();
-    const titleRange = document.createRange();
-    titleRange.selectNodeContents(title);
-    const titleBox = titleRange.getBoundingClientRect();
+    const plot = svg.getBoundingClientRect();
+    const action = chart.querySelector('summary').getBoundingClientRect();
+    const title = chart.querySelector('[data-semantic-key="interactive-markdown/chart-title"]').getBoundingClientRect();
     return {
-      besideTitle: action.left >= titleBox.right - 1 && action.top < titleBox.bottom,
-      atEnd: Math.abs(action.right - heading.right) <= 1,
-      beforePlot: heading.bottom <= svg.getBoundingClientRect().top,
+      inOrder: title.bottom <= plot.top && plot.bottom <= action.top,
       withinViewport: action.left >= 0 && action.right <= innerWidth,
     };
   };
   for (const chart of [line, monthlyBars, bars]) {
-    const heading = await chart.evaluate(headingGeometry);
-    assert.ok(heading.besideTitle && heading.atEnd && heading.beforePlot,
-      'Each chart places its own data disclosure at the right of its title');
+    assert.deepEqual(await chart.evaluate(chartGeometry), { inOrder: true, withinViewport: true },
+      'Each chart presents its title, plot, and data disclosure in reading order');
   }
   const barChart = bars.locator('xpath=../..');
   const geometry = await bars.evaluate(svg => {
@@ -288,18 +281,33 @@ test('model charts and range controls keep their values readable', { timeout: 60
   assert.ok(geometry.usesWidth, 'The chart fills its available desktop width');
   assert.ok(geometry.compactMargin, 'The tick area stays compact');
   assert.ok(geometry.titleWeight > geometry.axisWeight, 'The chart title leads its axis labels');
+  assert.ok(await line.evaluate(svg => {
+    const curve = getComputedStyle(svg.querySelector('path[stroke]'));
+    return Array.from(svg.querySelectorAll('line')).every(node => {
+      const reference = getComputedStyle(node);
+      return Number(reference.opacity) <= .3 && parseFloat(reference.strokeWidth) < parseFloat(curve.strokeWidth);
+    });
+  }), 'Reference lines have less visual weight than the plotted curve');
   const lineChart = line.locator('xpath=../..');
   const monthlyBarChart = monthlyBars.locator('xpath=../..');
   const disclosure = lineChart.getByText('查看数据', { exact: true });
   assert.equal(await barChart.getByRole('table').isVisible(), false);
   assert.equal(await lineChart.getByRole('table').isVisible(), false);
   await disclosure.focus();
+  const plotBefore = await line.boundingBox();
   await page.keyboard.press('Enter');
   const table = lineChart.getByRole('table', { name: '图表数据', exact: true });
   await table.waitFor();
-  assert.equal(await line.isVisible(), true);
-  assert.ok(Math.abs((await table.boundingBox()).width - (await line.boundingBox()).width) <= 1,
-    'The opened data table uses the same width as its chart');
+  const [plotAfter, tableBox] = await Promise.all([line.boundingBox(), table.boundingBox()]);
+  assert.ok(Math.abs(plotAfter.y - plotBefore.y) <= 1, 'Opening the table keeps the plot in place');
+  assert.ok(tableBox.y >= plotAfter.y + plotAfter.height && tableBox.width < plotAfter.width / 2,
+    'The exact values appear in a compact table below the plot');
+  const valueEdges = await table.evaluate(node => Array.from(node.querySelectorAll('td:last-child'), cell => {
+    const range = document.createRange();
+    range.selectNodeContents(cell);
+    return range.getBoundingClientRect().right;
+  }));
+  assert.ok(Math.max(...valueEdges) - Math.min(...valueEdges) <= 1, 'Values align at the trailing edge');
   assert.equal(await monthlyBarChart.getByRole('table').isVisible(), false,
     'Opening one chart disclosure leaves its sibling closed');
   assert.equal(await disclosure.evaluate(node => node === document.activeElement), true);
@@ -313,9 +321,8 @@ test('model charts and range controls keep their values readable', { timeout: 60
   await page.keyboard.press('Enter');
   await table.waitFor({ state: 'hidden' });
   await page.setViewportSize({ width: 390, height: 844 });
-  const narrowHeading = await bars.evaluate(headingGeometry);
-  assert.ok(narrowHeading.atEnd && narrowHeading.beforePlot && narrowHeading.withinViewport,
-    'The data action remains reachable above the plot on a narrow screen');
+  assert.deepEqual(await bars.evaluate(chartGeometry), { inOrder: true, withinViewport: true },
+    'The data action remains reachable below the plot on a narrow screen');
   assert.ok(await bars.evaluate(svg => {
     const bounds = svg.getBoundingClientRect();
     const view = svg.viewBox.baseVal;

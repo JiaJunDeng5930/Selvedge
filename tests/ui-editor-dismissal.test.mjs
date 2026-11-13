@@ -300,7 +300,7 @@ test('closing Project and title prompt editors discards their unsaved drafts thr
   const settings = page.getByRole('dialog', { name: '设置', exact: true });
   const editTitlePrompts = settings.getByRole('button', { name: '编辑标题设置', exact: true });
   const titlePrompts = page.getByRole('dialog', { name: '对话标题', exact: true });
-  const conversationPrompt = titlePrompts.getByRole('textbox', { name: '对话提示词', exact: true });
+  const conversationPrompt = titlePrompts.getByRole('textbox', { name: '标题生成提示词', exact: true });
   const boardSettings = page.getByRole('dialog', { name: '看板设置', exact: true });
   const editCardPrompt = boardSettings.getByRole('button', { name: '编辑卡片提示词', exact: true });
   const cardEditor = page.getByRole('dialog', { name: '卡片提示词', exact: true });
@@ -312,11 +312,12 @@ test('closing Project and title prompt editors discards their unsaved drafts thr
   const save = editor => editor.getByRole('button', { name: '保存', exact: true });
   const reset = (field, name) => field.locator('xpath=ancestor::*[@data-semantic-key="title-prompt"]')
     .getByRole('button', { name, exact: true });
-  const restoreConversation = reset(conversationPrompt, '恢复默认对话提示词');
+  const restoreConversation = reset(conversationPrompt, '恢复默认标题生成提示词');
   const restoreCard = reset(cardPrompt, '恢复默认卡片提示词');
   async function openTitlePrompts() {
     await nav.getByRole('button', { name: '设置', exact: true }).click();
     await editTitlePrompts.click();
+    await titlePrompts.getByText('设置 / 常规', { exact: true }).waitFor();
   }
   async function openBoardPrompts() {
     await nav.getByRole('button', { name: '卡片看板', exact: true }).click();
@@ -417,7 +418,7 @@ test('closing Project and title prompt editors discards their unsaved drafts thr
   await openBoardPrompts();
   await cardEditor.getByText('新建时勾选模型整理，会生成标题和描述。重新生成标题时保留描述。', { exact: true }).waitFor();
   assert.equal(await cardPrompt.inputValue(), initial.task_prompt);
-  assert.equal(await cardEditor.getByRole('textbox', { name: '对话提示词', exact: true }).count(), 0);
+  assert.equal(await cardEditor.getByRole('textbox', { name: '标题生成提示词', exact: true }).count(), 0);
   assert.equal(await restoreCard.count(), 0);
   const cardInstruction = '把卡片标题写成待办事项。';
   await cardPrompt.fill(cardInstruction);

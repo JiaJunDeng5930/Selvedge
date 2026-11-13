@@ -57,8 +57,7 @@ test('Project worktree defaults require a committed Git primary only while enabl
   await name.fill('默认使用工作树');
   await pathEntry.getByRole('textbox', { name: '目录路径', exact: true }).waitFor();
   await pathEntry.getByRole('button', { name: '浏览…', exact: true }).waitFor();
-  assert.equal(await pathEntry.getByRole('button', { name: '添加目录', exact: true }).count(), 0,
-    'Add directory remains a separate commit action for the typed path');
+  assert.equal(await add.isVisible(), false, 'An empty path only offers browsing');
   const [box, caption] = await Promise.all([
     worktree.boundingBox(), project.getByText(worktreeName, { exact: true }).boundingBox(),
   ]);
@@ -111,6 +110,17 @@ test('Project worktree defaults require a committed Git primary only while enabl
   const narrowBrowse = await browse.boundingBox();
   assert.ok(narrowPath && narrowBrowse && narrowPath.x >= 0 && narrowBrowse.x + narrowBrowse.width <= 320,
     'The grouped directory field and Browse fit a 320px viewport');
+  await directory.fill(repository);
+  const clear = pathEntry.getByRole('button', { name: '清空', exact: true });
+  await clear.waitFor();
+  const [addBounds, clearBounds, browseBounds] = await Promise.all([
+    add.boundingBox(), clear.boundingBox(), browse.boundingBox(),
+  ]);
+  assert.ok(addBounds && clearBounds && browseBounds && Math.abs(addBounds.y - browseBounds.y) < 1 &&
+    Math.abs(clearBounds.y - addBounds.y) < 1 &&
+    clearBounds.x + clearBounds.width <= 320, 'Typing offers Add and Clear on the same line as Browse');
+  await clear.click();
+  await add.waitFor({ state: 'hidden' });
   await page.setViewportSize({ width: 1280, height: 900 });
 
   await browse.click();
@@ -164,7 +174,7 @@ test('Project worktree defaults require a committed Git primary only while enabl
   const [repositoryActionsBox, repositoryBox, appendBox] = await Promise.all([
     repositoryRoot.locator('[data-semantic-key="workspace-member-actions"]').boundingBox(),
     repositoryRoot.boundingBox(),
-    project.locator('[data-semantic-key="project-directory-entry"]').boundingBox(),
+    pathEntry.boundingBox(),
   ]);
   const ordinaryRoot = project.getByRole('region', { name: ordinary, exact: true });
   const ordinaryActionsBox = await ordinaryRoot.locator('[data-semantic-key="workspace-member-actions"]').boundingBox();

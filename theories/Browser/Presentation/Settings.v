@@ -24,6 +24,9 @@ Definition section_label section :=
  | SettingsExtensions => "扩展"
  | SettingsTasks => "任务" | SettingsContext => "上下文" | SettingsConnection => "服务"
  end.
+Definition editor_context parent section : node Input.input :=
+ information parent "settings-editor-context" Information.Description
+   (Navigation.settings_label ++ " / " ++ section_label section).
 Definition same_section left right :=
  String.eqb (settings_section_name left) (settings_section_name right).
 Inductive settings_group_content :=
@@ -594,7 +597,7 @@ Definition configuration_action parent key caption label emphasis (enabled : boo
 (* The fields describe the object and can scroll. Operations on the whole
    object share the fixed footer with the decision, outside the field order.
    A write's result belongs with the decision that initiated it. *)
-Definition configuration_dialog generation id caption trigger fallback view
+Definition configuration_dialog generation id section caption trigger fallback view
   (fields object_actions : list (node Input.input)) primary : node Input.input :=
  let dirty := Configuration.has_unsaved_work view in
  let ready := negb (Configuration.pending view) in
@@ -604,7 +607,7 @@ Definition configuration_dialog generation id caption trigger fallback view
    (LayerRegion (LayerBehavior ModalDialog false generation (part id "heading")
      trigger fallback trigger (Input.ServiceInput Services.CancelConfigurationEdit)
      false (ready && negb dirty)))
-   [dialog_header id [title id caption];
+   [dialog_header id [editor_context id section; title id caption];
     dialog_body id fields;
     dialog_actions id (write_status footer view ++
       [named_region footer "settings-editor-actions" "" (object_actions ++
@@ -617,11 +620,11 @@ Definition configuration_save id entry raw view enabled :=
  configuration_action id "save" "保存" "保存" Primary
    (save_enabled entry raw view enabled) Services.SetConfiguration.
 
-Definition collection_editor generation id entry draft view enabled item : list (node Input.input) :=
+Definition collection_editor generation id section entry draft view enabled item : list (node Input.input) :=
  let path := Config.setting_path entry in
  let raw := Configuration.draft_input draft in
  let add := editor_trigger path "begin-add" in
- let dialog caption trigger := configuration_dialog generation id caption trigger add view in
+ let dialog caption trigger := configuration_dialog generation id section caption trigger add view in
  match Configuration.new_item view with
  | Some (name, value) =>
    [dialog ("新建" ++ item) add
@@ -654,13 +657,14 @@ Definition configuration_editor s : list (node Input.input) :=
  match Services.settings_return services, Configuration.editing view with
  | Some _, Some (_, draft, entry) =>
    let path := Config.setting_path entry in
-   if same_section (section_for path) (Services.settings_section services) && Configuration.focused_editor entry then
+   let section := section_for path in
+   if same_section section (Services.settings_section services) && Configuration.focused_editor entry then
      let generation := State.generation (State.navigation_state s) in
      let id := part (part settings_root "configuration-editor") (Config.setting_key path) in
      let raw := Configuration.draft_input draft in
      let enabled := can_edit path services in
      match ConfigurationForms.collection_item path with
-     | Some item => collection_editor generation id entry draft view enabled item
+     | Some item => collection_editor generation id section entry draft view enabled item
      | None =>
        let trigger := editor_trigger path "open" in
        let '(label, description) := copy path in
@@ -674,7 +678,7 @@ Definition configuration_editor s : list (node Input.input) :=
          end in
        let restore := if Configuration.dirty view then []
                       else reset_button id entry enabled "恢复默认" in
-       [configuration_dialog generation id label trigger (part settings_root "close") view
+       [configuration_dialog generation id section label trigger (part settings_root "close") view
          fields restore
          (configuration_save id entry raw view enabled)]
      end

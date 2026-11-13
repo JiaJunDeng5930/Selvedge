@@ -212,7 +212,18 @@ test('Task and Service settings restore only saved values that differ from their
     spot_max_price: '0.25', vpc_id: 'vpc-fixture', subnet_id: 'subnet-fixture',
     security_group_ids: ['sg-fixture'], key_id: 'skey-fixture', ssh_private_key: '/fixture/id_rsa',
   } };
+  await page.setViewportSize({ width: 1280, height: 720 });
   await restoreForm('配置云端工作区', '云端工作区', 'cloud', async form => {
+    const save = button(form, '保存');
+    const privateKey = textbox(form, '私钥路径');
+    const actionsBeforeScroll = await save.boundingBox();
+    await privateKey.click();
+    const actionsAfterScroll = await save.boundingBox();
+    assert.deepEqual(actionsAfterScroll, actionsBeforeScroll,
+      'Scrolling the cloud settings keeps the save action fixed');
+    const keyBounds = await privateKey.boundingBox();
+    assert.ok(keyBounds.y + keyBounds.height < actionsAfterScroll.y,
+      'The last field can be brought fully above the fixed actions');
     const config = cloud.tencent_cvm;
     for (const [name, value] of [
       ['地域', config.region], ['可用区', config.zone], ['镜像 ID', config.image_id],
@@ -223,6 +234,7 @@ test('Task and Service settings restore only saved values that differ from their
     await button(form, '添加安全组 ID').click();
     await textbox(form, '安全组 ID 1').fill(config.security_group_ids[0]);
   }, cloud);
+  await page.setViewportSize({ width: 1280, height: 900 });
 
   await category('服务');
   const address = settings.getByRole('combobox', { name: '监听地址', exact: true });
@@ -320,8 +332,8 @@ test('Model profile edits keep focus in the editor, discard drafts, and persist 
   await openProfile();
   await editor.waitFor();
   const modelSettings = settings.getByRole('heading', { name: '模型', exact: true, includeHidden: true });
-  assert.equal(await modelSettings.count(), 1);
-  assert.equal(await modelSettings.isVisible(), false, 'The covered settings stay mounted without being painted');
+  assert.equal(await modelSettings.isVisible(), true, 'The editor keeps the owning settings category visible');
+  await editor.getByText('设置 / 模型', { exact: true }).waitFor();
   assert.equal(await settings.getByRole('textbox', { name: '模型标识', exact: true, includeHidden: true }).count(), 0);
   await page.keyboard.press('Tab');
   assert.equal(await editor.evaluate(dialog => dialog.matches(':modal') && dialog.contains(document.activeElement)), true);
@@ -375,6 +387,8 @@ test('new model profiles start blank, hide the offline demo, and require a provi
     profiles: { demo: { provider: 'echo', model: 'echo' } },
   }));
   const settings = page.getByRole('dialog', { name: '设置', exact: true, includeHidden: true });
+  await page.getByRole('button', { name: '搜索对话', exact: true }).click();
+  await page.getByRole('searchbox', { name: '标题或消息关键词', exact: true }).waitFor();
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
     .getByRole('button', { name: '设置', exact: true }).click();
   await settings.getByRole('radio', { name: '模型', exact: true }).click();
@@ -391,6 +405,7 @@ test('new model profiles start blank, hide the offline demo, and require a provi
 
   await editor.getByText('配置名称', { exact: true }).waitFor();
   await editor.getByText('模型标识', { exact: true }).waitFor();
+  await editor.getByText('设置 / 模型', { exact: true }).waitFor();
   assert.equal(await name.inputValue(), '');
   assert.equal(await model.inputValue(), '');
   assert.equal(await editor.getByRole('radio', { name: '离线回显', exact: true }).count(), 0);

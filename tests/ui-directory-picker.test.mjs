@@ -6,7 +6,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { browserFixture, enableCreationWorktree, openCreationEnvironment } from './fixtures/browser.mjs';
 
-test('the English workspace picker identifies host directories and supports keyboard navigation', async t => {
+test('the workspace directory browser identifies host directories and supports keyboard navigation', async t => {
   const { page, root } = await browserFixture(t);
   const folder = 'Selected workspace';
   const directory = path.join(root, folder);
@@ -14,8 +14,8 @@ test('the English workspace picker identifies host directories and supports keyb
 
   const environment = await openCreationEnvironment(page);
   await environment.locator('button[data-logical-key="composer/workspace"]').click();
-  const workspace = page.getByRole('dialog', { name: 'Workspace', exact: true });
-  const browse = workspace.getByRole('button', { name: 'Browse…', exact: true });
+  const workspace = page.getByRole('dialog', { name: '工作目录', exact: true });
+  const browse = workspace.getByRole('button', { name: '浏览…', exact: true });
   await browse.press('Enter');
 
   const picker = page.getByRole('dialog', { name: 'Choose a directory on the Selvedge host', exact: true });
@@ -80,9 +80,9 @@ test('a local worktree picker checks the visited directory before selecting a pr
   await page.getByRole('combobox', { name: 'Task', exact: true }).fill('Open this conversation in a Git worktree.');
   const environment = await enableCreationWorktree(page);
   await environment.locator('button[data-logical-key="composer/workspace"]').click();
-  const workspace = page.getByRole('dialog', { name: 'Workspace', exact: true });
-  await workspace.getByRole('button', { name: 'Remove directory', exact: true }).click();
-  const browse = workspace.getByRole('button', { name: 'Browse…', exact: true });
+  const workspace = page.getByRole('dialog', { name: '工作目录', exact: true });
+  await workspace.getByRole('button', { name: '移除目录', exact: true }).click();
+  const browse = workspace.getByRole('button', { name: '浏览…', exact: true });
   await browse.click();
 
   const picker = page.getByRole('dialog', { name: 'Choose a directory on the Selvedge host', exact: true });

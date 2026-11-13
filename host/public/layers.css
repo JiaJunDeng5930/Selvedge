@@ -15,28 +15,26 @@
 dialog[data-semantic-key="project-editor"] {
   inline-size: 30rem !important;
 }
-[data-semantic-key="project-directory-entry"] {
-  display: flex !important;
-  flex-direction: column !important;
-  align-items: stretch !important;
-  gap: var(--panel-related-space) !important;
-}
-[data-semantic-key="project-directory-entry"] > div { min-inline-size: 0 !important; }
 [data-semantic-key="project-directory-input"] {
   display: grid !important;
-  grid-template-columns: minmax(0, 1fr) max-content;
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  grid-auto-columns: max-content;
   align-items: end !important;
-  gap: var(--panel-related-space) !important;
+  gap: .25rem !important;
+  margin-block-start: .5rem !important;
 }
-[data-semantic-key="project-directory-input"] > div:first-child { min-inline-size: 0 !important; }
-[data-semantic-key="project-directory-entry"] [data-semantic-key="directory-entry-actions"] {
-  align-self: flex-start !important;
-  justify-content: flex-start !important;
-  margin-inline-start: 0 !important;
-  flex-wrap: nowrap !important;
+[data-semantic-key="project-directory-input"] > div { min-inline-size: 0 !important; }
+[data-semantic-key="project-directory-input"] > button { white-space: nowrap !important; }
+[data-semantic-key="graph-options"] div:has(> textarea[data-semantic-key="declaration"]) > span {
+  display: none !important;
 }
-[data-semantic-key="project-directory-entry"] [data-semantic-key="directory-entry-actions"] > button {
-  white-space: nowrap !important;
+[data-semantic-key="declaration"][data-field-entry="multiline"] {
+  min-block-size: min(12rem, 36dvh) !important;
+  font-family: ui-monospace, monospace !important;
+  white-space: pre !important;
+  overflow-wrap: normal !important;
+  overflow: auto !important;
 }
 
 :is([data-semantic-key="task-details"], [data-semantic-key="task-context"]) {
@@ -64,11 +62,18 @@ dialog[data-semantic-key="project-editor"] {
     white-space: nowrap;
     cursor: pointer;
   }
-  & [data-semantic-key="directory-path"] [data-semantic-key="value"] {
+}
+
+[data-semantic-key="directory-path-body"] {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start !important;
+  gap: .375rem !important;
+
+  & [data-semantic-key="value"] {
     max-inline-size: 100%;
-    overflow-x: auto;
-    white-space: pre;
-    overflow-wrap: normal !important;
+    white-space: pre-wrap !important;
+    overflow-wrap: anywhere !important;
     font-family: ui-monospace, monospace;
   }
 }
@@ -626,9 +631,6 @@ dialog[data-semantic-key="object-actions"] { padding: var(--layer-gap) !importan
   align-self: start !important;
   justify-content: flex-end !important;
   margin-inline-start: 0 !important;
-}
-[data-semantic-key="workspace-collection"] [data-semantic-key="project-directory-entry"] {
-  margin-block-start: .5rem !important;
 }
 [data-semantic-key="workspace-settings"] [data-semantic-key="workspace-collection"] > div {
   padding-inline: 0 !important;

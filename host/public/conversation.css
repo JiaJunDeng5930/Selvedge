@@ -3,7 +3,10 @@
   overflow-y: auto !important;
   scrollbar-width: thin;
 }
-[data-view] > [data-page-region="timeline-content"] { min-block-size: min(2lh, 12dvh) !important; }
+[data-view] > [data-page-region="timeline-content"] {
+  min-block-size: min(2lh, 12dvh) !important;
+  position: relative;
+}
 [data-reading-root] {
   gap: .75rem !important;
   /* The focus stroke stays in the border, with room inside for message outlines. */
@@ -148,7 +151,21 @@
   margin-block-start: .75rem;
   overflow-wrap: anywhere;
 }
-[data-page-region="latest-action"] { align-items: flex-end !important; }
+[data-page-region="latest-action"] {
+  position: absolute !important;
+  inset-inline-end: .5rem;
+  inset-block-end: .5rem;
+  inline-size: max-content !important;
+  z-index: 1;
+}
+[data-page-region="latest-action"] > button {
+  border: 1px solid var(--selvedge-border) !important;
+  border-radius: 50% !important;
+  background: var(--selvedge-surface) !important;
+}
+[data-page-region="latest-action"] > button:is(:hover, :focus-visible) {
+  background: var(--selvedge-hover) !important;
+}
 
 /* Keep the dock from using the whole reading viewport when an operation has
    long arguments. Its decisions remain outside the argument scrollport. */

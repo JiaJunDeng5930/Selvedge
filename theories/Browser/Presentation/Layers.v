@@ -10,7 +10,7 @@ From Selvedge.Browser.Session Require Import Input.
 From Selvedge.Programming Require Import Resource.
 From Selvedge.Browser.Session Require Import Services ObjectActions.
 From Selvedge.Interaction Require Import Attachments.
-From Selvedge.Interaction Require CardDecisions ObjectDecisions.
+From Selvedge.Interaction Require CardDecisions.
 From Selvedge.Interaction.Experience Require Model Activity Observation.
 From Selvedge.Interaction.Submission Require Draft.
 From Selvedge.Browser.Session Require State Navigation.
@@ -43,12 +43,14 @@ Definition card_decision_title decision := match decision with
  |CardDecisions.MoveCard=>"移动卡片"|CardDecisions.LinkCard=>"关联对话"end.
 Definition card_decision_controls snapshot subject parent :=
  match subject with
- |CardActions card=>if ObjectDecisions.subject_exists snapshot subject then
+ |CardActions card=>match Read.find_card card snapshot with
+ |Some value=>if negb(Read.card_archived value) then
   let decision:=CardDecisions.MoveCard in
   let key:=State.card_decision_key decision in
   [declared parent Roles.Button(secondary key(card_decision_title decision)
     (Input.OpenCardDecision card decision(part parent key)))]
   else []
+ |None=>[] end
  |_=>[]end.
 Definition menu_nodes snapshot s subject occurrence parent :=
  List.app (card_decision_controls snapshot subject parent)
@@ -86,8 +88,8 @@ Definition detail_action_nodes snapshot s subject parent:=List.app (card_decisio
  declared parent Roles.Button(Control(ObjectActions.action_key action)(ObjectActions.action_label action)
   (match ObjectActions.action_confirmation action with Some _=>Destructive|None=>Secondary end)
   (detail_action_input parent action)(status_availability(ObjectActions.action_status action))))
- (ObjectActions.items snapshot s subject)).
-Definition committed_workspace_facts {A} parent workspace:list(node A) :=
+ (ObjectActions.menu_items snapshot s subject)).
+Definition committed_workspace_facts parent workspace:list(node Input.input) :=
  let primary:=Domain.workspace_primary workspace in
  let roots:=Domain.workspace_roots workspace in
  let selected path:=match primary with Some value=>String.eqb value path|None=>false end in
@@ -99,7 +101,7 @@ Definition committed_workspace_facts {A} parent workspace:list(node A) :=
  end.
 Definition detail_group {A} parent key caption (facts:list(node A)) :=
  region parent key caption Roles.Section (group_title(part parent key)caption::facts).
-Definition context_facts {A} snapshot task parent:list(node A) :=match Read.task_context task snapshot with
+Definition context_facts snapshot task parent:list(node Input.input) :=match Read.task_context task snapshot with
 |None=>[read_only parent "unavailable" "工作环境" "无法读取已提交的工作环境"]
 |Some context=>
  let workspace:=Read.context_workspace context in
@@ -273,7 +275,13 @@ Definition anchor s layer:=match State.layer_panel layer,layers_after(State.laye
  if context_submenu panel(State.layer_panel origin)then State.layer_trigger origin else State.layer_trigger layer
 |_,_=>State.layer_trigger layer end.
 Definition behavior s capacity layer :=
- let kind:=panel_kind capacity(State.layer_panel layer)in
+ let panel:=State.layer_panel layer in
+ let composer_menu:=match panel with
+  |State.PropertyPanel _ request=>is_run_environment_request request ||
+    match layers_after(State.layer_occurrence layer)(State.layers(State.navigation_state s))with
+    |origin::_=>context_submenu panel(State.layer_panel origin)|[]=>false end
+  |_=>false end in
+ let kind:=if composer_menu then ComposerMenu else panel_kind capacity panel in
  let beside:=match kind with TrailingDetails=>details_beside_timeline capacity|_=>false end in
  let dismissal:=match State.layer_panel layer with
   |State.InformationPanel(State.TaskDetails _)|State.SideConversationPanel _=>false
@@ -406,7 +414,7 @@ Definition layer_view_with_side render_side snapshot s capacity compact_model_pi
     |State.ArchivedCardsPanel=>"archived-cards"
     |State.Confirmation _ _ _=>"confirmation"
     |_=>"layer"end in
-  Node(part parent "layer") semantic (panel_title panel)(match layer_presentation behavior with ModalDialog|AnchoredDialog=>Roles.Dialog|AnchoredMenu=>Roles.Menu|TrailingDetails=>Roles.Details end)
+  Node(part parent "layer") semantic (panel_title panel)(match layer_presentation behavior with ModalDialog|AnchoredDialog=>Roles.Dialog|AnchoredMenu|ComposerMenu=>Roles.Menu|TrailingDetails=>Roles.Details end)
    (match State.layer_panel layer with State.NavigationPanel panel=>NavigationRegion panel behavior|_=>LayerRegion behavior end)content end.
 
 Definition layer_view := layer_view_with_side side_content.

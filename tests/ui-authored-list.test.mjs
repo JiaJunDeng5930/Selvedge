@@ -128,16 +128,18 @@ test('authored task summaries align statuses and values while keeping each item 
     ]) {
       const heading = item.getByText(title, { exact: true });
       const button = choice(item, label, title);
-      const [name, badge, value, action, bounds, shape] = await Promise.all([
-        heading.boundingBox(), item.getByText(status, { exact: true }).boundingBox(),
-        textBounds(item.getByText(percent, { exact: true })),
-        button.boundingBox(), item.boundingBox(), markShape(button.locator(mark)),
+      const indicator = button.locator(mark);
+      const [name, badge, value, action, bounds, shape, square] = await Promise.all([
+        textBounds(heading), item.getByText(status, { exact: true }).boundingBox(),
+        textBounds(item.getByText(percent, { exact: true })), button.boundingBox(),
+        item.boundingBox(), markShape(indicator), indicator.boundingBox(),
       ]);
-      assert.ok(name && badge && value && action && bounds);
-      assert.ok(name.x + name.width <= badge.x + 1 && badge.x + badge.width <= value.x + 1 &&
-        value.x + value.width <= action.x + 1 && action.x + action.width <= bounds.x + bounds.width + 1 &&
-        action.x >= 0 && action.x + action.width <= width,
-      `The title, status, value and reachable action fit in one ${width}px row`);
+      assert.ok(name && badge && value && action && bounds && square);
+      assert.ok(action.x >= bounds.x - 1 && action.x + action.width <= name.x + 1 &&
+        name.x - (square.x + square.width) <= 18 && name.x + name.width <= badge.x + 1 &&
+        badge.x + badge.width <= value.x + 1 && value.x + value.width <= bounds.x + bounds.width + 1 &&
+        bounds.x >= 0 && bounds.x + bounds.width <= width,
+      `The choice is next to its title, and the whole row fits at ${width}px`);
       assert.ok(overlapsVertically(name, badge) && overlapsVertically(name, value) && overlapsVertically(name, action));
       assert.deepEqual(shape, checkboxShape, 'The square matches a normal checkbox');
       assert.equal(action.width, checkboxHit.width);

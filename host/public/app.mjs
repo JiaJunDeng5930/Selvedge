@@ -1200,6 +1200,32 @@ function configurationReply(reply) {
   if (reply?.ok !== true) throw new Error(reply?.error?.message ?? 'Configuration request failed');
   return reply.result;
 }
+async function copyText(text) {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // DEFENSE: Browser clipboard permissions can reject a direct write after a button click.
+    }
+  }
+  // DEFENSE: The async Clipboard API is absent on the VPN's HTTP origin.
+  const active = document.activeElement;
+  const field = document.createElement('textarea');
+  field.value = text;
+  field.readOnly = true;
+  field.style.cssText = 'position:fixed;inset:0;inline-size:1px;block-size:1px;opacity:0;pointer-events:none';
+  (active?.closest('dialog:modal') ?? document.body).append(field);
+  try {
+    field.focus({ preventScroll: true });
+    field.select();
+    if (!document.execCommand('copy')) throw new Error('Clipboard write rejected');
+  } finally {
+    field.remove();
+    active?.focus({ preventScroll: true });
+  }
+}
+
 async function execute(effect) {
   const namespace = publication.namespace;
   const current = () => publication.namespace === namespace;
@@ -1309,7 +1335,21 @@ async function execute(effect) {
       return;
     }
     case 'selection_bytes': applyByteSelection(renderer.resolveTarget(effect.key), integral(effect.start), integral(effect.end)); return;
-    case 'clipboard': await navigator.clipboard.writeText(effect.text); return;
+    case 'clipboard': {
+      try {
+        await copyText(effect.text);
+        if (current()) {
+          announcements.setAttribute('role', 'status');
+          announcements.setAttribute('aria-live', 'polite');
+          announcements.classList.add('visually-hidden');
+          announcements.textContent = '已复制';
+        }
+      } catch {
+        // DEFENSE: The browser can deny both clipboard mechanisms. The path stays visible for manual copying.
+        emit({ type: 'native_failed', error: '复制失败，请选中文本后复制。' });
+      }
+      return;
+    }
     case 'audio_login': return chatgptLogin.start(integral(effect.ticket), effect.method);
     case 'release_audio_login': return chatgptLogin.release(integral(effect.ticket));
     case 'copy_audio_login_code': return chatgptLogin.copy(integral(effect.ticket), effect.key, effect.code);

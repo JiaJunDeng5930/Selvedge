@@ -124,8 +124,11 @@ Definition compact_summary (shared:option string) (selected:option bool) (node:s
      |Some _=>with_children metric (filter (fun child=>
        negb (String.eqb (S.semantic_key child) "interactive-markdown/metric-label")) (S.node_children metric))
      |None=>metric end in
-   let action:=match selected with Some value=>concise_selection (S.node_label node) value action|None=>action end in
-   with_children node [caption;status;metric;action]
+   with_children node
+     (match selected with
+      |Some value=>[concise_selection (S.node_label node) value action;caption;status;metric]
+      |None=>[caption;status;metric;action]
+      end)
  |_=>node end.
 Definition field_binding (tag:string) (node:scene) :=
  if component_has_tag tag node then
@@ -271,24 +274,20 @@ Definition chart_summary_table event_id p : scene :=
       [Plot.x_title p; Plot.y_title p]
       (map (fun row => [scalar_text (get_path (property_text "x" p) row);
                         scalar_text (get_path (property_text "y" p) row)]) (Plot.chart_rows p))) [].
-Definition chart_heading event_id p (with_data:bool) : list scene :=
- let key:=Types.event_key event_id in
+Definition chart_heading key p : list scene :=
  let label:=property_text "label" p in
- let children:=(if String.eqb label "" then [] else
-   [S.Node (key+++"/@label") "interactive-markdown/chart-title" "" R.Content (S.Fact label) []])++
-   (if with_data then
-   [S.Node (key+++"/@data-disclosure") "interactive-markdown/chart-disclosure" "查看数据" R.Content
-     S.ContentDisclosure
-     [S.Node (key+++"/@data-region") "interactive-markdown/chart-data-region" "" R.Content
-       S.Region [chart_summary_table event_id p]]] else []) in
- match children with
- |[]=>[]
- |_=>[S.Node (key+++"/@heading") "interactive-markdown/chart-heading" "" R.Content S.Region children]
- end.
+ if String.eqb label "" then [] else
+   [S.Node (key+++"/@label") "interactive-markdown/chart-title" "" R.Content (S.Fact label) []].
+Definition chart_disclosure event_id p : scene :=
+ let key:=Types.event_key event_id in
+ S.Node (key+++"/@data-disclosure") "interactive-markdown/chart-disclosure" "查看数据" R.Content
+   S.ContentDisclosure
+   [S.Node (key+++"/@data-region") "interactive-markdown/chart-data-region" "" R.Content
+     S.Region [chart_summary_table event_id p]].
 Definition render_chart event_id p : list scene :=
  let key:=Types.event_key event_id in
  let count:=List.length (property_array "data" p) in
- chart_heading event_id p (Nat.ltb 0 count)++
+ chart_heading key p++
  (if Nat.eqb count 0 then [text (key+++"/@empty") "暂无数据"] else
  (match Plot.chart p with
  |Error reason=>[S.Node (key+++"/@error") "interactive-markdown/status" reason R.Content
@@ -300,7 +299,7 @@ Definition render_chart event_id p : list scene :=
      (Plot.y_title p+++" / "+++Plot.x_title p+++"；显示 "+++
       show_nat (List.length (Plot.chart_rows p))+++" / "+++show_nat count+++" 行")
      R.Content (S.Graphic drawing) []]]
- end)++
+ end)++[chart_disclosure event_id p]++
  (if Nat.ltb Bounds.chart_points count then
    [text (key+++"/@truncation") ("共 "+++show_nat count+++" 行，图中显示前 "+++show_nat Bounds.chart_points+++" 行。")]
   else [])).

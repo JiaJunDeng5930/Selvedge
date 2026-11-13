@@ -344,7 +344,8 @@ Definition title_prompt_reset snapshot s scope parent : list (node Input.input) 
  |Some subject=>match Observe.observe_subject snapshot s subject, Input.assign_subject subject (JString default) with
   |Fields.TextValue value, Some input=>if String.eqb value default then [] else
    let label := match scope with
-    |ConversationTitles=>"恢复默认对话提示词"|BoardTitles=>"恢复默认卡片提示词" end in
+    |ConversationTitles=>"恢复默认" ++ Parameters.label (Parameters.title_prompt_field scope)
+    |BoardTitles=>"恢复默认卡片提示词" end in
    [declared parent Roles.Button(Control "title-prompts/reset" label Secondary input
      (if UX.action_pending (Observe.action_unit_for s owner) then Unavailable "请等待当前操作完成" else Available))]
   |_,_=>[] end
@@ -400,7 +401,10 @@ Definition editor_view snapshot (s:Session.state) e parent :=
    section_nodes snapshot s e parent ++
    [assessment_nodes parent assessment] ++
    Composer.action_feedback parent unit (draft_feedback draft))%list in
- [dialog_header parent [title parent(editor_title e)];
+ let context := match e with
+   |TitlePrompts ConversationTitles=>[Settings.editor_context parent Services.SettingsGeneral]
+   |_=>[]end in
+ [dialog_header parent (context ++ [title parent(editor_title e)]);
   Node parent "editor"(editor_title e)Roles.Section(ActionUnit e unit)
    (dialog_body parent body::
     [dialog_actions parent
