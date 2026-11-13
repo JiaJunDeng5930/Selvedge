@@ -438,3 +438,6 @@ Definition step namespace snapshot lagged input state:=
  if authoring || documents || resumes_language_admissions input then
    Authoring.append synchronized(continue_language_admissions namespace snapshot lagged(Authoring.result_state synchronized))
  else synchronized.
+
+Definition admitted_document_step namespace snapshot lagged input retained state :=
+ apply_language namespace snapshot lagged input (SS.with_retention retained state).

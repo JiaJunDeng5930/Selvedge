@@ -105,7 +105,7 @@ body { font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe U
 }
 .startup-content > button:focus-visible { outline: 2px solid var(--selvedge-focus); }
 button, input, textarea, select { font: inherit; color: inherit; }
-button { appearance: none; cursor: pointer; }
+button { appearance: none; cursor: pointer; touch-action: manipulation; }
 button:disabled { cursor: default; }
 /* Keep native choice, keyboard and focus behavior. The same picker surface
    is used in forms and toolbars, including when a panel needs to scroll. */

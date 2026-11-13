@@ -18,6 +18,7 @@
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--selvedge-muted) 46%, transparent) transparent;
   scroll-padding-block-start: .5rem;
+  contain: layout;
 }
 [data-reading-root]:focus-visible {
   outline-offset: calc(-1 * var(--native-focus-width));

@@ -649,22 +649,14 @@ Definition fence_region namespace owner before after : option region_update :=
  |roots=>Some (RegionUpdate (map (fun root=>snd (region_node root)) (published_fence namespace before owner))
      roots [] None) end.
 
-Definition requested_region namespace input context := match input with
- |Input.CodeObserved source=>match Documents.admit_observation
-   (SR.context namespace (prepared_world context) (prepared_state context)) source
-   (Session.document_retention (prepared_state context)) with
-   |Documents.AdmittedObservation language _=>option_map (fence_region namespace) (language_owner language)
-   |_=>None end
+Definition requested_region namespace input := match input with
  |Input.Interactive language=>option_map (fence_region namespace) (language_owner language)
  |_=>None end.
 
-Definition run_input request context namespace input raw:=
- let stepped:=native_step namespace (prepared_world context) (flag "semantic_lagged" request)
-    input raw (prepared_state context) in
+Definition finish_input context input raw project stepped :=
  let prepare current:=with_input (with_state context current) input in
  let updated:=prepare(SA.result_state stepped) in
  let changed:=negb (Json.equal (prepared_encoding context) (prepared_encoding updated)) in
- let project:=requested_region namespace input context in
  let region:=bind project (fun choose=>choose context updated) in
  let decision:=restore_rejected_field input raw
   (match region with
@@ -677,6 +669,10 @@ Definition run_input request context namespace input raw:=
  let published:=Prepared (prepared_world final) (prepared_state final) (prepared_encoding final)
     (prepared_environment final) (prepared_previous final) None (prepared_controls final) region (Some input) in
  (decision,input_publication input (prepared_encoding context) (prepared_encoding final),published).
+Definition run_input request context namespace input raw:=
+ let stepped:=native_step namespace (prepared_world context) (flag "semantic_lagged" request)
+    input raw (prepared_state context) in
+ finish_input context input raw (requested_region namespace input) stepped.
 
 Definition stable_stream_context before after source :=
  let stable context:=without_fields ["streams";"documents"](prepared_encoding context)in
@@ -792,7 +788,9 @@ Definition input_decision request context namespace input raw:=
    (SR.context namespace snapshot current)source(Session.document_retention current)with
   |Documents.MalformedObservation=>((SA.fail current "The document observation does not belong to the current output.","keep",context),Some false)
   |Documents.IrrelevantObservation=>((SA.keep current,"keep",context),Some false)
-  |Documents.AdmittedObservation _ _=>(run_input request context namespace input raw,Some true) end
+  |Documents.AdmittedObservation language retained=>
+    let decision:=SR.admitted_document_step namespace snapshot (flag "semantic_lagged" request) language retained current in
+    (finish_input context input raw (option_map (fence_region namespace) (language_owner language)) decision,Some true) end
  |Input.Interactive language=>
    if SR.native_language namespace snapshot current language &&
       negb (flag "semantic_lagged" request && Selvedge.Interaction.Interactive.Runtime.authored_input language &&

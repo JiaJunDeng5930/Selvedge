@@ -59,7 +59,8 @@ let disposed = false;
 let clockRefresh = null;
 let sourceFresh = false;
 let layoutFrame = null;
-let readingLayoutScheduled = false;
+let readingLayoutFrame = null;
+let revealingReader = false;
 let pendingHistoryLocation = null;
 let historyLocation = null;
 let searchResultsPosition = null;
@@ -403,7 +404,8 @@ function present(mode) {
   const freshnessChanged = surface.dataset.sourcesFresh !== freshness;
   if (freshnessChanged) surface.dataset.sourcesFresh = freshness;
   const layoutChanged = pageChanged || regions?.focus_scope || regions?.layout_changed;
-  if (layoutChanged) physical.refresh();
+  if (pageChanged || regions?.layout_changed && !regions.layers_changed) schedulePhysicalRefresh();
+  if (pageChanged || regions?.layers_changed) layoutReading(true);
   if (!renderer.document.measurement_pending) {
     publication = publicationEvent('document', { receipt_generation: generation });
     if (!streamed) {
@@ -421,10 +423,10 @@ function present(mode) {
       surface.dataset.displayPending = String(publicationEvent('pending'));
       if (layoutChanged && publicationEvent('ready')) {
         renderer.refreshNativeTargets();
-        // Document-derived targets are available after their parsers catch up.
-        reveal();
+        scheduleLayoutReveal();
       }
-      scheduleReadingLayout(); retryFocus();
+      if (layoutChanged) scheduleReadingLayout();
+      retryFocus();
     };
     if (renderer.isCaughtUp()) publishPrefix(true);
     else {
@@ -432,9 +434,12 @@ function present(mode) {
       renderer.whenCaughtUp().then(publishPrefix).catch(fatal);
     }
   } else synchronizePrefixActions();
-  if (layoutChanged) { reveal(); editorRepair.refresh(); retryHistoryLocation(); }
+  if (layoutChanged) {
+    scheduleLayoutReveal();
+    editorRepair.refresh();
+    retryHistoryLocation();
+  }
   if (layoutChanged || freshnessChanged) motion.refresh();
-  if (!streamed) scheduleReadingLayout();
 }
 function schedulePhysicalRefresh() {
   if (disposed || measurementFrame !== null || measurementTask !== null) return;
@@ -445,6 +450,14 @@ function schedulePhysicalRefresh() {
       measurementTask = null;
       refreshPhysical().catch(fatal);
     }, 0);
+  });
+}
+function scheduleLayoutReveal() {
+  if (layoutFrame !== null || disposed) return;
+  layoutFrame = requestAnimationFrame(() => {
+    layoutFrame = null;
+    reveal();
+    renderer.confineAnchoredLayers();
   });
 }
 async function refreshPhysical() {
@@ -662,9 +675,7 @@ const renderer = new Presentation(surface, {
   },
   layout() {
     scheduleReadingLayout();
-    if (layoutFrame === null) layoutFrame = requestAnimationFrame(() => {
-      layoutFrame = null; reveal(); renderer.confineAnchoredLayers();
-    });
+    if (surface.querySelector('[data-reading-initial]')) revealNewReaders();
   },
   codeSource(source, ordinal, text, view) {
     publishCode(browser('code_identity', { source, ordinal }), view, text);
@@ -687,18 +698,28 @@ const renderer = new Presentation(surface, {
 const physical = createPhysicalMeasurer({ surface, onChange() {
   scheduleReadingLayout();
   schedulePhysicalRefresh();
+  scheduleLayoutReveal();
 } });
 
 function publishCode(identity, view, text) {
   const key = browser('code_key', { identity });
   let entry = codeBlocks.get(key);
+  const viewKey = stringifyJson(view);
   if (!entry) {
     const decision = browser('code_initial', { identity, text });
     entry = { key, identity, state: decision.state, views: new Map() };
     codeBlocks.set(key, entry);
   }
-  entry.views.set(stringifyJson(view), entry.views.get(stringifyJson(view)) ?? { view, renderer: null });
-  codeStep(entry, { type: 'source', text });
+  const previous = entry.views.get(viewKey);
+  const toolbar = renderer.target(browser('code_targets', { identity, view }).toolbar);
+  if (!previous || previous.renderer?.root !== toolbar)
+    entry.views.set(viewKey, { view, renderer: previous?.renderer ?? null });
+  const decision = browser('code_step', { state: entry.state, input: { type: 'source', text } });
+  // Source text feeds Copy, while only its copy status and wrapping affect
+  // the visible toolbar. Mount a new occurrence or update changed chrome.
+  if (!previous || previous.renderer?.root !== toolbar ||
+      entry.state.copy.type !== decision.state.copy.type) renderCode(entry, decision);
+  else entry.state = decision.state;
 }
 function renderCode(entry, decision) {
   entry.state = decision.state;
@@ -979,20 +1000,32 @@ function readingStep(key, node, event) {
   acceptReading(key, node, decision);
 }
 function scheduleReadingLayout() {
-  if (readingLayoutScheduled || disposed) return;
-  readingLayoutScheduled = true;
-  // Restore after this batch of DOM writes, before an intermediate scroll
-  // position reaches the next paint. Physical layout may update again later.
-  queueMicrotask(() => {
-    readingLayoutScheduled = false;
+  if (readingLayoutFrame !== null || disposed) return;
+  // Markdown batches, native mounts and resize observations can arrive in
+  // separate tasks in the same frame. Restore the reading position once.
+  readingLayoutFrame = requestAnimationFrame(() => {
+    readingLayoutFrame = null;
     if (!disposed) { retryHistoryLocation(); layoutReading(); }
   });
 }
-function layoutReading() {
+function revealNewReaders() {
+  if (revealingReader) return;
+  revealingReader = true;
+  // Align the newly mounted reader before exposing its first visible frame.
+  // Continuing Markdown takes the coalesced path once the reader is visible.
+  queueMicrotask(() => {
+    revealingReader = false;
+    if (!disposed) layoutReading(true);
+  });
+}
+function layoutReading(initialOnly = false) {
+  const modal = activeModal();
   for (const node of surface.querySelectorAll('[data-reading-root="true"]')) {
+    if (modal && !modal.contains(node)) continue;
     const locating = pendingHistoryLocation && historyReaderOwns(node, pendingHistoryLocation);
     const generation = node.dataset.readerGeneration;
     const completing = node.hasAttribute('data-reading-initial');
+    if (initialOnly && readingVisits.get(node) === generation) continue;
     if (readingVisits.get(node) !== generation) {
       // Reveal at the reading position once the available text has arrived.
       // Widgets keep their own placeholders and can finish after this first paint.
@@ -1548,6 +1581,7 @@ window.addEventListener('pagehide', () => {
   window.removeEventListener('pointercancel', endReadingPointer, true);
   for (const resource of resources) URL.revokeObjectURL(resource);
   if (layoutFrame !== null) cancelAnimationFrame(layoutFrame);
+  if (readingLayoutFrame !== null) cancelAnimationFrame(readingLayoutFrame);
   if (measurementFrame !== null) cancelAnimationFrame(measurementFrame);
   if (measurementTask !== null) clearTimeout(measurementTask);
 }, { once: true });
