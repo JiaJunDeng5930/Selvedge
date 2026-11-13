@@ -87,7 +87,8 @@ Record region_update := RegionUpdate {
   region_before : list (S.node Input.input);
   region_roots : list region_root;
   region_remove : list string;
-  region_scopes : option (list Focus.scope)
+  region_scopes : option (list Focus.scope);
+  region_with_workspace : bool
 }.
 (** Native inputs use the bindings of the committed presentation. Full and
     partial publications replace bindings only after their DOM is installed. *)
@@ -540,11 +541,15 @@ Definition planned_regions (context : prepared) : option region_plan :=
    then [RegionChange "introduction" (base_roots (some_list(V.view_creation_introduction world current)))
     (some_list(V.view_creation_introduction (prepared_world before) (prepared_state before)))] else [] in
  let theme:=first || negb(String.eqb (old_theme env before)(document_theme env context)) in
+ let fence:=match prepared_region_update context with
+   |Some patch=>if region_with_workspace patch then
+      [RegionChange "fence" (region_roots patch) (region_before patch)] else []
+   |None=>[] end in
  let changes := ((if nav then [base "header" headers; base "navigation" sidebar] else []) ++
    (if main then [base "main" main_nodes] else []) ++ (if notices then [base "notices" notice_nodes]else[]) ++
    layer_changes ++ removed_layers ++ map (composer_projection_change controls before context) composers ++
    map (timeline_change controls before context) readings ++
-   map (approval_change controls before context) reading_controls ++ actions ++ introduction)%list in
+   map (approval_change controls before context) reading_controls ++ actions ++ introduction ++ fence)%list in
  let places:=((if nav then [placement V.workspace_key (Some "workspace-body") headers;
   placement "workspace-body" (Some "main-layout") sidebar] else []) ++
   (if main then [placement "main-layout" (Some (String.append V.workspace_key "/beside"))
@@ -589,7 +594,7 @@ Definition native_planned request context : option ((json * list DOM.node) * pre
  Some ((metadata,map compile roots),committed context next_controls).
 Definition native_region request context :=
  match prepared_region_update context with
- |Some patch=>native_patch request context patch
+ |Some patch=>if region_with_workspace patch then native_planned request context else native_patch request context patch
  |None=>native_planned request context end.
 Definition refresh context decision :=
  match planned_regions context with
@@ -643,11 +648,10 @@ Definition published_fence namespace context owner : list region_root :=
 Definition fence_region namespace owner before after : option region_update :=
  controls<-prepared_controls before;;
  let stable context:=without_fields ["interactive";"documents"] (prepared_encoding context) in
- if negb (Json.equal (stable before) (stable after)) then None else
  match published_fence namespace after owner with
  |[]=>None
  |roots=>Some (RegionUpdate (map (fun root=>snd (region_node root)) (published_fence namespace before owner))
-     roots [] None) end.
+     roots [] None (negb (Json.equal (stable before) (stable after)))) end.
 
 Definition requested_region namespace input := match input with
  |Input.Interactive language=>option_map (fence_region namespace) (language_owner language)
@@ -660,7 +664,9 @@ Definition finish_input context input raw project stepped :=
  let region:=bind project (fun choose=>choose context updated) in
  let decision:=restore_rejected_field input raw
   (match region with
-   |Some patch=>refresh_roots updated (region_roots patch) stepped
+   |Some patch=>if region_with_workspace patch then
+      refresh_roots updated (region_roots patch) (refresh updated stepped)
+     else refresh_roots updated (region_roots patch) stepped
    |None=>match input with Input.Snapshot|Input.EnvironmentObserved=>refresh updated stepped
      |_=>if changed then refresh updated stepped else stepped end end) in
  let final:=prepare(SA.result_state decision) in
