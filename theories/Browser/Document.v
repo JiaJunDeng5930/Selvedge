@@ -753,8 +753,6 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  let voice_disclosure:=String.eqb(S.semantic_key value)"speech-controls" in
  let responsive:=negb voice_disclosure && SemanticAppearance.responsive_row activity source role meaning in
  let attrs:=common key (S.semantic_key value) label role ++
- (if String.eqb (S.semantic_key value) "settings-measure"
-  then [("inert","true");("aria-hidden","true")] else []) ++
  (match role,meaning with
  |Roles.Navigation,_=>[("data-workspace-sidebar","")]
  |Roles.NavigationHeader,_=>[("data-workspace-navigation","header")]
@@ -1088,8 +1086,9 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
    (match placement with
     |IP.ChartViewport=>[("data-chart-viewport","");("tabindex","0");("role","region")]
     |_=>[] end) [] empty children
- |S.ReadingTimeline task_view reader_generation=>element "section"
- [("data-reading-root","true");("data-task-id",text_number(NavigationIdentity.task_view_task task_view));("data-reader-generation",text_number reader_generation)] [] empty children
+ |S.ReadingTimeline task_view reader_generation committed=>element "section"
+ [("data-reading-root","true");("data-task-id",text_number(NavigationIdentity.task_view_task task_view));
+  ("data-reader-generation",text_number reader_generation);("data-reading-committed",flag committed)] [] empty children
  |S.PageBody page=>DOM.Element key (role_tag role) attrs (styles++Layout.page_properties env page) [] empty children
  |S.PageRegion region position=>
    let region_attr:=[("data-page-region",Composition.region_name region)] in
@@ -1205,21 +1204,25 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
     match descriptions(S.node_children value) with
     |""=>[]|description=>[("aria-describedby",description)]end) [] empty
    (grouped_content env activity key(UX.decision_question decision)false(S.node_children value)children)
- |S.ChoiceGroup=>element "section" ([("role","radiogroup")] ++
-   if String.eqb (S.semantic_key value) "theme-options"
-   then [("data-native-responsive-row",key);("data-native-equal-columns","");("data-native-row-direction","column")]
-   else []) [] empty children
+ |S.ChoiceGroup=>element "section" [("role","radiogroup")] [] empty children
  |S.PageContext conversation=>element (role_tag role) [("data-view",match conversation with Some v=>NavigationIdentity.task_view_scope v|None=>"" end)] [] empty children
  |S.ProjectGroup project selected expanded=>element (role_tag role) [("data-project-id",text_number project);("data-expanded",flag expanded)] [] empty children
  |S.TaskRow task status _ selected=>
  let paired:=combine(S.node_children value)children in
  let nested (pair:S.node A*DOM.node):=match S.node_meaning(fst pair)with S.TaskChildren _=>true|_=>false end in
- let marker:=if existsb(fun child=>match S.node_meaning child with S.PanelToggle _ _=>true|_=>false end)(S.node_children value)
-   then [] else [DOM.Element (key++"/marker")%string "span" [("data-task-marker","");("aria-hidden","true")] [] [] empty []] in
+ let disclosure:=existsb(fun child=>match S.node_meaning child with
+   S.PanelToggle _ _=>true|_=>false end)(S.node_children value) in
+ let row_control (pair:S.node A*DOM.node):=match S.node_role(fst pair),snd pair with
+  |Roles.NavigationEntry _,DOM.Element button_key "button" attrs styles events metadata content=>
+   if disclosure then snd pair else
+   let marker:=DOM.Element (key++"/marker")%string "span"
+     [("data-task-marker","");("aria-hidden","true")] [] [] empty [] in
+   DOM.Element button_key "button" attrs styles events metadata (marker::content)
+  |_,_=>snd pair end in
  let row:=DOM.Element (key++"/row")%string "div"
    [("data-task-tree-row","");("data-reveal-on-layout",flag selected)]
    [("display","flex");("align-items","center");("min-inline-size","0")] [] empty
-   (marker++map snd(filter(fun pair=>negb(nested pair))paired)) in
+   (map row_control (filter(fun pair=>negb(nested pair))paired)) in
  element "div" [("data-task-id",text_number task);("data-task-status",status);("aria-current",flag selected);("data-task-tree-entry","")] [] empty
  (row::map snd(filter nested paired))
  |S.ObjectGroup object=>element "section"

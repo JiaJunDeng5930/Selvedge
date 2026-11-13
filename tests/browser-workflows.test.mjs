@@ -131,8 +131,10 @@ test('Work navigation preserves Project grouping and opens the same conversation
   await finishModelReply(fixture, prompt, delivered);
   await finishModelReply(fixture, delivered, 'The destination reviewed the signed finding.');
 
-  const graphs = page.getByRole('button', { name: '任务图', exact: true });
-  await graphs.click();
+  const graphs = global.getByRole('button', { name: '任务图', exact: true });
+  const rail = await global.boundingBox();
+  const graphRow = await graphs.boundingBox();
+  await page.mouse.click(rail.x + rail.width - 8, graphRow.y + graphRow.height / 2);
   const graph = center.getByRole('region', { name: 'Evidence handoff', exact: true });
   await graph.waitFor();
   await center.getByRole('region', { name: 'Release checklist', exact: true }).waitFor({ state: 'hidden' });

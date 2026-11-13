@@ -190,21 +190,28 @@ test('interactive fences keep their original source collapsed while the preview 
     `<ui id="preview-${index}">${' '.repeat(2800)}<metric id="value" label="章节 ${index + 1}" value="3"/></ui>`,
     '```',
   ].join('\n'));
-  fixture.finish(0, { text: [...sections, '```selvedge-ui example\nAn ordinary example.\n```'].join('\n\n') });
+  fixture.finish(0, { text: [...sections, '```selvedge-ui example\nAn ordinary example.\n```', 'Settled reply ends here.'].join('\n\n') });
   const { task } = await taskIdle(running.service, task_id);
   await page.evaluate(() => {
-    const probe = { flashing: false, prematureEnd: false, pendingSeen: false, running: true };
+    const probe = { flashing: false, pendingSeen: false, firstPaint: null, running: true };
     window.fencePaintProbe = probe;
+    const painted = node => node.getClientRects().length > 0 && getComputedStyle(node).visibility === 'visible';
     function sample() {
       for (const code of document.querySelectorAll('pre > code')) {
-        if (code.textContent.startsWith('<ui id="preview-') && code.getClientRects().length > 0) probe.flashing = true;
+        if (code.textContent.startsWith('<ui id="preview-') && painted(code)) probe.flashing = true;
       }
-      const pending = [...document.querySelectorAll('[role="status"]')].some(status =>
-        status.textContent === '正在加载交互界面…' && status.getBoundingClientRect().height > 0);
-      if (pending) {
-        probe.pendingSeen = true;
-        const end = document.querySelector('button[aria-label="创建对话分支"]');
-        if (end && getComputedStyle(end).visibility === 'visible') probe.prematureEnd = true;
+      if ([...document.querySelectorAll('[role="status"]')].some(status =>
+        status.textContent === '正在加载对话…' && painted(status))) probe.pendingSeen = true;
+      const reader = document.querySelector('main section[aria-label="Conversation"]');
+      if (probe.firstPaint === null && reader && painted(reader)) {
+        const tail = [...reader.querySelectorAll('p')].find(node => node.textContent === 'Settled reply ends here.');
+        const end = reader.querySelector('button[aria-label="创建对话分支"]');
+        const visible = node => {
+          if (!node || !painted(node)) return false;
+          const bounds = node.getBoundingClientRect(), viewport = reader.getBoundingClientRect();
+          return bounds.top >= viewport.top - 1 && bounds.bottom <= viewport.bottom + 1;
+        };
+        probe.firstPaint = { tail: visible(tail), end: visible(end) };
       }
       if (probe.running) requestAnimationFrame(sample);
     }
@@ -221,8 +228,8 @@ test('interactive fences keep their original source collapsed while the preview 
     return window.fencePaintProbe;
   });
   assert.equal(probe.flashing, false, 'No interactive source is exposed before its preview or an explicit disclosure');
-  assert.equal(probe.pendingSeen, true, 'A delayed preview was sampled during loading');
-  assert.equal(probe.prematureEnd, false, 'A partially loaded conversation does not show the end action');
+  assert.equal(probe.pendingSeen, true, 'A delayed history gives one visible loading status');
+  assert.deepEqual(probe.firstPaint, { tail: true, end: true }, 'The first visible viewport is the settled conversation tail');
   await timeline.getByRole('button', { name: '创建对话分支', exact: true }).waitFor();
   const declined = timeline.locator('.code-block').filter({ hasText: '无法显示交互界面' });
   const raw = declined.locator('pre');

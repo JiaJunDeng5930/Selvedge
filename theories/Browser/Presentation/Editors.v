@@ -201,7 +201,11 @@ Definition composer_view snapshot (s:Session.state) e parent :=
  let unit:=Observe.action_unit_for s e in
  let feedback:=draft_feedback(Session.current_draft s e)in
  let message_label:=match e with NewTask _=>"Task"|_=>"Message"end in
- let commit:=Control "submit"(submit_label snapshot(Session.current_draft s e)e)Primary(Input.Submit e(part parent "submit"))(unit_availability unit assessment)in
+ let submitting:=UX.action_pending unit in
+ let available:=if submitting then Busy "正在提交消息…"
+  else if Observe.awaits_only_admission assessment then Available else assessment_availability assessment in
+ let label:=if submitting then "正在提交消息…" else submit_label snapshot(Session.current_draft s e)e in
+ let commit:=Control "submit" label Primary(Input.Submit e(part parent "submit"))available in
  let '(failed, files):=partition (fun item=>match node_role item with Roles.Alert=>true|_=>false end)
    (ServiceControls.file_items e parent s) in
  let attachments:=match List.app failed files with

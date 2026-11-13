@@ -282,12 +282,6 @@ Definition structured_form path parent saved source view enabled : list (node In
  | ["remote"] => relay_form parent source enabled
  | ["cloud"] => cloud_form parent saved source view enabled
  | ["compaction"; "targets"] => targets_form parent source enabled
- | _ =>
-   let paths := Common.items source in
-   (match path, paths with
-    | ["skills"], [] => [description parent "skills-discovery"
-        "当前自动查找服务和项目目录中的技能。可添加 SKILL.md 文件路径。"]
-    | _, _ => []
-    end ++ [value_list parent "paths" "文件和目录" "路径" (JString "")
-               paths enabled JString (assign path)])%list
+ | _ => [value_list parent "paths" "文件和目录" "路径" (JString "")
+           (Common.items source) enabled JString (assign path)]
  end.

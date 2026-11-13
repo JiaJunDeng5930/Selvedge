@@ -138,16 +138,25 @@ test('opening conversation details preserves the desktop reading position and co
 
 test('conversation rows keep one resting dot and identify execution that needs attention', async t => {
   const fixture = await browserFixture(t);
-  const { command, profile, running } = fixture;
+  const { page, command, profile, running } = fixture;
   const { task_id: idle } = await command({ op: 'create_idle', profile: 'demo' });
   const idleEntry = await conversationEntry(fixture, idle);
   await idleEntry.waitFor();
+  const title = await idleEntry.getAttribute('aria-label');
   assert.equal(await idleEntry.evaluate(button => {
-    const marker = button.parentElement.querySelector('[data-task-marker]');
+    const marker = button.querySelector('[data-task-marker]');
     return !!marker && getComputedStyle(marker, '::after').content === '""';
-  }), true, 'The resting row keeps the tree marker');
+  }), true, 'The resting row includes its tree marker in the open target');
   assert.equal(await idleEntry.locator('[data-navigation-slot="status"]').count(), 0,
     'The ordinary conversation needs no second dot');
+  await idleEntry.locator('[data-task-marker]').click();
+  await page.getByRole('combobox', { name: 'Message', exact: true }).waitFor();
+  await page.setViewportSize({ width: 390, height: 740 });
+  await page.getByRole('button', { name: 'Open Task list', exact: true }).click();
+  const drawer = page.getByRole('dialog', { name: '对话', exact: true });
+  await drawer.getByRole('button', { name: title, exact: true }).locator('[data-task-marker]').click();
+  await drawer.waitFor({ state: 'hidden' });
+  await page.setViewportSize({ width: 1280, height: 900 });
 
   async function assertNotice(entry, caption) {
     const notice = entry.getByRole('img', { name: caption, exact: true });

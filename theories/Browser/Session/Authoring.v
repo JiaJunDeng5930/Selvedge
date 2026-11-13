@@ -64,7 +64,7 @@ Definition reopen_draft snapshot owner state:=
      else fresh in SS.save_draft fresh state
    |None=>state end end.
 Definition pending_for_editor owner pending:=match SS.purpose pending with
-|SS.DraftSubmission draft _ _ _|SS.LiveConfiguration draft _ _|SS.ProjectPreference draft _ _ _ _=>
+|SS.DraftSubmission draft _ _ _|SS.DraftAdmission draft _ _ _ _|SS.LiveConfiguration draft _ _|SS.ProjectPreference draft _ _ _ _=>
  same_editor owner(Draft.owner draft)
 |_=>false end.
 (** Dismissing an editor ends its draft and owned browser requests. The
@@ -181,7 +181,17 @@ Definition submit snapshot owner trigger state:=
  |Some draft=>match Draft.explicit_workspace draft,current_preparation draft state with
   |Some _,None|Some _,Some(Resource.Loading _ _)=>capture_workspace snapshot draft trigger state
   |Some _,Some(Resource.Failed _ _ reason)=>fail state reason
-  |_,_=>issue_draft snapshot draft trigger state end end.
+ |_,_=>match owner with
+   |Identity.NewTask _|Identity.Message _=>
+    if EO.awaits_only_admission(EO.observe_assessment snapshot state owner) then
+     match submission_obstruction snapshot draft state,current_command state draft with
+     |Some reason,_=>fail state reason
+     |None,Some command=>reserve command
+       (SS.DraftAdmission draft(SO.worktree_preference snapshot state draft)
+         (SS.generation(SS.navigation_state state))(SS.next_layer state)trigger)state
+     |None,None=>fail state "The draft is waiting for a valid command and workspace observation." end
+    else issue_draft snapshot draft trigger state
+   |_=>issue_draft snapshot draft trigger state end end end.
 Definition set_mention owner mention state:=SS.with_authoring
  (set SS.mentions(fun values=>(owner,mention)::filter(fun value=>negb(same_editor owner(fst value)))values)
   (SS.authoring_state state))state.
@@ -793,6 +803,42 @@ Definition continue_preparations snapshot state:=fold_left(fun result resource=>
   |Services.CommitPrepared=>append result(continue_preparation snapshot ticket request observation(result_state result))
   |Services.PreviewContext=>result end
  |_=>result end)(Services.preparations(SS.service_state state))(keep state).
+Definition continue_draft_admission snapshot (pending:SS.pending) state:=
+ match SS.purpose pending with
+ |SS.DraftAdmission captured preference navigation layer trigger=>
+  let command:=SS.accepted_command pending in
+  let owner:=CommandAssessment.DraftOwner(Draft.owner captured) in
+  let revision:=Draft.revision captured in
+  let checked:=ensure_request snapshot owner revision command state in
+  let preference_owner update:=CommandAssessment.DirectOwner(CommandAssessment.command_identity update) in
+  let checked:=match preference with
+   |Some update=>append checked(ensure_request snapshot(preference_owner update)navigation update(result_state checked))
+   |None=>checked end in
+  let observed:=result_state checked in
+  let ready:=match assessed_command snapshot owner revision command observed with
+   |Some(inr _)=>match preference with
+    |Some update=>assessed_command snapshot(preference_owner update)navigation update observed
+    |None=>Some(inr tt) end
+   |other=>other end in
+  match ready with
+  |None=>checked
+  |Some verdict=>
+    let authoring:=SS.authoring_state observed in
+    let released:=SS.with_authoring(set SS.awaiting
+     (filter(fun value=>negb(N.eqb(SS.ticket value)(SS.ticket pending))))authoring)observed in
+    append checked(match verdict with
+    |inl reason=>
+      let rejected:=if draft_current captured released
+       then SS.save_draft(Draft.with_feedback(Draft.Rejected revision(JString reason))captured)released else released in
+      fail rejected reason
+    |inr _=>match preference with
+      |Some update=>issue update(SS.ProjectPreference captured command navigation layer trigger)released
+      |None=>issue command(SS.DraftSubmission captured navigation layer trigger)released end end)
+  end
+ |_=>keep state end.
+Definition continue_draft_admissions snapshot state:=
+ fold_left(fun result pending=>append result(continue_draft_admission snapshot pending(result_state result)))
+  (SS.awaiting(SS.authoring_state state))(keep state).
 Definition prepare snapshot state:=
  let state:=resolve_creation_model snapshot state in
  let prepared:=fold_left(fun result owner=>let state:=ensure_draft snapshot owner(result_state result)in
@@ -800,7 +846,8 @@ Definition prepare snapshot state:=
  (visible_editors state)(keep state)in
  let prepared:=append prepared(ensure_workspace_git snapshot(result_state prepared))in
  let prepared:=append prepared(ensure_cloud_repository snapshot(result_state prepared))in
- append prepared(continue_preparations snapshot(result_state prepared)).
+ let prepared:=append prepared(continue_preparations snapshot(result_state prepared))in
+ append prepared(continue_draft_admissions snapshot(result_state prepared)).
 Definition input_command snapshot state input:option SS.public_command:=
  let raw:=match input with
  |Input.BoardProfile profile=>match field "board" snapshot with

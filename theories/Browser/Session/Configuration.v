@@ -104,6 +104,7 @@ Definition begin_write ticket s :=
    edits keep their draft identity so the row can report the result. *)
 Definition focused_editor (entry : Config.setting) : bool :=
   match Config.setting_input entry, Config.setting_path entry with
+  | _, ["skills"] => false
   | Config.Structured, _ | _, ["instructions"] => true
   | _, _ => false
   end.
@@ -231,6 +232,8 @@ Definition assignment entry draft s :=
     match Config.setting_path entry with
     | ["compaction"; "targets"] =>
       option_map (fun _ => value) (compaction_targets_admitted value s)
+    | ["skills"] =>
+      if Selvedge.Adapters.Configuration.configured_paths_admitted value then Some value else None
     | _ => Some value
     end
   end.

@@ -113,6 +113,13 @@ Definition timeline {A} (action:actions A) context retained interactive view dis
  let history:=map (group action context retained interactive task disclosures messages) (Audit.reading_groups 0 messages) in
  let live:=flat_map (fun output=>if N.eqb task (Streams.output_task output)
    then map (preview action.(reading_interactive) context retained interactive output) (Streams.output_parts output) else []) (current_previews context) in
+ let live:=match live with
+ |[]=>match bind (DocumentState.find_task task (context_world context)) (string_field "phase") with
+   |Some "model_pending" |Some "context_pending" |Some "reasoning_pending"=>
+     [S.Node "reply-pending" "reply-pending" "正在生成回复…" R.Content
+       (S.InformationText Information.Status) []]
+   |_=>[] end
+ |_=>live end in
  let unfinished:=flat_map (retained_part action context retained interactive)
    (filter (fun stamp=>N.eqb task (document_viewer stamp)) (Documents.retained_stamps context retained)) in
  let unfinished_section:=match unfinished with

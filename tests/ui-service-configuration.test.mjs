@@ -323,15 +323,28 @@ test('Context settings show seconds and offer reset only for a changed value', {
   assert.deepEqual((await policy()).targets, [{ profile: 'limits-fixture', window_tokens: 100000 }]);
 
   await dialog.getByRole('radio', { name: '扩展', exact: true }).click();
-  await button(dialog, '编辑来源').click();
-  const skills = page.getByRole('dialog', { name: '技能来源', exact: true });
-  const discovery = skills.getByText(/当前自动查找服务和项目目录中的技能/);
+  const skills = dialog.getByRole('region', { name: '技能来源', exact: true });
+  const discovery = skills.getByText(/自动查找服务和项目目录中的技能/);
   await discovery.waitFor();
   await button(skills, '添加路径').click();
-  await textbox(skills, '路径 1').waitFor();
-  await discovery.waitFor({ state: 'hidden' });
-  await button(skills, '放弃更改').click();
-  await skills.waitFor({ state: 'hidden' });
+  const firstPath = textbox(skills, '路径 1');
+  const saveSkills = button(skills, '保存来源');
+  await firstPath.waitFor();
+  assert.equal(await saveSkills.isDisabled(), true);
+  await firstPath.fill('skills/团队/SKILL.md');
+  await button(skills, '撤销编辑').click();
+  await firstPath.waitFor({ state: 'hidden' });
+  assert.equal(Object.hasOwn(JSON.parse(await readFile(configuration, 'utf8')), 'skills'), false);
+  await button(skills, '添加路径').click();
+  await firstPath.fill('skills/团队/SKILL.md');
+  await saveSkills.click();
+  await skills.getByRole('status').filter({ hasText: '设置已保存' }).waitFor();
+  assert.equal(await firstPath.inputValue(), 'skills/团队/SKILL.md');
+  assert.deepEqual(JSON.parse(await readFile(configuration, 'utf8')).skills, ['skills/团队/SKILL.md']);
+  await button(skills, '移除路径 1').click();
+  await saveSkills.click();
+  await skills.getByRole('status').filter({ hasText: '设置已保存' }).waitFor();
+  assert.deepEqual(JSON.parse(await readFile(configuration, 'utf8')).skills, []);
   await dialog.getByRole('radio', { name: '上下文', exact: true }).click();
 
   await idle.fill('60.0001');

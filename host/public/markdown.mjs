@@ -287,6 +287,7 @@ export class Markdown {
         options.onChange?.();
       });
       source.status.append(disclosure);
+      options.onChange?.();
     };
     this.refusePreview = ordinal => {
       // DEFENSE: The fence observer may finish before the Markdown node exists.

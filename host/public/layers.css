@@ -351,30 +351,48 @@ button[data-semantic-key="automation"][role="switch"][aria-checked="true"]::afte
   object-fit: contain;
 }
 
-[data-semantic-key="directory-browser"] [data-semantic-key="directory-location-actions"] {
-  display: grid !important;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end !important;
-  gap: .375rem !important;
-}
-[data-semantic-key="directory-location-actions"]:has(> button[data-semantic-key="parent"]) {
-  grid-template-columns: auto minmax(0, 1fr) auto !important;
-}
-[data-semantic-key="directory-location-actions"] > div { min-inline-size: 0 !important; }
-[data-semantic-key="directory-location-actions"] > button { align-self: end !important; }
-[data-semantic-key="directory-browser"] [data-semantic-key="directory-git-status"] {
-  flex: 1 0 100%;
-  min-inline-size: 0;
-  overflow-wrap: anywhere;
-}
-[data-semantic-key="directory-browser"] [data-semantic-key="folders"] {
-  gap: 0 !important;
-  border-block-start: 1px solid var(--selvedge-border) !important;
-}
-[data-semantic-key="folders"] > button {
-  inline-size: 100% !important;
-  justify-content: flex-start !important;
-  text-align: start !important;
+dialog[data-semantic-key="directory-browser"] {
+  inline-size: 30rem !important;
+  block-size: min(31rem, calc(100dvb - 1.5rem)) !important;
+
+  & > [data-surface-role="dialog-body"] {
+    gap: .5rem !important;
+    padding-block-end: .5rem !important;
+  }
+  & [data-semantic-key="directory-location-actions"] {
+    display: grid !important;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    flex: none !important;
+    align-items: end !important;
+    gap: .375rem !important;
+  }
+  & [data-semantic-key="directory-location-actions"] > div { min-inline-size: 0 !important; }
+  & [data-semantic-key="directory-location-actions"] > button { align-self: end !important; }
+  & [data-semantic-key="folders"] {
+    flex: 1 1 0 !important;
+    min-block-size: 0 !important;
+    overflow-y: auto !important;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    padding-block-start: .5rem;
+    gap: .125rem !important;
+    border-block-start: 1px solid var(--selvedge-border) !important;
+  }
+  & [data-semantic-key="folders"] > * { flex-shrink: 0 !important; }
+  & [data-semantic-key="folders"] > button {
+    inline-size: 100% !important;
+    justify-content: flex-start !important;
+    text-align: start !important;
+  }
+  & [data-semantic-key="directory-check"] {
+    min-inline-size: 0;
+    flex: none !important;
+  }
+  & [data-semantic-key="directory-git-status"] {
+    overflow-wrap: anywhere;
+    flex-shrink: 0;
+  }
+  & [data-semantic-key="directory-check"]:empty { display: none !important; }
 }
 
 /* Local action lists are anchored to their trigger. Each row owns the

@@ -175,13 +175,18 @@ test('a failed directory visit keeps the address editable and can return to the 
   const choose = picker.getByRole('button', { name: '使用此目录', exact: true });
   const previous = picker.getByRole('button', { name: '返回上一个可用目录', exact: true });
   const child = picker.getByRole('button', { name: 'Visible child', exact: true });
+  const loading = picker.getByRole('status').filter({ hasText: '正在读取目录…' });
   const missingMessage = '找不到这个目录，请检查路径。';
   const failure = message => picker.getByRole('alert').filter({ hasText: message });
   const empty = picker.getByRole('status').filter({ hasText: '此目录没有子目录。' });
   const addressFocused = () => location.evaluate(input => document.activeElement === input);
   await up.waitFor();
-  for (const width of [1280, 320]) {
+  const pickerId = await picker.getAttribute('id');
+  for (const width of [320, 1280]) {
     await page.setViewportSize({ width, height: 720 });
+    await page.waitForFunction(({ id, narrow }) =>
+      (document.getElementById(id).getBoundingClientRect().width <= 320) === narrow,
+    { id: pickerId, narrow: width === 320 });
     const [parent, address, forward] = await Promise.all([up.boundingBox(), location.boundingBox(), go.boundingBox()]);
     assert.ok(parent && address && forward && parent.x + parent.width <= address.x &&
       address.x + address.width <= forward.x && forward.x + forward.width <= width);
@@ -189,11 +194,28 @@ test('a failed directory visit keeps the address editable and can return to the 
     assert.ok(Math.abs(center(parent) - center(address)) < 8 && Math.abs(center(address) - center(forward)) < 8,
       'Parent, current path and Go share one navigation row');
   }
-  await page.setViewportSize({ width: 1280, height: 900 });
   const listingResponse = address => page.waitForResponse(response => response.url().endsWith('/api/browser/observation')
     && response.request().postDataJSON()?.kind === 'browse-directories'
     && response.request().postDataJSON().path === address);
   await choose.waitFor();
+  const geometry = () => picker.evaluate(async dialog => {
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    const box = element => {
+      const { x, y } = element.getBoundingClientRect();
+      return { x: Math.round(x), y: Math.round(y) };
+    };
+    return {
+      heading: box(dialog.querySelector('h2')),
+      address: box(dialog.querySelector('input')),
+      confirmation: box(Array.from(dialog.querySelectorAll('button'))
+        .find(button => button.getAttribute('aria-label') === '使用此目录')),
+    };
+  });
+  const baseline = await geometry();
+  async function assertStableFrame() {
+    const current = await geometry();
+    assert.deepEqual(current, baseline, 'The dialog heading, path field and confirmation keep their positions');
+  }
 
   const entered = `${directory}/.`;
   const observed = Promise.withResolvers(), release = Promise.withResolvers();
@@ -215,6 +237,9 @@ test('a failed directory visit keeps the address editable and can return to the 
   await location.fill(entered);
   await location.press('Enter');
   assert.equal((await observed.promise).path, directory);
+  await loading.waitFor();
+  assert.equal(await choose.isDisabled(), true);
+  await assertStableFrame();
   assert.equal(await empty.count(), 0, 'An unresolved listing does not appear empty');
   await location.fill(missing);
   release.resolve();
@@ -229,6 +254,8 @@ test('a failed directory visit keeps the address editable and can return to the 
   assert.equal(typeof missingOutcome.error, 'string');
   assert.equal(missingOutcome.errno, 'ENOENT');
   assert.equal(await failure(missingMessage).innerText(), missingMessage);
+  assert.equal(await choose.isDisabled(), true);
+  await assertStableFrame();
   assert.equal(await empty.count(), 0, 'A failed listing does not appear empty');
   assert.equal(await location.inputValue(), missing);
   assert.equal(await location.isEditable(), true);
@@ -250,6 +277,8 @@ test('a failed directory visit keeps the address editable and can return to the 
   await previous.press('Enter');
   await returnRequest;
   await child.waitFor();
+  await assertStableFrame();
+  assert.equal(await choose.isEnabled(), true);
   assert.equal(await location.inputValue(), directory);
   assert.equal(await addressFocused(), true);
 

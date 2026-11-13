@@ -116,7 +116,11 @@ export class Renderer {
       this.targetRefresh = false;
       if (this.disposed || !this.document) return;
       // A portal's new target may need its children mounted.
-      if (this.hasPortals) { this.render(this.document, this.generation); return; }
+      if (this.hasPortals) {
+        this.render(this.document, this.generation);
+        this.callbacks.layout?.();
+        return;
+      }
       for (const [key, node] of this.targets) if (!node.isConnected) this.targets.delete(key);
       this.refreshLinks();
       if (!this.isolated) this.refreshAnchors();

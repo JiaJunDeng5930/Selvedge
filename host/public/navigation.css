@@ -72,6 +72,21 @@ dialog[data-semantic-key="global-navigation-menu"]::backdrop { background: trans
   position-try-fallbacks: flip-inline;
 }
 
+[data-workspace-sidebar] :is(
+  [data-workspace-navigation="global"],
+  [data-workspace-navigation="destinations"],
+  [data-semantic-key="task-creation"]
+) > button[data-surface-role="navigation-entry"] {
+  inline-size: 100% !important;
+  justify-content: start !important;
+}
+
+[data-workspace-navigation="header"] > button[data-semantic-key="home"] {
+  flex: 1 1 auto !important;
+  min-inline-size: 0 !important;
+  justify-content: start !important;
+}
+
 @media (max-height: 30rem) {
   [data-workspace-sidebar] > [data-workspace-navigation="global"] {
     display: grid !important;

@@ -83,6 +83,89 @@ test('desktop and landscape composer menus open on the same side of their trigge
   }
 });
 
+test('typing keeps a valid composer ready while explicit send shows progress through admission and execution', { timeout: 60_000 }, async t => {
+  const fixture = await browserFixture(t);
+  const { page } = fixture;
+  const model = page.getByRole('button', { name: /^Model:/ });
+  if (!(await model.getAttribute('aria-label')).includes('interactive-fixture')) {
+    await model.click();
+    const picker = page.getByRole('dialog', { name: 'Model', exact: true });
+    const choose = picker.getByRole('button', { name: /^Choose model:/ });
+    const option = picker.getByRole('menuitemradio', { name: 'interactive-fixture', exact: true });
+    await Promise.any([choose.waitFor(), option.waitFor()]);
+    if (await choose.isVisible()) await choose.click();
+    await option.click();
+    if (await picker.isVisible()) await page.keyboard.press('Escape');
+  }
+  const assessmentStarted = Promise.withResolvers();
+  const admit = Promise.withResolvers();
+  const commandStarted = Promise.withResolvers();
+  const submit = Promise.withResolvers();
+  const prefix = 'Verify the composer progress';
+  const sent = prefix + '!';
+  const messageText = command => typeof command?.message === 'string' ? command.message : command?.message?.[0]?.text;
+  const isMessage = (request, text) => {
+    const command = request.postDataJSON()?.command;
+    return command?.op === 'create' && messageText(command) === text;
+  };
+  await page.route('**/api/assess', async route => {
+    if (isMessage(route.request(), sent)) {
+      assessmentStarted.resolve();
+      await admit.promise;
+    }
+    await route.continue();
+  });
+  const submissions = [];
+  await page.route('**/api/browser/command', async route => {
+    const command = route.request().postDataJSON()?.command;
+    if (command?.op === 'create') {
+      submissions.push(messageText(command));
+      commandStarted.resolve();
+      await submit.promise;
+    }
+    await route.continue();
+  });
+  try {
+    const draft = page.getByRole('combobox', { name: 'Task', exact: true });
+    const send = page.getByRole('button', { name: 'Start task', exact: true });
+    await draft.fill(prefix);
+    await send.and(page.locator(':enabled')).waitFor();
+    const before = await send.boundingBox();
+    await draft.press('End');
+    await page.keyboard.insertText('!');
+    await assessmentStarted.promise;
+    assert.equal(await send.isEnabled(), true);
+    await send.click();
+    const pending = page.getByRole('button', { name: '正在提交消息…', exact: true });
+    await pending.waitFor();
+    assert.equal(await pending.getAttribute('aria-busy'), 'true');
+    assert.equal(await pending.isDisabled(), true);
+    assert.deepEqual(await pending.boundingBox(), before);
+    assert.deepEqual(submissions, []);
+    const background = await pending.evaluate(button => getComputedStyle(button).backgroundColor);
+    assert.notEqual(background, await draft.evaluate(node => getComputedStyle(node.closest('form')).backgroundColor));
+    admit.resolve();
+    await commandStarted.promise;
+    assert.equal(await pending.getAttribute('aria-busy'), 'true');
+    assert.deepEqual(submissions, [sent]);
+    submit.resolve();
+    const reader = page.getByRole('region', { name: 'Conversation', exact: true });
+    await reader.getByText(sent, { exact: true }).waitFor();
+    const generation = reader.getByRole('status').filter({ hasText: '正在生成回复…' });
+    await generation.waitFor();
+    const requestDeadline = Date.now() + 10_000;
+    while (!fixture.requests[0] && Date.now() < requestDeadline)
+      await new Promise(resolve => setTimeout(resolve, 20));
+    assert.ok(fixture.requests[0]);
+    fixture.finish(0, { text: 'The submission and reply are visible.' });
+    await reader.getByText('The submission and reply are visible.', { exact: true }).waitFor();
+    await generation.waitFor({ state: 'hidden' });
+  } finally {
+    admit.resolve();
+    submit.resolve();
+  }
+});
+
 test('project and directory choices open inside the composer menu and return to it', async t => {
   const { page } = await browserFixture(t);
   const menu = page.getByRole('dialog', { name: '工作环境', exact: true });

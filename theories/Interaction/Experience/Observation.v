@@ -696,6 +696,10 @@ Definition observe_assessment snapshot state e:assessment e:=
  (if negb(EC.connected(EC.observed state))then restrict_outcome "Connect to continue." outcome
  else if EC.editor_uploading(EC.observed state)e then restrict_outcome "Finish or cancel the attachment transfer before submitting." outcome
  else outcome).
+Definition awaits_only_admission {e}(assessment:assessment e) :=
+ match assessment_outcome assessment with
+ |PreparationBlocked cause []=>String.eqb(obstruction_code cause)admission_pending_code
+ |_=>false end.
 Definition information_summaries {e}(value:information e):list(summary_value e):=
  match value with PresentInformation first None=>[first]|PresentInformation first(Some second)=>[first;second]|_=>[]end.
 Definition assignment_shape snapshot {e}(subject:Model.subject e) form

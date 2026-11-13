@@ -115,8 +115,13 @@ Export NavigationProof(new_selection_intent_prevents_work_completion_selection,
 (** ** A displayed action is still a request to the service
 
     Menu and editor assessment uses the same command admission as committed
-    submission. Its observation is bound to subject, action, occurrence, draft
-    revision and world sequence; [available_native_has_current_admission] and
+    submission. A composer can capture a locally valid message while its
+    admission is pending. Only the exact captured command may run after
+    admission. An explicit submit shows progress in the send control until
+    its receipt. The conversation shows progress at the reply position while
+    it awaits model output. The admission observation is bound to subject,
+    action, occurrence, draft revision and world sequence.
+    [available_native_has_current_admission] and
     [an_admitted_captured_submission_executes_its_captured_command] constrain
     those consumers. Filesystem preparation is a separate observation, not a
     fact predicted by read-only assessment. A failed directory observation is
@@ -192,6 +197,9 @@ Export PlotProof(chart_axis_covers_values, chart_axis_coordinates_reach_both_plo
     language. Ordinary Markdown keeps its standard presentation. A pending
     interactive preview reserves space and shows a loading status in place
     of its source. The conversation end action waits for pending previews.
+    Opening a committed conversation shows one loading status until its
+    Markdown and interactive previews are ready at the intended position.
+    An already visible timeline continues displaying live replies.
     Mounting a preview above the current passage preserves its reading
     position. A refusal leaves the original source available by disclosure.
     Headings distinguish sections in a long interactive answer. Each source
@@ -319,6 +327,10 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     choices have a separate list.
     The project empty state groups its explanation with the creation action.
     A directory chooser identifies the execution environment that owns its paths.
+    The chooser keeps the address and confirmation in place during directory
+    reads, with confirmation unavailable until it has the matching result.
+    Opening a directory keeps the heading, address and confirmation in place
+    while the chooser updates its scrollable results.
     Confirmation applies to an opened directory that matches the address
     field. A failed lookup explains the problem in the chooser's language,
     keeps that field editable, and offers a return to the last successfully
@@ -404,6 +416,8 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     explanation does not fit in view. Each repair is visible in one place.
     Settings editors retain their category context when opened from a setting,
     with that settings page as their only background.
+    Settings holds its pane and theme positions from the first frame.
+    Skill paths can be edited and saved inline under Extensions.
     A scrolling settings form separates its fields from the fixed action area.
     Selected project directories show the short name and role before the full
     path. An unadded directory path shows one reminder beside its input.
@@ -413,6 +427,8 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     Navigation has coordinated leading, title and trailing roles. A long label
     cannot redefine membership depth or another row's status. Project hierarchy
     follows actual membership; independent Tasks have a named separate group.
+    A sidebar destination fills its row, and the conversation marker is part
+    of the open target when it has no separate disclosure action.
     A decorative icon shares its row action while disclosure owns an independent
     target, so visible alignment and hit extent remain different. A compound
     Project row retains its independent actions within that shared organization.

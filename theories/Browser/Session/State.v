@@ -57,6 +57,7 @@ Record navigation := Navigation {
 Definition side_task n:=fold_right(fun layer rest=>match layer_panel layer with
 |SideConversationPanel task=>Some task|_=>rest end)None(layers n).
 Inductive pending_purpose := DraftSubmission (snapshot : draft) (navigation_generation layer_generation : N) (trigger : string)
+| DraftAdmission (snapshot : draft) (preference : option public_command) (navigation_generation layer_generation : N) (trigger : string)
 | ConfirmationSubmission (navigation_generation occurrence : N)
 | LiveConfiguration (snapshot : draft) (view_occurrence : option N) (remember_model:bool)
 | ProjectPreference (snapshot : draft) (prepared : public_command) (navigation_generation layer_generation : N) (trigger : string)
@@ -117,7 +118,7 @@ Record state := State {
   next_layer : N
 }.
 Definition pending_editor owner state:=existsb(fun pending=>match purpose pending with
-|DraftSubmission value _ _ _|LiveConfiguration value _ _|ProjectPreference value _ _ _ _=>same_editor owner(Draft.owner value)
+|DraftSubmission value _ _ _|DraftAdmission value _ _ _ _|LiveConfiguration value _ _|ProjectPreference value _ _ _ _=>same_editor owner(Draft.owner value)
 |LanguageAdmission task _ _ _ _ _=>same_editor owner(Identity.Message task)
 |LanguageSubmission editor _ _ _=>same_editor owner editor
 |_=>false end)(awaiting(authoring_state state)).

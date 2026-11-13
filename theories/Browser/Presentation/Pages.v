@@ -215,7 +215,8 @@ Definition task_contents snapshot s view parent task header_leading :=
  [page_region parent Composition.TimelineContent Composition.BodyPosition
    (discarded_unfinished_notice s id parent ++
     [Node(NavigationIdentity.task_view_key view "timeline")"timeline" "Conversation"Roles.Timeline
-      (ReadingTimeline view(State.reader_generation(SessionNavigation.reader_for s id)))timeline] ++
+      (ReadingTimeline view(State.reader_generation(SessionNavigation.reader_for s id))(negb(Read.task_working task)))timeline;
+     information parent "reading-initial-status" Information.Status "正在加载对话…"] ++
     if SessionNavigation.return_latest s id then
     [page_region parent Composition.LatestAction Composition.BodyPosition
       [declared parent Roles.Button(secondary "latest" "Return to latest"(Input.FollowLatest id))]]else[])] ++

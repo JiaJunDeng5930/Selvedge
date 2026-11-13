@@ -31,6 +31,7 @@ const readings = new Map();
 const readingMeasurements = new Map();
 const readingPointers = new Map();
 const readingLayouts = new WeakMap();
+const readingVisits = new WeakMap();
 const readingBlocks = new WeakMap();
 const restoredReadingOffsets = new WeakMap();
 const codeBlocks = new Map();
@@ -434,7 +435,7 @@ function present(local) {
         // Document-derived targets are available after their parsers catch up.
         reveal();
       }
-      retryHistoryLocation(); retryFocus();
+      scheduleReadingLayout(); retryFocus();
     };
     if (renderer.isCaughtUp()) publishPrefix(true);
     else {
@@ -925,9 +926,14 @@ function locateHistoryRange(pending, root, target, range) {
   const key = root.dataset.key;
   acceptReading(key, root, browser('reading', { state: readingState(key, root), event: 'locate',
     index: pending.message_index }), location);
+  if (root.hasAttribute('data-reading-initial')) layoutReading();
+  else revealHistoryLocation(location);
+}
+function revealHistoryLocation(location) {
+  const { root, target, range, readerGeneration } = location;
   root.focus({ preventScroll: true });
   if (range && CSS.highlights && typeof Highlight === 'function') CSS.highlights.set(historyHighlight, new Highlight(range));
-  else target.dataset.historyMatch = pending.readerGeneration;
+  else target.dataset.historyMatch = readerGeneration;
   location.timer = setTimeout(() => clearHistoryHighlight(location), historyHighlightMs);
   timers.add(location.timer);
 }
@@ -983,9 +989,22 @@ function scheduleReadingLayout() {
     if (!disposed) { retryHistoryLocation(); layoutReading(); }
   });
 }
+const unsettledReadingContent = '[data-markdown-parsing], .code-block[data-interactive-preview-candidate]:not([data-interactive-active], [data-interactive-preview-failed])';
 function layoutReading() {
   for (const node of surface.querySelectorAll('[data-reading-root="true"]')) {
-    if (pendingHistoryLocation && historyReaderOwns(node, pendingHistoryLocation)) continue;
+    const locating = pendingHistoryLocation && historyReaderOwns(node, pendingHistoryLocation);
+    const generation = node.dataset.readerGeneration;
+    const completing = node.hasAttribute('data-reading-initial');
+    if (readingVisits.get(node) !== generation) {
+      const loading = node.dataset.readingCommitted === 'true' && (locating || node.querySelector(unsettledReadingContent));
+      node.toggleAttribute('data-reading-initial', Boolean(loading));
+      if (loading) continue;
+      // The same viewport that receives the first visible frame must receive
+      // its reading position before paint. Later live updates stay visible.
+      readingVisits.set(node, generation);
+      readingLayouts.delete(node);
+    }
+    if (locating) continue;
     const dock = node.closest('[data-view]')?.querySelector('[data-composer-dock]');
     const bookmark = readings.get(readingKey(node))?.anchor;
     const anchor = bookmark ? readingAnchor(node, bookmark.key) : null;
@@ -1000,6 +1019,7 @@ function layoutReading() {
     if (readingLayouts.get(node) === signature && node.style.getPropertyValue('scroll-padding-block-end') !== '') continue;
     readingLayouts.set(node, signature);
     readingStep(node.dataset.key, node, 'layout');
+    if (completing && location) revealHistoryLocation(location);
   }
 }
 function dismiss(event) {

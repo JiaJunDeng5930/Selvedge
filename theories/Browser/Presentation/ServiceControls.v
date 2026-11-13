@@ -219,8 +219,9 @@ Definition directory_view snapshot s :=
     |Some WorkspaceBackend.Local=>"Choose a directory on the Selvedge host"
     |Some WorkspaceBackend.TencentCvm=>"Choose a directory in the conversation's cloud workspace"
     |None=>"Choose a directory" end) in
+   let loading:=label "正在读取目录…" "Loading directories…" in
    let content:=match resource with
-    |Resource.Loading _ _=>[information parent "loading" Information.Status (label "正在读取目录…" "Loading directories…")]
+    |Resource.Loading _ _=>[information parent "loading" Information.Status loading]
     |Resource.Failed _ _ code=>
       region parent "failure" "" Roles.Alert [information parent "failure-detail" Information.Description(directory_error_message label code)]::
       (match Services.directory_previous request with None=>[]|Some path=>
@@ -238,41 +239,47 @@ Definition directory_view snapshot s :=
         |_,_=>[]end))%list
     |_=>[]end in
    let current_folder:=match resource with Resource.Loaded _ _ catalog=>
-        match string_field "path" catalog with
-        |Some path=>[information parent "directory-current-name" Information.GroupTitle
-          (Selvedge.Interaction.Experience.Model.directory_basename path)]
-        |None=>[]end
-       |_=>[]end in
-   let parent_action:=match resource with Resource.Loaded _ _ catalog=>
-        match string_field "parent" catalog with None=>[]|Some path=>
-         [declared parent Roles.Button(secondary "parent" (label "上一级" "Up")(Input.ServiceInput(Services.VisitDirectory path)))]end
-       |_=>[]end in
+     match string_field "path" catalog with
+     |Some path=>[information parent "directory-current-name" Information.GroupTitle
+       (Selvedge.Interaction.Experience.Model.directory_basename path)]
+     |None=>[]end
+     |_=>[]end in
+   let parent_path:=match resource with
+     |Resource.Loaded _ _ catalog=>string_field "parent" catalog
+     |_=>None end in
+   let parent_action:=declared parent Roles.Button
+    (Control "parent" (label "上一级" "Up") Secondary
+     (Input.ServiceInput(match parent_path with Some path=>Services.VisitDirectory path|None=>Services.GoDirectory end))
+     (match parent_path with Some _=>Available|None=>Unavailable "" end)) in
+   let choose_availability:=match resource with
+     |Resource.Loaded _ _ _=>if SO.directory_selection_allowed preview
+      then Available else Unavailable(value_or "" git_status)
+     |Resource.Loading _ _=>Unavailable loading
+     |Resource.Failed _ _ code=>Unavailable(directory_error_message label code)
+     |Resource.Dormant=>Unavailable "" end in
    let navigation:=region parent "directory-location-actions" (label "目录导航" "Folder navigation") Roles.Section
-        (parent_action++
-         [Node(part parent "location")"directory-location" (label "目录路径" "Directory") Roles.Field
+        [parent_action;
+         Node(part parent "location")"directory-location" (label "目录路径" "Directory") Roles.Field
           (EnterDirectory owner (Services.directory_location services)
            (fun value=>option_map(fun path=>Input.ServiceInput(Services.WriteDirectoryLocation path))(as_string value))
            (Some(Input.ServiceInput Services.GoDirectory)))[];
-         declared parent Roles.Button(secondary "go" (label "前往" "Go")(Input.ServiceInput Services.GoDirectory))]) in
+         declared parent Roles.Button(secondary "go" (label "前往" "Go")(Input.ServiceInput Services.GoDirectory))] in
+   let checks:=((match resource,git_status with Resource.Loaded _ _ _,Some status=>
+    [information parent "directory-git-status" Information.Status status]|_,_=>[]end)++
+    (match preview with Some(SO.PreviewDirectory _ _ (Some Submission.GitCheckFailed))=>
+     [declared parent Roles.Button(secondary "retry-git" (label "重试 Git 检查" "Retry Git check")(Input.ServiceInput Services.GoDirectory))]|_=>[]end))%list in
    [Node parent "directory-browser" caption Roles.Dialog
     (LayerRegion(LayerBehavior ModalDialog false ticket (part parent "location")
      (Services.directory_trigger request)"/main"(Services.directory_trigger request)
      (Input.ServiceInput Services.CloseDirectory)true true))
     [dialog_header parent [title parent caption];
-     dialog_body parent((source++current_folder++navigation::match resource with
-      |Resource.Loaded _ _ _=>[region parent "folders" (label "子目录" "Folders") Roles.Section content]
-      |_=>content end)%list);
+     dialog_body parent((source++navigation::
+      [region parent "folders" (label "子目录" "Folders") Roles.Section (current_folder++content);
+       region parent "directory-check" "" Roles.Section checks])%list);
      dialog_actions parent
-      ((match resource,git_status with Resource.Loaded _ _ _,Some status=>
-        [information parent "directory-git-status" Information.Status status]|_,_=>[]end)++
-       (match preview with Some(SO.PreviewDirectory _ _ (Some Submission.GitCheckFailed))=>
-        [declared parent Roles.Button(secondary "retry-git" (label "重试 Git 检查" "Retry Git check")(Input.ServiceInput Services.GoDirectory))]|_=>[]end)++
-       [declared parent Roles.Button(secondary "cancel" (label "取消" "Cancel")(Input.ServiceInput Services.CloseDirectory))]++
-       match resource with Resource.Loaded _ _ _=>
-       [declared parent Roles.PrimaryButton(Control "choose" (label "使用此目录" "Use this directory") Secondary
-        (Input.ServiceInput Services.ChooseDirectory)
-        (if SO.directory_selection_allowed preview then Available else Unavailable(value_or "" git_status)))]|_=>[]end)%list
-       ]]
+      [declared parent Roles.Button(secondary "cancel" (label "取消" "Cancel")(Input.ServiceInput Services.CloseDirectory));
+       declared parent Roles.PrimaryButton(Control "choose" (label "使用此目录" "Use this directory") Secondary
+        (Input.ServiceInput Services.ChooseDirectory) choose_availability)]]]
   |_,_=>[]end end.
 Definition preview_view s :=match Services.preview(State.service_state s)with
 |Resource.Dormant=>[]

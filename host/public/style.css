@@ -539,12 +539,13 @@ button[data-help][aria-disabled="true"] { cursor: default; }
   background: var(--selvedge-selection);
 }
 [data-task-tree-row] > button[data-semantic-key="open"] {
+  flex: 1 1 0% !important;
   min-inline-size: 0 !important;
   min-block-size: var(--task-row-height) !important;
   padding-inline-end: 5px !important;
 }
 [data-task-tree-row] [data-navigation-slot="status"] svg { inline-size: 12px; block-size: 12px; }
-[data-task-tree-row] > :is([data-task-marker], [data-semantic-key="toggle-branches"]),
+[data-task-tree-row] :is([data-task-marker], [data-semantic-key="toggle-branches"]),
 [data-navigation-slot="disclosure"] > button {
   position: relative;
   display: grid !important;
@@ -569,10 +570,12 @@ button[data-help][aria-disabled="true"] { cursor: default; }
   background: currentColor;
 }
 /* Keep the dot above the incoming and outgoing strokes. */
-[data-task-tree-row] > :is([data-task-marker], [data-semantic-key="toggle-branches"])::after {
+[data-task-tree-row] :is([data-task-marker], [data-semantic-key="toggle-branches"])::after {
   position: relative;
   z-index: 1;
 }
+[data-task-tree-row] > button[data-semantic-key="open"]:has(> [data-task-marker]) { column-gap: 0 !important; }
+[data-task-tree-row] > button[data-semantic-key="open"] > [data-navigation-slot="status"] { margin-inline-start: 4px; }
 :is([data-semantic-key="toggle-branches"], [data-navigation-slot="disclosure"] > button)[aria-expanded="false"]::after {
   outline: 1px solid var(--selvedge-connector);
   outline-offset: 2px;
@@ -1093,6 +1096,23 @@ main:has(> [data-page-region="creation-introduction"]) {
 [data-composer-dock] [data-surface-role="primary-button"]:disabled {
   color: var(--selvedge-muted) !important;
   background: var(--selvedge-inset) !important;
+}
+[data-composer-dock] [data-semantic-key="composer/submit"][aria-busy="true"] {
+  color: var(--selvedge-on-accent) !important;
+  background: var(--selvedge-accent) !important;
+}
+[data-semantic-key="composer/submit"][aria-busy="true"] > svg { display: none; }
+[data-semantic-key="composer/submit"][aria-busy="true"]::before {
+  content: "";
+  inline-size: 1rem;
+  block-size: 1rem;
+  border: 2px solid currentColor;
+  border-inline-end-color: transparent;
+  border-radius: 50%;
+  animation: interactive-spin .75s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-semantic-key="composer/submit"][aria-busy="true"]::before { animation: none; }
 }
 [data-page-region="board-controls"] {
   container: board-controls / inline-size;

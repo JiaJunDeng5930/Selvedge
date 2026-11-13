@@ -17,6 +17,7 @@ Open Scope string_scope.
 Module IC := Selvedge.Interaction.Interactive.Codec.
 Definition encode_purpose value:=match value with
 |DraftSubmission draft generation layer trigger=>JObject[("kind",JString "draft");("draft",encode_draft draft);("generation",number generation);("layer",number layer);("trigger",JString trigger)]
+|DraftAdmission draft preference generation layer trigger=>JObject[("kind",JString "draft_admission");("draft",encode_draft draft);("preference",DraftCodec.optional_value encode_command preference);("generation",number generation);("layer",number layer);("trigger",JString trigger)]
 |ConfirmationSubmission generation occurrence=>JObject[("kind",JString "confirmation");("generation",number generation);("occurrence",number occurrence)]
 |LiveConfiguration draft occurrence remember=>JObject[("kind",JString "configuration");("draft",encode_draft draft);("occurrence",optional_id occurrence);("remember_model",JBool remember)]
 |ProjectPreference draft command generation layer trigger=>JObject[("kind",JString "project_preference");("draft",encode_draft draft);("command",encode_command command);("generation",number generation);("layer",number layer);("trigger",JString trigger)]
@@ -28,6 +29,7 @@ Definition encode_purpose value:=match value with
 |LanguageSubmission editor owner path ticket=>JObject[("kind",JString "language");("editor",encode_editor editor);("owner",Selvedge.Interaction.Interactive.Types.encode_owner owner);("path",JString path);("ticket",number ticket)]end.
 Definition decode_purpose value:=match string_field "kind" value with
 |Some "draft"=>draft<-bind(field "draft" value)decode_draft;;generation<-natural_field "generation" value;;trigger<-string_field "trigger" value;;layer<-natural_field "layer" value;;Some(DraftSubmission draft generation layer trigger)
+|Some "draft_admission"=>draft<-bind(field "draft" value)decode_draft;;preference<-bind(field "preference" value)(DraftCodec.parse_optional(decode_command command_specs));;generation<-natural_field "generation" value;;layer<-natural_field "layer" value;;trigger<-string_field "trigger" value;;Some(DraftAdmission draft preference generation layer trigger)
 |Some "confirmation"=>generation<-natural_field "generation" value;;occurrence<-natural_field "occurrence" value;;Some(ConfirmationSubmission generation occurrence)
 |Some "configuration"=>draft<-bind(field "draft" value)decode_draft;;occurrence<-bind(field "occurrence" value)decode_id;;remember<-bool_field "remember_model" value;;Some(LiveConfiguration draft occurrence remember)
 |Some "project_preference"=>draft<-bind(field "draft" value)decode_draft;;command<-bind(field "command" value)(decode_command command_specs);;generation<-natural_field "generation" value;;layer<-natural_field "layer" value;;trigger<-string_field "trigger" value;;Some(ProjectPreference draft command generation layer trigger)
