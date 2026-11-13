@@ -7,6 +7,9 @@ Extraction Blacklist String List.
 (* Native strings report their byte length without recursively copying suffixes.
    Convert that representable native length to the exact extracted nat. *)
 Extract Constant String.length => "(fun s -> Big_int_Z.big_int_of_int (Stdlib.String.length s))".
+(* Ordered control keys compare lexicographically by byte in both runtimes.
+   Native comparison avoids allocating the two suffixes for each common byte. *)
+Extract Constant String.compare => "(fun a b -> let order = Stdlib.String.compare a b in if order = 0 then Eq else if order < 0 then Lt else Gt)".
 (* Native tail traversal avoids a frame per cell; every increment remains an
    arbitrary-precision natural rather than a machine-integer accumulator. *)
 Extract Constant List.length => "(fun xs -> Stdlib.List.fold_left (fun count _ -> Big_int_Z.succ_big_int count) Big_int_Z.zero_big_int xs)".

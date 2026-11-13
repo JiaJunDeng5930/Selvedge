@@ -6,7 +6,7 @@ From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Codec Identity.
 From Selvedge.Browser.Session Require Import Input InputCodecs.
 From Selvedge.Browser.Presentation Require Import ActionPurpose.
-From Selvedge.Browser Require Import Documents AuditReading.
+From Selvedge.Browser Require Import Documents DocumentState AuditReading.
 From Selvedge.Browser.Session Require State Codec Runtime Authoring Navigation NavigationCodec.
 From Selvedge.Browser.Scene Require Construction.
 From Selvedge.Interaction.Submission Require DraftCodec.
@@ -488,6 +488,11 @@ Definition details_input context input := match input with
  |Input.ClosePanel=>match details_layer (prepared_state context) with Some _=>true|None=>false end
  |_=>false end.
 
+(* A details panel leaves the route, editors and source documents in place.
+   Use the ordinary transition and admission without synchronizing every fence. *)
+Definition details_step request context namespace input :=
+ SR.core namespace (prepared_world context) (flag "semantic_lagged" request) input (prepared_state context).
+
 Definition details_navigation context :=
  let current:=prepared_state context in
  let nav:=NavigationCodec.encode_navigation (Session.navigation_state current) in
@@ -498,9 +503,7 @@ Definition details_navigation context :=
 
 Definition details_region before after : option region_update :=
  controls<-prepared_controls before;; env<-prepared_environment after;; size<-capacity env;;
- let stable context:=without_fields ["navigation";"next_layer"] (prepared_encoding context) in
- if negb (Json.equal (stable before) (stable after) && Json.equal (details_navigation before) (details_navigation after))
- then None else
+ if negb (Json.equal (details_navigation before) (details_navigation after)) then None else
  let old:=prepared_state before in let current:=prepared_state after in let snapshot:=prepared_world after in
  task<-match Session.location (Session.navigation_state current) with Conversation task=>Some task|_=>None end;;
  info<-Read.find_task task snapshot;;
@@ -510,12 +513,14 @@ Definition details_region before after : option region_update :=
  match details_layer old, details_layer current with
  |None, Some opening | Some opening, None=>
    if matches opening then
-   let overlays:=V.view_overlay_scopes snapshot current size (compact_picker env) in
-   let scopes:=Document.surface_scopes (filter S.is_modal_node overlays) in
    let render layer:=Layers.layer_view snapshot current size (compact_picker env) layer in
    let old_layer:=option_map (fun pair=>Layers.layer_view snapshot old size (compact_picker env) (snd pair)) (details_layer old) in
    let new_layer:=option_map (fun pair=>render (snd pair)) (details_layer current) in
    let '(page_nodes, layers):=V.relocate_details_trigger current size [actions] (some_list new_layer) in
+   let retained_scopes:=filter (fun scope=>match scope,old_layer with
+     |Focus.Temporary key _ _ _ _,Some node=>negb (String.eqb key (S.node_key node))|_,_=>true end)
+     (published_modals controls) in
+   let scopes:=(retained_scopes ++ tl (Document.surface_scopes (filter S.is_modal_node layers)))%list in
    let root scope area source view target node:=RegionRoot (scope,node) area source view target in
    let region_actions:=map (root None Document.PageArea (S.PageContext (Some (PrimaryTask task))) (Some (PrimaryTask task)) None) page_nodes in
    let region_layer:=map (fun node=>root (fst (overlay_control node)) Document.OutsideArea S.Region None
@@ -569,32 +574,41 @@ Definition requested_region namespace input context := match input with
    |Documents.AdmittedObservation language _=>option_map (fence_region namespace) (language_owner language)
    |_=>None end
  |Input.Interactive language=>option_map (fence_region namespace) (language_owner language)
- |_=>if details_input context input then Some details_region else None end.
+ |_=>None end.
 
 Definition run_input request context namespace input raw:=
- let stepped:=native_step namespace(prepared_world context)(flag "semantic_lagged" request)input raw(prepared_state context)in
+ let normal_step _:=native_step namespace(prepared_world context)(flag "semantic_lagged" request)input raw(prepared_state context)in
+ let '(stepped, details):=if details_input context input then
+   let decision:=details_step request context namespace input in
+   let next:=with_state context (SA.result_state decision) in
+   match details_region context next with
+   |Some patch=>(decision,Some (next,patch))
+   |None=>(normal_step tt,None) end
+   else (normal_step tt,None) in
  let candidate:=picker_input context input && match input with
   |Input.OpenActivity _ _ _=>true
   |_=>match top_picker context with Some _=>true|None=>false end end in
- let stepped_context:=if candidate then deferred_state context(SA.result_state stepped)
-                      else with_state context(SA.result_state stepped)in
+ let stepped_context:=match details with Some(next,_)=>next|None=>
+   if candidate then deferred_state context(SA.result_state stepped) else with_state context(SA.result_state stepped) end in
  let scopes:=if candidate then projected_picker_scopes stepped_context else None in
  let project:=requested_region namespace input context in
  let changed:=negb (Json.equal (prepared_encoding context) (prepared_encoding stepped_context)) in
- let region:=if changed then bind project (fun project=>project context stepped_context) else None in
+ let region:=match details with Some(_,patch)=>Some patch|None=>
+   if changed then bind project (fun project=>project context stepped_context) else None end in
  let decision:=restore_rejected_field input raw
   (match region with
-   |Some patch=>match prepared_controls context with
-     |Some controls=>SA.append stepped (SA.refresh (prepared_world context)
+   |Some patch=>match prepared_controls context,details with
+     |Some controls,None=>SA.append stepped (SA.refresh (prepared_world context)
        (scoped_actions (value_or (published_modals controls) (region_scopes patch)) (region_actions patch)) (SA.result_state stepped))
-     |None=>stepped end
+     |_,_=>stepped end
    |None=>if candidate then refresh_picker stepped_context stepped scopes else
      match input with
      |Input.Snapshot|Input.EnvironmentObserved=>refresh stepped_context stepped
      |_=>if negb changed then stepped
      else refresh stepped_context stepped end end)in
- let '(updated, changed):=if candidate then deferred_state_change stepped_context(SA.result_state decision)
-              else (with_state stepped_context(SA.result_state decision),false)in
+ let '(updated, changed):=match details with Some _=>(stepped_context,false)|None=>
+   if candidate then deferred_state_change stepped_context(SA.result_state decision)
+   else (with_state stepped_context(SA.result_state decision),false) end in
  let patch:=if candidate then
     let overlays:=if changed then projected_picker_scopes updated else scopes in
     match bind overlays (picker_patch input context updated)with
@@ -603,7 +617,7 @@ Definition run_input request context namespace input raw:=
    (prepared_environment updated)(prepared_scene_at updated)patch (bind patch picker_after) None (prepared_controls updated)
    (if Json.equal (prepared_encoding updated) (prepared_encoding stepped_context) then region
     else bind project (fun project=>project context updated)) in
- (decision,input_publication input(prepared_encoding context)(prepared_encoding final),final).
+ (decision,match details with Some _=>"present"|None=>input_publication input(prepared_encoding context)(prepared_encoding final)end,final).
 
 Definition stable_stream_context before after source :=
  let stable context:=without_fields ["streams";"documents"](prepared_encoding context)in
@@ -641,7 +655,7 @@ Definition refresh_published context decision := match prepared_controls context
  (scoped_actions (published_modals controls) (published_actions controls))(SA.result_state decision))
 |None=>refresh context decision end.
 
-Definition run_stream request context namespace source :=
+Definition run_stream_with_synchronization request context namespace source :=
  let input:=Input.Stream source in
  let snapshot:=prepared_world context in
  let stepped:=SR.step namespace snapshot (flag "semantic_lagged" request)input(prepared_state context)in
@@ -670,6 +684,52 @@ Definition run_stream request context namespace source :=
    |VisibleStream document patch=>match present document(prepared_scene_at final)(Some patch)with
      |Some updated=>finish decision updated
      |None=>finish decision(prepare_current(SA.result_state decision))end end
+ end.
+
+(* A delta to a mounted preview changes only that source prefix. Its fence
+   parser reports new components separately. Lifecycle events, newly mounted
+   previews and changed document identities go through synchronization. *)
+Definition append_stream_preview context namespace event : option (SA.result * prepared) :=
+ match event with
+ |Streams.Delta key index delta=>
+   let old:=prepared_state context in let snapshot:=prepared_world context in
+   controls<-prepared_controls context;; env<-prepared_environment context;;
+   if String.eqb namespace (retention_namespace (Session.document_retention old)) then
+   let '(streams, changed):=Streams.step Streams.browser_configuration event (Session.stream_state old) in
+   if changed then
+   let next:=Session.with_streams streams old in
+   let authority:=SR.context namespace snapshot old in
+   previous<-LiveUpdate.visible_part authority key index;;
+   let source:=AuditReading.preview_source authority (fst previous) index in
+   let retained:=Session.document_retention old in
+   let update:=match source with
+    |CodeSource.Generated received viewer origin _=>
+      if Origin.interactive_origin origin then
+       let previous:=Documents.Document viewer origin (snd (snd previous)) false in
+       let appended:=Documents.Document viewer origin (Documents.markdown previous++delta) false in
+       stamp<-Documents.document_stamp received previous retained;;
+       if Documents.same_ending (document_ending stamp) Types.Open &&
+          String.eqb (document_source stamp) (Documents.markdown previous)
+       then Some (Session.with_retention (Documents.remember_document received appended retained) next)
+       else None
+      else Some next
+    |_=>Some next end in
+   current<-update;;
+   edit<-LiveUpdate.edit_part snapshot old current key index;;
+   match snd edit with
+   |[]=>None
+   |parts=>let encoded:=SC.encode_state current in
+     Some (SA.keep current, Prepared snapshot current encoded (Some env)
+       (fun _=>scene snapshot current (Some env)) None (prepared_active_picker context) (Some parts) (Some controls) None)
+   end else None else None
+ |_=>None end.
+
+Definition run_stream request context namespace source :=
+ let local:=bind (Streams.decode_event_in_namespace (Origin.valid_namespace namespace) namespace source)
+   (append_stream_preview context namespace) in
+ match local with
+ |Some (decision, next)=>(decision,"advance",next)
+ |None=>run_stream_with_synchronization request context namespace source
  end.
 
 Definition input_decision request context namespace input raw:=
