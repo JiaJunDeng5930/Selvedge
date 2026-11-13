@@ -59,7 +59,7 @@ Inductive meaning (Action : Type) :=
 | MovableCard (face : card_face) (destinations : list (placement Action))
 | SummaryList
 | Region
-| ReadingTimeline (view : NavigationIdentity.task_view) (generation : N) (committed : bool)
+| ReadingTimeline (view : NavigationIdentity.task_view) (generation : N)
 | PageBody (page : Composition.page)
 | PageContext (conversation : option NavigationIdentity.task_view)
 | ProjectGroup (project : N) (selected expanded : bool)
@@ -377,7 +377,7 @@ Definition map_meaning {A B} (f : A -> B) (value : meaning A) : meaning B :=
   | MovableCard face destinations => MovableCard face (map (map_placement f) destinations)
   | SummaryList => SummaryList
   | Region => Region
-  | ReadingTimeline view generation committed => ReadingTimeline view generation committed
+  | ReadingTimeline view generation => ReadingTimeline view generation
   | PageBody page => PageBody page
   | PageContext conversation => PageContext conversation
   | ProjectGroup project selected expanded => ProjectGroup project selected expanded

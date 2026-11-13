@@ -117,10 +117,13 @@ Export NavigationProof(new_selection_intent_prevents_work_completion_selection,
     Menu and editor assessment uses the same command admission as committed
     submission. A composer can capture a locally valid message while its
     admission is pending. Only the exact captured command may run after
-    admission. An explicit submit shows progress in the send control and a
-    visible status in the composer until its receipt. The status leaves the
-    draft and send control in place. The conversation shows progress at the
-    reply position while it awaits model output. The admission observation is bound to subject,
+    admission. Sending from an existing conversation shows a visible status
+    in the composer and leaves the draft and send control in place. Starting a
+    conversation places its captured message and submission status in a temporary
+    conversation view before the receipt. A refusal restores the creation draft.
+    A successful receipt selects the persisted conversation when the creation is
+    still in the foreground. The conversation shows progress at the reply position
+    while it awaits model output. The admission observation is bound to subject,
     action, occurrence, draft revision and world sequence.
     [available_native_has_current_admission] and
     [an_admitted_captured_submission_executes_its_captured_command] constrain
@@ -198,14 +201,17 @@ Export PlotProof(chart_axis_covers_values, chart_axis_coordinates_reach_both_plo
     language. Ordinary Markdown keeps its standard presentation. A pending
     interactive preview reserves space and shows a loading status in place
     of its source. The conversation end action waits for pending previews.
-    Opening a committed conversation shows one loading status until its
-    Markdown and interactive previews are ready at the intended position.
+    Opening a conversation shows one loading status until its available
+    Markdown and closed interactive previews are ready at the intended position.
+    An unfinished preview can stay at the end of a live reply while it streams.
     An already visible timeline continues displaying live replies.
     Mounting a preview above the current passage preserves its reading
     position. A refusal leaves the original source available by disclosure.
     Headings distinguish sections in a long interactive answer. Each source
-    disclosure stays at the trailing edge of its fence footer as an icon
-    with an accessible label.
+    disclosure stays with its fence as an icon with an accessible label. A
+    fence containing only a chart places its source and data disclosures in
+    the same row. A fence containing multiple widgets keeps its source
+    disclosure in a separate footer at the leading edge.
     Source copy and wrapping appear beside the revealed source.
     A final reset for the fence stays at the leading edge of the same footer.
     Markdown and authored tables share row separators and header emphasis.
@@ -219,7 +225,7 @@ Export PlotProof(chart_axis_covers_values, chart_axis_coordinates_reach_both_plo
     using authored axis labels for units. The axes enclose the plotted range
     and their endpoints agree with its coordinates. Grid lines remain subordinate
     to the marks. The data disclosure below each plot and its compact table
-    share a leading edge. The table shares header and row separators with
+    align to the same footer. The table shares header and row separators with
     other tables, keeps exact plotted rows in source order and aligns numbers
     for comparison. It uses the same numeric grouping as the chart.
     An adjacent slider and numeric input for the same value share a field
@@ -306,8 +312,8 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     Its execution filter shows a count distinct from the stage counts and
     explains when the selected filter leaves no executing cards.
     View choices and filters are adjacent. Search has a compact field beside
-    them. Each empty stage retains its heading, count and drop target with a
-    subdued background.
+    them. An empty stage keeps its heading and count on the board background.
+    An available destination is highlighted while a card is dragged over it.
     Stage lanes follow one horizontal track. Their minimum width leaves room
     to read a card title alongside its action menu. Empty lanes retain a drop
     target with the same height. Previous and next controls join the toolbar

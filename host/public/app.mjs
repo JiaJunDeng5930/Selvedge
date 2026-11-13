@@ -989,7 +989,8 @@ function scheduleReadingLayout() {
     if (!disposed) { retryHistoryLocation(); layoutReading(); }
   });
 }
-const unsettledReadingContent = '[data-markdown-parsing], .code-block[data-interactive-preview-candidate]:not([data-interactive-active], [data-interactive-preview-failed])';
+// An open fence at the end of a live reply may need more model output to mount.
+const unsettledReadingContent = '[data-markdown-parsing], [data-markdown-fence-closed][data-interactive-preview-candidate]:not([data-interactive-active], [data-interactive-preview-failed])';
 function layoutReading() {
   for (const node of surface.querySelectorAll('[data-reading-root="true"]')) {
     const locating = pendingHistoryLocation && historyReaderOwns(node, pendingHistoryLocation);
@@ -999,8 +1000,7 @@ function layoutReading() {
       // A mounted widget can still change layout when its native display is published.
       const widgetsPending = surface.dataset.displayPending === 'true' &&
         node.querySelector('[data-interactive-pending]');
-      const loading = node.dataset.readingCommitted === 'true' &&
-        (locating || widgetsPending || node.querySelector(unsettledReadingContent));
+      const loading = locating || widgetsPending || node.querySelector(unsettledReadingContent);
       node.toggleAttribute('data-reading-initial', Boolean(loading));
       // Keep the text measurable for history search while the reader is hidden.
       node.inert = Boolean(loading);
@@ -1162,6 +1162,13 @@ async function authenticate(effect) {
 // The semantic surface declares every admissible destination; native drag only
 // supplies the observed target to that element's Place gesture.
 let draggedCard = null;
+let hoveredDropStage = null;
+function showCardDropStage(stage) {
+  if (hoveredDropStage === stage) return;
+  hoveredDropStage?.removeAttribute('data-card-drop-hover');
+  hoveredDropStage = stage;
+  hoveredDropStage?.setAttribute('data-card-drop-hover', '');
+}
 surface.addEventListener('scroll', event => {
   if (event.target === boardTrack) updateBoardScroll();
 }, true);
@@ -1203,10 +1210,17 @@ surface.addEventListener('dragstart', event => {
 });
 surface.addEventListener('dragover', event => {
   const target = event.target.closest?.('[data-drop-target]');
-  if (draggedCard && target && draggedCard.metadata.placements.some(value => value.target === target.dataset.dropTarget)) event.preventDefault();
+  const allowed = draggedCard && target && draggedCard.metadata.placements.some(value => value.target === target.dataset.dropTarget);
+  showCardDropStage(allowed ? target.closest('[data-board-stage]') : null);
+  if (allowed) event.preventDefault();
+});
+surface.addEventListener('dragleave', event => {
+  if (hoveredDropStage?.contains(event.target) && !hoveredDropStage.contains(event.relatedTarget))
+    showCardDropStage(null);
 });
 surface.addEventListener('drop', event => {
   const source = draggedCard; draggedCard = null;
+  showCardDropStage(null);
   const target = event.target.closest?.('[data-drop-target]');
   if (!source || !target || !admitted(source.generation)) return;
   const placement = source.metadata.placements.find(value => value.target === target.dataset.dropTarget);
@@ -1215,7 +1229,10 @@ surface.addEventListener('drop', event => {
     dispatch({ ...placement.action, generation: source.generation, value: placement.target });
   }
 });
-surface.addEventListener('dragend', () => { draggedCard = null; });
+surface.addEventListener('dragend', () => {
+  draggedCard = null;
+  showCardDropStage(null);
+});
 
 async function completeCommand(effect) {
   const namespace = publication.namespace;

@@ -79,7 +79,7 @@ export class PacedText {
       this.metrics.batches++;
       this.metrics.largestBatch = Math.max(this.metrics.largestBatch, chunk.length);
       const start = performance.now();
-      this.write(chunk);
+      this.write(chunk, end === this.target.length);
       this.metrics.maxParseMs = Math.max(this.metrics.maxParseMs, performance.now() - start);
       this.visible = end;
       this.settlePrefixes();
@@ -308,6 +308,7 @@ export class Markdown {
     const close = (completed) => {
       const entry = stack.pop();
       delete entry.node.dataset.pending;
+      if (entry.codeSource) entry.codeSource.frame.dataset.markdownFenceClosed = '';
       if (stack.length === 1) { entry.node.dataset.stable = 'true'; this.stableBlocks++; }
       if (entry.type === smd.IMAGE && entry.imageURL) {
         const image = document.createElement('img');
@@ -421,7 +422,11 @@ export class Markdown {
       },
     };
     const parser = smd.parser(sink);
-    this.buffer = new PacedText(chunk => { smd.parser_write(parser, chunk); reportCode(); options.onChange?.(); }, () => {
+    this.buffer = new PacedText((chunk, caughtUp) => {
+      smd.parser_write(parser, chunk);
+      if (!this.buffer.done && caughtUp) delete root.dataset.markdownParsing;
+      reportCode(); options.onChange?.();
+    }, () => {
       smd.parser_end(parser);
       while (stack.length > 1) close(false);
       delete root.dataset.markdownParsing;
@@ -431,7 +436,10 @@ export class Markdown {
     }, options);
   }
   get text() { return this.buffer.target; }
-  append(text) { this.buffer.append(text); }
+  append(text) {
+    this.buffer.append(text);
+    if (this.buffer.visible < this.buffer.target.length) this.root.dataset.markdownParsing = '';
+  }
   finish() {
     if (!this.parserEnded) this.root.dataset.markdownParsing = '';
     this.buffer.finish();

@@ -83,7 +83,7 @@ test('desktop and landscape composer menus open on the same side of their trigge
   }
 });
 
-test('typing keeps a valid composer ready while explicit send shows progress through admission and execution', { timeout: 90_000 }, async t => {
+test('an explicit send shows the captured new message in a temporary conversation before admission', { timeout: 90_000 }, async t => {
   const fixture = await browserFixture(t);
   const { page } = fixture;
   const model = page.getByRole('button', { name: /^Model:/ });
@@ -126,13 +126,13 @@ test('typing keeps a valid composer ready while explicit send shows progress thr
     await route.continue();
   });
   try {
+    const main = page.getByRole('main');
+    const reader = main.getByRole('region', { name: 'Conversation', exact: true });
     const draft = page.getByRole('combobox', { name: 'Task', exact: true });
     const send = page.getByRole('button', { name: 'Start task', exact: true });
     const status = page.getByRole('status').filter({ hasText: '正在提交消息…' });
     await draft.fill(prefix);
     await send.and(page.locator(':enabled')).waitFor();
-    const before = await send.boundingBox();
-    const draftBefore = await draft.boundingBox();
     await draft.press('End');
     await page.keyboard.insertText('!');
     await assessmentStarted.promise;
@@ -140,29 +140,21 @@ test('typing keeps a valid composer ready while explicit send shows progress thr
     assert.equal(await status.count(), 0, 'Typing and admission show no sending message before an explicit click');
     await send.click();
     const pending = page.getByRole('button', { name: '正在提交消息…', exact: true });
-    await pending.waitFor();
-    await status.waitFor();
-    assert.equal(await pending.getAttribute('aria-busy'), 'true');
-    assert.equal(await pending.isDisabled(), true);
-    assert.deepEqual(await pending.boundingBox(), before);
-    assert.deepEqual(await draft.boundingBox(), draftBefore);
-    const statusBox = await status.boundingBox();
-    assert.ok(insideViewport(statusBox, page.viewportSize()));
-    assert.ok(statusBox.y >= draftBefore.y + draftBefore.height &&
-      statusBox.y + statusBox.height <= before.y + before.height / 2,
-      'The status sits between the draft and send controls');
-    assert.equal(await draft.inputValue(), sent);
+    const captured = reader.getByText(sent, { exact: true });
+    const progress = reader.getByRole('status').filter({ hasText: '正在提交消息…' });
+    await captured.waitFor();
+    await progress.waitFor();
+    assert.equal(await draft.isVisible(), false);
+    assert.equal(await send.isVisible(), false);
+    assert.ok(insideViewport(await progress.boundingBox(), page.viewportSize()));
     assert.deepEqual(submissions, []);
-    const background = await pending.evaluate(button => getComputedStyle(button).backgroundColor);
-    assert.notEqual(background, await draft.evaluate(node => getComputedStyle(node.closest('form')).backgroundColor));
     admit.resolve();
     await commandStarted.promise;
-    assert.equal(await pending.getAttribute('aria-busy'), 'true');
-    assert.equal(await status.isVisible(), true);
+    assert.equal(await captured.isVisible(), true);
+    assert.equal(await progress.isVisible(), true);
     assert.deepEqual(submissions, [sent]);
     submit.resolve();
-    const reader = page.getByRole('region', { name: 'Conversation', exact: true });
-    await reader.getByText(sent, { exact: true }).waitFor();
+    await captured.waitFor();
     await status.waitFor({ state: 'hidden' });
     const generation = reader.getByRole('status').filter({ hasText: '正在生成回复…' });
     await generation.waitFor();
@@ -211,6 +203,74 @@ test('typing keeps a valid composer ready while explicit send shows progress thr
     admit.resolve();
     submit.resolve();
   }
+});
+
+test('a refused new conversation restores its draft and a late receipt respects another page', { timeout: 60_000 }, async t => {
+  const { page, command } = await browserFixture(t);
+  const refused = 'Keep this first message if it is refused.';
+  const later = 'Create this conversation in the background.';
+  const refusal = 'The submitted test message was refused.';
+  const releaseRefusal = Promise.withResolvers();
+  const releaseReceipt = Promise.withResolvers();
+  const created = Promise.withResolvers();
+  t.after(() => {
+    releaseRefusal.resolve();
+    releaseReceipt.resolve();
+  });
+  let createdCount = 0;
+  await page.route('**/api/assess', async route => {
+    const request = route.request().postDataJSON();
+    const message = request?.command?.message;
+    if (request?.command?.op !== 'create' || (typeof message === 'string' ? message : message?.[0]?.text) !== refused)
+      return route.continue();
+    const response = await route.fetch();
+    const observation = await response.json();
+    await releaseRefusal.promise;
+    await route.fulfill({ response, json: {
+      ...observation, admitted: false, refusal: { code: 'test_refusal', message: refusal },
+    } });
+  });
+  await page.route('**/api/browser/command', async route => {
+    const request = route.request().postDataJSON()?.command;
+    if (request?.op !== 'create') return route.continue();
+    createdCount++;
+    const response = await route.fetch();
+    const { reply } = await response.json();
+    assert.equal(reply.ok, true, JSON.stringify(reply));
+    created.resolve(reply.result.task_id);
+    await releaseReceipt.promise;
+    await route.fulfill({ response });
+  });
+  const main = page.getByRole('main');
+  const reader = main.getByRole('region', { name: 'Conversation', exact: true });
+  const draft = main.getByRole('combobox', { name: 'Task', exact: true });
+  const send = main.getByRole('button', { name: 'Start task', exact: true });
+  await draft.fill(refused);
+  await send.click();
+  await reader.getByText(refused, { exact: true }).waitFor();
+  releaseRefusal.resolve();
+  await draft.waitFor();
+  assert.equal(await draft.inputValue(), refused);
+  await main.getByText(refusal, { exact: true }).first().waitFor();
+  assert.equal(createdCount, 0);
+
+  await draft.fill(later);
+  await send.click();
+  await reader.getByText(later, { exact: true }).waitFor();
+  const task = await created.promise;
+  const projects = page.getByRole('navigation', { name: 'Global navigation', exact: true })
+    .getByRole('button', { name: '项目', exact: true });
+  await projects.click();
+  const newProject = main.getByRole('button', { name: '新建项目', exact: true });
+  await newProject.waitFor();
+  const receipt = page.waitForResponse(response => response.url().endsWith('/api/browser/command')
+    && response.request().postDataJSON()?.command?.op === 'create');
+  releaseReceipt.resolve();
+  await receipt;
+  assert.equal(await newProject.isVisible(), true);
+  assert.equal(await reader.count(), 0);
+  assert.equal(createdCount, 1);
+  assert.match(JSON.stringify((await command({ op: 'read', task_id: task })).messages), /Create this conversation in the background/);
 });
 
 test('project and directory choices open inside the composer menu and return to it', async t => {

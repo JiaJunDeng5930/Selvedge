@@ -1086,9 +1086,9 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
    (match placement with
     |IP.ChartViewport=>[("data-chart-viewport","");("tabindex","0");("role","region")]
     |_=>[] end) [] empty children
- |S.ReadingTimeline task_view reader_generation committed=>element "section"
+ |S.ReadingTimeline task_view reader_generation=>element "section"
  [("data-reading-root","true");("data-task-id",text_number(NavigationIdentity.task_view_task task_view));
-  ("data-reader-generation",text_number reader_generation);("data-reading-committed",flag committed)] [] empty children
+  ("data-reader-generation",text_number reader_generation)] [] empty children
  |S.PageBody page=>DOM.Element key (role_tag role) attrs (styles++Layout.page_properties env page) [] empty children
  |S.PageRegion region position=>
    let region_attr:=[("data-page-region",Composition.region_name region)] in

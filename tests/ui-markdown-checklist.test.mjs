@@ -56,17 +56,21 @@ test('interactive answer sections keep a readable outline and each source contro
   const deadline = Date.now() + 10_000;
   while (!fixture.requests[0] && Date.now() < deadline) await delay(10);
   assert.ok(fixture.requests[0], 'The conversation started its model request');
-  const fence = (id, label, extra = '') => [
+  const fence = (id, children) => [
     '```selvedge-ui',
-    `<ui id="${id}"><stack id="layout"><metric id="value" label="${label}" value="3"/>${extra}</stack></ui>`,
+    `<ui id="${id}"><stack id="layout">${children}</stack></ui>`,
     '```',
   ].join('\n');
+  const chart = (id, label) =>
+    `<bar-chart id="${id}" label="${label}" data={[{id:"a",product:"线轴",count:3}]} row-key="id" x="product" y="count"/>`;
   fixture.finish(0, { text: [
-    '这份答复包含两个交互章节。',
+    '这份答复包含四个交互章节。',
     '| 产品 | 数量 |\n| --- | --- |\n| 线轴 | 3 |\n| 织针 | 7 |',
-    '## 1. 指标概览', fence('summary', '访问量'),
-    '## 2. 详细检查', fence('detail', '完成项',
-      '<table id="counts" label="产品明细" row-key="id" rows={[{id:"a",product:"线轴",count:3},{id:"b",product:"织针",count:7}]}><column id="product" field="product" label="产品"/><column id="count" field="count" label="数量"/></table><button id="reset" label="重置本区" action="reset"/>'),
+    '## 1. 指标概览', fence('summary', '<metric id="value" label="访问量" value="3"/>'),
+    '## 2. 详细检查', fence('detail',
+      '<metric id="value" label="完成项" value="3"/><table id="counts" label="产品明细" row-key="id" rows={[{id:"a",product:"线轴",count:3},{id:"b",product:"织针",count:7}]}><column id="product" field="product" label="产品"/><column id="count" field="count" label="数量"/></table><button id="reset" label="重置本区" action="reset"/>'),
+    '## 3. 单图', fence('single', chart('single-chart', '单图数据')),
+    '## 4. 图表比较', fence('compare', chart('a', '甲') + chart('b', '乙')),
     '```text\nOrdinary code with its own actions.\n```',
   ].join('\n\n') });
   const { task } = await taskIdle(running.service, task_id);
@@ -75,7 +79,9 @@ test('interactive answer sections keep a readable outline and each source contro
   const timeline = page.getByRole('main').getByRole('region', { name: 'Conversation', exact: true });
   const heading = timeline.getByRole('heading', { name: '2. 详细检查', exact: true });
   const panels = timeline.locator('.code-block[data-interactive-active="true"]');
-  await panels.nth(1).waitFor();
+  const single = panels.filter({ has: timeline.getByText('单图数据', { exact: true }) });
+  const compare = panels.filter({ has: timeline.getByText('乙', { exact: true }) });
+  await compare.waitFor();
 
   for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 800 });
@@ -103,8 +109,8 @@ test('interactive answer sections keep a readable outline and each source contro
         footerInset: controls.left - code.getBoundingClientRect().left,
         sharesRow: Math.abs(action.top + action.height / 2 - reset.top - reset.height / 2) <= 1 &&
           reset.right < action.left && Math.abs(reset.left - controls.left) <= 2,
-        sourceAtEnd: Math.abs(action.right - controls.right) <= 2 &&
-          Math.abs(action.right - standalone.right) <= 2,
+        compactFooter: action.left - reset.right <= 8 &&
+          Math.abs(standalone.left - controls.left) <= 2,
         quietSource: action.width >= 32 && action.height >= 32 && action.width < reset.width &&
           text.getBoundingClientRect().width <= 1,
         footerFits: controls.left >= 0 && controls.right <= innerWidth + 1,
@@ -114,7 +120,7 @@ test('interactive answer sections keep a readable outline and each source contro
     assert.ok(geometry.precedingGap > geometry.contentGap, 'Section boundaries are clearer than gaps inside a section');
     assert.ok(Math.abs(geometry.footerInset) <= 2 && geometry.footerFits, 'The footer fits its own section');
     assert.ok(geometry.sharesRow, 'Reset and source actions share one footer row');
-    assert.ok(geometry.sourceAtEnd, 'The source control stays at the footer end with or without Reset');
+    assert.ok(geometry.compactFooter, 'The source control stays beside its fence actions at the leading edge');
     assert.ok(geometry.quietSource, 'The source control is an icon with a full button target');
     const tableChrome = await timeline.getByRole('table').evaluateAll(tables => tables.map(table => {
       const header = getComputedStyle(table.tHead.rows[0].cells[0]);
@@ -124,7 +130,29 @@ test('interactive answer sections keep a readable outline and each source contro
     assert.equal(tableChrome.length, 2);
     assert.deepEqual(tableChrome[0], tableChrome[1], 'Markdown and authored tables share the same header and row separators');
     assert.equal(tableChrome[0].at(-1), '0px');
+    const positions = async panel => {
+      const source = panel.getByRole('button', { name: '展开源码', exact: true });
+      const actions = await panel.getByText('查看数据', { exact: true }).all();
+      return Promise.all([source, ...actions].map(action => action.boundingBox()));
+    };
+    const [singleSource, singleData] = await positions(single);
+    assert.ok(singleSource.x + singleSource.width <= singleData.x &&
+      singleData.x - (singleSource.x + singleSource.width) <= 8 &&
+      Math.abs(singleSource.y - singleData.y) <= 1, 'One chart presents its source beside its data');
+    const [compareSource, firstData, lastData] = await positions(compare);
+    assert.ok(firstData.y < lastData.y && lastData.y + lastData.height <= compareSource.y &&
+      compareSource.x <= lastData.x, 'Multiple charts have separate data controls and one shared source underneath');
   }
+
+  const chartData = single.getByRole('table', { name: '图表数据', exact: true });
+  await single.getByText('查看数据', { exact: true }).press('Enter');
+  await chartData.waitFor();
+  await single.getByRole('button', { name: '展开源码', exact: true }).press('Enter');
+  await single.locator('pre').waitFor();
+  assert.equal(await chartData.isVisible(), true);
+  await single.getByRole('button', { name: '收起源码', exact: true }).press('Enter');
+  await single.locator('pre').waitFor({ state: 'hidden' });
+  assert.equal(await chartData.isVisible(), true);
 
   const detail = panels.nth(1);
   const footer = detail.locator('[data-semantic-key="interactive-markdown/source-controls"]');
@@ -249,4 +277,56 @@ test('interactive fences keep their original source collapsed while the preview 
   assert.equal(await hide.getAttribute('aria-expanded'), 'true');
   await hide.press('Enter');
   await raw.waitFor({ state: 'hidden' });
+});
+
+test('opening a running conversation lands at the available reply without replaying its history', { timeout: 60000 }, async t => {
+  const fixture = await browserFixture(t);
+  const { page, command, profile, running } = fixture;
+  const { task_id } = await command({ op: 'create', profile, message: 'Prepare a detailed report.' });
+  const deadline = Date.now() + 15_000;
+  while (!fixture.requests[0] && Date.now() < deadline) await delay(10);
+  assert.ok(fixture.requests[0]);
+  const earlier = Array.from({ length: 7 }, (_, index) => [
+    `## Report section ${index + 1}`, 'Prior report text. '.repeat(250),
+    '```selvedge-ui\n' + `<ui id="report-${index}"><metric id="total" label="Total" value="4"/></ui>` + '\n```',
+  ].join('\n\n')).join('\n\n');
+  fixture.finish(0, { text: earlier });
+  const { task } = await taskIdle(running.service, task_id);
+  const question = 'Continue the detailed report.';
+  await command({ op: 'send', task_id, message: question });
+  const liveDeadline = Date.now() + 15_000;
+  while (!fixture.requests[1] && Date.now() < liveDeadline) await delay(10);
+  assert.ok(fixture.requests[1]);
+  const live = 'Live reply at the end.';
+  fixture.emit(1, live + '\n\n```selvedge-ui\n<ui id="new-report">\n');
+  await page.evaluate(({ question, live }) => {
+    window.firstRunningConversation = new Promise(resolve => {
+      const sample = () => {
+        const reader = document.querySelector('main section[aria-label="Conversation"]');
+        if (!reader || getComputedStyle(reader).opacity === '0' || getComputedStyle(reader).visibility !== 'visible') {
+          requestAnimationFrame(sample);
+          return;
+        }
+        const view = reader.getBoundingClientRect();
+        const inView = text => [...reader.querySelectorAll('p')].some(node => {
+          if (node.textContent !== text) return false;
+          const rect = node.getBoundingClientRect();
+          return rect.top >= view.top && rect.bottom <= view.bottom;
+        });
+        resolve({ latestMessage: inView(question), liveReply: inView(live) });
+      };
+      requestAnimationFrame(sample);
+    });
+  }, { question, live });
+  await page.getByRole('navigation', { name: 'Task tree', exact: true })
+    .getByRole('button', { name: task.title, exact: true }).click();
+  const timeline = page.getByRole('region', { name: 'Conversation', exact: true });
+  await timeline.getByText(live, { exact: true }).waitFor();
+  assert.deepEqual(await page.evaluate(() => window.firstRunningConversation),
+    { latestMessage: true, liveReply: true });
+  const more = 'The next part continues below.';
+  fixture.emit(1, '<metric id="live" label="Live total" value="5"/></ui>\n```\n\n' + more + '\n\n');
+  await timeline.getByText(more, { exact: true }).waitFor();
+  assert.equal(await page.getByText('正在加载对话…', { exact: true }).isVisible(), false);
+  fixture.finish(1);
 });

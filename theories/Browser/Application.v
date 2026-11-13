@@ -311,7 +311,7 @@ Definition native_stream (request:json) (context:prepared) : option (json * list
   let view:=LiveUpdate.updated_view update in
   Document.compile_node describe env generation
    (match view with PrimaryTask _=>Document.PageArea|SideTask _=>Document.DialogArea end)
-   false (S.ReadingTimeline view (LiveUpdate.updated_reader_generation update) false) (Some view) None
+   false (S.ReadingTimeline view (LiveUpdate.updated_reader_generation update)) (Some view) None
    (LiveUpdate.updated_preview update) in
  Some(JObject[("mode",JString "stream");("targets",JArray(map(fun update=>
     JString(S.node_key(LiveUpdate.updated_preview update)))patch))],map compile patch).

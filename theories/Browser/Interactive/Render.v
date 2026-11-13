@@ -481,13 +481,43 @@ Definition source_disclosure key b : scene :=
  let label:=if expanded then "收起源码" else "展开源码" in
  S.Node key "interactive-markdown/source-disclosure" label R.Button
    (S.PanelToggle expanded (M.Control key label M.Secondary (SourceDisclosure b.(block_owner)) M.Available)) [].
+Definition chart_footer_source key source chart : option scene :=
+ let disclosure child:=String.eqb (S.semantic_key child) "interactive-markdown/chart-disclosure" in
+ let children:=S.node_children chart in
+ if existsb disclosure children then
+   Some (with_children chart (map (fun child=>
+     if disclosure child then
+       S.Node (key+++"/@chart-controls") "interactive-markdown/chart-controls" "" R.Toolbar S.Region
+         [source;child]
+     else child) children))
+ else None.
+Definition single_chart_source key source body : option (list scene) :=
+ match body with
+ | [node] =>
+   if component_has_tag "stack" node then
+     match S.node_children node with
+     | [chart] => option_map (fun chart=>[with_children node [chart]]) (chart_footer_source key source chart)
+     | _ => None
+     end
+   else option_map (fun chart=>[chart]) (chart_footer_source key source node)
+ | _ => None
+ end.
 Definition content identity b prepared nodes budget : list scene :=
  let key:=CodeSource.key identity in
  let '(body,footer):=split_footer_reset (admitted_content identity b prepared nodes budget) in
- body++
- (match b.(block_ending) with Interrupted=>[text (key+++"/@interrupted") "生成未完成（仅保留在本次浏览器会话）"]|_=>[] end)++
- [S.Node (key+++"/@source-controls") "interactive-markdown/source-controls" "" R.Toolbar S.Region
-  (footer++[source_disclosure key b])].
+ let source:=source_disclosure key b in
+ let ending:=match b.(block_ending) with
+  |Interrupted=>[text (key+++"/@interrupted") "生成未完成（仅保留在本次浏览器会话）"]
+  |_=>[] end in
+ let standalone:=body++ending++
+   [S.Node (key+++"/@source-controls") "interactive-markdown/source-controls" "" R.Toolbar S.Region (footer++[source])] in
+ match footer,ending with
+ | [],[] => match single_chart_source key source body with
+   | Some chart => chart
+   | None => standalone
+   end
+ | _,_ => standalone
+ end.
 Definition fence identity b prepared nodes budget : scene :=
  S.Node (CodeSource.key identity+++"/@interactive") "interactive-markdown/fence" "" R.Content
   (S.InteractiveRegion (DocumentPublication.interactive identity (source_open b))) (content identity b prepared nodes budget).

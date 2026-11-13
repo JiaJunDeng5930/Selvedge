@@ -815,8 +815,20 @@ test('the board keeps empty stages visible and counts only matching cards linked
     && tracks.every(track => Math.abs(track.top - tracks[0].top) < 1 && Math.abs(track.bottom - tracks[0].bottom) < 1),
     'Empty stages have the same track extent as a populated neighbor');
   const review = board.getByRole('region', { name: '待审核，0 张卡片', exact: true });
+  assert.equal(await review.evaluate(lane => getComputedStyle(lane).backgroundColor), 'rgba(0, 0, 0, 0)');
+  await review.evaluate(lane => {
+    window.laneDragFeedback = [];
+    for (const event of ['dragover', 'drop']) lane.addEventListener(event, () => {
+      const style = getComputedStyle(lane);
+      window.laneDragFeedback.push({ event, highlight: style.boxShadow !== 'none' && style.backgroundColor !== 'rgba(0, 0, 0, 0)' });
+    });
+  });
   await card.locator('[data-card-grip]').dragTo(review, { targetPosition: { x: 30, y: 100 } });
-  await board.getByRole('region', { name: '待审核，1 张卡片', exact: true }).getByRole('article', { name: title, exact: true }).waitFor();
+  const moved = board.getByRole('region', { name: '待审核，1 张卡片', exact: true });
+  await moved.getByRole('article', { name: title, exact: true }).waitFor();
+  assert.ok(await page.evaluate(() => window.laneDragFeedback.some(item => item.highlight)),
+    'A card dragged over an empty stage makes its drop destination visible');
+  assert.equal(await moved.evaluate(lane => getComputedStyle(lane).boxShadow), 'none');
   await card.getByRole('button', { name: '卡片操作', exact: true }).click();
   await page.getByRole('dialog', { name: '卡片操作', exact: true })
     .getByRole('button', { name: '移动卡片', exact: true }).click();

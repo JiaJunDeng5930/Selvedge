@@ -259,6 +259,32 @@ Definition selection_intent state:=State.with_navigation
  (set State.generation N.succ(State.navigation_state state))state.
 Definition foreground_current navigation layer state:=
  N.eqb navigation(State.generation(State.navigation_state state))&&N.eqb layer(State.next_layer state).
+Definition creating_conversation state : option Draft.text :=
+ let navigation:=State.navigation_state state in
+ let pending draft generation layer :=
+  if foreground_current generation layer state then
+   match Draft.contents draft with
+   |Draft.NewTaskBody message _ _ _ _ work=>
+    if same_work work (State.active_work navigation) then Some message else None
+   |_=>None end
+  else None in
+ match State.location navigation with
+ |Start=>
+  let captured:=hd_error(flat_map(fun entry=>match State.purpose entry with
+   |State.DraftSubmission draft generation layer _
+   |State.DraftAdmission draft _ generation layer _
+   |State.ProjectPreference draft _ generation layer _=>
+    match pending draft generation layer with Some message=>[message]|None=>[]end
+   |_=>[] end)(State.awaiting(State.authoring_state state)))in
+  match captured with Some _=>captured|None=>
+   hd_error(flat_map(fun resource=>
+    match Services.captured_preparation resource,resource_request resource with
+    |true,Some request=>match pending (Services.preparation_draft request)
+      (Services.preparation_generation request) (Services.preparation_layer request) with
+      |Some message=>[message]|None=>[]end
+    |_,_=>[]end)(Services.preparations(State.service_state state)))
+  end
+ |_=>None end.
 Definition create_work snapshot state:=
  match State.layers(State.navigation_state state)with
  |layer::_=>match State.layer_panel layer with

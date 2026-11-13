@@ -49,6 +49,19 @@ Definition creation_page snapshot s parent :=
  [page_region parent Composition.CreationIntroduction Composition.BodyPosition
    (information parent "creation/title" Information.IntroductionTitle(creation_heading snapshot s e)::graph_return);
   creation_composer snapshot s parent].
+Definition creating_conversation_page parent (message:Draft.text) : list(node Input.input) :=
+ let pending:=part parent "pending-conversation" in
+ [Node pending "pending-conversation" "Conversation" Roles.Section (PageContext None)
+  [page_region pending Composition.ConversationHeader Composition.HeadingPosition
+    [page_region pending Composition.ConversationTitle Composition.HeadingPosition
+      [title pending Navigation.new_conversation_label]];
+   page_region pending Composition.TimelineContent Composition.BodyPosition
+    [region pending "pending-conversation-reading" "Conversation" Roles.Section
+     (let text:=Draft.text_value message in
+      (if String.eqb text "" then [] else
+       [region pending "pending-user-message" "Message" Roles.UserMessage
+        [Node(part pending "message-text")"message-text" "" Roles.Content (ReadOnly text)[]]])++
+      [information pending "pending-first-reply" Information.Status "正在提交消息…"])]]].
 Definition approval_availability value:=match ObjectActions.action_status value with
 |ObjectActions.Available=>Available|ObjectActions.InFlight=>Busy "This action is pending"|ObjectActions.Awaiting=>Unavailable "Checking action availability"
 |ObjectActions.Unavailable reason|ObjectActions.AssessmentFailed reason=>Unavailable reason end.
@@ -215,7 +228,7 @@ Definition task_contents snapshot s view parent task header_leading :=
  [page_region parent Composition.TimelineContent Composition.BodyPosition
    (discarded_unfinished_notice s id parent ++
     [Node(NavigationIdentity.task_view_key view "timeline")"timeline" "Conversation"Roles.Timeline
-      (ReadingTimeline view(State.reader_generation(SessionNavigation.reader_for s id))(negb(Read.task_working task)))timeline;
+      (ReadingTimeline view(State.reader_generation(SessionNavigation.reader_for s id)))timeline;
      information parent "reading-initial-status" Information.Status "正在加载对话…"] ++
     if SessionNavigation.return_latest s id then
     [page_region parent Composition.LatestAction Composition.BodyPosition
@@ -345,15 +358,19 @@ Definition shared_page snapshot s work parent :=
    page_region parent Composition.SharedContent Composition.BodyPosition
     (let contents:=AuditReading.shared_ui Input.Interactive(document_context snapshot s)(State.document_retention s)(State.interactive_state s)in
      match contents with []=>[read_only parent "shared-empty" "共享 UI 尚未创建" "请让智能体创建共享 UI。"]|_=>contents end)]end.
-Definition page_contents snapshot s parent :=match State.location(State.navigation_state s)with
+Definition page_contents snapshot s pending parent :=match pending with
+|Some message=>creating_conversation_page parent message
+|None=>match State.location(State.navigation_state s)with
 |Start|GraphConversation _ _=>creation_page snapshot s parent
 |Conversation task=>conversation_page snapshot s(PrimaryTask task)parent
 |Projects=>Collections.projects_page snapshot s parent
 |ProjectHome id=>match find_project id snapshot with Some project=>Collections.project_page snapshot s parent project|None=>missing parent "This project no longer exists"end
 |Board=>Collections.board_page snapshot s parent
 |Graphs=>Collections.graphs_page snapshot s parent|HistorySearch=>history_page snapshot s parent
-|SharedUI work task=>shared_page snapshot s work parent end.
-Definition page_kind snapshot s :=match State.location(State.navigation_state s)with
+|SharedUI work task=>shared_page snapshot s work parent end end.
+Definition page_kind_with snapshot s (pending:option Draft.text) :=match pending with
+|Some _=>Composition.Conversation false false
+|None=>match State.location(State.navigation_state s)with
 |Start|GraphConversation _ _=>Composition.Creation true
 |Conversation task=>match find_task task snapshot with
  |None=>Composition.Unavailable
@@ -363,5 +380,8 @@ Definition page_kind snapshot s :=match State.location(State.navigation_state s)
 |ProjectHome id=>match find_project id snapshot with Some _=>Composition.ProjectOverview|None=>Composition.Unavailable end
 |Board=>Composition.TaskBoard|Graphs=>Composition.TaskGraphCollection
 |HistorySearch=>Composition.HistorySearchCollection
-|SharedUI work _=>match find_work work snapshot with Some _=>Composition.SharedInterface|None=>Composition.Unavailable end end.
-Definition main snapshot s :=Node "/main" "main" "Main content"Roles.Main(PageBody(page_kind snapshot s))(page_contents snapshot s "/main").
+|SharedUI work _=>match find_work work snapshot with Some _=>Composition.SharedInterface|None=>Composition.Unavailable end end end.
+Definition page_kind snapshot s :=page_kind_with snapshot s (SessionNavigation.creating_conversation s).
+Definition main snapshot s :=
+ let pending:=SessionNavigation.creating_conversation s in
+ Node "/main" "main" "Main content"Roles.Main(PageBody(page_kind_with snapshot s pending))(page_contents snapshot s pending "/main").

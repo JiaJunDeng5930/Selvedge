@@ -66,6 +66,19 @@
   padding-inline: .25rem;
   color: var(--selvedge-muted);
 }
+[data-semantic-key="pending-conversation-reading"] {
+  gap: .75rem !important;
+  padding-inline: 6px;
+}
+[data-semantic-key="pending-user-message"] {
+  max-inline-size: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+[data-semantic-key="pending-first-reply"] {
+  color: var(--selvedge-muted) !important;
+  padding-inline: .25rem;
+}
 [data-reading-root]:has([data-markdown-parsing], .code-block[data-interactive-preview-candidate]:not([data-interactive-active], [data-interactive-preview-failed]))
   > button[data-semantic-key="fork-current-history"] {
   visibility: hidden;

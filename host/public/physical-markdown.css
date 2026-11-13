@@ -144,8 +144,15 @@
   border-radius: .5rem;
   background: var(--selvedge-inset);
 }
-button[data-source-disclosure] {
+:is(button[data-source-disclosure], [data-semantic-key="interactive-markdown/chart-controls"]) {
   --source-disclosure-target: max(2rem, 32px);
+}
+@media (pointer: coarse) {
+  :is(button[data-source-disclosure], [data-semantic-key="interactive-markdown/chart-controls"]) {
+    --source-disclosure-target: max(2.75rem, 44px);
+  }
+}
+button[data-source-disclosure] {
   flex: none;
   inline-size: var(--source-disclosure-target) !important;
   min-inline-size: var(--source-disclosure-target) !important;
@@ -156,9 +163,6 @@ button[data-source-disclosure] {
   background: transparent !important;
   color: var(--selvedge-muted) !important;
   cursor: pointer;
-}
-@media (pointer: coarse) {
-  button[data-source-disclosure] { --source-disclosure-target: max(2.75rem, 44px); }
 }
 button[data-source-disclosure]:is(:hover, :focus-visible, [aria-expanded="true"]) {
   background: var(--selvedge-inset) !important;
@@ -211,18 +215,34 @@ button[data-source-disclosure]::after {
   margin-block-start: max(1.35rem, calc(2 * var(--physical-block-gap)));
 }
 [data-semantic-key="interactive-markdown/source-controls"] {
+  display: flex !important;
+  flex-direction: row !important;
   align-items: center !important;
   flex-wrap: wrap !important;
-  column-gap: .5rem !important;
-  margin-block-start: .4rem;
-  padding-block-start: .2rem;
-
-  & > button[data-source-disclosure] { margin-inline-start: auto !important; }
+  gap: .25rem !important;
+  inline-size: 100% !important;
+  max-inline-size: 100% !important;
+  padding-block-start: .15rem;
+  border-block-start: 1px solid var(--selvedge-border) !important;
 
   & > [data-interactive-component="button"] {
     inline-size: fit-content !important;
     min-inline-size: 0 !important;
 
     & > button { font-size: var(--rich-support-size) !important; }
+  }
+}
+[data-semantic-key="interactive-markdown/chart-controls"] {
+  position: relative;
+  display: block !important;
+
+  /* Keep the source button outside the native summary activation target. */
+  & > button[data-source-disclosure] {
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline-start: .5rem;
+  }
+  & > [data-semantic-key="interactive-markdown/chart-disclosure"] > summary {
+    margin-inline-start: calc(.25rem + var(--source-disclosure-target)) !important;
   }
 }

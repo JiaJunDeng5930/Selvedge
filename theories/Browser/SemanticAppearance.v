@@ -117,7 +117,7 @@ Definition meaning_properties {Action} env activity (value : Surface.meaning Act
   | Surface.PageRegion region position => Layout.region_properties env region position
   | Surface.PageContext _ =>
       [("flex","1 1 auto");("min-block-size","0");("overflow","hidden")]
-  | Surface.ReadingTimeline _ _ _ =>
+  | Surface.ReadingTimeline _ _ =>
       [("flex","1 1 auto");("min-block-size","0");("overflow-y","auto");("overflow-x","hidden")]
   | Surface.ProjectGroup _ _ _ => [("display","flex"); ("flex-direction","column"); ("gap","0")]
   | Surface.TaskRow _ _ _ _ =>
