@@ -44,11 +44,14 @@ Fixpoint in_view {A} view (node:S.node A) : S.node A :=
  S.Node (NavigationIdentity.task_view_key view key) semantic label role (scope_meaning view meaning)
   (map (in_view view) children).
 Definition attachments {A} (on_interactive:Types.input->A) context retained interactive source :=
- fold_right (fun block rest=>match Documents.publication_identity context block.(block_owner) retained with
- |Some identity=>if String.eqb (CodeSource.source_key source) (CodeSource.source_key identity.(CodeSource.document_source))
-   then S.map_node on_interactive (Render.fence_for identity block (Documents.environment context false))::rest
-   else rest
- |None=>rest end) [] interactive.(blocks).
+ match source with
+ |CodeSource.Generated namespace viewer origin closed=>
+   let document:=Documents.Document viewer origin "" closed in
+   fold_right (fun block rest=>
+     match Documents.code_identity_for_document namespace document block.(block_owner) retained with
+     |Some identity=>S.map_node on_interactive (Render.fence_for identity block (Documents.environment context false))::rest
+     |None=>rest end) [] interactive.(blocks)
+ |_=>[] end.
 Definition reading {A} source value retained : S.meaning A :=
  match source with
  |CodeSource.Generated namespace viewer origin closed=>
@@ -116,29 +119,75 @@ Definition reply_pending (task:json) : option string :=
  |Some "active",Some "context_pending"
  |Some "active",Some "reasoning_pending"=>Some "正在生成回复…"
  |_,_=>None end.
-Definition timeline {A} (action:actions A) context retained interactive view disclosures : list (S.node A) :=
+Definition task_messages context task :=
+ value_or [] (option_map (items "history") (DocumentState.find_task task (context_world context))).
+Definition has_history context task :=
+ Audit.has_reading (task_messages context task).
+Definition history {A} (action:actions A) context retained interactive view disclosures : list (S.node A) :=
  let task:=NavigationIdentity.task_view_task view in
- let observed:=DocumentState.find_task task (context_world context) in
- let messages:=value_or[](option_map (items "history") observed) in
- let history:=map (group action context retained interactive task disclosures messages) (Audit.reading_groups 0 messages) in
- let live:=flat_map (fun output=>if N.eqb task (Streams.output_task output)
-   then map (preview action.(reading_interactive) context retained interactive output) (Streams.output_parts output) else []) (current_previews context) in
- let live:=match live with
- |[]=>match bind observed reply_pending with
-   |Some status=>
-     [S.Node "reply-pending" "reply-pending" status R.Content
-       (S.InformationText Information.Status) []]
-   |_=>[] end
- |_=>live end in
- let unfinished:=flat_map (retained_part action context retained interactive)
-   (filter (fun stamp=>N.eqb task (document_viewer stamp)) (Documents.retained_stamps context retained)) in
- let unfinished_section:=match unfinished with
+ let messages:=task_messages context task in
+ map (fun entry=>in_view view (group action context retained interactive task disclosures messages entry))
+   (Audit.reading_groups 0 messages).
+
+Inductive reply :=
+ | AwaitingReply (status:option string)
+ | LiveReply (output:Streams.live_output) (first:N*string) (rest:list(N*string)).
+Definition task_reply context task :=
+ match current_task_preview context task with
+ |Some output=>match Streams.output_parts output with
+   |first::rest=>LiveReply output first rest
+   |[]=>AwaitingReply (bind (DocumentState.find_task task (context_world context)) reply_pending)
+   end
+ |None=>AwaitingReply (bind (DocumentState.find_task task (context_world context)) reply_pending)
+ end.
+Definition reply_nodes {A} (action:actions A) context retained interactive task : list (S.node A) :=
+ match task_reply context task with
+ |AwaitingReply (Some status)=>[S.Node "reply-pending" "reply-pending" status R.Content
+    (S.InformationText Information.Status) []]
+ |AwaitingReply None=>[]
+ |LiveReply output first rest=>
+   map (preview action.(reading_interactive) context retained interactive output) (first::rest)
+ end.
+Definition unfinished_nodes {A} (action:actions A) context retained interactive task : list (S.node A) :=
+ match flat_map (retained_part action context retained interactive)
+   (Documents.task_retained_stamps context retained task) with
  |[]=>[]
  |parts=>[S.Node "unfinished-replies" "unfinished-replies" "未完成回复" R.Content S.Region
    (S.Node "unfinished-replies/heading" "heading" "未完成回复" R.Content
      (S.InformationText Information.GroupTitle) []::parts)]
- end in
- map (in_view view) (List.app history (List.app unfinished_section live)).
+ end.
+Definition task_reading_tail {A} (action:actions A) context retained interactive view : list (S.node A) :=
+ let task:=NavigationIdentity.task_view_task view in
+ map (in_view view) (List.app (unfinished_nodes action context retained interactive task)
+   (reply_nodes action context retained interactive task)).
+
+Fixpoint same_items {A} (equal:A->A->bool) (left right:list A) :=
+ match left,right with
+ |[],[]=>true
+ |item::rest,value::tail=>equal item value && same_items equal rest tail
+ |_,_=>false end.
+Definition same_reply before after task :=
+ match task_reply before task,task_reply after task with
+ |AwaitingReply (Some previous),AwaitingReply (Some next)=>String.eqb previous next
+ |AwaitingReply None,AwaitingReply None=>true
+ |LiveReply previous first rest,LiveReply next next_first next_rest=>
+   let same_part '(index,source) '(other,following):=
+     N.eqb index other && String.eqb source following &&
+     String.eqb (CodeSource.source_key (preview_source before previous index))
+       (CodeSource.source_key (preview_source after next other)) in
+   same_part first next_first && same_items same_part rest next_rest
+ |_,_=>false end.
+Definition same_retained_reply before after :=
+ String.eqb (document_identity before) (document_identity after) &&
+ N.eqb (document_epoch before) (document_epoch after) &&
+ Documents.same_ending (document_ending before) (document_ending after) &&
+ Bool.eqb (document_archived before) (document_archived after) &&
+ Bool.eqb (document_revealed before) (document_revealed after) &&
+ String.eqb (document_source before) (document_source after).
+Definition task_reply_changed before before_retention after after_retention task :=
+ negb (same_reply before after task &&
+   same_items same_retained_reply (Documents.task_retained_stamps before before_retention task)
+     (Documents.task_retained_stamps after after_retention task)).
 Definition shared_ui {A} (on_interactive:Types.input->A) context retained interactive : list (S.node A) :=
  fold_right (fun block rest=>match Documents.shared_work context block.(block_owner),
    Documents.publication_identity context block.(block_owner) retained with

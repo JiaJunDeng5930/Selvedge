@@ -167,6 +167,9 @@ Definition discarded_unfinished_notice s task parent:=
   [information key "discarded-unfinished-count" Information.Description
     ("已有 "++show_natural count++" 条未完成回复因会话容量限制被移除。");
    declared key Roles.Button(secondary "clear-discarded-unfinished" "清除此提示"(Input.ClearDiscarded task))]].
+Definition task_discarded_notice s task parent :=
+ region parent "discarded-unfinished-slot" "" Roles.Content
+   (discarded_unfinished_notice s task parent).
 Definition task_details_label := "任务详情".
 Definition task_details_control s task parent :=
  let expanded:=existsb(fun layer=>match State.layer_panel layer with
@@ -206,6 +209,10 @@ Definition task_actions_with_details snapshot s task parent hide_details :=
    task_side_controls snapshot s id parent).
 Definition task_has_composer s task :=negb(String.eqb(task_status task)"archived")||
  match Draft.find_draft(Message(task_id task))(State.drafts(State.authoring_state s))with Some _=>true|None=>false end.
+Definition task_composer_mounted snapshot s view :=
+ match find_task (NavigationIdentity.task_view_task view) snapshot with
+ |Some task=>task_has_composer s task
+ |None=>false end.
 Definition task_composer snapshot s view parent task :=
  let owner:=Message(task_id task)in
  if task_has_composer s task then match Editors.composer_view snapshot s owner(NavigationIdentity.task_view_key view(editor_key owner))with
@@ -233,24 +240,37 @@ Definition task_header snapshot s view parent task hide_details :=
  page_region parent Composition.ConversationHeader Composition.HeadingPosition
    (search_return_controls s view parent ++
     [task_title_region snapshot task parent;task_actions_with_details snapshot s task parent hide_details]).
+Definition timeline_tail snapshot s view parent task operations has_history :=
+ let id:=task_id task in
+ let reply:=AuditReading.task_reading_tail reading_actions (document_context snapshot s)
+   (State.document_retention s) (State.interactive_state s) view in
+ let has_reading:=has_history || negb (Nat.eqb (List.length reply) 0) in
+ let fork:=if has_reading && negb (Read.task_working task) then fork_history_control view else [] in
+ let contents:=List.app reply (List.app (operation_controls snapshot s id parent operations) fork) in
+ let contents:=match has_history,contents with false,[]=>
+   [information parent "conversation-empty" Information.Description "Messages and task activity will appear here."]
+  |_,_=>contents end in
+ Node (NavigationIdentity.task_view_key view "timeline-tail") "timeline-tail" "" Roles.Content Region contents.
+Definition task_timeline_tail snapshot s view parent task operations :=
+ timeline_tail snapshot s view parent task operations
+   (AuditReading.has_history (document_context snapshot s) (task_id task)).
+Definition task_latest_action s task parent : list (node Input.input) :=
+ if SessionNavigation.return_latest s task then
+ [page_region parent Composition.LatestAction Composition.BodyPosition
+   [declared parent Roles.Button(secondary "latest" "Return to latest"(Input.FollowLatest task))]]
+ else [].
 Definition task_timeline snapshot s view parent task operations :=
  let id:=task_id task in
- let history:=AuditReading.timeline reading_actions(document_context snapshot s)(State.document_retention s)
-   (State.interactive_state s)view(reader_disclosures id s)in
- let tail:=if Read.task_working task then [] else
-   match history with []=>[]|_=>fork_history_control view end in
- let timeline:=List.app history(List.app(operation_controls snapshot s id parent operations)tail)in
- let timeline:=match timeline with []=>
-   [information parent "conversation-empty" Information.Description "Messages and task activity will appear here."]
-  |_=>timeline end in
+ let history:=AuditReading.history reading_actions (document_context snapshot s)
+   (State.document_retention s) (State.interactive_state s) view (reader_disclosures id s) in
+ let has_history:=match history with []=>false|_=>true end in
+ let tail:=timeline_tail snapshot s view parent task operations has_history in
  page_region parent Composition.TimelineContent Composition.BodyPosition
-   (discarded_unfinished_notice s id parent ++
-    [Node(NavigationIdentity.task_view_key view "timeline")"timeline" "Conversation"Roles.Timeline
-      (ReadingTimeline view(State.reader_generation(SessionNavigation.reader_for s id)))timeline;
+   ([task_discarded_notice s id parent;
+     Node(NavigationIdentity.task_view_key view "timeline")"timeline" "Conversation"Roles.Timeline
+      (ReadingTimeline view(State.reader_generation(SessionNavigation.reader_for s id)))(List.app history [tail]);
      information parent "reading-initial-status" Information.Status "正在加载对话…"] ++
-    if SessionNavigation.return_latest s id then
-    [page_region parent Composition.LatestAction Composition.BodyPosition
-      [declared parent Roles.Button(secondary "latest" "Return to latest"(Input.FollowLatest id))]]else[]).
+    task_latest_action s id parent).
 Definition task_contents snapshot s view parent task hide_details :=
  let id:=task_id task in
  let operations:=value_or[](Read.task_operations id snapshot)in

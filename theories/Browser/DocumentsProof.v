@@ -264,7 +264,7 @@ Theorem synchronized_retention_respects_limits : forall context lagged s,
  (forall task,(task_live_count task stamps<=Bounds.retained_per_task)%nat) /\
  (archived_bytes stamps<=Bounds.retained_source_bytes)%nat.
 Proof.
- intros context lagged s. unfold synchronize_documents.
+ intros context lagged s. unfold synchronize_documents,limit_retained_documents.
  cbn zeta.
  match goal with
  | |- context[trim_archives ?stamps 0%nat]=>
@@ -332,7 +332,7 @@ Qed.
 Theorem synchronized_epoch_allocator_never_decreases : forall context lagged s,
  (retention_next_epoch(s)<=retention_next_epoch(synchronize_documents context lagged s))%N.
 Proof.
- intros context lagged s. unfold synchronize_documents;cbn zeta.
+ intros context lagged s. unfold synchronize_documents,limit_retained_documents;cbn zeta.
  match goal with
  | |- context[trim_archives ?stamps 0%nat]=>
    destruct(trim_archives stamps 0%nat)as [kept discarded]eqn:Trim

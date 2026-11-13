@@ -47,6 +47,10 @@ Export SurfaceProofs(unavailable_control_cannot_press,
     region. A draft edit updates the affected composer and its suggestions.
     A layer change updates that layer and the controls that opened it. The
     rest of the conversation keeps its mounted reading content and controls.
+    A task title or run status changes only the regions that display that
+    information. Starting, restoring or ending a reply updates its preview
+    where it is visible, while committed history stays mounted. A new history
+    entry is read only in the views of its own task.
     When generated text extends a published prefix, the current reply receives
     the append even if it already contains an interactive component. The
     displayed generation governs input admission, and observations still run
@@ -283,9 +287,8 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     Appending to a mounted reply within the same document lifetime may publish
     its Markdown preview independently. Existing authored components remain
     mounted in their Markdown targets and retain their action bindings. New
-    components enter through the ordinary parser observations. A picker
-    projected separately must use the same overlays and focus scope as the
-    complete view.
+    components enter through the ordinary parser observations. The picker
+    uses the shared overlay projection and focus scope.
 
     Motor targets, writing-line demand, reading width and clearance have different
     purposes. Their observed fonts and dimensions cannot substitute for one

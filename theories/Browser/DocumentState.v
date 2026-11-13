@@ -86,15 +86,23 @@ Definition task_belongs := World.task_belongs.
 Definition visible_tasks observation :=
  fold_left (fun tasks view=>let task:=NavigationIdentity.task_view_task view in
    if existsb (N.eqb task) tasks then tasks else tasks++[task]) (context_views observation) [].
-Definition preview_operation observation identity :=
- task<-find_task (Streams.stream_task identity) (context_world observation);;
- pending<-field "model_pending" task;; ticket<-natural_field "ticket" pending;;
- if N.eqb ticket (Streams.stream_ticket identity) then natural_field "operation_id" pending else None.
+Definition pending_preview observation viewing :=
+ task<-find_task viewing (context_world observation);;
+ pending<-field "model_pending" task;;
+ ticket<-natural_field "ticket" pending;;
+ operation<-natural_field "operation_id" pending;;
+ Some (ticket, operation).
 
 Definition current_preview observation identity :=
- operation<-preview_operation observation identity;;
- Streams.cumulative (context_streams observation) (Streams.stream_task identity)
-   (Streams.stream_ticket identity) operation.
+ let viewing:=Streams.stream_task identity in
+ pending<-pending_preview observation viewing;;
+ if N.eqb (fst pending) (Streams.stream_ticket identity)
+ then Streams.cumulative (context_streams observation) viewing (fst pending) (snd pending)
+ else None.
+
+Definition current_task_preview observation viewing :=
+ pending<-pending_preview observation viewing;;
+ Streams.cumulative (context_streams observation) viewing (fst pending) (snd pending).
 
 Definition current_previews observation :=
  fold_right (fun entry rest=>match current_preview observation (Streams.stream_identity entry) with

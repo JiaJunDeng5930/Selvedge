@@ -67,23 +67,71 @@ Definition task_attention (task:Read.task) : option task_notice :=
   if String.eqb status "stopped" then Some NoticeStopped else
   if task_working task then Some NoticeRunning else None
  end.
+Definition task_row current key (task:Read.task) (disclosure:option bool) : node Input.input :=
+ let id:=task_id task in
+ let selected:=task_selected current task in
+ let toggle:=match disclosure with None=>[]|Some expanded=>
+  let label:=(if expanded then "Collapse branches of " else "Expand branches of ")++task_title task in
+  [Node(part key "toggle-branches")"toggle-branches" label Roles.Button
+   (PanelToggle expanded(secondary "toggle-branches" label(Input.ToggleTaskBranches id)))[]]end in
+ Node key "task-entry" (task_title task) Roles.Section
+  (TaskRow id(task_status task)(task_attention task)selected)
+  (toggle ++ [declared key(Roles.NavigationEntry selected)
+     (secondary "open"(task_title task)(Input.Navigate(Conversation id)))])%list.
+Definition with_task_branches (header:node Input.input) branches : node Input.input :=
+ let 'Node key semantic label role meaning controls:=header in
+ Node key semantic label role meaning (controls ++ branches)%list.
 Fixpoint task_entry_tree current collapsed parent (tree:task_tree) : node Input.input :=
  let 'TaskTree task children:=tree in
  let id:=task_id task in
  let key:=part parent("task/"++show_natural id)in
  let expanded:=negb(existsb(N.eqb id)collapsed)in
- let disclosure:=match children with []=>[]|_=>
-  let label:=(if expanded then "Collapse branches of " else "Expand branches of ")++task_title task in
-  [Node(part key "toggle-branches")"toggle-branches" label Roles.Button
-   (PanelToggle expanded(secondary "toggle-branches" label(Input.ToggleTaskBranches id)))[]]end in
- Node key "task-entry" (task_title task) Roles.Section
-  (TaskRow id(task_status task)(task_attention task)(task_selected current task))
-  (disclosure ++ [declared key(Roles.NavigationEntry(task_selected current task))
-      (secondary "open"(task_title task)(Input.Navigate(Conversation id)))] ++
-   match children,expanded with
-   |[],_ |_,false=>[]
-   |_,true=>[Node(part key "children")"task-children" "Subtasks" Roles.NavigationCollection
-         (TaskChildren id)(map(task_entry_tree current collapsed key)children)]end)%list.
+ let disclosure:=match children with []=>None|_=>Some expanded end in
+ with_task_branches (task_row current key task disclosure)
+   (match disclosure with
+    |Some true=>[Node(part key "children")"task-children" "Subtasks" Roles.NavigationCollection
+      (TaskChildren id)(map(task_entry_tree current collapsed key)children)]
+    |_=>[]end).
+
+Record task_row_projection := TaskRowProjection {
+  previous_row_controls : list (node Input.input);
+  projected_task_row : node Input.input;
+  projected_task_entry : node Input.input
+}.
+
+(* A task observation can change the header independently of the mounted branch. *)
+Definition project_task_row current (task:Read.task) (previous:node Input.input) : option task_row_projection :=
+ match node_meaning previous with
+ |TaskRow id _ _ _=>
+  if N.eqb id (task_id task) then
+   let '(branches,controls):=partition
+     (fun child=>match node_meaning child with TaskChildren _=>true|_=>false end)
+     (node_children previous) in
+   let disclosure:=fold_right (fun child rest=>match node_meaning child with
+     |PanelToggle expanded _=>Some expanded|_=>rest end) None controls in
+   let row:=task_row current (Surface.node_key previous) task disclosure in
+   Some (TaskRowProjection controls row (with_task_branches row branches))
+  else None
+ |_=>None end.
+Definition collect_task_rows
+    (project : node Input.input -> node Input.input * list task_row_projection) :=
+ fold_right (fun child result=>
+   let '(nodes,rows):=result in
+   let '(current,projected):=project child in
+   (current::nodes,(projected++rows)%list)) ([],[]).
+Fixpoint project_changed_task_node current (changed:N->option Read.task)
+    (previous:node Input.input) : node Input.input * list task_row_projection :=
+ let 'Node key semantic label role meaning children:=previous in
+ let '(children,rows):=collect_task_rows (project_changed_task_node current changed) children in
+ let mounted:=match rows with []=>previous|_=>Node key semantic label role meaning children end in
+ let projection:=match meaning with
+   |TaskRow id _ _ _=>task<-changed id;; project_task_row current task mounted
+   |_=>None end in
+ match projection with
+ |Some row=>(projected_task_entry row,row::rows)
+ |None=>(mounted,rows) end.
+Definition project_changed_task_rows current changed :=
+ collect_task_rows (project_changed_task_node current changed).
 Definition project_entry snapshot s current parent tasks (project:project) :=
  let id:=project_id project in
  let key:=part parent("project/"++show_natural id)in

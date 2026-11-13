@@ -59,11 +59,16 @@
     }
   }
 }
-[data-reading-root] > button[data-semantic-key="fork-current-history"] {
+[data-semantic-key="timeline-tail"],
+[data-semantic-key="discarded-unfinished-slot"] {
+  /* Own an independently updated subtree without adding a reader flex item. */
+  display: contents !important;
+}
+[data-reading-root] button[data-semantic-key="fork-current-history"] {
   align-self: flex-start;
 }
 [data-page-region="task-actions"] [data-semantic-key="interrupt-unavailable"] { display: none !important; }
-[data-reading-root] > [data-semantic-key="reply-pending"] {
+[data-reading-root] [data-semantic-key="reply-pending"] {
   align-self: flex-start;
   padding-inline: .25rem;
   color: var(--selvedge-muted);

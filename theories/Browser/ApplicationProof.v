@@ -94,17 +94,7 @@ Theorem repeated_native_selection_keeps_its_publication input current updated :
  Application.input_publication input current updated="keep".
 Proof. intros Equal NoSnapshot NoEnvironment; unfold Application.input_publication; destruct input; try contradiction; now rewrite Equal. Qed.
 
-(** Retaining the admitted state changes neither the new scene nor the
-    request's admission of the new world and environment. *)
-Theorem rebasing_the_same_admitted_state_keeps_the_prepared_scene request context :
- Application.state request = Some(Application.prepared_state context) ->
- option_map Application.prepared_scene (Application.rebase request context) =
- option_map Application.prepared_scene (Application.prepare request).
-Proof.
- intro Same. unfold Application.rebase, Application.prepare.
- destruct (field "world" request); cbn [bind]; [rewrite Same|]; reflexivity.
-Qed.
-
+(** Admitting a new world retains the controls and regions of the last publication. *)
 Theorem rebasing_a_canonical_prepared_state_agrees_with_prepare request context :
  Application.state request = Some(Application.prepared_state context) ->
  Application.prepared_encoding context = Application.SC.encode_state(Application.prepared_state context) ->

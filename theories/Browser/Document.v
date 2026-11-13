@@ -23,6 +23,7 @@ Module UX := Selvedge.Interaction.Experience.Model.
 Definition text_number n := show_natural n.
 Definition flag (value:bool) := if value then "true" else "false".
 Definition empty := JObject [].
+Definition task_row_native_key key := (key++"/row")%string.
 Definition event key generation name kind gesture :=
  DOM.Binding name kind (DOM.ElementTarget key (Gesture.gesture_name gesture) generation).
 Definition disabled (flag:bool) := if flag then [] else [("disabled","disabled")].
@@ -752,7 +753,8 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  let supporting:=match role with Roles.Toolbar=>ControlContent.support_row(S.node_children value)|_=>false end in
  let voice_disclosure:=String.eqb(S.semantic_key value)"speech-controls" in
  let responsive:=negb voice_disclosure && SemanticAppearance.responsive_row activity source role meaning in
- let attrs:=common key (S.semantic_key value) label role ++
+ let attrs:=common key (S.semantic_key value)
+   (match meaning with S.TaskRow _ _ _ _=>""|_=>label end) role ++
  (match role,meaning with
  |Roles.Navigation,_=>[("data-workspace-sidebar","")]
  |Roles.NavigationHeader,_=>[("data-workspace-navigation","header")]
@@ -1219,11 +1221,11 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
      [("data-task-marker","");("aria-hidden","true")] [] [] empty [] in
    DOM.Element button_key "button" attrs styles events metadata (marker::content)
   |_,_=>snd pair end in
- let row:=DOM.Element (key++"/row")%string "div"
-   [("data-task-tree-row","");("data-reveal-on-layout",flag selected)]
+ let row:=DOM.Element (task_row_native_key key) "div"
+   [("data-task-tree-row","");("data-task-status",status);("data-reveal-on-layout",flag selected)]
    [("display","flex");("align-items","center");("min-inline-size","0")] [] empty
    (map row_control (filter(fun pair=>negb(nested pair))paired)) in
- element "div" [("data-task-id",text_number task);("data-task-status",status);("aria-current",flag selected);("data-task-tree-entry","")] [] empty
+ element "div" [("data-task-id",text_number task);("aria-current",flag selected);("data-task-tree-entry","")] [] empty
  (row::map snd(filter nested paired))
  |S.ObjectGroup object=>element "section"
    [("aria-labelledby",group_heading_keys key(S.node_children value))][]empty
@@ -1299,16 +1301,6 @@ Fixpoint compile_node {A} (describe:A->C.purpose) env generation inherited_area 
     (source_context source (S.node_meaning value))
     (match S.node_meaning value with S.PageContext current=>current|_=>view end)
     (component_context component (S.node_meaning value))) (S.node_children value)).
-Fixpoint compile_regions {A} (selected : S.node A -> bool) (describe:A->C.purpose)
- env generation inherited_area activity (source:S.meaning A) view component (value:S.node A) : list DOM.node :=
- if selected value then
-  [compile_node describe env generation inherited_area activity source view component value]
- else flat_map (compile_regions selected describe env generation
-    (area_for inherited_area (S.node_role value) (S.node_meaning value))
-    (match S.node_meaning value with S.ActivityGroup _ _ _ _|S.ActivityRow _=>true|_=>activity end)
-    (source_context source (S.node_meaning value))
-    (match S.node_meaning value with S.PageContext current=>current|_=>view end)
-    (component_context component (S.node_meaning value))) (S.node_children value).
 Fixpoint target_updates {A} view (value:S.node A) : list DOM.target_update :=
  let current_view:=match S.node_meaning value with S.PageContext current=>current|_=>view end in
  let children:=flat_map (target_updates current_view) (S.node_children value) in

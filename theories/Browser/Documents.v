@@ -41,7 +41,8 @@ Definition live_documents_with_previews viewing observation previews :=
 Definition documents_for_with_previews viewing observation previews :=
  history_documents viewing (context_world observation) ++ live_documents_with_previews viewing observation previews.
 Definition documents_for viewing observation :=
- documents_for_with_previews viewing observation (current_previews observation).
+ documents_for_with_previews viewing observation
+   (match current_task_preview observation viewing with Some preview=>[preview]|None=>[] end).
 Definition authoritative_documents observation :=
  if valid_namespace (context_namespace observation)
  then let previews:=current_previews observation in
@@ -51,14 +52,24 @@ Definition stamp_in_namespace namespace stamp:=
  valid_namespace namespace&&interactive_origin(document_origin stamp)&&
  String.eqb(document_identity stamp)(content_key namespace(document_viewer stamp)(document_origin stamp)).
 
-Definition stamp_is_current observation stamp :=
+Definition stamp_is_current_in observation documents stamp :=
  existsb (fun doc=>String.eqb (key (context_namespace observation) doc) (document_identity stamp))
-   (documents_for (document_viewer stamp) observation).
-Definition retained_stamps observation r := filter (fun stamp=>
+   documents.
+Definition stamp_is_current observation stamp :=
+ stamp_is_current_in observation (documents_for (document_viewer stamp) observation) stamp.
+Definition unfinished_stamp observation stamp :=
  stamp_in_namespace (context_namespace observation) stamp &&
- existsb (N.eqb (document_viewer stamp)) (visible_tasks observation) &&
- negb (stamp_is_current observation stamp) &&
- match document_ending stamp with Types.Complete=>false|_=>true end) (document_lifetimes r).
+ match document_ending stamp with Types.Complete=>false|_=>true end.
+Definition retained_stamps observation r :=
+ let viewers:=visible_tasks observation in
+ filter (fun stamp=>existsb (N.eqb (document_viewer stamp)) viewers &&
+   unfinished_stamp observation stamp && negb (stamp_is_current observation stamp))
+   (document_lifetimes r).
+Definition task_retained_stamps observation r viewing :=
+ let stamps:=filter (fun stamp=>N.eqb (document_viewer stamp) viewing && unfinished_stamp observation stamp)
+   (document_lifetimes r) in
+ match stamps with []=>[]|_=>let current:=documents_for viewing observation in
+   filter (fun stamp=>negb (stamp_is_current_in observation current stamp)) stamps end.
 Definition visible_documents observation r := authoritative_documents observation ++
  map (fun stamp=>Document (document_viewer stamp) (document_origin stamp) (document_source stamp) false)
    (filter (fun stamp=>negb (document_archived stamp)) (retained_stamps observation r)).
@@ -92,13 +103,15 @@ Definition pending_stamp world stamp:=
    |Some operation,Some mode=>same_origin origin(OutputOrigin(producer origin)operation(part origin)mode)
    |_,_=>false end end end.
 
-Definition mark_interrupted observation lagged stamp :=
+Definition interrupt_document observation lagged stamp :=
  if same_ending (document_ending stamp) Types.Open && stamp_in_namespace (context_namespace observation) stamp &&
-    context_connected observation && negb lagged && negb (stamp_is_current observation stamp) &&
-    negb (pending_stamp (context_world observation) stamp) then
-   update_stamp (document_source stamp) Types.Interrupted (document_archived stamp) (document_revealed stamp)
-    (document_observed_prefix stamp) (document_observations stamp) stamp
- else stamp.
+    context_connected observation && negb lagged && negb (pending_stamp (context_world observation) stamp) &&
+    negb (stamp_is_current observation stamp) then
+   Some (update_stamp (document_source stamp) Types.Interrupted (document_archived stamp) (document_revealed stamp)
+    (document_observed_prefix stamp) (document_observations stamp) stamp)
+ else None.
+Definition mark_interrupted observation lagged stamp :=
+ value_or stamp (interrupt_document observation lagged stamp).
 Definition count_for task counts:nat:=
  match find(fun entry=>N.eqb task(fst entry))counts with Some entry=>snd entry|None=>0 end.
 
@@ -131,8 +144,8 @@ Definition retention_order stamps:=
 
 Fixpoint trim_archives stamps (bytes:nat): list document_lifetime*list N:=match stamps with
  |[] => ([],[])|stamp::rest=>
-  let size:=Utf8.byte_length(document_source stamp)in
   if document_archived stamp then
+   let size:=Utf8.byte_length(document_source stamp)in
    if Nat.leb(Nat.add bytes size)Bounds.retained_source_bytes then
     let '(kept,discarded):=trim_archives rest(Nat.add bytes size)in(stamp::kept,discarded)
    else let '(kept,discarded):=trim_archives rest bytes in(kept,document_viewer stamp::discarded)
@@ -154,6 +167,10 @@ Definition scoped_retention namespace world r :=
    with_document_lifetimes (filter (fun stamp=>match find_task (document_viewer stamp) world with
      None=>false|Some _=>true end) (document_lifetimes r)) r
  else Retention namespace (retention_next_epoch r) [] [].
+Definition limit_retained_documents next ended :=
+ let '(kept,discarded):=trim_archives (bound_interrupted (retention_order ended) [] 0) 0 in
+ Retention (retention_namespace next) (retention_next_epoch next) kept
+   (fold_left (fun counts task=>add_discarded task counts) discarded (discarded_outputs next)).
 Definition synchronize_documents observation lagged r :=
  let namespace:=context_namespace observation in
  let r:=scoped_retention namespace (context_world observation) r in
@@ -164,9 +181,37 @@ Definition synchronize_documents observation lagged r :=
    flat_map (fun viewing=>documents_for_with_previews viewing observation previews) viewers else [] in
  let next:=fold_left (fun current doc=>remember_document namespace doc current) docs r in
  let ended:=map (mark_interrupted observation lagged) (document_lifetimes next) in
- let '(kept,discarded):=trim_archives (bound_interrupted (retention_order ended) [] 0) 0 in
- Retention namespace (retention_next_epoch next) kept
-   (fold_left (fun counts task=>add_discarded task counts) discarded (discarded_outputs next)).
+ limit_retained_documents next ended.
+
+Definition live_documents viewing observation :=
+ live_documents_with_previews viewing observation
+   (match current_task_preview observation viewing with Some preview=>[preview]|None=>[] end).
+Fixpoint same_live_documents left right := match left,right with
+ |[],[]=>true
+ |doc::ls,other::rs=>same_origin (provenance doc) (provenance other) &&
+   String.eqb (markdown doc) (markdown other) && same_live_documents ls rs
+ |_,_=>false end.
+
+(** The committed world and visible owners stay fixed across a stream event.
+    Only live sources for those viewers can change. *)
+Definition synchronize_stream_documents before after lagged viewers retained :=
+ let updates:=fold_right (fun viewing updates=>
+   let current:=live_documents viewing after in
+   if same_live_documents (live_documents viewing before) current then updates
+   else (viewing,current)::updates) [] viewers in
+ let next:=fold_left (fun current update=>fold_left
+   (fun current doc=>remember_document (context_namespace after) doc current) (snd update) current) updates retained in
+ (* A prior lagged observation can leave an open lifetime even when neither
+    preview has text. Recheck open lifetimes for the viewers named by the event. *)
+ let '(ended,interrupted):=fold_right (fun stamp '(ended,interrupted)=>
+   let ending:=if existsb (N.eqb (document_viewer stamp)) viewers
+     then interrupt_document after lagged stamp else None in
+   match ending with Some final=>(final::ended,true)|None=>(stamp::ended,interrupted) end)
+   ([],false) (document_lifetimes next) in
+ match updates,interrupted with
+ |[],false=>None
+ |_,_=>Some (limit_retained_documents next ended)
+ end.
 Definition document_stamp namespace doc s:=find(fun stamp=>String.eqb(key namespace doc)(document_identity stamp))(document_lifetimes s).
 
 Definition eligible_fence namespace doc ordinal s:=match document_stamp namespace doc s with None=>false|Some stamp=>
@@ -183,10 +228,17 @@ Definition owner_ordinal namespace doc owner:=retained_owner_ordinal(key namespa
 
 Definition document_key_matches namespace doc owner:=match owner_ordinal namespace doc owner with Some _=>true|None=>false end.
 
-Definition document_owns namespace owner s doc:=
+Definition document_owner_ordinal namespace owner s doc:=
  match owner_ordinal namespace doc owner,document_stamp namespace doc s with
- |Some ordinal,Some stamp=>negb(document_archived stamp)&&N.eqb(Types.epoch owner)(document_epoch stamp)&&existsb(N.eqb ordinal)(document_fences stamp)
- |_,_=>false end.
+ |Some ordinal,Some stamp=>
+   if negb(document_archived stamp)&&N.eqb(Types.epoch owner)(document_epoch stamp)&&existsb(N.eqb ordinal)(document_fences stamp)
+   then Some ordinal else None
+ |_,_=>None end.
+Definition document_owns namespace owner s doc:=
+ match document_owner_ordinal namespace owner s doc with Some _=>true|None=>false end.
+
+Definition code_identity_for_document namespace doc owner r :=
+ option_map (code_identity namespace doc) (document_owner_ordinal namespace owner r doc).
 
 Definition find_document_in observation owner r documents :=
  find (document_owns (context_namespace observation) owner r) documents.

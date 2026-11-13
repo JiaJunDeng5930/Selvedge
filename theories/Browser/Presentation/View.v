@@ -116,9 +116,6 @@ Definition overlay_region_identity section := match section with
 Definition overlay_region_descriptor section := match section with
  |WorkspaceOverlay layer=>NavigationCodec.encode_layer layer
  |_=>JString(overlay_region_identity section)end.
-Definition overlay_side_task section := match section with
- |WorkspaceOverlay layer=>match State.layer_panel layer with State.SideConversationPanel task=>Some task|_=>None end
- |_=>None end.
 Definition overlay_region_with render_layer section snapshot state capacity : list (node Input.input) :=
  match section with
  |DrawerOverlay=>Navigation.navigation_layers snapshot state capacity

@@ -327,17 +327,19 @@ Definition side_actions snapshot s task parent hide_details :=
      |Some entry=>Pages.task_run_controls snapshot s entry parent|None=>[]end)++
     Pages.task_details_controls s task parent hide_details++
     [Collections.more parent(TaskActions task)]++return_control).
-Definition side_content snapshot s task parent hide_details :=
+Definition side_heading snapshot task parent : node Input.input :=
  let heading:=match Read.find_task task snapshot with
  |Some entry=>Read.task_title entry|None=>"Side conversation unavailable"end in
- let source:=match bind(Read.task_side_parent snapshot task)(fun source=>Read.find_task source snapshot)with
+ region parent "side/heading" "" Roles.Toolbar
+   [title parent heading;declared parent Roles.Button(secondary "close" "关闭" Input.ClosePanel)].
+Definition side_source snapshot task parent : list (node Input.input) :=
+ match bind(Read.task_side_parent snapshot task)(fun source=>Read.find_task source snapshot)with
  |Some entry=>[information parent "side/parent" Information.Description ("Branched from "++Read.task_title entry)]
- |None=>[]end in
- [dialog_header parent
-   [region parent "side/heading" "" Roles.Toolbar
-    [title parent heading;declared parent Roles.Button(secondary "close" "关闭" Input.ClosePanel)]];
+ |None=>[]end.
+Definition side_content snapshot s task parent hide_details :=
+ [dialog_header parent [side_heading snapshot task parent];
   dialog_body parent
-   (source++[side_actions snapshot s task parent hide_details]++
+   (side_source snapshot task parent++[side_actions snapshot s task parent hide_details]++
     Pages.conversation_page snapshot s(SideTask task)parent)].
 Definition panel_title panel := match panel with
  |State.EditorPanel owner=>Editors.editor_title owner

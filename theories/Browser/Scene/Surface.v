@@ -319,47 +319,10 @@ Definition unbind_node {A B} (value : node A) (bindings : BindingMap.t B) :=
  BindingMap.fold (fun key _ result => BindingMap.remove key result)
    (bind_node (fun _ => tt) value (BindingMap.empty unit)) bindings.
 
-Definition resolve_graphic {A} key gesture (drawing : Graphics.plot A) : option A :=
-  match gesture with
-  | Gesture.Press =>
-      match find (fun primitive => match primitive with
-        | Graphics.Hitbox identity _ _ _ _ _ _ => String.eqb key identity
-        | _ => false end) (Graphics.primitives drawing) with
-      | Some (Graphics.Hitbox _ _ _ _ _ _ action) => Some action
-      | _ => None
-      end
-  | _ => None
-  end.
-
-Definition resolve_table {A} identity key gesture (table : Components.table A) : option A :=
-  match gesture with
-  | Gesture.Press => match find (fun column => String.eqb key (Components.column_key identity column))
-      (Components.table_columns table) with
-    | Some column => if Components.column_enabled column then Components.column_sort column else None
-    | None => None end
-  | _ => None end.
-
-Fixpoint resolve_node {A} key gesture value (tree : node A) : option A :=
-  let 'Node identity _ _ _ content children := tree in
-  if String.eqb key identity then resolve_meaning content gesture value else
-  match match content with
-  | Graphic drawing => resolve_graphic key gesture drawing
-  | InteractiveTable table => resolve_table identity key gesture table
-  | _ => None end with
-  | Some action => Some action
-  | None =>
-      let fix seek (items : list (node A)) := match items with
-      | [] => None
-      | child :: rest => match resolve_node key gesture value child with
-        | Some action => Some action | None => seek rest end
-      end in seek children
-  end.
-
 Definition is_modal_node {A} (node : node A) :=
   match layer_region (node_meaning node) with
   |Some behavior => modal_layer behavior|None => false end.
 Definition modal_nodes {A} (value : surface A) := filter is_modal_node (overlays value).
-Definition active_modal {A} (value : surface A) := hd_error (rev (modal_nodes value)).
 
 Definition map_receiver {A B} (f : A -> B) (receive : json -> option A) value :=
   option_map f (receive value).
@@ -447,10 +410,6 @@ Fixpoint map_node {A B} (f : A -> B) (value : node A) : node B :=
   let 'Node key semantic label role content children := value in
   Node key semantic label role (map_meaning f content) (map (map_node f) children).
 
-Definition map_actions {A B} (f : A -> B) (value : surface A) : surface B :=
-  Surface (workspace_key value) (main_key value)
-    (map (map_node f) (base value)) (map (map_node f) (overlays value)) (surface_appearance value).
-
 (** Enumerate only the finite observations already declared by a native control.
     Text receivers remain open; current parameter Apply actions are explicit nodes. *)
 Definition receiver_actions {A}(receive:json->option A)(values:list json):list A:=
@@ -487,7 +446,3 @@ Definition meaning_actions {A}(content:meaning A):list A:=match content with
 Fixpoint node_actions {A}(value:node A):list A:=
  let 'Node _ _ _ _ content children:=value in
  List.app(meaning_actions content)(flat_map node_actions children).
-Definition actions {A}(value:surface A):list A:=
- flat_map node_actions(List.app(base value)(overlays value)).
-Definition current_actions {A}(value:surface A):list A:=
- match active_modal value with Some modal=>node_actions modal|None=>actions value end.

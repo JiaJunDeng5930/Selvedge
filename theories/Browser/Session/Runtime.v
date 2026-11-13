@@ -189,13 +189,16 @@ Definition synchronize_language namespace snapshot lagged state:=
  let visible owner:=Documents.visible_owner_in ctx owner retained documents in
  let decision:=Language.step_visible visible IT.EnvironmentChanged language (Documents.environment ctx lagged) in
  apply_language_decision namespace snapshot lagged decision state.
+Definition apply_document_retention namespace snapshot retained state:=
+ let ctx:=context namespace snapshot state in
+ let state:=SS.with_retention retained state in
+ (* Inactive owners stay cached; removed documents and replaced epochs do not. *)
+ SS.with_interactive_state(IS.State(filter(fun block=>
+   Documents.known_owner ctx(IS.block_owner block)retained)(IS.blocks(SS.interactive_state state))))state.
 Definition synchronize_documents namespace snapshot lagged state:=
  let ctx:=context namespace snapshot state in
  let retained:=Documents.synchronize_documents ctx lagged(SS.document_retention state)in
- let state:=SS.with_retention retained state in
- (* Inactive owners stay cached; removed documents and replaced epochs do not. *)
- let state:=SS.with_interactive_state(IS.State(filter(fun block=>
-   Documents.known_owner ctx(IS.block_owner block)retained)(IS.blocks(SS.interactive_state state))))state in
+ let state:=apply_document_retention namespace snapshot retained state in
  let definition:=Documents.shared_definition(context namespace snapshot state)retained in
  let initial:=match definition with Some input=>apply_language namespace snapshot lagged input state|None=>Authoring.keep state end in
  Authoring.append initial(synchronize_language namespace snapshot lagged(Authoring.result_state initial)).
@@ -287,6 +290,11 @@ Definition voice_created snapshot ticket task state:=match Speech.current(SS.spe
   Authoring.append decision(Authoring.adopt_navigation snapshot(Navigation.visit snapshot(NavigationIdentity.Conversation task)(Authoring.result_state decision)))
  else Authoring.speech_step snapshot Speech.Cancel state
  else Authoring.keep state|_=>Authoring.keep state end.
+Definition decode_stream_observation namespace source:=
+ Streams.decode_event_in_namespace (Origin.valid_namespace namespace) namespace source.
+Definition apply_stream_observation event state:=match event with
+ |Some event=>let '(streams,_) :=Streams.step Streams.browser_configuration event(SS.stream_state state)in Authoring.keep(SS.with_streams streams state)
+ |None=>Authoring.fail state "The stream observation is not valid."end.
 Definition core namespace snapshot lagged input state:Authoring.result:=match input with
 |Input.NewCard stage trigger=>let owner:=Identity.Card None in
  let discarded:=Authoring.discard_editor owner state in
@@ -307,9 +315,7 @@ Definition core namespace snapshot lagged input state:Authoring.result:=match in
 |Input.NativeFailed reason=>Authoring.alert_diagnostic state(JString reason)
 |Input.CopyPath path=>Authoring.changed state[Authoring.emit "clipboard"[("text",JString path)]]
 |Input.Snapshot|Input.EnvironmentObserved=>Authoring.keep state
-|Input.Stream source=>match Streams.decode_event_in_namespace (Origin.valid_namespace namespace) namespace source with
- |Some event=>let '(streams,_) :=Streams.step Streams.browser_configuration event(SS.stream_state state)in Authoring.keep(SS.with_streams streams state)
- |None=>Authoring.fail state "The stream observation is not valid."end
+|Input.Stream source=>apply_stream_observation (decode_stream_observation namespace source) state
 |Input.CodeObserved source=>match Documents.admit_observation(context namespace snapshot state)source(SS.document_retention state)with
  |Documents.AdmittedObservation input retained=>apply_language namespace snapshot lagged input(SS.with_retention retained state)
  |Documents.IrrelevantObservation=>Authoring.keep state
@@ -379,7 +385,8 @@ Definition same_shared_occurrence left right := match left,right with
    can invalidate retention and authored mounts. A local edit cannot change
    the server snapshot or the stream that supplied those documents. *)
 Definition documents_changed input before after := match input with
- |Input.Snapshot|Input.Stream _|Input.RetainedOutput _ _=>true
+ |Input.Snapshot|Input.RetainedOutput _ _=>true
+ |Input.Stream _=>false
  |Input.ClockObserved _|Input.EnvironmentObserved=>
    (* A lagged source observation may leave an interrupted stream open until
       its next settled observation. Completed documents require no retry. *)
@@ -420,10 +427,20 @@ Definition resumes_language_admissions input := match input with
  |Input.ServiceInput(Services.CommandAssessed _ _)|Input.Interactive _=>true
  |_=>false end.
 
+Definition stream_document_viewers event before after := match event with
+ |Some (Streams.Start key)|Some (Streams.Finish key)
+ |Some (Streams.Delta key _ _)|Some (Streams.Snapshot key _ _)=>[Streams.stream_task key]
+ |Some (Streams.Restore _)=>nodup N.eq_dec (map (fun entry=>Streams.stream_task(Streams.stream_identity entry))
+   (SS.stream_state before++SS.stream_state after))
+ |Some Streams.Ignore|None=>[] end.
+
 Definition step namespace snapshot lagged input state:=
  let retired:=retire_namespace namespace state in
  let current:=Authoring.result_state retired in
- let stepped:=core namespace snapshot lagged input current in
+ let '(stepped,event):=match input with
+  |Input.Stream source=>let event:=decode_stream_observation namespace source in
+    (apply_stream_observation event current,event)
+  |_=> (core namespace snapshot lagged input current,None) end in
  let decision:=Authoring.append retired stepped in
  let authoring:=prepares_authoring input current in
  let prepare state:=if authoring then
@@ -433,9 +450,17 @@ Definition step namespace snapshot lagged input state:=
  let decision:=Authoring.append decision(prepare(Authoring.result_state decision))in
  let next:=Authoring.result_state decision in
  let documents:=documents_changed input current next in
- let synchronized:=if documents then
-   Authoring.append decision(synchronize_documents namespace snapshot lagged next) else decision in
- if authoring || documents || resumes_language_admissions input then
+ let retention:=match stream_document_viewers event current next with
+  |[]=>None
+  |viewers=>Documents.synchronize_stream_documents (context namespace snapshot current)
+    (context namespace snapshot next) lagged viewers (SS.document_retention next) end in
+ let (synchronized, changed_documents):=match retention with
+  |Some retained=>(Authoring.append decision(synchronize_language namespace snapshot lagged
+    (apply_document_retention namespace snapshot retained next)),true)
+  |None=>if documents then
+    (Authoring.append decision(synchronize_documents namespace snapshot lagged next),true) else (decision,false)
+  end in
+ if authoring || changed_documents || resumes_language_admissions input then
    Authoring.append synchronized(continue_language_admissions namespace snapshot lagged(Authoring.result_state synchronized))
  else synchronized.
 

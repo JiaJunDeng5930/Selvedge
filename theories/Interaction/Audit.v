@@ -58,6 +58,8 @@ Definition reading_group (value:group) :=
    |[]=>[]|entry::tail=>[Activity entry tail] end
  end.
 Definition reading_groups index messages := flat_map reading_group (groups index messages).
+Definition has_reading messages :=
+ existsb (fun message=>negb (hidden message) && (speech message || readable_activity message)) messages.
 
 (** Audit faces retain the admitted event. *)
 Inductive kind := ToolInvocation | ToolResult | Reasoning | ContextChange
