@@ -320,12 +320,14 @@ Definition summary_lines parent path value : list (node Input.input) :=
 Definition setting_entry_parent path := part settings_root (Config.setting_key path).
 Definition edit_item_key name := part "edit" name.
 Definition editor_trigger path key := part (setting_entry_parent path) key.
-Definition editor_button path key caption label (enabled : bool) input : node Input.input :=
+Definition editor_button_with_status path key caption label status input : node Input.input :=
  let id := editor_trigger path key in
  Node id "edit-setting" label Roles.Button
-   (Activate (Control key label Secondary (Input.ServiceInput input)
-     (if enabled then Available else Unavailable "请先完成当前编辑")))
+   (Activate (Control key label Secondary (Input.ServiceInput input) status))
    [information id "label" Information.OptionLabel caption].
+Definition editor_button path key caption label (enabled : bool) input :=
+ editor_button_with_status path key caption label
+   (if enabled then Available else Unavailable "请先完成当前编辑") input.
 
 Definition account_sign_in_button parent label unavailable (speech : Speech.speech) : node Input.input :=
  let key := "sign-in" in
@@ -354,6 +356,22 @@ Definition form_setting parent services speech entry :=
     [editor_button path "open" (open_label path) (open_label path)
       (can_edit path services) (Services.SelectConfiguration path)])
    (match lines with [] => [] | _ => [named_region id "settings-values" "" lines] end).
+
+Definition guidance_setting parent services path :=
+ let configuration := service_configuration services in
+ let status := match Configuration.catalog configuration with
+   | Loading _ _ => Unavailable "正在加载服务设置"
+   | Loaded _ _ snapshot =>
+     match Config.find_setting path snapshot with
+     | Some _ => if can_edit path services then Available else Unavailable "请先完成当前编辑"
+     | None => Unavailable "服务未提供对话指引"
+     end
+   | _ => Unavailable "服务设置尚未加载"
+   end in
+ let '(label, description) := copy path in
+ let action := open_label path in
+ row parent (Config.setting_key path) label description
+   [editor_button_with_status path "open" action action status (Services.SelectConfiguration path)] [].
 
 (* The overview enumerates saved objects. Draft edits and removals become
    visible here after a successful write. *)
@@ -507,10 +525,10 @@ Definition overview root parent section services speech groups :=
      match content with
      | AppearanceSettings => [appearance id (Services.theme services)]
      | ConversationSettings instructions =>
-       (map (form_setting id services speech) (entries_for_paths services [instructions])
-       ++ [row id "title-prompts" conversation_titles_label "选择生成标题的模型和提示词。"
+       [guidance_setting id services instructions;
+        row id "title-prompts" conversation_titles_label "选择生成标题的模型和提示词。"
            [declared root Roles.Button (secondary "title-prompts" "编辑标题设置"
-              (Input.OpenEditor (TitlePrompts ConversationTitles) (part root "title-prompts")))] []])%list
+              (Input.OpenEditor (TitlePrompts ConversationTitles) (part root "title-prompts")))] []]
      | LocalService => [local_connection id services]
      | ConfigurationSettings paths => render_entries (entries_for_paths services paths)
      | ContextSources =>
@@ -576,8 +594,7 @@ Definition content root parent section services speech :=
  (* The primary collection shares the page heading and its controls. *)
  let body := match section, primary_group design, section_groups design with
    | SettingsGeneral, _, appearance_group :: other_groups =>
-       (header :: overview root id section services speech [appearance_group] ++ status ++
-         overview root id section services speech other_groups)%list
+       (header :: overview root id section services speech (appearance_group :: other_groups) ++ status)%list
    | _, Some group, groups =>
        named_region id "settings-primary" ""
          (header :: status ++ overview root id section services speech [group]) ::

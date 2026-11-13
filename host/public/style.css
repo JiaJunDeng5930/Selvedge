@@ -726,6 +726,7 @@ dialog[data-semantic-key="side-conversation"] {
   gap: .25rem !important;
 }
 [data-composer-dock] {
+  --composer-text-inset: .35rem;
   container: composer / inline-size;
   inline-size: 100%;
   gap: .2rem !important;
@@ -737,7 +738,7 @@ dialog[data-semantic-key="side-conversation"] {
   min-block-size: 3.1rem !important;
   max-block-size: min(13rem, 27dvh) !important;
   overflow-y: auto;
-  padding: .35rem .35rem .2rem !important;
+  padding: .35rem var(--composer-text-inset) .2rem !important;
 }
 [data-composer-dock] > textarea:focus {
   border-color: transparent !important;
@@ -745,6 +746,12 @@ dialog[data-semantic-key="side-conversation"] {
   box-shadow: none !important;
 }
 [data-composer-dock] > textarea::placeholder { color: var(--selvedge-muted); }
+[data-composer-dock] > [data-semantic-key="composer/submission-status"] {
+  min-block-size: 1lh;
+  padding-inline: var(--composer-text-inset);
+  color: var(--selvedge-muted) !important;
+  font-size: var(--rich-support-size, .8125rem) !important;
+}
 [data-composer-dock] > [data-semantic-key="assessment"]:empty { display: none !important; }
 [data-composer-dock] > [data-semantic-key="attachments"] {
   flex: 0 1 auto !important;
@@ -890,9 +897,12 @@ dialog[data-semantic-key="side-conversation"] {
   border-radius: 8px !important;
 }
 @container composer (inline-size < 28rem) {
+  [data-composer-dock] > :is(textarea, [data-semantic-key="composer/submission-status"]) {
+    --composer-text-inset: .55rem;
+  }
   [data-composer-dock] > textarea {
     min-block-size: 4rem !important;
-    padding: .55rem .55rem .2rem !important;
+    padding-block-start: .55rem !important;
     font-size: max(16px, 1rem) !important;
     line-height: 1.4 !important;
   }
@@ -1102,8 +1112,11 @@ main:has(> [data-page-region="creation-introduction"]) {
   background: var(--selvedge-accent) !important;
 }
 [data-semantic-key="composer/submit"][aria-busy="true"] > svg { display: none; }
-[data-semantic-key="composer/submit"][aria-busy="true"]::before {
+[data-composer-dock] [data-semantic-key="composer/submit"][aria-busy="true"]::after { content: none; }
+[data-composer-dock] [data-semantic-key="composer/submit"][aria-busy="true"]::before {
   content: "";
+  position: static;
+  flex: none;
   inline-size: 1rem;
   block-size: 1rem;
   border: 2px solid currentColor;
@@ -1113,25 +1126,6 @@ main:has(> [data-page-region="creation-introduction"]) {
 }
 @media (prefers-reduced-motion: reduce) {
   [data-semantic-key="composer/submit"][aria-busy="true"]::before { animation: none; }
-}
-[data-page-region="board-controls"] {
-  container: board-controls / inline-size;
-  flex-flow: row wrap !important;
-  align-items: center !important;
-  gap: .3rem .5rem !important;
-}
-[data-page-region="board-controls"] > [data-board-group] {
-  flex: none !important;
-  inline-size: max-content !important;
-  min-inline-size: 0 !important;
-  max-inline-size: 100% !important;
-}
-[data-page-region="board-controls"] > [data-board-group="search"] {
-  flex: 1 1 11rem !important;
-  inline-size: auto !important;
-}
-@container board-controls (max-width: 410px) {
-  [data-page-region="board-controls"] > [data-board-group="search"] { flex-basis: 100% !important; }
 }
 main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !important; }
 [data-semantic-key="task-graph/actions"] {

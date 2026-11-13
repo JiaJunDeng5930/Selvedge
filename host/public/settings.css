@@ -34,8 +34,8 @@ dialog:is([data-semantic-key="settings"], [data-semantic-key="settings-title-edi
 }
 dialog[data-semantic-key="settings"] {
   --settings-edge: clamp(1rem, 2vi, 1.75rem);
-  --settings-frame: 36.625rem;
-  --settings-rail: 4.25rem;
+  --settings-frame: 37.375rem;
+  --settings-rail: 5rem;
   container: settings-shell / inline-size;
   position: fixed !important;
   inset: 0 !important;
@@ -215,6 +215,10 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   padding-inline: 11px !important;
   border-color: transparent !important;
   text-align: start;
+}
+[data-semantic-key="settings"] button[data-semantic-key="settings-category"] > span {
+  white-space: nowrap !important;
+  overflow-wrap: normal !important;
 }
 [data-semantic-key="settings"] button[data-semantic-key="settings-category"][aria-checked="true"] {
   --control-rest-background: var(--settings-selection) !important;

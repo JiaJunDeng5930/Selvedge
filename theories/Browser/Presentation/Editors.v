@@ -21,12 +21,13 @@ Module UX := Selvedge.Interaction.Experience.Model.
 Module Session := Selvedge.Browser.Session.State.
 Module Observe := Selvedge.Interaction.Experience.Observation.
 
+Definition graph_creation_label := "创建任务图".
 Definition editor_title e := match e with
 |NewTask _=>"New conversation"|Message _=>"Message"
 |Identity.Project None=>"新建项目"|Identity.Project(Some _)=>"编辑项目"|Card None=>"新建卡片"|Card(Some _)=>"编辑卡片"
 |CardForConversation _=>"添加到看板"
 |Fork _=>ObjectActions.fork_label|Compact _=>"压缩上下文"
-|TaskGraph None _=>GraphAuthoring.handoff_creation_label|TaskGraph(Some _) _=>"编辑任务图"
+|TaskGraph None _=>graph_creation_label|TaskGraph(Some _) _=>"编辑任务图"
 |WorkName None=>"新建工作组"|WorkName(Some _) =>"重命名工作组"
 |TitlePrompts ConversationTitles=>Settings.conversation_titles_label
 |TitlePrompts BoardTitles=>"卡片提示词" end.
@@ -37,7 +38,7 @@ Definition submit_label snapshot draft e :=match Draft.contents draft with
 |_=>match e with
 |NewTask _=>"Start task"|Message _=>"发送"|Identity.Project None=>"创建项目"|Identity.Project(Some _)=>"保存"|Card None=>"创建卡片"
 |CardForConversation _=>"添加卡片"
-|TaskGraph None _=>GraphAuthoring.handoff_creation_label|TaskGraph(Some _) _=>"保存"|Fork _=>"创建分支"|Card(Some _)=>"保存"
+|TaskGraph None _=>graph_creation_label|TaskGraph(Some _) _=>"保存"|Fork _=>"创建分支"|Card(Some _)=>"保存"
 |WorkName None=>"创建工作组"|WorkName(Some _)=>"保存"
 |Compact _=>"压缩"|TitlePrompts _=>"保存"end end.
 Definition draft_feedback d :=match Draft.draft_feedback d with
@@ -202,17 +203,21 @@ Definition composer_view snapshot (s:Session.state) e parent :=
  let feedback:=draft_feedback(Session.current_draft s e)in
  let message_label:=match e with NewTask _=>"Task"|_=>"Message"end in
  let submitting:=UX.action_pending unit in
- let available:=if submitting then Busy "正在提交消息…"
+ let status:="正在提交消息…" in
+ let availability:=if submitting then Busy status
   else if Observe.awaits_only_admission assessment then Available else assessment_availability assessment in
- let label:=if submitting then "正在提交消息…" else submit_label snapshot(Session.current_draft s e)e in
- let commit:=Control "submit" label Primary(Input.Submit e(part parent "submit"))available in
+ let label:=if submitting then status else submit_label snapshot(Session.current_draft s e)e in
+ let progress:=if submitting || Model.available availability then
+  [information parent "composer/submission-status" Information.Status
+   (if submitting then status else "")] else [] in
+ let commit:=Control "submit" label Primary(Input.Submit e(part parent "submit"))availability in
  let '(failed, files):=partition (fun item=>match node_role item with Roles.Alert=>true|_=>false end)
    (ServiceControls.file_items e parent s) in
  let attachments:=match List.app failed files with
   |[]=>[]|items=>[region parent "attachments" "Attachments" Roles.Section items]end in
  let tools:=composer_tools snapshot s e parent in
  Some(Composer.composer parent message_label(commit_role unit feedback)unit subject(field_control snapshot s subject)
-  (attachments++[assessment_nodes parent assessment]++skill_nodes snapshot s e parent)%list
+  (progress++attachments++[assessment_nodes parent assessment]++skill_nodes snapshot s e parent)%list
   [ServiceControls.file_picker e parent s "Attach files";
    ServiceControls.speech_controls snapshot s e(Draft.revision(Session.current_draft s e))parent(Session.speech_state s)]
   tools assessment commit feedback)end.

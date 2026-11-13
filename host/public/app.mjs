@@ -996,7 +996,11 @@ function layoutReading() {
     const generation = node.dataset.readerGeneration;
     const completing = node.hasAttribute('data-reading-initial');
     if (readingVisits.get(node) !== generation) {
-      const loading = node.dataset.readingCommitted === 'true' && (locating || node.querySelector(unsettledReadingContent));
+      // A mounted widget can still change layout when its native display is published.
+      const widgetsPending = surface.dataset.displayPending === 'true' &&
+        node.querySelector('[data-interactive-pending]');
+      const loading = node.dataset.readingCommitted === 'true' &&
+        (locating || widgetsPending || node.querySelector(unsettledReadingContent));
       node.toggleAttribute('data-reading-initial', Boolean(loading));
       // Keep the text measurable for history search while the reader is hidden.
       node.inert = Boolean(loading);

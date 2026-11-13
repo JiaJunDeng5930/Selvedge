@@ -13,7 +13,6 @@ Record handoff := Handoff {
 
 Definition source_endpoint_label := "来源对话".
 Definition target_endpoint_label := "接收对话".
-Definition handoff_creation_label := "创建对话转发".
 Definition handoff_name_label := "转发名称".
 Definition empty_handoff := Handoff "对话转发" None None.
 

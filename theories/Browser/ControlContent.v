@@ -43,8 +43,8 @@ Definition form_name value := match value with
   FullSupporting => "full" | CompactSupporting => "compact" end.
 Definition board_group_attributes grouping :=
   let '(name,label):=match grouping with
-  |S.ViewChoices=>("view-choices","看板视图")|S.SearchArea=>("search","搜索卡片")
-  |S.SecondaryActions=>("secondary-actions","看板筛选和设置")
+  |S.ViewChoices=>("view-choices","看板视图和筛选")|S.SearchArea=>("search","搜索卡片")
+  |S.SecondaryActions=>("secondary-actions","看板设置和归档")
   |S.PrimaryAction=>("primary-action","主要操作")end in
   [("data-board-group",name);("aria-label",label)].
 Definition choose_supporting available full_preferred compact_minimum :=

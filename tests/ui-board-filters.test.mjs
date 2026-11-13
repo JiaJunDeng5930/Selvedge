@@ -761,11 +761,21 @@ test('the board keeps empty stages visible and counts only matching cards linked
       range.selectNodeContents(label);
       return range.getClientRects().length;
     }), 1, 'The execution filter stays on one line');
-    const [filterBounds, previousBounds, nextBounds] = await Promise.all(
-      [executionFilter, previous, next].map(control => control.boundingBox()));
+    const filters = page.getByRole('button', { name: '筛选卡片', exact: true });
+    const [viewBounds, filterBounds, searchBounds, archiveBounds, previousBounds, nextBounds] = await Promise.all([
+      executionFilter, filters, page.getByRole('searchbox', { name: '搜索卡片', exact: true }),
+      page.getByRole('button', { name: '归档卡片', exact: true }), previous, next,
+    ].map(control => control.boundingBox()));
     const middle = box => box.y + box.height / 2;
-    assert.ok([previousBounds, nextBounds].every(box => Math.abs(middle(box) - middle(filterBounds)) <= 2),
-      'Scroll controls sit in the same toolbar row as the execution filter');
+    assert.ok(filterBounds.x >= viewBounds.x + viewBounds.width - 1 &&
+      Math.abs(middle(filterBounds) - middle(viewBounds)) <= 2, 'View choices end with the two filtering controls');
+    assert.ok([previousBounds, nextBounds].every(box => Math.abs(middle(box) - middle(archiveBounds)) <= 2),
+      'Scroll controls sit in the same toolbar row as the archive');
+    if (viewport.width === 1280) {
+      assert.ok(filterBounds.x + filterBounds.width < searchBounds.x && searchBounds.width <= 220);
+      assert.ok(Math.abs(middle(searchBounds) - middle(nextBounds)) <= 2,
+        'Desktop search, filters and column navigation share one row');
+    }
     await board.getByRole('region', { name: '已完成，0 张卡片', exact: true }).waitFor();
     await board.getByRole('region', { name: '已阻塞，0 张卡片', exact: true }).waitFor();
   }

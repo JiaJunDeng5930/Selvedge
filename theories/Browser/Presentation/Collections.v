@@ -13,7 +13,7 @@ From Selvedge.Browser.Session Require Import Input ObjectActions.
 From Selvedge.Browser.Session Require State Authoring.
 From Selvedge.Browser.Scene Require Import Surface Model Construction.
 From Selvedge.Browser.Presentation Require Import Projection Navigation.
-From Selvedge.Browser.Presentation Require Roles Information Composition TaskGraphCanvas.
+From Selvedge.Browser.Presentation Require Editors Roles Information Composition TaskGraphCanvas.
 Import ListNotations.
 Open Scope string_scope.
 Module BoardDomain := Selvedge.Features.Domain.
@@ -131,14 +131,14 @@ Definition board_toolbar snapshot s parent :=
  let working:="仅执行中"++match bind(State.now s)(count_working snapshot selection)with
    |Some count=>" · "++show_natural count|None=>""end in
  [board_group parent "view-choices" ViewChoices
-   [tab "all" "全部卡片";tab "assigned" "分配给我";tab "unassigned" "未分配"];
+   [tab "all" "全部卡片";tab "assigned" "分配给我";tab "unassigned" "未分配";
+    tab "working" working;
+    declared parent Roles.Button(secondary "filters" "筛选卡片"(Input.OpenBoard State.BoardFilters(part parent "filters")))];
   board_group parent "search-area" SearchArea
    [Node(part parent "search")"board-search" "搜索卡片"Roles.Field
      (BoardSearch selection(fun value=>option_map Input.BoardQuery(as_string value)))[]];
   board_group parent "secondary-actions" SecondaryActions
-   [tab "working" working;
-    declared parent Roles.Button(secondary "filters" "筛选卡片"(Input.OpenBoard State.BoardFilters(part parent "filters")));
-    declared parent Roles.Button(secondary "settings" "看板设置"(Input.OpenBoard State.BoardSettings(part parent "settings")));
+   [declared parent Roles.Button(secondary "settings" "看板设置"(Input.OpenBoard State.BoardSettings(part parent "settings")));
     Node(part parent "archive-destination")"board/archive" "归档卡片"Roles.Section
      (CardArchive(N.of_nat(List.length(value_or[](archived_cards snapshot)))))
      [declared(part parent "archive-destination")Roles.Button(secondary "open" "归档卡片"(Input.OpenBoard State.ArchivedCards(part(part parent "archive-destination")"open")))]]].
@@ -244,7 +244,7 @@ Definition graph_node snapshot s parent value :=
 Definition graphs_page snapshot s parent :=
  let graphs:=scoped_graphs(State.active_work(State.navigation_state s))snapshot in
  let create:=declared parent Roles.PrimaryButton
-   (primary "graph/new" GraphAuthoring.handoff_creation_label
+   (primary "graph/new" Editors.graph_creation_label
      (Input.OpenEditor(graph_editor None(State.active_work(State.navigation_state s)))(part parent "graph/new"))) in
  [browse_heading parent
    (page_region parent Composition.CollectionTitle Composition.HeadingPosition[title parent task_graphs_label])
@@ -252,8 +252,8 @@ Definition graphs_page snapshot s parent :=
   page_region parent Composition.TaskGraphEntries Composition.BodyPosition
    (match graphs with
     |Some []=>[region parent "task-graph/empty" "" Roles.Section
-      [group_title (part parent "empty-relay-heading") "对话转发";
-       information parent "task-graph/empty-description" Information.Description "让来源对话的新回复自动转发给接收对话。";
+      [group_title (part parent "empty-relay-heading") "暂无任务图";
+       information parent "task-graph/empty-description" Information.Description "用任务图自动转发对话回复。";
        region parent "task-graph/empty-route" "转发方向" Roles.Section
        [Node (part parent "graph/empty-source") "task-graph/empty-endpoint" "" Roles.Content (ReadOnly GraphAuthoring.source_endpoint_label) [];
         Node (part parent "graph/empty-direction") "task-graph/empty-direction" "" Roles.Decorative (Fact "→") [];

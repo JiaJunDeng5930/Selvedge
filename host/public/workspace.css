@@ -284,19 +284,64 @@ main > [data-page-region="collection-actions"]:has(> [data-semantic-key="history
   color: var(--selvedge-muted) !important;
 }
 
-[data-page-region="board-controls"] > [data-board-group="view-choices"] {
+[data-page-region="board-controls"] {
+  container: board-controls / inline-size;
+  flex-flow: row wrap !important;
+  align-items: center !important;
+  gap: .375rem .75rem !important;
+}
+[data-page-region="board-controls"] > [data-board-group] {
+  flex: none !important;
+  inline-size: max-content !important;
+  min-inline-size: 0 !important;
+  max-inline-size: 100% !important;
+  align-items: center;
+}
+[data-board-group="view-choices"] {
   flex-wrap: wrap !important;
 }
-
+[data-page-region="board-controls"] > [data-board-group="search"] {
+  flex: 0 1 12rem !important;
+  min-inline-size: min(9rem, 100%) !important;
+  inline-size: auto !important;
+  padding-inline-start: .375rem;
+  border-inline-start: 1px solid var(--selvedge-border);
+}
 [data-page-region="board-controls"] > [data-board-group="secondary-actions"] {
   margin-inline-start: auto;
+}
+@container board-controls (max-width: 750px) {
+  [data-page-region="board-controls"] > [data-board-group="view-choices"] {
+    flex-basis: 100% !important;
+    justify-content: flex-start;
+  }
+  [data-page-region="board-controls"] > [data-board-group="search"] {
+    flex: 1 1 min(8rem, 100%) !important;
+    min-inline-size: 0 !important;
+    padding-inline-start: 0;
+    border-inline-start: 0;
+  }
+}
+@container board-controls (max-width: 305px) {
+  [data-page-region="board-controls"] > [data-board-group="search"] {
+    flex-basis: 100% !important;
+  }
+}
+[data-board-group="view-choices"] > [data-semantic-key="filters"] {
+  flex: none !important;
+}
+[data-board-group="view-choices"] > [data-semantic-key="board/working"] {
+  margin-inline-start: .375rem;
+}
+[data-page-region="board-controls"] > [data-board-scroll-controls]:not([hidden]) {
+  padding-inline-start: .5rem;
+  border-inline-start: 1px solid var(--selvedge-border);
 }
 [data-semantic-key="board/working"] {
   inline-size: max-content !important;
   min-inline-size: max-content !important;
   flex: none !important;
   white-space: nowrap !important;
-  margin-inline-end: .35rem;
   padding-inline: .55rem !important;
   border: 1px solid var(--selvedge-border) !important;
 }
@@ -351,6 +396,14 @@ main > [data-page-region="collection-actions"]:has(> [data-semantic-key="history
   block-size: auto !important;
   min-block-size: 0 !important;
   overflow: hidden;
+}
+[data-board-stage]:not(:has([data-card-id])) {
+  background: color-mix(in srgb, var(--selvedge-inset) 38%, var(--selvedge-canvas)) !important;
+}
+[data-board-stage] > [data-board-lane-heading] {
+  margin-block-end: .25rem;
+  padding-block-end: .125rem;
+  border-block-end: 1px solid var(--selvedge-border);
 }
 [data-board-cards] {
   min-block-size: 0 !important;

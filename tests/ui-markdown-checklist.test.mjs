@@ -193,17 +193,20 @@ test('interactive fences keep their original source collapsed while the preview 
   fixture.finish(0, { text: [...sections, '```selvedge-ui example\nAn ordinary example.\n```', 'Settled reply ends here.'].join('\n\n') });
   const { task } = await taskIdle(running.service, task_id);
   await page.evaluate(() => {
-    const probe = { flashing: false, pendingSeen: false, firstPaint: null, running: true };
+    const probe = { flashing: false, pendingSeen: false, overlappingStatus: false, firstPaint: null, running: true };
     window.fencePaintProbe = probe;
     const painted = node => node.getClientRects().length > 0 && getComputedStyle(node).visibility === 'visible';
     function sample() {
       for (const code of document.querySelectorAll('pre > code')) {
         if (code.textContent.startsWith('<ui id="preview-') && painted(code)) probe.flashing = true;
       }
-      if ([...document.querySelectorAll('[role="status"]')].some(status =>
-        status.textContent === '正在加载对话…' && painted(status))) probe.pendingSeen = true;
+      const loading = [...document.querySelectorAll('main [role="status"]')].some(status =>
+        status.textContent === '正在加载对话…' && painted(status));
+      if (loading) probe.pendingSeen = true;
       const reader = document.querySelector('main section[aria-label="Conversation"]');
-      if (probe.firstPaint === null && reader && painted(reader) && Number(getComputedStyle(reader).opacity) > 0) {
+      const readerVisible = reader && painted(reader) && Number(getComputedStyle(reader).opacity) > 0;
+      if (loading && readerVisible) probe.overlappingStatus = true;
+      if (probe.firstPaint === null && readerVisible) {
         const tail = [...reader.querySelectorAll('p')].find(node => node.textContent === 'Settled reply ends here.');
         const end = reader.querySelector('button[aria-label="创建对话分支"]');
         const visible = node => {
@@ -229,6 +232,8 @@ test('interactive fences keep their original source collapsed while the preview 
   });
   assert.equal(probe.flashing, false, 'No interactive source is exposed before its preview or an explicit disclosure');
   assert.equal(probe.pendingSeen, true, 'A delayed history gives one visible loading status');
+  assert.equal(probe.overlappingStatus, false, 'The conversation loading status never overlays visible content');
+  assert.equal(await page.getByText('正在加载对话…', { exact: true }).isVisible(), false);
   assert.deepEqual(probe.firstPaint, { tail: true, end: true }, 'The first visible viewport is the settled conversation tail');
   await timeline.getByRole('button', { name: '创建对话分支', exact: true }).waitFor();
   const declined = timeline.locator('.code-block').filter({ hasText: '无法显示交互界面' });

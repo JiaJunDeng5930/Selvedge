@@ -117,9 +117,10 @@ Export NavigationProof(new_selection_intent_prevents_work_completion_selection,
     Menu and editor assessment uses the same command admission as committed
     submission. A composer can capture a locally valid message while its
     admission is pending. Only the exact captured command may run after
-    admission. An explicit submit shows progress in the send control until
-    its receipt. The conversation shows progress at the reply position while
-    it awaits model output. The admission observation is bound to subject,
+    admission. An explicit submit shows progress in the send control and a
+    visible status in the composer until its receipt. The status leaves the
+    draft and send control in place. The conversation shows progress at the
+    reply position while it awaits model output. The admission observation is bound to subject,
     action, occurrence, draft revision and world sequence.
     [available_native_has_current_admission] and
     [an_admitted_captured_submission_executes_its_captured_command] constrain
@@ -304,7 +305,9 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     as cards and exposes the action to link or open a conversation on the card.
     Its execution filter shows a count distinct from the stage counts and
     explains when the selected filter leaves no executing cards.
-    Each stage retains a heading, count and drop target when empty.
+    View choices and filters are adjacent. Search has a compact field beside
+    them. Each empty stage retains its heading, count and drop target with a
+    subdued background.
     Stage lanes follow one horizontal track. Their minimum width leaves room
     to read a card title alongside its action menu. Empty lanes retain a drop
     target with the same height. Previous and next controls join the toolbar
@@ -314,6 +317,8 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     selected indicator distinct from keyboard focus.
     Curved tree branches represent conversation lineage. Directed graph connections
     represent output routing, with the same rules and receipts available as text.
+    The graph destination, its empty state and the creation action name the same
+    object. The empty state describes how a graph routes conversation replies.
     A conversation transfer names its source and receiver beside the direction
     between them. Its optional JSON definition opens in a separate section
     that leaves the selected conversations and submit action available.
@@ -417,6 +422,8 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     Settings editors retain their category context when opened from a setting,
     with that settings page as their only background.
     Settings holds its pane and theme positions from the first frame.
+    Conversation defaults keep their positions while service settings load.
+    Desktop settings category names fit on one line.
     Skill paths can be edited and saved inline under Extensions.
     A scrolling settings form separates its fields from the fixed action area.
     Selected project directories show the short name and role before the full

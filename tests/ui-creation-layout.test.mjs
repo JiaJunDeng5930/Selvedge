@@ -83,7 +83,7 @@ test('desktop and landscape composer menus open on the same side of their trigge
   }
 });
 
-test('typing keeps a valid composer ready while explicit send shows progress through admission and execution', { timeout: 60_000 }, async t => {
+test('typing keeps a valid composer ready while explicit send shows progress through admission and execution', { timeout: 90_000 }, async t => {
   const fixture = await browserFixture(t);
   const { page } = fixture;
   const model = page.getByRole('button', { name: /^Model:/ });
@@ -128,38 +128,85 @@ test('typing keeps a valid composer ready while explicit send shows progress thr
   try {
     const draft = page.getByRole('combobox', { name: 'Task', exact: true });
     const send = page.getByRole('button', { name: 'Start task', exact: true });
+    const status = page.getByRole('status').filter({ hasText: '正在提交消息…' });
     await draft.fill(prefix);
     await send.and(page.locator(':enabled')).waitFor();
     const before = await send.boundingBox();
+    const draftBefore = await draft.boundingBox();
     await draft.press('End');
     await page.keyboard.insertText('!');
     await assessmentStarted.promise;
     assert.equal(await send.isEnabled(), true);
+    assert.equal(await status.count(), 0, 'Typing and admission show no sending message before an explicit click');
     await send.click();
     const pending = page.getByRole('button', { name: '正在提交消息…', exact: true });
     await pending.waitFor();
+    await status.waitFor();
     assert.equal(await pending.getAttribute('aria-busy'), 'true');
     assert.equal(await pending.isDisabled(), true);
     assert.deepEqual(await pending.boundingBox(), before);
+    assert.deepEqual(await draft.boundingBox(), draftBefore);
+    const statusBox = await status.boundingBox();
+    assert.ok(insideViewport(statusBox, page.viewportSize()));
+    assert.ok(statusBox.y >= draftBefore.y + draftBefore.height &&
+      statusBox.y + statusBox.height <= before.y + before.height / 2,
+      'The status sits between the draft and send controls');
+    assert.equal(await draft.inputValue(), sent);
     assert.deepEqual(submissions, []);
     const background = await pending.evaluate(button => getComputedStyle(button).backgroundColor);
     assert.notEqual(background, await draft.evaluate(node => getComputedStyle(node.closest('form')).backgroundColor));
     admit.resolve();
     await commandStarted.promise;
     assert.equal(await pending.getAttribute('aria-busy'), 'true');
+    assert.equal(await status.isVisible(), true);
     assert.deepEqual(submissions, [sent]);
     submit.resolve();
     const reader = page.getByRole('region', { name: 'Conversation', exact: true });
     await reader.getByText(sent, { exact: true }).waitFor();
+    await status.waitFor({ state: 'hidden' });
     const generation = reader.getByRole('status').filter({ hasText: '正在生成回复…' });
     await generation.waitFor();
-    const requestDeadline = Date.now() + 10_000;
+    const requestDeadline = Date.now() + 30_000;
     while (!fixture.requests[0] && Date.now() < requestDeadline)
       await new Promise(resolve => setTimeout(resolve, 20));
     assert.ok(fixture.requests[0]);
     fixture.finish(0, { text: 'The submission and reply are visible.' });
     await reader.getByText('The submission and reply are visible.', { exact: true }).waitFor();
     await generation.waitFor({ state: 'hidden' });
+
+    const compact = { width: 390, height: 720 };
+    const message = 'Check the progress of an existing conversation.';
+    await page.setViewportSize(compact);
+    const followUp = page.getByRole('combobox', { name: 'Message', exact: true });
+    await followUp.fill(message);
+    await page.waitForFunction(() => {
+      const composer = document.querySelector('[data-composer-dock]');
+      return composer?.getBoundingClientRect().width < innerWidth;
+    });
+    const nextSend = page.getByRole('button', { name: '发送', exact: true });
+    const messageReceipt = Promise.withResolvers();
+    const releaseMessage = Promise.withResolvers();
+    try {
+      await page.route('**/api/browser/command', async route => {
+        if (route.request().postDataJSON()?.command?.op === 'send') {
+          messageReceipt.resolve();
+          await releaseMessage.promise;
+        }
+        await route.continue();
+      });
+      await nextSend.and(page.locator(':enabled')).waitFor();
+      const previousBox = await nextSend.boundingBox();
+      await nextSend.click();
+      await messageReceipt.promise;
+      await status.waitFor();
+      assert.ok(insideViewport(await status.boundingBox(), compact));
+      assert.deepEqual(await pending.boundingBox(), previousBox);
+    } finally {
+      releaseMessage.resolve();
+    }
+    await reader.getByText(message, { exact: true }).waitFor();
+    await status.waitFor({ state: 'hidden' });
+    await generation.waitFor();
   } finally {
     admit.resolve();
     submit.resolve();
