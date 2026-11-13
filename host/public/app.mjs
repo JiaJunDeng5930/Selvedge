@@ -34,12 +34,14 @@ const readingLayouts = new WeakMap();
 const readingVisits = new WeakMap();
 const readingBlocks = new WeakMap();
 const restoredReadingOffsets = new WeakMap();
+const selections = new WeakMap();
 const codeBlocks = new Map();
 const storagePolicy = interaction('interactive_storage_policy');
 const storage = new InteractiveSnapshotStorage({ ...storagePolicy,
   maximumDocuments: Number(storagePolicy.maximumDocuments instanceof JsonNumber ? storagePolicy.maximumDocuments.source : storagePolicy.maximumDocuments),
   maximumBytes: Number(storagePolicy.maximumBytes instanceof JsonNumber ? storagePolicy.maximumBytes.source : storagePolicy.maximumBytes) });
 const activeModal = () => renderer.modal;
+const historyResultsSelector = 'main > [data-page-region="history-results"]';
 const reveal = createLayoutRevealer(surface, activeModal);
 const editorRepair = createEditorRepairPlacement(activeModal);
 const motion = new PresentationMotion(surface, activeModal);
@@ -50,7 +52,6 @@ let publication = { generation: 0, phase: 'awaiting', namespace: '', sequence: 0
 let environment = null;
 let measuring = null;
 let measureAgain = false;
-let renderAfterMeasurement = null;
 let measurementFrame = null;
 let measurementTask = null;
 let connection = null;
@@ -62,6 +63,7 @@ let readingLayoutScheduled = false;
 let pendingHistoryLocation = null;
 let historyLocation = null;
 let searchResultsPosition = null;
+let historyResultsNode = null;
 let boardTrack = null;
 let boardFirstLane = null;
 let boardScrollControls = null;
@@ -96,7 +98,7 @@ function showUpdateStatus({ status, operations, message }) {
 function reloadForRelease(release) {
   if (!documentRelease || !release || release === documentRelease) return false;
   if (publication.namespace) {
-    const session = interaction('update_session', { state });
+    const session = interaction('update_session', { state, world, environment });
     try {
       sessionStorage.setItem(updateSessionKey, stringifyJson({ namespace: publication.namespace, session }));
     } catch (error) {
@@ -117,7 +119,7 @@ function restoreUpdateSession() {
     if (stored === null) return;
     const { namespace, session } = parseJson(stored);
     if (namespace === publication.namespace) {
-      state = interaction('restore_update_session', { state, world, checkpoint: session });
+      state = interaction('restore_update_session', { state, world, environment, checkpoint: session });
     }
     sessionStorage.removeItem(updateSessionKey);
   } catch (error) {
@@ -221,6 +223,7 @@ function retireDocumentViews() {
   for (const node of readingMeasurements.keys()) retireReadingMeasurement(node);
   retireHistoryLocation(); pendingFocus = null; suspendedFocus = null; focusRequest++;
   searchResultsPosition = null;
+  historyResultsNode = null;
   suspendedPrefixFocus = null;
   for (const controller of assessments.values()) controller.abort();
   assessments.clear();
@@ -278,6 +281,7 @@ function synchronizePrefixAuthority() {
 }
 function renderRecovery(reason) {
   surface.inert = false;
+  renderer.reset();
   renderer.renderDocument(ops => presentBrowserDocument('recovery', {
     root_font_size_milli: physical.viewport().root_font_size_milli, generation: publication.generation, reason,
   }, ops), publication.generation);
@@ -305,7 +309,7 @@ function dispatch(input) {
   }
   publication = publicationEvent(decision.publication_event);
   if (decision.publication_event !== 'keep')
-    render(decision.native_stream ? 'stream' : decision.native_region ? 'region' : decision.native_picker ? 'picker' : null);
+    render(decision.native_stream ? 'stream' : 'region');
   for (const effect of decision.effects) execute(effect).catch(fatal);
   return decision;
 }
@@ -325,24 +329,19 @@ function refreshClock() {
   if (document.visibilityState !== 'visible') return;
   dispatch({ type: 'clock_observed', now: BigInt(Math.floor(Date.now() / 1000)) });
 }
-function render(local = null) {
+function render(mode = 'region') {
   if (disposed) return;
   const recovery = publicationEvent('recovery');
   if (recovery !== null) { renderRecovery(recovery); return; }
   if (!environment) return;
-  try { present(local); }
+  try { present(mode); }
   catch (error) {
     // DEFENSE: Native DOM updates can fail during a scene change. Keep the
     // same recovery action available as for a failed physical observation.
     fatal(error);
   }
 }
-function renderDocument(materialize, generation) {
-  const selector = 'main > [data-page-region="history-results"]';
-  const previous = surface.querySelector(selector);
-  const scrollport = previous?.parentElement;
-  const offset = scrollport?.scrollTop;
-  renderer.renderDocument(materialize, generation);
+function refreshPageLayout(previous, scrollport, offset) {
   const track = surface.querySelector('[data-page-region="board-stages"]');
   const firstLane = track?.firstElementChild ?? null;
   const controls = track?.parentElement.querySelector('[data-board-scroll-controls]') ?? null;
@@ -360,7 +359,8 @@ function renderDocument(materialize, generation) {
     if (firstLane) boardTrackResize.observe(firstLane);
   }
   if (controls && boardHasOverflow) controls.hidden = false;
-  const current = surface.querySelector(selector);
+  const current = surface.querySelector(historyResultsSelector);
+  historyResultsNode = current;
   if (previous === current) return;
   if (previous) {
     // The workspace keeps its main scrollport mounted across route changes.
@@ -385,36 +385,25 @@ function updateBoardScroll() {
 function scrollBoard(direction) {
   boardTrack.scrollBy({ left: direction * boardTrack.clientWidth / 2 });
 }
-function present(local) {
+function present(mode) {
   surface.dataset.displayPending = String(publicationEvent('pending'));
-  const measuringDocument = measuring && renderer.document;
-  const deferRender = () => {
-    if (publication.native_displayed_generation === null) synchronizeNativeAuthority();
-    synchronizePrefixActions();
-    // A single transaction can still publish its local update after the
-    // measurement. Multiple transactions require the complete current view.
-    renderAfterMeasurement = { local: renderAfterMeasurement ? null : local };
-    measureAgain = true;
-  };
-  // A local update can use the last measured environment if its base is still
-  // mounted. Any older in-flight layout observation then fails its generation check.
-  if (measuringDocument && (!local || renderAfterMeasurement ||
-      !sameGeneration(renderer.generation, publication.native_displayed_generation))) {
-    deferRender(); return;
-  }
   const generation = publication.generation;
-  const materialize = ops => presentNative(local, state, world, environment, generation, ops);
-  const directlyPresented = local === 'picker' ? renderer.renderPicker(materialize, generation)
-    : local === 'region' ? renderer.renderRegions(materialize, generation)
-    : local === 'stream' && renderer.renderStream(materialize, generation);
-  const streamed = local === 'stream' && directlyPresented;
-  if (!directlyPresented) {
-    if (measuringDocument) { deferRender(); return; }
-    surface.dataset.displayPending = String(publicationEvent('pending'));
-    renderDocument(ops => presentNative('document', state, world, environment, generation, ops), generation);
-  }
-  surface.dataset.sourcesFresh = String(sourceFresh);
-  if (!streamed) physical.refresh();
+  const materialize = kind => ops => presentNative(kind, state, world, environment, generation, ops);
+  const starting = renderer.document == null;
+  if (starting) renderer.renderDocument(materialize('document'), generation);
+  const streamed = !starting && mode === 'stream' && renderer.renderStream(materialize('stream'), generation);
+  const previousResults = historyResultsNode?.isConnected ? historyResultsNode : null;
+  const scrollport = !streamed ? previousResults?.parentElement : null;
+  const offset = scrollport?.scrollTop;
+  const regions = !streamed && renderer.renderRegions(materialize('region'), generation);
+  if (!streamed && !regions) throw new Error('Unable to publish the native regions');
+  const pageChanged = starting || regions?.page_changed;
+  if (pageChanged) refreshPageLayout(previousResults, scrollport, offset);
+  const freshness = String(sourceFresh);
+  const freshnessChanged = surface.dataset.sourcesFresh !== freshness;
+  if (freshnessChanged) surface.dataset.sourcesFresh = freshness;
+  const layoutChanged = pageChanged || regions?.focus_scope || regions?.layout_changed;
+  if (layoutChanged) physical.refresh();
   if (!renderer.document.measurement_pending) {
     publication = publicationEvent('document', { receipt_generation: generation });
     if (!streamed) {
@@ -430,7 +419,7 @@ function present(local) {
       // The receipt changes input authority, not the compiled state/world/environment.
       // Keep the same DOM and finish the native work that was waiting for publication.
       surface.dataset.displayPending = String(publicationEvent('pending'));
-      if (!streamed && publicationEvent('ready')) {
+      if (layoutChanged && publicationEvent('ready')) {
         renderer.refreshNativeTargets();
         // Document-derived targets are available after their parsers catch up.
         reveal();
@@ -443,7 +432,9 @@ function present(local) {
       renderer.whenCaughtUp().then(publishPrefix).catch(fatal);
     }
   } else synchronizePrefixActions();
-  if (!streamed) { reveal(); editorRepair.refresh(); motion.refresh(); retryHistoryLocation(); layoutReading(); }
+  if (layoutChanged) { reveal(); editorRepair.refresh(); retryHistoryLocation(); }
+  if (layoutChanged || freshnessChanged) motion.refresh();
+  if (!streamed) scheduleReadingLayout();
 }
 function schedulePhysicalRefresh() {
   if (disposed || measurementFrame !== null || measurementTask !== null) return;
@@ -496,14 +487,7 @@ async function refreshPhysical() {
       }
     } while (measureAgain && !disposed);
   })();
-  try { await measuring; } finally {
-    measuring = null;
-    if (renderAfterMeasurement && !disposed) {
-      const pending = renderAfterMeasurement;
-      renderAfterMeasurement = null;
-      render(pending.local);
-    }
-  }
+  try { await measuring; } finally { measuring = null; }
 }
 function observedSelection(node, composing = false) {
   const encode = value => new TextEncoder().encode(value).length;
@@ -553,6 +537,7 @@ const renderer = new Presentation(surface, {
   event(binding, event, key, node, generation) {
     if (binding.kind === 'retry_render') {
       event.preventDefault(); publication = publicationEvent('retry');
+      renderer.reset();
       refreshPhysical().then(render).catch(fatal); return;
     }
     if (!admitted(generation)) {
@@ -585,8 +570,14 @@ const renderer = new Presentation(surface, {
     else if (binding.kind === 'value') {
       const publishReading = binding.event === 'change' && node.matches('select') &&
         node.closest('[data-interactive-component="select"]') ? holdAuthoredReading(node) : null;
-      dispatch({ ...binding.action, value: node.value,
-        raw: node.value, selection: observedSelection(node, event.isComposing || renderer.composing.has(node)) });
+      const selection = observedSelection(node, event.isComposing || renderer.composing.has(node));
+      // The input event already supplies the current caret. A later native
+      // selectionchange for that same caret adds no observation.
+      const decision = dispatch({ ...binding.action, value: node.value, raw: node.value, selection });
+      const field = renderer.records.get(key);
+      if (decision?.handled && decision.error === null && field?.node === node && field.metadata.selection_enabled)
+        selections.set(node, stringifyJson(selection));
+      else selections.delete(node);
       publishReading?.();
     }
     else if (binding.kind === 'values') dispatch({ ...binding.action, value: Array.from(node.selectedOptions, option => option.value) });
@@ -1527,7 +1518,6 @@ async function execute(effect) {
   }
 }
 
-const selections = new WeakMap();
 function selectionChanged() {
   const node = document.activeElement;
   if (!node || typeof node.selectionStart !== 'number') return;

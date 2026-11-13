@@ -27,13 +27,9 @@ let rebase source token number_text =
 let prepared_call operation source token number_text number =
   let context = context_for token in
   let value, next = Model.selvedge_interaction_prepared_call
-    (Js.to_string operation) (structured source number_text) context in
+    false (Js.to_string operation) (structured source number_text) context in
   let next_token = if context == next then token else retain next in
   Js.array [| to_js number value; Js.Unsafe.inject next_token |]
-
-let publish_native project source token number ops =
-  let context = context_for token in
-  Js.Opt.option (Option.map (native_nodes number ops) (project (Json.parse (Js.to_string source)) context))
 
 let publish_prepared project source token number ops =
   let context = context_for token in
@@ -51,5 +47,4 @@ let () =
   Js.Unsafe.set runtime "preparedCall" (Js.wrap_callback prepared_call);
   Js.Unsafe.set runtime "publishNativeDocument" (Js.wrap_callback (publish_prepared Model.selvedge_interaction_native_document));
   Js.Unsafe.set runtime "publishNativeRegion" (Js.wrap_callback (publish_prepared Model.selvedge_interaction_native_region));
-  Js.Unsafe.set runtime "publishNativePicker" (Js.wrap_callback (publish_prepared Model.selvedge_interaction_native_picker));
-  Js.Unsafe.set runtime "publishNativeStream" (Js.wrap_callback (publish_native Model.selvedge_interaction_native_stream))
+  Js.Unsafe.set runtime "publishNativeStream" (Js.wrap_callback (publish_prepared Model.selvedge_interaction_native_stream))

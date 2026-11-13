@@ -317,11 +317,17 @@ Definition information_panel snapshot (s:State.state) kind parent :=match kind w
    read_only parent "owner" (label "设置" "Settings")(label "项目"(UX.property_label property));
    read_only parent "configuration-source" (label "来源" "Source")
     (Observation.property_source_description snapshot s property)]end end.
-Definition side_content snapshot s task parent :=
+Definition side_actions snapshot s task parent hide_details :=
  let return_control:=match ObjectActions.return_action snapshot s task with
  |Some action=>match ObjectActions.command action with
   |Some command=>[declared parent Roles.Button(Control "return"(ObjectActions.action_label action)Secondary
     (Input.Command command)(status_availability(ObjectActions.action_status action)))]|None=>[]end|None=>[]end in
+ region parent "side/actions" "Side conversation actions" Roles.Toolbar
+   ((match Read.find_task task snapshot with
+     |Some entry=>Pages.task_run_controls snapshot s entry parent|None=>[]end)++
+    Pages.task_details_controls s task parent hide_details++
+    [Collections.more parent(TaskActions task)]++return_control).
+Definition side_content snapshot s task parent hide_details :=
  let heading:=match Read.find_task task snapshot with
  |Some entry=>Read.task_title entry|None=>"Side conversation unavailable"end in
  let source:=match bind(Read.task_side_parent snapshot task)(fun source=>Read.find_task source snapshot)with
@@ -331,10 +337,7 @@ Definition side_content snapshot s task parent :=
    [region parent "side/heading" "" Roles.Toolbar
     [title parent heading;declared parent Roles.Button(secondary "close" "关闭" Input.ClosePanel)]];
   dialog_body parent
-   (source++[region parent "side/actions" "Side conversation actions" Roles.Toolbar
-     ((match Read.find_task task snapshot with
-       |Some entry=>Pages.task_run_controls snapshot s entry parent|None=>[]end)++
-      [Pages.task_details_control s task parent;Collections.more parent(TaskActions task)]++return_control)]++
+   (source++[side_actions snapshot s task parent hide_details]++
     Pages.conversation_page snapshot s(SideTask task)parent)].
 Definition panel_title panel := match panel with
  |State.EditorPanel owner=>Editors.editor_title owner
@@ -353,7 +356,7 @@ Definition panel_title panel := match panel with
 Definition dismissible_heading parent caption : node Input.input :=
  dialog_header parent [title parent caption;
   declared parent Roles.Button(secondary "close" "Close panel" Input.ClosePanel)].
-Definition layer_view_with_side render_side snapshot s capacity compact_model_picker layer :=
+Definition layer_view snapshot s capacity compact_model_picker layer hide_side_details :=
  let parent:=SessionNavigation.panel_key(State.layer_panel layer)in
  let behavior:=behavior s capacity layer in
  match State.layer_panel layer with
@@ -362,7 +365,7 @@ Definition layer_view_with_side render_side snapshot s capacity compact_model_pi
  |State.PropertyPanel e request=>Activities.activity_view snapshot s e request(State.layer_occurrence layer)(State.layer_source_expanded layer)parent behavior compact_model_picker
  |panel=>let content:=match panel with
   |State.EditorPanel e=>Editors.editor_view snapshot s e parent
-  |State.SideConversationPanel task=>render_side snapshot s task parent
+  |State.SideConversationPanel task=>side_content snapshot s task parent hide_side_details
   |State.NavigationPanel GlobalMenu=>Navigation.global_menu s parent
   |State.NavigationPanel WorkOverview=>Navigation.work_overview snapshot s parent
   |State.NavigationPanel TasksDrawer=>
@@ -431,7 +434,3 @@ Definition layer_view_with_side render_side snapshot s capacity compact_model_pi
     |_=>"layer"end in
   Node(part parent "layer") semantic (panel_title panel)(match layer_presentation behavior with ModalDialog|AnchoredDialog=>Roles.Dialog|AnchoredMenu|ComposerMenu=>Roles.Menu|TrailingDetails=>Roles.Details end)
    (match State.layer_panel layer with State.NavigationPanel panel=>NavigationRegion panel behavior|_=>LayerRegion behavior end)content end.
-
-Definition layer_view := layer_view_with_side side_content.
-(* A covered side conversation keeps its focus scope without deriving its history. *)
-Definition layer_scope_view := layer_view_with_side(fun _ _ _ _=>[]).

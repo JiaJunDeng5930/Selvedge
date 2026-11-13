@@ -89,10 +89,12 @@ Definition preview_source context output part :=
       (Origin.OutputOrigin task (Streams.output_operation output) part mode) false
    |None=>CodeSource.StreamingPart task (Streams.output_operation output) part end
  |None=>CodeSource.StreamingPart task (Streams.output_operation output) part end.
+Definition preview_node {A} retained source value (children : list (S.node A)) : S.node A :=
+ S.Node (CodeSource.source_key source) "generated-output" "Agent output" R.AssistantMessage
+  (reading source value retained) children.
 Definition preview {A} action context retained interactive output part : S.node A :=
  let '(ordinal,value):=part in let source:=preview_source context output ordinal in
- S.Node (CodeSource.source_key source) "generated-output" "Agent output" R.AssistantMessage
-  (reading source value retained) (attachments action context retained interactive source).
+ preview_node retained source value (attachments action context retained interactive source).
 Definition retained_part {A} (action:actions A) context retained interactive stamp : list (S.node A) :=
  let identity:=DocumentState.document_identity stamp in
  let source:=CodeSource.Generated (document_namespace stamp) (document_viewer stamp) (document_origin stamp) false in

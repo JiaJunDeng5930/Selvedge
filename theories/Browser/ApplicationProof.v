@@ -109,7 +109,7 @@ Theorem rebasing_a_canonical_prepared_state_agrees_with_prepare request context 
  Application.state request = Some(Application.prepared_state context) ->
  Application.prepared_encoding context = Application.SC.encode_state(Application.prepared_state context) ->
  Application.rebase request context = option_map
-   (fun next => Application.with_controls next (Application.prepared_controls context))
+   (Application.carry_publication context)
    (Application.prepare request).
 Proof.
  intros Same Canonical. unfold Application.rebase, Application.prepare.

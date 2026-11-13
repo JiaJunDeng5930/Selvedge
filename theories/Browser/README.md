@@ -3,9 +3,10 @@
 `Runtime.call` is the extracted boundary for native browser observations.
 `Application.call` handles browser initialization, input and observation against
 the accepted world, durable namespace and publication state. It uses
-`Presentation` to compose pages and layers from business observations and
-`Session` to own navigation, dialogs and browser resource lifetimes.
-`Document` compiles the resulting scene into a closed DOM vocabulary.
+`Presentation` to project individual navigation, page and layer regions from
+business observations and `Session` to own navigation, dialogs and browser
+resource lifetimes. `Document` compiles the affected regions into a closed DOM
+vocabulary. Each publication installs its controls alongside its DOM effects.
 
 Browser views take business facts and decisions from [Interaction](../Interaction/README.md).
 Cards expose move and link choices through focused selectors, and drop targets
@@ -54,6 +55,8 @@ does not collapse otherwise viable desktop navigation. The responsive projection
 renders one branch of each alternative. Its compact task drawer contains the same
 header and task tree, while a higher activity retains the foreground scope.
 Native modal dialogs supply background inertness, cancellation and focus isolation.
+Task details borrows its opening control while modal. Its typed layer and task
+view determine the control's location without traversing the conversation.
 
 Physical view occurrences scope DOM identities and ID references. They retain the
 same logical editor, document and source authority. `Focus.resolve_target` first

@@ -94,6 +94,7 @@ export class Presentation {
     this.targetUpdates = new Map();
     this.updatedTargets = new Map();
     this.markdownRecords = new Set();
+    this.pendingMarkdown = new Set();
     this.prefixFields = new Set();
     this.prefixActions = new Set();
     this.styleTexts = new Map();
@@ -240,7 +241,7 @@ export class Presentation {
   properties(record, properties, styles) {
     const node = record.node;
     const next = new Map(properties.map(({ name, value }) => [name, value]));
-    // The document projection has already resolved appearance. Upstream token
+    // The appearance projection has already resolved the theme. Upstream token
     // aliases use :root, including content physically mounted through portals.
     if (!this.isolated && next.get('data-layout') === 'workspace' && next.has('data-theme')) {
       const root = this.root.ownerDocument.documentElement;
@@ -441,14 +442,29 @@ export class Presentation {
     if (key !== '') this.targets.set(key, record.node);
     return record;
   }
-  retireRecord(record) {
+  retireRecord(record, retired) {
     record.markdown?.dispose(); record.fences?.dispose();
     this.markdownRecords.delete(record);
+    this.pendingMarkdown.delete(record);
     this.prefixFields.delete(record.node);
     this.prefixActions.delete(record);
     if (this.records.get(record.key) === record) this.records.delete(record.key);
     if (this.targets.get(record.key) === record.node) this.targets.delete(record.key);
-    for (const [key, node] of record.markdownTargets ?? []) if (this.targets.get(key) === node) this.targets.delete(key);
+    for (const [key, node] of record.markdownTargets ?? []) {
+      if (this.targets.get(key) !== node) continue;
+      this.targets.delete(key);
+      // Retiring a Markdown record also retires widget roots mounted in its
+      // physical targets. Replacement targets own their own mount receipts.
+      if (retired && this.mounts.has(key)) {
+        for (const child of this.mounts.get(key)) {
+          this.mountRoots.delete(child);
+          retired.add(child);
+        }
+        this.mounts.delete(key);
+        this.targetUpdates.delete(key);
+        this.updatedTargets.delete(key);
+      }
+    }
   }
   synchronizePrefixFields(inert) {
     for (const node of this.prefixFields) if (node.inert !== inert) node.inert = inert;
@@ -475,13 +491,14 @@ export class Presentation {
     if (record.tag === 'select' && record.attributes.has('value') && 'value' in record.node && !this.composing.has(record.node)
         && record.node.value !== record.attributes.get('value')) record.node.value = record.attributes.get('value');
   }
-  nativeOperations({ used, retired, mounts }) {
+  nativeOperations({ used, retired, mounts, codes }) {
     return {
       text: value => this.root.ownerDocument.createTextNode(value),
       element: (identity, value, handles) => {
         used?.add(identity);
         const children = handles.filter(Boolean);
         const record = this.recordFor(identity, value.tag, value.metadata);
+        if (value.metadata?.code) codes?.push(value.metadata.code);
         record.events = value.events;
         this.properties(record, value.attributes, value.styles);
         const previous = record.node.childNodes;
@@ -540,7 +557,7 @@ export class Presentation {
     const retire = node => {
       if (node.isConnected || this.root.contains(node) || retained(node)) return;
       const record = this.nodeRecords.get(node);
-      if (record && this.records.get(record.key) === record) this.retireRecord(record);
+      if (record && this.records.get(record.key) === record) this.retireRecord(record, nodes);
       for (const child of node.children ?? []) retire(child);
     };
     for (const node of nodes) retire(node);
@@ -591,31 +608,7 @@ export class Presentation {
       record.fences.sync({ text: value.value, epoch: stringifyJson(value.metadata.epoch),
         revision: value.metadata.revision, ending: value.metadata.ending ?? (value.complete ? 'complete' : 'open') });
     }
-  }
-  renderPicker(materialize, generation) {
-    if (!this.document || this.document.measurement_pending) return false;
-    const active = this.root.ownerDocument.activeElement;
-    const focusedBefore = this.focusedKey(active);
-    const previousScope = this.focusScope;
-    const previousGeneration = this.generation;
-    this.generation = generation;
-    const retired = new Set();
-    const output = materialize(this.nativeOperations({ retired, mounts: new Map() }));
-    if (!output) { this.generation = previousGeneration; return false; }
-    const { metadata, roots } = output;
-    const picker = metadata.after === null ? null : roots.find(root => root.dataset.key === metadata.after);
-    if (metadata.before !== null && metadata.before !== metadata.after) {
-      const old = this.target(metadata.before);
-      if (old) { retired.add(old); unmount(old); }
-    }
-    if (picker && !picker.isConnected) this.target(metadata.layer_stack).append(picker);
-    this.retireDetached(retired);
-    this.focusScope = metadata.focus_scope;
-    output.commit?.();
-    this.commitLayers(active, true);
-    this.updateTargets(metadata.target_updates, metadata.removed_target_updates, !metadata.partial_target_updates);
-    this.applyFocus(previousScope, focusedBefore);
-    return true;
+    if (this.markdownPending(record)) this.pendingMarkdown.add(record);
   }
   renderStream(materialize, generation) {
     if (!this.document || this.document.measurement_pending) return false;
@@ -624,14 +617,18 @@ export class Presentation {
     const retired = new Set();
     const mounts = new Map();
     const output = materialize(this.nativeOperations({ retired, mounts }));
-    // DEFENSE: A measured layout can remove a preview between stream receipts.
-    // The full native projection will reconcile an unmounted preview.
-    if (!output || output.roots.some(root => !root.isConnected)) {
+    // DEFENSE: A layout change can remove the live preview before a later
+    // receipt. The owning region publishes its current contents instead.
+    const detached = output?.roots.filter(root => root && !root.isConnected) ?? [];
+    if (!output || detached.length) {
+      for (const node of detached) retired.add(node);
+      this.retireDetached(retired);
       this.generation = previousGeneration;
       return false;
     }
     this.updateMounts(mounts, retired);
     this.retireDetached(retired);
+    output.commit?.();
     return true;
   }
   renderRegions(materialize, generation) {
@@ -643,24 +640,52 @@ export class Presentation {
     this.generation = generation;
     const retired = new Set();
     const mounts = new Map();
-    const output = materialize(this.nativeOperations({ retired, mounts }));
+    const codes = [];
+    const used = new Set();
+    const output = materialize(this.nativeOperations({ used, retired, mounts, codes }));
     if (!output) { this.generation = previousGeneration; return false; }
     const { metadata } = output;
-    for (const { key, target } of metadata.append ?? []) this.target(target).append(this.target(key));
+    const placed = new Set();
+    const placements = metadata.place ?? [];
+    const appended = metadata.append ?? [];
+    for (const { keys } of placements) for (const key of keys) placed.add(key);
+    for (const { key } of appended) placed.add(key);
     for (const key of metadata.remove ?? []) {
+      // The compact header moves between the workspace and the task drawer.
+      // Its former slot can retire while the same node is mounted in another region.
+      if (used.has(key) || placed.has(key)) continue;
       const node = this.target(key);
       if (node) { retired.add(node); unmount(node); }
     }
+    for (const { target, keys, before } of placements) {
+      const parent = this.target(target);
+      let next = before == null ? null : this.target(before);
+      for (let index = keys.length - 1; index >= 0; index--) {
+        const node = this.target(keys[index]);
+        if (node.parentNode !== parent || node.nextSibling !== next) parent.insertBefore(node, next);
+        next = node;
+      }
+    }
+    for (const { key, target } of appended) {
+      const parent = this.target(target);
+      const node = this.target(key);
+      if (parent.lastChild !== node) parent.append(node);
+    }
+    for (const target of metadata.removed_mounts ?? []) if (!mounts.has(target)) mounts.set(target, []);
     this.updateMounts(mounts, retired);
     this.retireDetached(retired);
     this.updateTargets(metadata.target_updates, metadata.removed_target_updates);
     output.commit?.();
-    if (metadata.focus_scope) {
-      this.focusScope = metadata.focus_scope;
+    for (const code of codes) this.callbacks.codePublication?.(code);
+    if (metadata.focus_scope) this.focusScope = metadata.focus_scope;
+    if (metadata.layers_changed || metadata.focus_scope) {
       this.commitLayers(active, true);
-      this.applyFocus(previousScope, focusedBefore);
+      if (metadata.focus_scope || (focusedBefore !== null && active !== this.root.ownerDocument.activeElement))
+        this.applyFocus(previousScope, focusedBefore);
     }
-    return true;
+    if (metadata.title && this.root.ownerDocument.title !== metadata.title) this.root.ownerDocument.title = metadata.title;
+    return { ...metadata, layout_changed: Boolean(metadata.layout_changed || metadata.layers_changed || metadata.place?.length ||
+      metadata.append?.length || metadata.remove?.length || mounts.size) };
   }
   renderDocument(materialize, generation = 0) {
     const active = this.root.ownerDocument.activeElement;
@@ -797,30 +822,35 @@ export class Presentation {
     // supply their newer canonical value explicitly.
     this.fieldSession(record, 'reject', value ?? record.attributes.get('value'));
   }
-  async whenSettled() {
-    const results = await Promise.all(Array.from(this.markdownRecords, record => record.markdown.whenSettled()));
-    return !this.disposed && results.every(Boolean);
+  markdownPending(record) {
+    return !record.markdown.isCaughtUp() || (record.fences && !record.fences.isCaughtUp());
   }
   isCaughtUp() {
     if (this.disposed) return false;
-    for (const record of this.markdownRecords)
-      if (!record.markdown.isCaughtUp() || (record.fences && !record.fences.isCaughtUp())) return false;
-    return true;
+    for (const record of this.pendingMarkdown)
+      if (!this.markdownPending(record)) this.pendingMarkdown.delete(record);
+    return this.pendingMarkdown.size === 0;
   }
   async whenCaughtUp() {
     const pending = [];
-    for (const record of this.markdownRecords) {
-      if (record.markdown) pending.push(record.markdown.whenCaughtUp());
-      if (record.fences) pending.push(record.fences.whenCaughtUp());
-    }
+    for (const record of this.pendingMarkdown)
+      pending.push(this.waitForMarkdown(record));
     if (!pending.length) return !this.disposed;
     const results = await Promise.all(pending);
     return !this.disposed && results.every(Boolean);
   }
+  async waitForMarkdown(record) {
+    const markdown = record.markdown;
+    const fences = record.fences;
+    const [caughtUp, fenceCaughtUp] = await Promise.all([markdown.whenCaughtUp(), fences?.whenCaughtUp() ?? true]);
+    if (record.markdown === markdown && record.fences === fences && !this.markdownPending(record))
+      this.pendingMarkdown.delete(record);
+    return caughtUp && fenceCaughtUp;
+  }
   reset() {
     for (const record of this.records.values()) { record.markdown?.dispose(); record.fences?.dispose(); }
     reconcile(this.root, []); this.records.clear(); this.targets.clear(); this.modal = null;
-    this.markdownRecords.clear(); this.prefixFields.clear(); this.prefixActions.clear();
+    this.markdownRecords.clear(); this.pendingMarkdown.clear(); this.prefixFields.clear(); this.prefixActions.clear();
     this.mounts.clear(); this.mountRoots.clear(); this.pendingTargets.clear();
     this.document = null; this.focusScope = []; this.pendingFocus = null;
     this.targetUpdates.clear(); this.updatedTargets.clear();

@@ -1,6 +1,6 @@
 import { browserCall, publishBrowserDocument } from './generated/browser-model.mjs';
 import { interactionCall, prepareInteraction, rebaseInteraction, preparedInteractionCall,
-  publishNativeDocument, publishNativePicker, publishNativeRegion, publishNativeStream } from './generated/interaction-model.mjs';
+  publishNativeDocument, publishNativeRegion, publishNativeStream } from './generated/interaction-model.mjs';
 import { invoke, numberText, unwrapResult } from './model-boundary.mjs';
 import { numberFromJsonToken, parseJson, stringifyJson } from './json-tokens.mjs';
 
@@ -8,9 +8,8 @@ export const browser = (operation, source) => invoke(browserCall, operation, sou
 export const presentBrowserDocument = (operation, source, ops) =>
   publishBrowserDocument(operation, stringifyJson(source), numberFromJsonToken, ops);
 
-const preparedOperations = new Set(['step', 'accepts_element']);
-const nativePresentations = { document: publishNativeDocument, picker: publishNativePicker,
-  region: publishNativeRegion, stream: publishNativeStream };
+const preparedOperations = new Set(['step', 'accepts_element', 'update_session', 'restore_update_session']);
+const nativePresentations = { document: publishNativeDocument, region: publishNativeRegion, stream: publishNativeStream };
 let prepared = null;
 const structuredJson = value => parseJson(stringifyJson(value));
 
@@ -40,6 +39,7 @@ export function interaction(operation, source = null) {
   if (token === null) return invoke(interactionCall, operation, source);
   const [envelope, nextToken] = preparedInteractionCall(operation, structuredJson(request), token, numberText, numberFromJsonToken);
   const value = unwrapResult(envelope);
-  prepared = { state: operation === 'step' ? value.state : state, world, environment, token: nextToken };
+  const current = operation === 'step' ? value.state : operation === 'restore_update_session' ? value : state;
+  prepared = { state: current, world, environment, token: nextToken };
   return value;
 }

@@ -1,8 +1,9 @@
 # Browser host
 
 `app.mjs` observes HTTP, SSE, DOM, storage and media resources. It sends domain JSON
-to the extracted interaction program, interprets the returned effects, and asks
-the interaction entry point to compile its typed product surface. Product commands,
+to the extracted interaction program and interprets the returned effects. The
+browser mounts its workspace shell first and publishes the typed regions that
+change in each subsequent transaction. Product commands,
 field schemas, layout choices, publication admission, composition state, reading
 intent and code-block behavior are Gallina definitions.
 
@@ -20,14 +21,17 @@ measurements remain browser observations and effects.
 
 The interaction program records each control's receiver when its region is
 published. Native events resolve against those receivers and the active modal
-scope. A details toggle updates the relevant toolbar and panel, while a fence
-callback updates its own Markdown mount. Both publish the updated bindings
-together with their DOM.
+scope. Region publication places keyed roots within their workspace hosts and
+commits their DOM and bindings together. An edit publishes its composer, a
+details toggle updates the relevant toolbar and panel, and the model picker
+publishes through the overlay region. A fence callback updates its own
+Markdown mount.
 
 The pinned Markdown parser and formatter assets remain under `vendor`, with their
 licenses. Only a real mounted Markdown record owns its fence observer; a rendering
 or measurement clone cannot authorize an interactive document. Source origin,
 epoch, revision and parser prefix are returned to the owning interaction model.
+Browser receipts wait for Markdown records with pending parser or formatter work.
 Code-copy results, delayed feedback, uploads, connection attempts, audio resources
 and local-storage completion are correlated with their model-issued identities.
 

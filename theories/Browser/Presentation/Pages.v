@@ -30,25 +30,27 @@ Definition creation_heading snapshot s e :=match SessionObserve.draft_preview sn
  |Some project=>Navigation.new_conversation_label++" · "++project_name project
  |None=>Navigation.new_conversation_label end
 |_=>Navigation.new_conversation_label end.
+Definition run_environment_configuring (s:State.state) owner :=
+ match State.layers(State.navigation_state s)with
+ |top::_=>run_environment_panel owner(State.layer_panel top)|[]=>false end.
 Definition creation_composer snapshot (s:State.state) parent :=
  let e:=NewTask(State.active_work(State.navigation_state s))in
  let owner:=editor_key e in
- let configuring:=match State.layers(State.navigation_state s)with
- |top::_=>run_environment_panel e(State.layer_panel top)|[]=>false end in
- let status:=if configuring then [] else match Observe.run_environment_problem_for snapshot s (State.current_draft s e) with
+ let status:=if run_environment_configuring s e then [] else match Observe.run_environment_problem_for snapshot s (State.current_draft s e) with
   |Some problem=>[information parent "run-environment-status" Information.Status(Observe.environment_problem_message problem)]
   |None=>[]end in
  page_region parent Composition.ComposerInput Composition.BodyPosition
    ((match Editors.composer_view snapshot s e owner with Some composer=>[composer]|None=>[]end)++status)%list.
-Definition creation_page snapshot s parent :=
+Definition creation_introduction snapshot s parent :=
  let e:=NewTask(State.active_work(State.navigation_state s))in
  let graph_return:=match State.location(State.navigation_state s)with
   |GraphConversation _ _=>
    [declared parent Roles.Button(secondary "return-to-graph" "返回任务图" Input.ReturnToGraphSetup)]
   |_=>[]end in
- [page_region parent Composition.CreationIntroduction Composition.BodyPosition
-   (information parent "creation/title" Information.IntroductionTitle(creation_heading snapshot s e)::graph_return);
-  creation_composer snapshot s parent].
+ page_region parent Composition.CreationIntroduction Composition.BodyPosition
+   (information parent "creation/title" Information.IntroductionTitle(creation_heading snapshot s e)::graph_return).
+Definition creation_page snapshot s parent :=
+ [creation_introduction snapshot s parent; creation_composer snapshot s parent].
 Definition creating_conversation_page parent (message:Draft.text) : list(node Input.input) :=
  let pending:=part parent "pending-conversation" in
  [Node pending "pending-conversation" "Conversation" Roles.Section (PageContext None)
@@ -194,11 +196,13 @@ Definition task_run_controls snapshot s (task:Read.task) parent :=
    else[information parent "run-status" Information.Status(Read.task_caption task)])++
  (if paused then run_control snapshot s task parent "unfreeze" else [])++
  (if working then run_control snapshot s task parent "interrupt" else []))%list.
-Definition task_actions snapshot s task parent :=
+Definition task_details_controls s task parent (hidden : bool) :=
+ if hidden then [] else [task_details_control s task parent].
+Definition task_actions_with_details snapshot s task parent hide_details :=
  let id:=task_id task in
  page_region parent Composition.TaskActions Composition.HeadingPosition
   (task_run_controls snapshot s task parent++
-   [task_details_control s id parent;Collections.more parent(TaskActions id)]++
+   task_details_controls s id parent hide_details++[Collections.more parent(TaskActions id)]++
    task_side_controls snapshot s id parent).
 Definition task_has_composer s task :=negb(String.eqb(task_status task)"archived")||
  match Draft.find_draft(Message(task_id task))(State.drafts(State.authoring_state s))with Some _=>true|None=>false end.
@@ -217,9 +221,20 @@ Definition fork_history_control view :=
   [declared parent Roles.Button(Control key (ObjectActions.action_label action) Secondary
     (Input.OpenEditor owner(part parent key))(approval_availability action))]
  |_=>[]end.
-Definition task_contents snapshot s view parent task header_leading :=
+Definition search_return_controls s view parent :=
+ match view,State.search_return(SessionNavigation.search_state s)with
+ |PrimaryTask _,Some _=>[declared parent Roles.Button
+      (secondary "return-to-search" "返回搜索结果" Input.ReturnToHistorySearch)]
+ |_,_=>[]end.
+Definition task_title_region snapshot task parent : node Input.input :=
+ page_region parent Composition.ConversationTitle Composition.HeadingPosition
+   (title parent(task_title task)::worktree_feedback snapshot(task_id task)parent).
+Definition task_header snapshot s view parent task hide_details :=
+ page_region parent Composition.ConversationHeader Composition.HeadingPosition
+   (search_return_controls s view parent ++
+    [task_title_region snapshot task parent;task_actions_with_details snapshot s task parent hide_details]).
+Definition task_timeline snapshot s view parent task operations :=
  let id:=task_id task in
- let operations:=value_or[](Read.task_operations id snapshot)in
  let history:=AuditReading.timeline reading_actions(document_context snapshot s)(State.document_retention s)
    (State.interactive_state s)view(reader_disclosures id s)in
  let tail:=if Read.task_working task then [] else
@@ -228,33 +243,31 @@ Definition task_contents snapshot s view parent task header_leading :=
  let timeline:=match timeline with []=>
    [information parent "conversation-empty" Information.Description "Messages and task activity will appear here."]
   |_=>timeline end in
- ((match view with PrimaryTask _=>[page_region parent Composition.ConversationHeader Composition.HeadingPosition
-   (header_leading ++
-   [page_region parent Composition.ConversationTitle Composition.HeadingPosition(title parent(task_title task)::worktree_feedback snapshot id parent);
-    task_actions snapshot s task parent])]
-  |SideTask _=>[]end) ++
- [page_region parent Composition.TimelineContent Composition.BodyPosition
+ page_region parent Composition.TimelineContent Composition.BodyPosition
    (discarded_unfinished_notice s id parent ++
     [Node(NavigationIdentity.task_view_key view "timeline")"timeline" "Conversation"Roles.Timeline
       (ReadingTimeline view(State.reader_generation(SessionNavigation.reader_for s id)))timeline;
      information parent "reading-initial-status" Information.Status "正在加载对话…"] ++
     if SessionNavigation.return_latest s id then
     [page_region parent Composition.LatestAction Composition.BodyPosition
-      [declared parent Roles.Button(secondary "latest" "Return to latest"(Input.FollowLatest id))]]else[])] ++
+      [declared parent Roles.Button(secondary "latest" "Return to latest"(Input.FollowLatest id))]]else[]).
+Definition task_contents snapshot s view parent task hide_details :=
+ let id:=task_id task in
+ let operations:=value_or[](Read.task_operations id snapshot)in
+ ((match view with PrimaryTask _=>[task_header snapshot s view parent task hide_details]|SideTask _=>[]end) ++
+ [task_timeline snapshot s view parent task operations] ++
  approvals snapshot s id parent operations ++
  match task_composer snapshot s view parent task with Some composer=>[composer]|None=>[]end)%list.
-Definition conversation_page snapshot s view parent :=
- let search_return:=match view,State.search_return(SessionNavigation.search_state s)with
-  |PrimaryTask _,Some _=>[declared parent Roles.Button
-      (secondary "return-to-search" "返回搜索结果" Input.ReturnToHistorySearch)]
-  |_,_=>[]end in
+Definition conversation_page_with_details snapshot s view parent hide_details :=
  match find_task(NavigationIdentity.task_view_task view)snapshot with
  |None=>[page_region parent Composition.UnavailableMessage Composition.BodyPosition
    [region parent "conversation-unavailable" "" Roles.Section
      ([title parent "Conversation unavailable";
-      information parent "conversation-unavailable-message" Information.Description "This task no longer exists."]++search_return)]]
+      information parent "conversation-unavailable-message" Information.Description "This task no longer exists."]++
+       search_return_controls s view parent)]]
  |Some task=>[Node(part parent "conversation")"conversation" ""Roles.Section(PageContext(Some view))
-  (task_contents snapshot s view parent task search_return)]end.
+  (task_contents snapshot s view parent task hide_details)]end.
+Definition conversation_page snapshot s view parent := conversation_page_with_details snapshot s view parent false.
 Definition history_scope (project:bool) selected choices parent :=
  Node(part parent(if project then"history/project"else"history/work"))"history-scope"(if project then"项目"else"工作组")Roles.Field
   (HistorySearchScope project selected choices(fun value=>
@@ -366,11 +379,11 @@ Definition shared_page snapshot s work parent :=
    page_region parent Composition.SharedContent Composition.BodyPosition
     (let contents:=AuditReading.shared_ui Input.Interactive(document_context snapshot s)(State.document_retention s)(State.interactive_state s)in
      match contents with []=>[read_only parent "shared-empty" "共享 UI 尚未创建" "请让智能体创建共享 UI。"]|_=>contents end)]end.
-Definition page_contents snapshot s pending parent :=match pending with
+Definition page_contents snapshot s pending parent hide_details :=match pending with
 |Some message=>creating_conversation_page parent message
 |None=>match State.location(State.navigation_state s)with
 |Start|GraphConversation _ _=>creation_page snapshot s parent
-|Conversation task=>conversation_page snapshot s(PrimaryTask task)parent
+|Conversation task=>conversation_page_with_details snapshot s(PrimaryTask task)parent hide_details
 |Projects=>Collections.projects_page snapshot s parent
 |ProjectHome id=>match find_project id snapshot with Some project=>Collections.project_page snapshot s parent project|None=>missing parent "This project no longer exists"end
 |Board=>Collections.board_page snapshot s parent
@@ -390,6 +403,7 @@ Definition page_kind_with snapshot s (pending:option Draft.text) :=match pending
 |HistorySearch=>Composition.HistorySearchCollection
 |SharedUI work _=>match find_work work snapshot with Some _=>Composition.SharedInterface|None=>Composition.Unavailable end end end.
 Definition page_kind snapshot s :=page_kind_with snapshot s (SessionNavigation.creating_conversation s).
-Definition main snapshot s :=
+Definition main_with_details snapshot s hide_details :=
  let pending:=SessionNavigation.creating_conversation s in
- Node "/main" "main" "Main content"Roles.Main(PageBody(page_kind_with snapshot s pending))(page_contents snapshot s pending "/main").
+ Node "/main" "main" "Main content"Roles.Main(PageBody(page_kind_with snapshot s pending))
+  (page_contents snapshot s pending "/main" hide_details).

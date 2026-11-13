@@ -86,14 +86,16 @@ Definition task_belongs := World.task_belongs.
 Definition visible_tasks observation :=
  fold_left (fun tasks view=>let task:=NavigationIdentity.task_view_task view in
    if existsb (N.eqb task) tasks then tasks else tasks++[task]) (context_views observation) [].
+Definition preview_operation observation identity :=
+ task<-find_task (Streams.stream_task identity) (context_world observation);;
+ pending<-field "model_pending" task;; ticket<-natural_field "ticket" pending;;
+ if N.eqb ticket (Streams.stream_ticket identity) then natural_field "operation_id" pending else None.
+
+Definition current_preview observation identity :=
+ operation<-preview_operation observation identity;;
+ Streams.cumulative (context_streams observation) (Streams.stream_task identity)
+   (Streams.stream_ticket identity) operation.
+
 Definition current_previews observation :=
- fold_right (fun entry rest=>let identity:=Streams.stream_identity entry in
-   match find_task (Streams.stream_task identity) (context_world observation) with
-   | None=>rest
-   | Some task=>match field "model_pending" task with
-     | None=>rest
-     | Some pending=>match natural_field "ticket" pending,natural_field "operation_id" pending with
-       | Some ticket,Some operation=>if N.eqb ticket (Streams.stream_ticket identity) then
-           match Streams.cumulative (context_streams observation) (Streams.stream_task identity) ticket operation with
-           | Some output=>output::rest|None=>rest end else rest
-       | _,_=>rest end end end) [] (context_streams observation).
+ fold_right (fun entry rest=>match current_preview observation (Streams.stream_identity entry) with
+   |Some output=>output::rest|None=>rest end) [] (context_streams observation).

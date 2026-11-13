@@ -1,13 +1,5 @@
 From Selvedge.Foundation Require TextMetrics Utf8.
 From Selvedge.Interaction.Submission Require Observation.
-From Selvedge.Browser Require Application.
-
-(* Evaluate the same pure projection at most once per prepared state. A
-   snapshot can install a different state before asking to see its scene. *)
-Extract Constant Selvedge.Browser.Application.defer_scene => "
-  (fun project ->
-    let result = lazy (project ()) in
-    fun () -> Lazy.force result)".
 
 (* Both validators accept exactly UTF-8 encodings of Unicode scalar values.
    The native validator scans bytes without copying each remaining suffix. *)

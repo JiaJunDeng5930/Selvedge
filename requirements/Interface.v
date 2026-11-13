@@ -43,12 +43,15 @@ Export SurfaceProofs(unavailable_control_cannot_press,
     Selection, focus, expansion, execution status and pointer interest answer
     different questions and remain distinct observations.
 
-    A prepared application scene lets a native click resolve its binding and
-    present its result without decoding the accepted world or deriving the
-    displayed scene again. State, world and environment changes retire the
-    corresponding preparation. The displayed generation still governs
-    element admission. The native browser measures the new layout after
-    giving the resulting document a paint opportunity.
+    Native input resolves against the bindings published with the owning
+    region. A draft edit updates the affected composer and its suggestions.
+    A layer change updates that layer and the controls that opened it. The
+    rest of the conversation keeps its mounted reading content and controls.
+    When generated text extends a published prefix, the current reply receives
+    the append even if it already contains an interactive component. The
+    displayed generation governs input admission, and observations still run
+    against the accepted world. The native browser measures layout changes
+    after the affected regions have had a paint opportunity.
 
     [assessment_presentation_retains_complete_observation],
     and [blocked_editing_explains_all_commit_obstructions] retain the assessed
@@ -95,9 +98,7 @@ Export SurfaceProofs(unavailable_control_cannot_press,
 
 From Selvedge.Browser Require ApplicationProof.
 From Selvedge.Browser Require IncrementalSceneProof.
-Export IncrementalSceneProof(retained_live_preview_has_no_action,
-  projected_picker_overlays_are_the_scene_overlays,
-  scope_only_projection_retains_picker_and_focus).
+Export IncrementalSceneProof(retained_live_preview_has_no_action).
 From Selvedge.Browser.Session Require ObjectActionsProof.
 From Selvedge.Browser.Session Require AuthoringProof NavigationProof.
 Export ApplicationProof(live_setting_selection_preserves_the_message_draft,
@@ -279,9 +280,12 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     require the receipt for their published prefix. Replacing the source
     namespace retires both receipts.
 
-    Appending to a passive reply may publish the changed preview and retain the
-    existing action bindings. A picker projected separately must use the same
-    overlays and focus scope as the complete view.
+    Appending to a mounted reply within the same document lifetime may publish
+    its Markdown preview independently. Existing authored components remain
+    mounted in their Markdown targets and retain their action bindings. New
+    components enter through the ordinary parser observations. A picker
+    projected separately must use the same overlays and focus scope as the
+    complete view.
 
     Motor targets, writing-line demand, reading width and clearance have different
     purposes. Their observed fonts and dimensions cannot substitute for one

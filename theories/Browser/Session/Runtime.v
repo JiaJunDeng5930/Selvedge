@@ -189,9 +189,7 @@ Definition synchronize_language namespace snapshot lagged state:=
  let visible owner:=Documents.visible_owner_in ctx owner retained documents in
  let decision:=Language.step_visible visible IT.EnvironmentChanged language (Documents.environment ctx lagged) in
  apply_language_decision namespace snapshot lagged decision state.
-Definition synchronize namespace snapshot lagged state:=
- let skills:=Authoring.synchronize_skills snapshot state in
- let state:=Authoring.result_state skills in
+Definition synchronize_documents namespace snapshot lagged state:=
  let ctx:=context namespace snapshot state in
  let retained:=Documents.synchronize_documents ctx lagged(SS.document_retention state)in
  let state:=SS.with_retention retained state in
@@ -200,7 +198,7 @@ Definition synchronize namespace snapshot lagged state:=
    Documents.known_owner ctx(IS.block_owner block)retained)(IS.blocks(SS.interactive_state state))))state in
  let definition:=Documents.shared_definition(context namespace snapshot state)retained in
  let initial:=match definition with Some input=>apply_language namespace snapshot lagged input state|None=>Authoring.keep state end in
- Authoring.append skills(Authoring.append initial(synchronize_language namespace snapshot lagged(Authoring.result_state initial))).
+ Authoring.append initial(synchronize_language namespace snapshot lagged(Authoring.result_state initial)).
 Definition complete namespace snapshot lagged ticket outcome state:=
  match find(fun pending=>N.eqb ticket(SS.ticket pending))(SS.awaiting(SS.authoring_state state))with
  |None=>Authoring.keep state
@@ -358,12 +356,85 @@ Definition retire_namespace namespace state:=
  let aborts:=fold_right(fun resource effects=>match resource with Resource.Loading ticket _=>Services.AbortUpload ticket::effects|_=>effects end)[](Services.uploads previous)in
  Authoring.changed fresh(map Services.encode_effect(aborts++Services.release_preview previous)++
    map Speech.encode_effect(Speech.speech_effects stopped++Speech.speech_effects closed)).
+Definition composer_editor input := match input with
+ |Input.ApplyAssignment owner assignment|Input.ActivityAssignment _ owner assignment=>
+   match EM.subject_declaration(Activity.assignment_subject assignment) with
+   |Fields.MessageText=>Some owner|_=>None end
+ |Input.EditorSelection owner _ _ _ _ _|Input.LoadSkills owner _
+ |Input.SkillSelected owner _|Input.SkillMove owner _|Input.SkillDismiss owner=>Some owner
+ |_=>None end.
+
+Fixpoint same_document_views left right := match left,right with
+ |[],[]=>true
+ |PrimaryTask a::ls,PrimaryTask b::rs|SideTask a::ls,SideTask b::rs=>
+   N.eqb a b && same_document_views ls rs
+ |_,_=>false end.
+Definition same_shared_occurrence left right := match left,right with
+ |None,None=>true
+ |Some a,Some b=>N.eqb (DocumentState.shared_work a) (DocumentState.shared_work b) &&
+   Navigation.same_work (DocumentState.shared_selected_task a) (DocumentState.shared_selected_task b)
+ |_,_=>false end.
+
+(* Only observations of the document source or changes to its visible owners
+   can invalidate retention and authored mounts. A local edit cannot change
+   the server snapshot or the stream that supplied those documents. *)
+Definition documents_changed input before after := match input with
+ |Input.Snapshot|Input.Stream _|Input.RetainedOutput _ _=>true
+ |Input.ClockObserved _|Input.EnvironmentObserved=>
+   (* A lagged source observation may leave an interrupted stream open until
+      its next settled observation. Completed documents require no retry. *)
+   existsb(fun stamp=>Documents.same_ending (document_ending stamp) Types.Open)
+     (document_lifetimes(SS.document_retention after))
+ |_=>
+   let old:=SS.service_state before in let current:=SS.service_state after in
+   negb(same_document_views(Navigation.visible_task_views before)(Navigation.visible_task_views after) &&
+     same_shared_occurrence(Navigation.shared_occurrence before)(Navigation.shared_occurrence after) &&
+     Navigation.same_work (SS.active_work(SS.navigation_state before)) (SS.active_work(SS.navigation_state after)) &&
+     Bool.eqb (Services.connected old) (Services.connected current) &&
+     Bool.eqb (Services.connection_revoked(Services.connection old)) (Services.connection_revoked(Services.connection current)))
+ end.
+
+Definition prepares_authoring input before := match input with
+ |Input.ToggleProjectGroup _|Input.ToggleTaskBranches _|Input.OpenNavigation _ _
+ |Input.OpenObjectActions _ _|Input.OpenInformation _ _|Input.InspectSource _ _ _
+ |Input.NavigationExpanded _|Input.TaskListVisible _|Input.ReadTimeline _ _ _
+ |Input.FollowLatest _|Input.SetDisclosure _ _ _ _|Input.SkillsLoaded _ _
+ |Input.ActivityFocus _ _ _|Input.ActivitySearch _ _|Input.CodeObserved _
+ |Input.Interactive _|Input.Stream _|Input.ServiceInput(Services.CommandAssessed _ _)=>false
+ |Input.ClosePanel=>match SS.layers(SS.navigation_state before) with
+  |top::_=>match SS.layer_panel top with
+   |SS.EditorPanel _|SS.PropertyPanel _ _|SS.SideConversationPanel _=>true
+   |_=>false end
+  |[]=>false end
+ |_=>match composer_editor input with Some _=>false|None=>true end
+ end.
+
+Definition continue_authoring input snapshot state := match input with
+ |Input.ServiceInput(Services.CommandAssessed _ _)=>
+   let prepared:=Authoring.continue_preparations snapshot state in
+   Authoring.append prepared(Authoring.continue_draft_admissions snapshot(Authoring.result_state prepared))
+ |Input.Interactive _=>Authoring.continue_draft_admissions snapshot state
+ |_=>Authoring.keep state end.
+
+Definition resumes_language_admissions input := match input with
+ |Input.ServiceInput(Services.CommandAssessed _ _)|Input.Interactive _=>true
+ |_=>false end.
+
 Definition step namespace snapshot lagged input state:=
  let retired:=retire_namespace namespace state in
- let current:=Authoring.append retired(synchronize namespace snapshot lagged(Authoring.result_state retired))in
- let decision:=core namespace snapshot lagged input(Authoring.result_state current)in
- let decision:=Authoring.append current decision in
- let prepared:=Authoring.prepare snapshot(Authoring.result_state decision)in
- let decision:=Authoring.append decision prepared in
- let synchronized:=Authoring.append decision(synchronize namespace snapshot lagged(Authoring.result_state decision))in
- Authoring.append synchronized(continue_language_admissions namespace snapshot lagged(Authoring.result_state synchronized)).
+ let current:=Authoring.result_state retired in
+ let stepped:=core namespace snapshot lagged input current in
+ let decision:=Authoring.append retired stepped in
+ let authoring:=prepares_authoring input current in
+ let prepare state:=if authoring then
+   let skills:=Authoring.synchronize_skills snapshot state in
+   Authoring.append skills(Authoring.prepare snapshot(Authoring.result_state skills))
+  else continue_authoring input snapshot state in
+ let decision:=Authoring.append decision(prepare(Authoring.result_state decision))in
+ let next:=Authoring.result_state decision in
+ let documents:=documents_changed input current next in
+ let synchronized:=if documents then
+   Authoring.append decision(synchronize_documents namespace snapshot lagged next) else decision in
+ if authoring || documents || resumes_language_admissions input then
+   Authoring.append synchronized(continue_language_admissions namespace snapshot lagged(Authoring.result_state synchronized))
+ else synchronized.
