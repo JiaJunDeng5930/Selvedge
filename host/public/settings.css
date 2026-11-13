@@ -62,6 +62,12 @@ dialog[data-semantic-key="settings"][open] {
   padding-inline: min(var(--settings-edge), 5vi) !important;
 }
 dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canvas); }
+/* The Settings page moves out of the native top layer when its editor opens.
+   Keep the workspace measured without letting its floating controls paint above Settings. */
+[data-selvedge-root]:has(> [data-layer-stack] > dialog[data-semantic-key="settings"][open])
+  > [data-measure-region="workspace"] {
+  opacity: 0;
+}
 /* Settings owns these foreground dialogs. Keep its page visible beneath
    their backdrop while the native modal makes the page inert. */
 [data-layer-stack] > dialog[data-semantic-key="settings"][open]:has(
@@ -1100,6 +1106,25 @@ dialog[data-semantic-key="settings-configuration-editor"]:has([data-semantic-key
 }
 [data-semantic-key="settings-configuration-editor"] > [data-surface-role="dialog-body"] {
   gap: .875rem !important;
+}
+dialog[data-semantic-key="settings-configuration-editor"]:has([data-semantic-key="cloud-credentials"]) {
+  --settings-editor-measure: 38rem;
+
+  & > [data-surface-role="dialog-body"] {
+    gap: .625rem !important;
+    scrollbar-gutter: stable;
+    scrollbar-color: var(--settings-muted) var(--settings-surface);
+    background:
+      linear-gradient(var(--settings-surface), transparent) top / 100% 1rem local,
+      linear-gradient(transparent, var(--settings-surface)) bottom / 100% 1rem local,
+      radial-gradient(ellipse at top, var(--settings-rule), transparent 70%) top / 100% .5rem scroll,
+      radial-gradient(ellipse at bottom, var(--settings-rule), transparent 70%) bottom / 100% .5rem scroll;
+    background-repeat: no-repeat;
+  }
+  & [data-semantic-key="settings-form-group"] + [data-semantic-key="settings-form-group"] {
+    margin-block-start: 0 !important;
+    padding-block-start: .5rem !important;
+  }
 }
 [data-semantic-key="settings-configuration-editor"] > [data-surface-role="dialog-actions"] {
   flex-flow: column nowrap !important;

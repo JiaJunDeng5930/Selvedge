@@ -39,6 +39,10 @@ test('authored forms and state adjustments keep related controls together', { ti
         <button id="clear" label="归零" action="set" target="count" value={0} />
       </row-layout>
     </card>
+    <row-layout id="utilities" gap="sm">
+      <button id="copy" label="复制文字" action="copy" value="按钮验收" />
+      <button id="draft" label="填入输入框" action="draft" message="按钮验收" />
+    </row-layout>
     <card id="send" label="真实发送操作" tone="warning" gap="sm">
       <text id="explanation" label="点击下方按钮，会把上方文字作为新消息发送给助手。" />
       <button id="submit" label="发送测试消息 / Send" action="submit" message="一条新消息" />
@@ -68,6 +72,23 @@ test('authored forms and state adjustments keep related controls together', { ti
   const action = label => counter.getByRole('button', { name: label, exact: true });
   const send = main.getByRole('button', { name: '发送测试消息 / Send', exact: true });
   await send.waitFor();
+  const copy = main.getByRole('button', { name: '复制文字', exact: true });
+  const draft = main.getByRole('button', { name: '填入输入框', exact: true });
+  const paint = locator => locator.evaluate(node => {
+    const { backgroundColor, fontWeight, color } = getComputedStyle(node);
+    return [backgroundColor, fontWeight, color];
+  });
+  const ordinary = await paint(copy);
+  assert.notEqual(ordinary[0], 'rgba(0, 0, 0, 0)', 'Secondary actions are recognizable at rest');
+  for (const control of [action('加一'), action('减一'), action('归零'), draft]) {
+    assert.deepEqual(await paint(control), ordinary);
+  }
+  assert.notEqual((await paint(send))[0], ordinary[0], 'The submit action keeps its distinct primary fill');
+  await copy.hover();
+  const hover = await paint(copy);
+  assert.notEqual(hover[0], ordinary[0], 'The ordinary action responds to hover');
+  await action('加一').hover();
+  assert.deepEqual(await paint(action('加一')), hover);
   assert.equal(await main.getByText('真实发送操作', { exact: true }).isVisible(), true);
   assert.equal(await main.getByText('点击下方按钮，会把上方文字作为新消息发送给助手。', { exact: true }).isVisible(), true);
   assert.equal(await notes.inputValue(), '第一行备注\n第二行备注');

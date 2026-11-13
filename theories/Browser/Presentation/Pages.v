@@ -115,10 +115,10 @@ Definition worktree_feedback {A} snapshot task parent:list(node A):=match Read.t
  |_=>[]end end.
 Definition directory_details parent identity label path : node Input.input :=
  let key:=part parent identity in
- Node key "directory-path" (label++" · "++UX.directory_basename path) Roles.Content ContentDisclosure
-  [region key "directory-path-body" "" Roles.Content
-    [read_only key "path" "" path;
-     declared key Roles.Button(secondary "copy-path" ("复制"++label++"路径")(Input.CopyPath path))]].
+ region key "directory-path-entry" "" Roles.Content
+   [Node key "directory-path" (label++" · "++UX.directory_basename path) Roles.Content ContentDisclosure
+     [Node (part key "path") "directory-path-value" "" Roles.Content (Fact path) []];
+    declared key Roles.Button(secondary "copy-path" ("复制"++label++"路径")(Input.CopyPath path))].
 Definition worktree_details snapshot s task parent:=match Read.task_workspace task snapshot with
 |None=>[]|Some value=>List.app
  [read_only parent "worktree/status" "工作区状态"(Read.worktree_caption value);
@@ -312,7 +312,7 @@ Definition history_page snapshot s parent :=
     history_scope true(State.project_filter search)project_choices parent;
     history_scope false(State.work_filter search)work_choices parent;
     declared parent Roles.PrimaryButton submit];
-  page_region results_parent Composition.HistoryResults Composition.BodyPosition
+  page_region parent Composition.HistoryResults Composition.BodyPosition
    (if pending then[information parent "searching" Information.Status "正在搜索…"]else
     match page with
    |None=>[]
@@ -323,9 +323,10 @@ Definition history_page snapshot s parent :=
      let width:=value_or 0 (Utf8.scalar_count query) in
      let filtered:=match State.project_filter search,State.work_filter search with None,None=>false|_,_=>true end in
      ((match HistoryObservation.hits result with
-       |[]=>[information parent "history-empty" Information.Status
-         (if filtered then "没有找到匹配的标题或消息。试试其他关键词，或将筛选改为「全部」。"
-          else "没有找到匹配的标题或消息。试试其他关键词。")]
+       |[]=>[region parent "history-empty" "" Roles.Content
+         [information parent "history-empty-status" Information.Status "没有匹配结果";
+          information parent "history-empty-next" Information.Description
+            (if filtered then "试试其他关键词，或将筛选改为「全部」。" else "试试其他关键词。")]]
        |hits=>map (history_conversation_result results_parent query width) (history_result_groups hits) end)++
       (if N.eqb after 0 then[]else
         [declared parent Roles.Button(observe_control availability

@@ -1023,6 +1023,13 @@ main:has(> [data-page-region="creation-introduction"]) {
   justify-self: end !important;
   inset: auto calc(0px - var(--layer-clearance)) calc(var(--layer-gap) - var(--layer-clearance)) auto !important;
 }
+@media (min-height: 640px) {
+  [data-composer-menu]:not([data-anchor-available="false"]) {
+    position-area: bottom span-left !important;
+    align-self: start !important;
+    inset: calc(var(--layer-gap) - var(--layer-clearance)) calc(0px - var(--layer-clearance)) auto auto !important;
+  }
+}
 [data-semantic-key="creation-worktree"] > span:last-child {
   position: relative;
   inline-size: 28px !important;
@@ -1181,9 +1188,6 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
   flex: none;
   inline-size: max-content !important;
 }
-[data-interactive-action-group="utilities"] > [data-interactive-component="button"] > button {
-  --control-rest-background: var(--selvedge-inset) !important;
-}
 [data-interactive-component="card"]:is(
   :has(> [data-interactive-component="metric"]:first-child + [data-interactive-action-group="adjustments"]:last-child),
   :has(> [data-semantic-key="interactive-markdown/text"]:not([data-interactive-component]):first-child +
@@ -1216,6 +1220,9 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
   }
 }
 [data-interactive-component="button"] > button { max-inline-size: 100%; }
+[data-interactive-component="button"] > button[data-surface-role="button"]:not([aria-pressed], [aria-checked]) {
+  --control-rest-background: var(--selvedge-inset) !important;
+}
 [data-interactive-component="button"] > button > span {
   white-space: normal !important;
   overflow-wrap: anywhere;
@@ -1318,7 +1325,6 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
 [data-semantic-key="interactive-markdown/chart-data"] {
   inline-size: auto !important;
   max-inline-size: min(100%, 22rem) !important;
-  margin-inline-start: auto !important;
 
   & caption {
     position: absolute;

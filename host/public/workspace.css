@@ -130,6 +130,17 @@ main > [data-page-region="collection-actions"]:has(> [data-semantic-key="history
   }
 }
 
+[data-semantic-key="history-empty"] {
+  gap: .375rem !important;
+  padding: 1.5rem .75rem !important;
+  text-align: center;
+}
+[data-semantic-key="history-empty-status"] {
+  color: var(--selvedge-text) !important;
+  font-weight: 600 !important;
+}
+[data-semantic-key="history-empty-next"] { color: var(--selvedge-muted) !important; }
+
 [data-page-region="history-results"]
   [data-semantic-key="result"] {
   gap: 0 !important;
@@ -245,12 +256,14 @@ main > [data-page-region="collection-actions"]:has(> [data-semantic-key="history
   inline-size: fit-content !important;
   max-inline-size: 100% !important;
 }
+[data-semantic-key="task-graph/empty"] > h3 {
+  inline-size: auto !important;
+  text-align: center;
+}
 [data-semantic-key="task-graph/empty-endpoint"] {
   inline-size: auto !important;
-  padding: .35em .6em !important;
-  border: 1px solid var(--selvedge-border) !important;
-  border-radius: .375em !important;
-  background: var(--selvedge-surface) !important;
+  padding-inline: .25em !important;
+  color: var(--selvedge-muted) !important;
 }
 [data-semantic-key="task-graph/empty-direction"] {
   align-self: center !important;
@@ -269,7 +282,55 @@ main > [data-page-region="collection-actions"]:has(> [data-semantic-key="history
 [data-page-region="board-controls"] > [data-board-group="secondary-actions"] {
   margin-inline-start: auto;
 }
+[data-semantic-key="board/working"] {
+  inline-size: max-content !important;
+  min-inline-size: max-content !important;
+  flex: none !important;
+  white-space: nowrap !important;
+  margin-inline-end: .35rem;
+  padding-inline: .55rem !important;
+  border: 1px solid var(--selvedge-border) !important;
+}
+[data-semantic-key="board/working"] > span[aria-hidden="true"] { display: none !important; }
+[data-semantic-key="board/working"][aria-checked="true"] {
+  background: var(--selvedge-selection) !important;
+  border-color: var(--selvedge-accent) !important;
+}
 
+[data-board-track-group] {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-block-size: 0;
+  min-inline-size: 0;
+}
+[data-board-scroll-controls]:not([hidden]) {
+  display: flex;
+  justify-content: flex-end;
+  gap: .25rem;
+  padding-block-end: .25rem;
+}
+[data-board-scroll] {
+  display: grid;
+  place-items: center;
+  inline-size: 2rem;
+  block-size: 2rem;
+  color: var(--selvedge-text);
+  background: var(--selvedge-surface);
+  border: 1px solid var(--selvedge-border);
+  border-radius: .375rem;
+  cursor: pointer;
+}
+[data-board-scroll]:hover:not([aria-disabled="true"]) { background: var(--selvedge-hover); }
+[data-board-scroll][aria-disabled="true"] {
+  color: var(--selvedge-muted);
+  background: transparent;
+  opacity: .55;
+  cursor: default;
+}
+@media (pointer: coarse) {
+  [data-board-scroll] { inline-size: 44px; block-size: 44px; }
+}
 [data-page-region="board-stages"] {
   scrollbar-width: thin;
   padding-block: 2px .375rem !important;
@@ -347,13 +408,29 @@ main > [data-page-region="collection-actions"]:has(> [data-semantic-key="history
   padding-inline: 0 !important;
   --control-rest-color: var(--selvedge-text) !important;
 }
-[data-card-row] > :is([data-semantic-key="card/activity"], [data-semantic-key="card/conversation-activity"]) {
+[data-card-row="conversation"] > button:has([data-linked-conversation-caption]) {
+  inline-size: 100% !important;
+  justify-content: start !important;
+  padding: .375rem .45rem !important;
+  border: 1px solid var(--selvedge-border) !important;
+  background: var(--selvedge-surface) !important;
+}
+[data-card-row="conversation"] > button:has([data-linked-conversation-caption]):is(:hover, :focus-visible) {
+  background: var(--selvedge-hover) !important;
+}
+[data-linked-conversation-caption] {
+  display: flex;
+  flex-direction: column;
+  text-align: start;
+}
+[data-card-row] > [data-semantic-key="card/activity"] {
   inline-size: fit-content !important;
 }
-[data-card-row="conversation"] > [data-semantic-key="card/conversation-activity"] {
+[data-linked-conversation-caption] > [data-semantic-key="card/conversation-activity"] {
   color: var(--selvedge-muted) !important;
   font-size: var(--rich-support-size) !important;
   font-weight: 400 !important;
+  line-height: 1.25 !important;
 }
 
 dialog[data-semantic-key="card-details"] {

@@ -11,8 +11,8 @@ Theorem chart_accessible_values_keep_order event_id properties index row :
   nth_error (Plot.chart_rows properties) index = Some row ->
   match Surface.node_meaning (chart_summary_table event_id properties) with
   | Surface.Table _ _ rows => nth_error rows index
-  | _ => None end = Some [scalar_text (Expression.get_path (property_text "x" properties) row);
-                         scalar_text (Expression.get_path (property_text "y" properties) row)].
+  | _ => None end = Some [chart_cell_text (Expression.get_path (property_text "x" properties) row);
+                         chart_cell_text (Expression.get_path (property_text "y" properties) row)].
 Proof. intros Row. cbn [chart_summary_table Surface.node_meaning].
   rewrite nth_error_map, Row. reflexivity. Qed.
 

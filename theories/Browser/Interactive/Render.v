@@ -268,12 +268,17 @@ Definition render_table event_id p b children active ordered : list scene :=
  end.
 Definition placement key position children : scene :=
  S.Node key "interactive-markdown/placement" "" R.Content (S.InteractivePlacement position) children.
+Definition chart_cell_text value :=
+  match decimal_value value with
+  | Some d => grouped_decimal (Decimal.units d)
+  | None => scalar_text value
+  end.
 Definition chart_summary_table event_id p : scene :=
   S.Node (Types.event_key event_id+++"/@data") "interactive-markdown/chart-data" "图表数据" R.Content
     (S.Table "图表数据"
       [Plot.x_title p; Plot.y_title p]
-      (map (fun row => [scalar_text (get_path (property_text "x" p) row);
-                        scalar_text (get_path (property_text "y" p) row)]) (Plot.chart_rows p))) [].
+      (map (fun row => [chart_cell_text (get_path (property_text "x" p) row);
+                        chart_cell_text (get_path (property_text "y" p) row)]) (Plot.chart_rows p))) [].
 Definition chart_heading key p : list scene :=
  let label:=property_text "label" p in
  if String.eqb label "" then [] else

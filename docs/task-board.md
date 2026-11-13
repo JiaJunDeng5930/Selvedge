@@ -3,8 +3,8 @@
 Open **卡片看板** in the sidebar to plan and track cards across projects. The
 sidebar's **对话范围** selects the conversations shown in the sidebar. The six
 board stages are 待规划, 待办, 进行中, 待审核, 已完成 and 已阻塞, with a separate
-archive target. Each stage has a card count. Scroll sideways to reach later
-stages on the same row.
+archive target. Each stage has a card count. Scroll sideways or use the
+arrow buttons to reach other stages on the same row.
 
 ## Create and organize
 
@@ -35,8 +35,8 @@ the card and links the existing conversation in one operation. The card follows
 the conversation's execution state. A successfully completed run enters **待审核**.
 Return through **More actions → Open board card** to see the linked card.
 
-Toolbar tabs, search and filters narrow the view. **执行中的卡片** counts the
-cards with an active linked conversation under the current search and filters.
+Toolbar tabs, search and filters narrow the view. **仅执行中** shows cards with
+an active linked conversation and counts them under the current search and filters.
 Turning on **自动执行** in **看板设置** checks existing cards as soon as the change is
 saved. An unarchived card in **待办** or **进行中** enters the queue when it has a
 model assignee, no linked conversation, and any assisted drafting has succeeded.

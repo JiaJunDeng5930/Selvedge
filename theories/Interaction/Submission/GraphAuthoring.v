@@ -1,5 +1,5 @@
 From Stdlib Require Import List String Bool NArith.
-From Selvedge.Foundation Require Import Json.
+From Selvedge.Foundation Require Import Json TextJson.
 From Selvedge.Features Require Domain Observation.
 From Selvedge.Interaction Require Import Codec.
 Import ListNotations.
@@ -16,6 +16,24 @@ Definition target_endpoint_label := "接收对话".
 Definition handoff_creation_label := "创建对话转发".
 Definition handoff_name_label := "转发名称".
 Definition empty_handoff := Handoff "对话转发" None None.
+
+Fixpoint render_declaration_at (indent : string) (value : json) : string :=
+ let line := TextJson.byte 10 in
+ let inner := indent ++ "  " in
+ let enclosure open close rows :=
+   open ++ line ++ inner ++ String.concat ("," ++ line ++ inner) rows ++ line ++ indent ++ close in
+ match value with
+ | JArray [] => "[]"
+ | JArray values =>
+   enclosure "[" "]" (map (render_declaration_at inner) values)
+ | JObject [] => "{}"
+ | JObject fields =>
+   enclosure "{" "}" (map (fun '(key, value) =>
+     TextJson.quote key ++ ": " ++ render_declaration_at inner value) fields)
+ | _ => TextJson.render_json value
+ end.
+
+Definition render_declaration := render_declaration_at "".
 
 Definition handoff_node key task :=
  JObject [("key", JString key); ("task_id", match task with Some id => number id | None => JNull end)].

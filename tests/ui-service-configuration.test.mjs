@@ -217,6 +217,13 @@ test('Task and Service settings restore only saved values that differ from their
     const save = button(form, '保存');
     const privateKey = textbox(form, '私钥路径');
     const actionsBeforeScroll = await save.boundingBox();
+    const ssh = form.getByRole('heading', { name: 'SSH', exact: true });
+    const [sshBounds, privateKeyBounds, bodyBounds] = await Promise.all([
+      ssh.boundingBox(), privateKey.boundingBox(), form.locator('[data-surface-role="dialog-body"]').boundingBox(),
+    ]);
+    const scrollEdge = bodyBounds.y + bodyBounds.height;
+    assert.ok(sshBounds.y >= scrollEdge || privateKeyBounds.y + privateKeyBounds.height <= scrollEdge,
+      'The first screen shows the SSH heading with its fields or leaves the section below the scroll edge');
     await privateKey.click();
     const actionsAfterScroll = await save.boundingBox();
     assert.deepEqual(actionsAfterScroll, actionsBeforeScroll,
@@ -227,7 +234,7 @@ test('Task and Service settings restore only saved values that differ from their
     const config = cloud.tencent_cvm;
     for (const [name, value] of [
       ['地域', config.region], ['可用区', config.zone], ['镜像 ID', config.image_id],
-      ['实例规格', config.instance_type], ['竞价价格上限', config.spot_max_price],
+      ['实例规格', config.instance_type], ['竞价价格上限（账户币种/小时）', config.spot_max_price],
       ['VPC ID', config.vpc_id], ['子网 ID', config.subnet_id], ['SSH 密钥 ID', config.key_id],
       ['私钥路径', config.ssh_private_key],
     ]) await textbox(form, name).fill(value);
@@ -278,6 +285,16 @@ test('Context settings show seconds and offer reset only for a changed value', {
   await openContext();
   assert.equal(await idle.inputValue(), '60');
   assert.equal(await restore.count(), 0);
+  await dialog.getByRole('button', { name: '编辑限制', exact: true }).click();
+  const limits = page.getByRole('dialog', { name: '模型上下文限制', exact: true });
+  await limits.getByText('当前使用默认限制。添加配置项可为指定模型设置限制。', { exact: true }).waitFor();
+  const limitSave = limits.getByRole('button', { name: '保存', exact: true });
+  assert.equal(await limitSave.isDisabled(), true);
+  assert.equal(await limitSave.getAttribute('data-help'), '添加配置项后可以保存');
+  await limits.getByRole('button', { name: '添加配置项', exact: true }).click();
+  await limits.getByRole('textbox', { name: '模型配置名称', exact: true }).waitFor();
+  await limits.getByRole('button', { name: '放弃更改', exact: true }).click();
+  await limits.waitFor({ state: 'hidden' });
 
   await idle.fill('60.0001');
   assert.equal(await save.isDisabled(), true, 'The seconds editor must not round a fraction of a millisecond');
@@ -406,6 +423,9 @@ test('new model profiles start blank, hide the offline demo, and require a provi
   await editor.getByText('配置名称', { exact: true }).waitFor();
   await editor.getByText('模型标识', { exact: true }).waitFor();
   await editor.getByText('设置 / 模型', { exact: true }).waitFor();
+  assert.equal(await page.locator('[data-measure-region="workspace"]').evaluate(workspace =>
+    getComputedStyle(workspace).opacity), '0', 'Only the owning Settings page paints behind its editor');
+  assert.equal(await settings.isVisible(), true);
   assert.equal(await name.inputValue(), '');
   assert.equal(await model.inputValue(), '');
   assert.equal(await editor.getByRole('radio', { name: '离线回显', exact: true }).count(), 0);

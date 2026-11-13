@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Numbers TextJson.
+From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Features Require Domain BoardFacts Titles.
 From Selvedge.Kernel Require Domain.
@@ -296,7 +296,7 @@ Definition handoff_fields snapshot e parent work (handoff:GraphAuthoring.handoff
  match UX.admit_subject e (Parameters.name Fields.TaskGraphDeclaration) with
  |None=>[]
  |Some subject=>
-  let assign name source target:=Input.assign_subject subject(JString(TextJson.render_json
+  let assign name source target:=Input.assign_subject subject(JString(GraphAuthoring.render_declaration
     (GraphAuthoring.handoff_declaration(GraphAuthoring.Handoff name source target)))) in
   graph_input parent "handoff-name" GraphAuthoring.handoff_name_label name None
     (fun value=>name<-as_string value;;assign name source target)::

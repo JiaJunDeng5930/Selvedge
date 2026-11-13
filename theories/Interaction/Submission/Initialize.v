@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json TextJson.
+From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Domain Codec.
 From Selvedge.Features Require Domain BoardParameters.
 From Selvedge.Interaction.Submission Require Fields.
@@ -28,8 +28,8 @@ Definition materialize_body snapshot preference e :option Draft.body:=match e wi
 |Identity.Compact task=>match World.find_task task snapshot with Some _=>Some(Draft.CompactBody task None)|None=>None end
 |Identity.TaskGraph None work=>
  let declaration := GraphAuthoring.handoff_declaration GraphAuthoring.empty_handoff in
- Some(Draft.TaskGraphBody None (TextJson.render_json declaration) (Some declaration) work)
-|Identity.TaskGraph(Some id)work=>graph<-World.find_world "graphs" "graph_id" id snapshot;;name<-field "name" graph;;nodes<-field "nodes" graph;;rules<-field "rules" graph;;let declaration:=JObject[("name",name);("nodes",nodes);("rules",rules)]in Some(Draft.TaskGraphBody(Some id)(TextJson.render_json declaration)(Some declaration)work)
+ Some(Draft.TaskGraphBody None (GraphAuthoring.render_declaration declaration) (Some declaration) work)
+|Identity.TaskGraph(Some id)work=>graph<-World.find_world "graphs" "graph_id" id snapshot;;name<-field "name" graph;;nodes<-field "nodes" graph;;rules<-field "rules" graph;;let declaration:=JObject[("name",name);("nodes",nodes);("rules",rules)]in Some(Draft.TaskGraphBody(Some id)(GraphAuthoring.render_declaration declaration)(Some declaration)work)
 |Identity.WorkName None=>Some(Draft.WorkNameBody None "")
 |Identity.WorkName(Some work)=>value<-World.find_work work snapshot;;name<-string_field "name" value;;Some(Draft.WorkNameBody(Some work)name)
 |Identity.TitlePrompts scope=>settings<-field "title_settings" snapshot;;revision<-natural_field "revision" settings;;task<-string_field "task_prompt" settings;;agent<-string_field "agent_prompt" settings;;

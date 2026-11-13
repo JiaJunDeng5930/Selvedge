@@ -151,6 +151,10 @@ dialog[data-semantic-key="work-overview"] {
   background: var(--selvedge-surface) !important;
   overscroll-behavior: contain;
 
+  &:focus-visible {
+    outline: 2px solid var(--selvedge-focus) !important;
+    outline-offset: 2px;
+  }
   &::backdrop { background: transparent; }
   & > [role="menu"] { gap: .125rem !important; }
   & button {

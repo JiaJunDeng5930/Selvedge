@@ -15,7 +15,7 @@ function iconWithoutCaption(button) {
   }));
 }
 
-test('the composer gear opens upward and preserves the draft at desktop and mobile sizes', { timeout: 60000 }, async t => {
+test('the composer gear keeps its menu clear of the draft at desktop and mobile sizes', { timeout: 60000 }, async t => {
   const { page } = await browserFixture(t);
   const viewports = [{ width: 1280, height: 900 }, { width: 390, height: 620 },
     { width: 740, height: 390 }, { width: 320, height: 620 }];
@@ -28,7 +28,6 @@ test('the composer gear opens upward and preserves the draft at desktop and mobi
 
   for (const viewport of viewports) {
     await page.setViewportSize(viewport);
-    await page.reload();
     await input.fill(message);
     await start.waitFor();
     const closed = await input.boundingBox();
@@ -47,7 +46,9 @@ test('the composer gear opens upward and preserves the draft at desktop and mobi
     assert.ok(opened && Math.abs(opened.y - closed.y) <= 2 && Math.abs(opened.x - closed.x) <= 2,
       `Opening settings keeps the input in place at ${size}`);
     assert.ok(insideViewport(panel, viewport), `The menu fits the viewport at ${size}`);
-    assert.ok(panel.y + panel.height <= trigger.y + 2, `The menu opens above its gear at ${size}`);
+    assert.ok(viewport.height >= 640
+      ? panel.y >= trigger.y + trigger.height - 2
+      : panel.y + panel.height <= trigger.y + 2, `The menu uses the available side of its gear at ${size}`);
     assert.ok(insideViewport(await start.boundingBox(), viewport), `Start stays in view at ${size}`);
 
     await page.keyboard.press('Escape');
@@ -84,8 +85,9 @@ test('project and directory choices open inside the composer menu and return to 
       assert.ok(insideViewport(panel, viewport));
       assert.ok(Math.abs(panel.x - settings.x) <= 2, 'Each level shares the same left edge');
       assert.ok(Math.abs(panel.width - settings.width) <= 2, 'Each level shares the same width');
-      assert.ok(Math.abs(panel.y + panel.height - settings.y - settings.height) <= 2,
-        'Each level opens above the same composer gear');
+      const attachment = panel => viewport.height >= 640 ? panel.y : panel.y + panel.height;
+      assert.ok(Math.abs(attachment(panel) - attachment(settings)) <= 2,
+        'Each level opens from the same edge of the composer gear');
     }
     await page.keyboard.press('Escape');
     await menu.waitFor();

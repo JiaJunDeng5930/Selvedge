@@ -189,7 +189,7 @@ test('model charts and range controls keep their values readable', { timeout: 60
 </stack>
 <row dataset="monthlySales" key="jan" value={{id:"jan",month:"1月",income:2000,orders:2}} />
 <row dataset="monthlySales" key="feb" value={{id:"feb",month:"2月",income:3000,orders:3}} />
-<row dataset="monthlySales" key="mar" value={{id:"mar",month:"3月",income:2500,orders:4}} />
+<row dataset="monthlySales" key="mar" value={{id:"mar",month:"3月",income:2500.125001,orders:4}} />
 <row dataset="monthlySales" key="apr" value={{id:"apr",month:"4月",income:4000,orders:3}} />
 <row dataset="monthlySales" key="may" value={{id:"may",month:"5月",income:3500,orders:5}} />
 <row dataset="monthlySales" key="jun" value={{id:"jun",month:"6月",income:5000,orders:6}} />
@@ -302,8 +302,8 @@ test('model charts and range controls keep their values readable', { timeout: 60
   await table.waitFor();
   const [plotAfter, tableBox] = await Promise.all([line.boundingBox(), table.boundingBox()]);
   assert.ok(Math.abs(plotAfter.y - plotBefore.y) <= 1, 'Opening the table keeps the plot in place');
-  assert.ok(tableBox.y >= plotAfter.y + plotAfter.height && tableBox.width < plotAfter.width / 2,
-    'The exact values appear in a compact table below the plot');
+  assert.ok(tableBox.y >= plotAfter.y + plotAfter.height && tableBox.width < plotAfter.width / 2 &&
+    Math.abs(tableBox.x - plotAfter.x) <= 12, 'The compact table starts at the leading edge below the plot');
   const rowSeparators = locator => locator.evaluate(node => {
     const header = getComputedStyle(node.tHead.rows[0].cells[0]);
     const body = getComputedStyle(node.tBodies[0].rows[1].cells[0]);
@@ -327,7 +327,7 @@ test('model charts and range controls keep their values readable', { timeout: 60
   assert.deepEqual(await table.getByRole('columnheader').allTextContents(), ['月份', '收入（元）']);
   assert.equal(await table.getByRole('row').count(), 7, 'The header and all six source data rows remain readable');
   assert.deepEqual(await table.getByRole('cell').allTextContents(), [
-    '1月', '2000', '2月', '3000', '3月', '2500', '4月', '4000', '5月', '3500', '6月', '5000',
+    '1月', '2,000', '2月', '3,000', '3月', '2,500.125001', '4月', '4,000', '5月', '3,500', '6月', '5,000',
   ]);
   await disclosure.focus();
   await page.keyboard.press('Enter');

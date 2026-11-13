@@ -582,7 +582,7 @@ Definition view s :=
        dialog_body root (navigation body section ++ [documents root body section services (State.speech_state s)])]]
  end.
 
-Definition configuration_action parent key caption label emphasis (enabled : bool) input : node Input.input :=
+Definition configuration_action_with_status parent key caption label emphasis status input : node Input.input :=
  let id := part parent key in
  let role := match emphasis with
    | Primary => Roles.PrimaryButton
@@ -590,9 +590,12 @@ Definition configuration_action parent key caption label emphasis (enabled : boo
    | Destructive => Roles.DestructiveButton
    end in
  Node id key label role
-   (Activate (Control key label emphasis (Input.ServiceInput input)
-     (if enabled then Available else Unavailable "当前不可用")))
+   (Activate (Control key label emphasis (Input.ServiceInput input) status))
    [information id "label" Information.OptionLabel caption].
+
+Definition configuration_action parent key caption label emphasis (enabled : bool) input :=
+ configuration_action_with_status parent key caption label emphasis
+   (if enabled then Available else Unavailable "当前不可用") input.
 
 (* The fields describe the object and can scroll. Operations on the whole
    object share the fixed footer with the decision, outside the field order.
@@ -617,8 +620,16 @@ Definition configuration_dialog generation id section caption trigger fallback v
            primary]])])].
 
 Definition configuration_save id entry raw view enabled :=
- configuration_action id "save" "保存" "保存" Primary
-   (save_enabled entry raw view enabled) Services.SetConfiguration.
+ let status := if save_enabled entry raw view enabled then Available
+   else Unavailable
+     (if negb enabled then "请等待当前操作完成"
+      else if negb (Configuration.dirty view) then
+        match Config.setting_path entry, Common.items (Config.setting_value entry) with
+        | ["compaction"; "targets"], [] => "添加配置项后可以保存"
+        | _, _ => "修改设置后可以保存"
+        end
+      else "请修正输入后再保存") in
+ configuration_action_with_status id "save" "保存" "保存" Primary status Services.SetConfiguration.
 
 Definition collection_editor generation id section entry draft view enabled item : list (node Input.input) :=
  let path := Config.setting_path entry in

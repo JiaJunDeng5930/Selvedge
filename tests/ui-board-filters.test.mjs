@@ -7,14 +7,14 @@ import { taskIdle } from './support.mjs';
 async function assertConversationActivity(card, caption) {
   const status = card.getByText(caption, { exact: true });
   await status.waitFor();
-  const action = status.locator('..').getByRole('button', { name: '打开对话', exact: true });
+  const action = card.getByRole('button', { name: '打开对话', exact: true });
   await action.waitFor();
   const [button, text] = await Promise.all([action.boundingBox(), status.boundingBox()]);
-  assert.ok(button && text);
-  const sideBySide = text.x >= button.x + button.width - 1 &&
-    text.x - button.x - button.width <= 16 && text.y < button.y + button.height && button.y < text.y + text.height;
-  const stacked = text.y >= button.y + button.height - 1 && text.y - button.y - button.height <= 16;
-  assert.ok(sideBySide || stacked, 'The conversation status stays next to its action');
+  assert.ok(button && text && text.x >= button.x && text.y > button.y &&
+    text.x + text.width <= button.x + button.width && text.y + text.height <= button.y + button.height,
+  'The conversation status sits inside the single open action');
+  const statusId = await status.getAttribute('id');
+  assert.ok(statusId && (await action.getAttribute('aria-describedby'))?.split(/\s+/).includes(statusId));
 }
 
 test('board filters provide a compact keyboard-searchable assignee list', async t => {
@@ -44,16 +44,6 @@ test('board filters provide a compact keyboard-searchable assignee list', async 
   const summary = assignee.locator('summary');
   const search = dialog.getByRole('searchbox', { name: '搜索负责人', exact: true });
   const options = dialog.getByRole('region', { name: '负责人选项', exact: true });
-  async function wholeAssigneeRows() {
-    await page.waitForFunction(id => {
-      const list = document.getElementById(id);
-      if (!list || list.scrollHeight <= list.clientHeight) return false;
-      const { top, bottom } = list.getBoundingClientRect();
-      const visible = [...list.querySelectorAll('h3, button')].map(option => option.getBoundingClientRect())
-        .filter(row => row.bottom > top + 1 && row.top < bottom - 1);
-      return visible.length > 1 && visible.every(row => row.top >= top - 1 && row.bottom <= bottom + 1);
-    }, await options.getAttribute('id'));
-  }
   await search.waitFor({ state: 'hidden' });
   await summary.press('Enter');
   await search.waitFor();
@@ -66,7 +56,14 @@ test('board filters provide a compact keyboard-searchable assignee list', async 
     getComputedStyle(button).outlineStyle === 'solid' && getComputedStyle(button).backgroundColor === 'rgba(0, 0, 0, 0)'),
   'Keyboard focus does not use the checked appearance');
   await search.focus();
-  await wholeAssigneeRows();
+  const models = options.getByRole('region', { name: '模型', exact: true });
+  assert.ok(await models.evaluate(group => {
+    const viewport = group.closest('[aria-label="负责人选项"]').getBoundingClientRect();
+    const heading = group.querySelector('h3').getBoundingClientRect();
+    const choices = [...group.querySelectorAll('button')].map(row => row.getBoundingClientRect());
+    return heading.height < choices[0].height && choices.filter(row => row.top >= viewport.top - 1 &&
+      row.bottom <= viewport.bottom + 1).length >= 2;
+  }), 'Compact group headings leave room for at least two model choices at first open');
   await dialog.evaluate(node => {
     window.fixtureBoardResize = new Promise(resolve => {
       window.addEventListener('resize', () => {
@@ -81,14 +78,12 @@ test('board filters provide a compact keyboard-searchable assignee list', async 
   const initial = await page.evaluate(() => window.fixtureBoardResize);
   assert.ok(initial.height > 0 && initial.top >= initial.visibleTop && initial.bottom <= initial.visibleBottom,
     `The first resized layout fits the visible viewport: ${JSON.stringify(initial)}`);
-  await wholeAssigneeRows();
   const compact = await dialog.boundingBox();
   assert.ok(compact && compact.y >= 0 && compact.y + compact.height <= 420);
   await options.evaluate(list => list.scrollIntoView({ block: 'center' }));
   await options.hover();
   await page.mouse.wheel(0, 95);
   await page.waitForFunction(id => document.getElementById(id)?.scrollTop > 0, await options.getAttribute('id'));
-  await wholeAssigneeRows();
   const rows = options.getByRole('checkbox');
   const last = rows.last();
   await search.focus();
@@ -730,6 +725,15 @@ test('the board keeps empty stages visible and counts only matching cards linked
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
     .getByRole('button', { name: '卡片看板', exact: true }).click();
   const board = page.getByRole('region', { name: '看板状态列', exact: true });
+  const previous = page.getByRole('button', { name: '向左查看更多状态列', exact: true });
+  const next = page.getByRole('button', { name: '向右查看更多状态列', exact: true });
+  await page.setViewportSize({ width: 1800, height: 900 });
+  await board.getByRole('region', { name: '已阻塞，0 张卡片', exact: true }).waitFor();
+  await page.waitForFunction(() => {
+    const track = document.querySelector('[aria-label="看板状态列"]');
+    return track.scrollWidth <= track.clientWidth;
+  });
+  await next.waitFor({ state: 'hidden' });
   for (const viewport of [{ width: 1280, height: 900 }, { width: 760, height: 500 }, { width: 390, height: 620 }]) {
     await page.setViewportSize(viewport);
     await page.waitForFunction(() => {
@@ -743,11 +747,34 @@ test('the board keeps empty stages visible and counts only matching cards linked
         track.height > 100 && track.width >= Math.min(200, scrollport.clientWidth) - 1 &&
         (index === 0 || track.left > tracks[index - 1].right));
     });
+    await next.waitFor();
+    const executionFilter = page.getByRole('radio', { name: '仅执行中 · 0', exact: true });
+    assert.equal(await executionFilter.evaluate(button => {
+      const label = button.querySelector('span:not([aria-hidden])');
+      const range = document.createRange();
+      range.selectNodeContents(label);
+      return range.getClientRects().length;
+    }), 1, 'The execution filter stays on one line');
     await board.getByRole('region', { name: '已完成，0 张卡片', exact: true }).waitFor();
     await board.getByRole('region', { name: '已阻塞，0 张卡片', exact: true }).waitFor();
   }
+  await next.waitFor();
+  assert.equal(await previous.getAttribute('aria-disabled'), 'true');
+  const trackId = await board.getAttribute('id');
+  assert.equal(await next.getAttribute('aria-controls'), trackId);
+  await next.press('Enter');
+  await previous.and(page.locator('[aria-disabled="false"]')).waitFor();
+  for (let click = 0; click < 6; click++) {
+    if (!await next.isEnabled()) break;
+    await next.press('Enter');
+  }
+  await next.and(page.locator('[aria-disabled="true"]')).waitFor();
+  await previous.click();
+  await next.and(page.locator('[aria-disabled="false"]')).waitFor();
+  const beforeKey = await board.evaluate(track => track.scrollLeft);
   await board.press('ArrowRight');
-  await page.waitForFunction(id => document.getElementById(id)?.scrollLeft > 0, await board.getAttribute('id'));
+  await page.waitForFunction(({ id, before }) => document.getElementById(id)?.scrollLeft > before,
+    { id: trackId, before: beforeKey });
 
   await page.setViewportSize({ width: 1280, height: 900 });
   const message = 'Link an executing conversation';
@@ -755,7 +782,7 @@ test('the board keeps empty stages visible and counts only matching cards linked
   const { task } = await command({ op: 'read', task_id });
   const nav = page.getByRole('navigation', { name: 'Task tree', exact: true });
   await nav.locator(`[data-task-id="${task_id}"]`).getByRole('img', { name: '运行中', exact: true }).waitFor();
-  await page.getByRole('radio', { name: '执行中的卡片 0', exact: true }).waitFor();
+  await page.getByRole('radio', { name: '仅执行中 · 0', exact: true }).waitFor();
 
   const title = 'Plan the release';
   const { card_id } = await command({ op: 'create_card', title });
@@ -802,12 +829,12 @@ test('the board keeps empty stages visible and counts only matching cards linked
   await link.waitFor({ state: 'hidden' });
 
   await assertConversationActivity(card, '工作中');
-  const working = page.getByRole('radio', { name: '执行中的卡片 1', exact: true });
+  const working = page.getByRole('radio', { name: '仅执行中 · 1', exact: true });
   await working.click();
   await board.locator('[data-board-stage="in_progress"]').getByRole('article', { name: title, exact: true }).waitFor();
   const search = page.getByPlaceholder('搜索卡片', { exact: true });
   await search.fill('different card title');
-  await page.getByRole('radio', { name: '执行中的卡片 0', exact: true }).waitFor();
+  await page.getByRole('radio', { name: '仅执行中 · 0', exact: true }).waitFor();
   await card.waitFor({ state: 'hidden' });
   await search.clear();
   await card.getByRole('button', { name: '打开对话', exact: true }).click();
@@ -905,7 +932,7 @@ test('a conversation can be added to the board without starting another conversa
   const completed = reviewCard.getByText('对话已完成', { exact: true });
   await assertConversationActivity(reviewCard, '对话已完成');
   assert.ok(await completed.evaluate(status => {
-    const action = status.parentElement.querySelector('button');
+    const action = status.closest('button');
     return action && parseFloat(getComputedStyle(status).fontSize) <= parseFloat(getComputedStyle(action).fontSize) &&
       getComputedStyle(status).color !== getComputedStyle(action).color;
   }), 'Linked conversation status has less visual emphasis than its open action');

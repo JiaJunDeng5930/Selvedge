@@ -41,7 +41,7 @@ test('the workspace directory browser identifies host directories and supports k
   await location.press('Enter');
   await nested.waitFor();
   assert.equal(await empty.count(), 0);
-  await picker.getByRole('button', { name: 'Parent directory', exact: true }).press('Enter');
+  await picker.getByRole('button', { name: 'Up', exact: true }).press('Enter');
   await folderButton.waitFor();
   assert.equal(await location.inputValue(), root);
   const choose = picker.getByRole('button', { name: 'Use this directory', exact: true });
@@ -170,6 +170,7 @@ test('a failed directory visit keeps the address editable and can return to the 
 
   const picker = page.getByRole('dialog', { name: '选择 Selvedge 主机上的目录', exact: true });
   const location = picker.getByRole('textbox', { name: '目录路径', exact: true });
+  const up = picker.getByRole('button', { name: '上一级', exact: true });
   const go = picker.getByRole('button', { name: '前往', exact: true });
   const choose = picker.getByRole('button', { name: '使用此目录', exact: true });
   const previous = picker.getByRole('button', { name: '返回上一个可用目录', exact: true });
@@ -178,6 +179,17 @@ test('a failed directory visit keeps the address editable and can return to the 
   const failure = message => picker.getByRole('alert').filter({ hasText: message });
   const empty = picker.getByRole('status').filter({ hasText: '此目录没有子目录。' });
   const addressFocused = () => location.evaluate(input => document.activeElement === input);
+  await up.waitFor();
+  for (const width of [1280, 320]) {
+    await page.setViewportSize({ width, height: 720 });
+    const [parent, address, forward] = await Promise.all([up.boundingBox(), location.boundingBox(), go.boundingBox()]);
+    assert.ok(parent && address && forward && parent.x + parent.width <= address.x &&
+      address.x + address.width <= forward.x && forward.x + forward.width <= width);
+    const center = box => box.y + box.height / 2;
+    assert.ok(Math.abs(center(parent) - center(address)) < 8 && Math.abs(center(address) - center(forward)) < 8,
+      'Parent, current path and Go share one navigation row');
+  }
+  await page.setViewportSize({ width: 1280, height: 900 });
   const listingResponse = address => page.waitForResponse(response => response.url().endsWith('/api/browser/observation')
     && response.request().postDataJSON()?.kind === 'browse-directories'
     && response.request().postDataJSON().path === address);

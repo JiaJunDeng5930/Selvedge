@@ -210,7 +210,8 @@ Export PlotProof(chart_axis_covers_values, chart_axis_coordinates_reach_both_plo
     to the marks. Each plot has a data disclosure immediately below its
     trailing edge. Its compact table shares header and row separators with
     other tables, keeps exact plotted rows in source order and aligns numbers
-    for comparison.
+    for comparison. The compact table aligns with the plot's leading edge
+    and uses the same numeric grouping as the chart.
     Compact list choices keep the check mark beside its label, and paired form
     cards share their row height when the available width keeps them side by side.
     [chart_accessible_values_keep_order] constrains that rendering projection.
@@ -290,11 +291,12 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     its details, and a separate control starts a conversation with its defaults.
     The board and project management are global. The board identifies its items
     as cards and exposes the action to link or open a conversation on the card.
-    Its execution count uses the same filters and observations as the execution
-    view. Each stage retains a visible heading, count, and drop target when empty.
+    Its execution filter shows a count distinct from the stage counts.
+    Each stage retains a heading, count and drop target when empty.
     Stage lanes follow one horizontal track. Their minimum width leaves room
     to read a card title alongside its action menu. Empty lanes retain a drop
-    target with the same height. The filter and lane heading use the same
+    target with the same height. Previous and next controls reveal columns
+    outside the viewport. The filter and lane heading use the same
     icon for each stage. The assignee filter distinguishes people, models
     and unassigned cards while keeping its options searchable and its
     selected indicator distinct from keyboard focus.
@@ -332,8 +334,9 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     with the current choices. Its submenus open at the same anchor and use
     the same language. Each menu has one visible title. Opening them keeps
     the composer in place.
-    Conversation details show the full working directory after expansion
-    and offer to copy it. The details panel grows to fit its facts until it
+    Conversation details show the full working directory after expansion,
+    prefer line breaks at directory separators and offer to copy it from its
+    header row. The details panel grows to fit its facts until it
     reaches the available height, then scrolls within the panel.
     On desktop, the model menu keeps the new conversation heading clear when
     the viewport has room for both.
@@ -347,7 +350,8 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     Each endpoint choice leads with its conversation title and includes an
     identifier for titles shared by multiple choices in the scope.
     The same graph editor can also accept a structured declaration for other
-    rules. The expanded declaration offers multiple lines in a monospace editor.
+    rules. The expanded declaration starts with indented JSON in a monospace
+    editor. Collapsing it preserves edits and manual formatting.
     When the current scope has too few conversations, the source and receiver
     form and its unavailable commit identify how many more are needed.
     A conversation created from graph setup belongs to that scope. The
@@ -357,7 +361,8 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
 
     Opening a search result leaves the query, filters and page of results
     available for further comparison. A return action in the conversation
-    header restores those results. Results lead with a short readable
+    header restores those results. When no matches remain, the results area
+    shows the outcome and keeps the entered keyword and filters. Results lead with a short readable
     excerpt and mark the matching text with a contrasting foreground and
     background. A result group names its conversation once, separates each
     actionable row and identifies each message by its speaker role.
@@ -375,7 +380,7 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     The assignee filter keeps complete rows in its scrollable list. Action menus
     show actions relevant to the card and keep their order while service checks
     change their availability. Applicable actions explain any current refusal.
-    A linked conversation's execution state is secondary to its open action.
+    A linked conversation's execution state is secondary within its open action.
     The card reference and timestamp share a metadata row.
     Assisted capture places its model controls beside the card title and description.
     Assisted capture offers the board default when it names an eligible
@@ -388,7 +393,8 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     The action area shows progress while a submitted edit is being processed.
     The fixed action area shows the same repair when the field or its inline
     explanation does not fit in view. Each repair is visible in one place.
-    Settings editors retain their category context when opened from a setting.
+    Settings editors retain their category context when opened from a setting,
+    with that settings page as their only background.
     A scrolling settings form separates its fields from the fixed action area.
     Selected project directories show the short name and role before the full
     path. An unadded directory path shows one reminder beside its input.

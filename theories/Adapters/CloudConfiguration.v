@@ -19,7 +19,7 @@ Definition optional_bounds : list (string * (N*N)) :=
 Definition setting_label name :=
   match name with
   | "region" => "地域" | "zone" => "可用区" | "image_id" => "镜像 ID"
-  | "instance_type" => "实例规格" | "spot_max_price" => "竞价价格上限"
+  | "instance_type" => "实例规格" | "spot_max_price" => "竞价价格上限（账户币种/小时）"
   | "vpc_id" => "VPC ID" | "subnet_id" => "子网 ID"
   | "security_group_ids" => "安全组" | "key_id" => "SSH 密钥 ID"
   | "ssh_private_key" => "私钥路径" | "ssh_user" => "SSH 用户"

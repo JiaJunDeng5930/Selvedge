@@ -54,7 +54,10 @@ test('conversation search excerpts show rendered text around a match and label s
   assert.doesNotMatch(readable, /<ui|internal-label|selvedge-ui|\*\*|example\.test|Earlier context|next paragraph|上一条|下一条/);
 
   await search('no-matching-release-note');
-  await page.getByText('没有找到匹配的标题或消息。试试其他关键词。', { exact: true }).waitFor();
+  const empty = page.getByRole('status').filter({ hasText: '没有匹配结果' });
+  await empty.waitFor();
+  await page.getByText('试试其他关键词。', { exact: true }).waitFor();
+  assert.equal(await query.inputValue(), 'no-matching-release-note');
 
   await search('hidden-source-token');
   await result.getByText('在消息原文中找到匹配', { exact: true }).waitFor();

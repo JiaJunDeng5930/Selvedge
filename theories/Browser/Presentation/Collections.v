@@ -92,13 +92,15 @@ Definition card_conversation snapshot parent value activity :=
    [declared parent Roles.Button(secondary identity "关联对话"
      (Input.OpenCardDecision(Read.card_id value)CardDecisions.LinkCard(part parent identity)))]
  |Some task=>
-   let open_conversation availability:=
-    declared parent Roles.Button(Control identity "打开对话" Secondary (Input.Navigate(Conversation task)) availability) in
+   let open_conversation availability description:=
+    Node(part parent identity)identity "打开对话" Roles.Button
+      (Activate(Control identity "打开对话" Secondary (Input.Navigate(Conversation task)) availability))
+      description in
    match Read.find_task task snapshot with
-   |Some _=>open_conversation Available::(if String.eqb activity "" then [] else
-     [information parent "card/conversation-activity" Information.Description activity])
+   |Some _=>[open_conversation Available (if String.eqb activity "" then [] else
+      [information (part parent identity) "card/conversation-activity" Information.Description activity])]
    (* DEFENSE: A linked conversation can be absent from the current observation. *)
-   |None=>[open_conversation(Unavailable "关联的对话不可用")]
+   |None=>[open_conversation(Unavailable "关联的对话不可用") []]
    end
  end.
 Definition card_node snapshot s board_parent candidates parent value :=
@@ -123,18 +125,19 @@ Definition card_node snapshot s board_parent candidates parent value :=
 Definition board_group {A} parent key grouping (children:list(node A)):=Node(part parent key)key ""Roles.Toolbar(BoardGroup grouping)children.
 Definition board_toolbar snapshot s parent :=
  let selection:=State.board_selection s in
- let tab key label:=Node(part parent("view/"++key))"board/view"label Roles.Button
+ let tab key label:=Node(part parent("view/"++key))(if String.eqb key "working" then "board/working" else "board/view")label Roles.Button
    (Choice SingleChoice(String.eqb key(BoardFilter.tab_name(BoardFilter.filter_tab selection)))""
      (secondary("view/"++key)label(Input.BoardTab key)))[] in
- let working:="执行中的卡片"++match bind(State.now s)(count_working snapshot selection)with
-   |Some count=>" "++show_natural count|None=>""end in
+ let working:="仅执行中"++match bind(State.now s)(count_working snapshot selection)with
+   |Some count=>" · "++show_natural count|None=>""end in
  [board_group parent "view-choices" ViewChoices
-   [tab "all" "全部卡片";tab "assigned" "分配给我";tab "unassigned" "未分配";tab "working" working];
+   [tab "all" "全部卡片";tab "assigned" "分配给我";tab "unassigned" "未分配"];
   board_group parent "search-area" SearchArea
    [Node(part parent "search")"board-search" "搜索卡片"Roles.Field
      (BoardSearch selection(fun value=>option_map Input.BoardQuery(as_string value)))[]];
   board_group parent "secondary-actions" SecondaryActions
-   [declared parent Roles.Button(secondary "filters" "筛选卡片"(Input.OpenBoard State.BoardFilters(part parent "filters")));
+   [tab "working" working;
+    declared parent Roles.Button(secondary "filters" "筛选卡片"(Input.OpenBoard State.BoardFilters(part parent "filters")));
     declared parent Roles.Button(secondary "settings" "看板设置"(Input.OpenBoard State.BoardSettings(part parent "settings")));
     Node(part parent "archive-destination")"board/archive" "归档卡片"Roles.Section
      (CardArchive(N.of_nat(List.length(value_or[](archived_cards snapshot)))))

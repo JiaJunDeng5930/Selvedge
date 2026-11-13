@@ -300,19 +300,24 @@ test('task graph setup creates its conversations in scope and routes replies', {
   const emptyRoute = emptyGraph.getByRole('region', { name: '转发方向', exact: true });
   await emptyRoute.getByText('来源对话', { exact: true }).waitFor();
   await emptyGraph.getByText('接收对话', { exact: true }).waitFor();
+  assert.equal(await emptyRoute.getByRole('button').count(), 0);
   for (const width of [1280, 390, 320]) {
     await page.setViewportSize({ width, height: 780 });
     const geometry = await emptyRoute.evaluate(node => {
       const [from, arrow, to] = Array.from(node.children, child => child.getBoundingClientRect());
       const description = node.previousElementSibling.getBoundingClientRect();
+      const heading = node.parentElement.querySelector('h3').getBoundingClientRect();
       const create = node.parentElement.querySelector('button').getBoundingClientRect();
       const center = box => box.top + box.height / 2;
+      const axis = box => box.left + box.width / 2;
       return { row: from.right < arrow.left && arrow.right < to.left &&
         Math.abs(center(from) - center(arrow)) < 1 && Math.abs(center(arrow) - center(to)) < 1,
       follows: from.top >= description.bottom && create.top >= to.bottom,
-      fits: from.left >= 0 && to.right <= innerWidth };
+      fits: from.left >= 0 && to.right <= innerWidth,
+      centered: [heading, description, create].every(box =>
+        Math.abs(axis(box) - axis(node.getBoundingClientRect())) < 2) };
     });
-    assert.deepEqual(geometry, { row: true, follows: true, fits: true }, 'Empty route at ' + width + 'px');
+    assert.deepEqual(geometry, { row: true, follows: true, fits: true, centered: true }, 'Empty route at ' + width + 'px');
   }
   await page.setViewportSize({ width: 1280, height: 900 });
   await emptyGraph.getByRole('button', { name: '创建对话转发', exact: true }).click();
@@ -327,6 +332,13 @@ test('task graph setup creates its conversations in scope and routes replies', {
   const declarationBounds = await declaration.boundingBox();
   assert.ok(declarationBounds?.height >= 140, 'The expanded JSON editor has room for multiple lines');
   assert.equal(await dialog.getByText('JSON 定义', { exact: true }).isVisible(), false);
+  const initialDeclaration = await declaration.inputValue();
+  assert.match(initialDeclaration, /^\{\n  "name": "对话转发",\n  "nodes": \[\n    \{/);
+  const editedDeclaration = initialDeclaration.replace('"name": "对话转发"', '"name" :  "对话转发"');
+  await declaration.fill(editedDeclaration);
+  await advanced.click();
+  await advanced.click();
+  assert.equal(await declaration.inputValue(), editedDeclaration, 'Reopening the editor preserves the author’s draft spacing');
   await advanced.click();
   assert.equal(await dialog.getByRole('alert').count(), 0);
   assert.equal(await create.isDisabled(), true);

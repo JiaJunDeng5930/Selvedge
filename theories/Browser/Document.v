@@ -1,5 +1,5 @@
 From Selvedge.Interaction.Submission Require Draft DraftCodec.
-From Stdlib Require Import String List Bool Arith NArith ZArith.
+From Stdlib Require Import Ascii String List Bool Arith NArith ZArith.
 From Selvedge.Foundation Require Import Json TextJson Numbers.
 From Selvedge.Browser Require Import DOM Focus Layout Appearance ControlPurpose ControlContent SemanticAppearance InteractiveAppearance Observation.
 From Selvedge.Interaction Require Import CodeSource.
@@ -123,6 +123,15 @@ Definition role_tag role := match role with
 Definition text_tag role := match role with
  | Information.IntroductionTitle => "h1" | Information.SurfaceTitle=>"h2"
  | Information.GroupTitle=>"h3" | Information.Status=>"output" | _=>"span" end.
+Fixpoint directory_path_parts (chunk path : string) : list DOM.node :=
+ match path with
+ |EmptyString=>[DOM.Text chunk]
+ |String char rest=>
+   let chunk:=String.append chunk (String char EmptyString) in
+   if Ascii.eqb char "/"%char then
+     DOM.Text chunk :: DOM.Element "" "wbr" [] [] [] (JObject []) [] :: directory_path_parts "" rest
+   else directory_path_parts chunk rest
+ end.
 Definition native_string value := match value with
  | JString value=>value | JNull=>"" | value=>render_json value end.
 Definition native_checked value := match value with JBool value=>value|_=>false end.
@@ -173,7 +182,7 @@ Definition editor {A} env (activity:bool) key label generation owner field (valu
  |Fields.MessageText=>[("placeholder",match owner with Identity.NewTask _=>"描述你想完成的任务…"|_=>"输入消息…"end);
    ("data-focus-alias","composer-message")]
  |Fields.CardLabels=>[("placeholder","每行一个标签")]
- |Fields.WorkName=>[("placeholder",Parameters.work_name_prompt);("aria-required","true")]
+ |Fields.WorkName=>[("aria-required","true")]
  |Fields.ProjectName=>[("placeholder",Parameters.project_name_prompt);("aria-required","true")]
  |Fields.CardTitle=>[("placeholder",Parameters.card_title_prompt)]
  |_=>[]end) ++ disabled enabled in
@@ -817,10 +826,14 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
    else None
  |_=>None end in
  let extra:=match S.node_children value with
+ |[status]=>if String.eqb (S.semantic_key status) "card/conversation-activity"
+    then ("aria-describedby",S.node_key status)::extra else extra
  |speaker::[excerpt]=>if String.eqb (S.semantic_key speaker) "result-speaker" &&
                            String.eqb (S.semantic_key excerpt) "result-excerpt"
    then ("aria-describedby",S.node_key excerpt)::extra else extra
  |_=>extra end in
+ let linked_status:=find (fun child=>String.eqb (S.semantic_key child) "card/conversation-activity")
+   (S.node_children value) in
  let extra:=match summary_choice with Some (_,selected)=>
    ("aria-pressed",flag selected)::(if available then ("title",Model.control_label action)::extra else extra)
  |_=>extra end in
@@ -855,7 +868,11 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
    let '(kind,symbol,caption):=task_notice_content notice in
    [navigation_glyph status_key "status" [("id",status_key);("role","img");("aria-label",caption);
      ("title",caption);("data-task-notice",kind)] (glyph symbol)] end
- |_,_=>match meaning with
+ |_,_=>match linked_status with
+  |Some _=>glyph "conversation"++
+      [DOM.Element (key++"/caption")%string "span" [("data-linked-conversation-caption","")]
+        [] [] empty (DOM.Text label::children)]
+  |None=>match meaning with
    |S.Choice _ selected _ _=>match current_area with
     |BoardViewArea=>face_children purpose current_area role(Model.control_label action)authored_children
     |_=>choice_content env activity key selected
@@ -864,7 +881,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
       (match authored_children with []=>[DOM.Text(Model.control_label action)]|_=>authored_children end)end
    |S.WorkChoice _ selected _=>choice_content env activity key selected []
       (match authored_children with []=>[DOM.Text(Model.control_label action)]|_=>authored_children end)
-   |_=>face_children purpose current_area role(Model.control_label action)children end end end end) ++
+   |_=>face_children purpose current_area role(Model.control_label action)children end end end end end) ++
  (match role with Roles.WorkTab false=>
   [DOM.Element(key++"/separator")%string "span" [("aria-hidden","true")]
    [("position","absolute");("inset-inline-end","0");("inset-block-start","50%");
@@ -878,13 +895,14 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  match meaning with
  |S.InformationText info=>element (text_tag info) ([("tabindex","-1")] ++
    match info with Information.Status=>[("role","status")]|_=>[]end) [] empty [DOM.Text label]
- |S.ReadOnly text=>element "span"
- [] [] empty [DOM.Text text]
+ |S.ReadOnly text=>element "span" [] [] empty [DOM.Text text]
  |S.HistoryMatch before matched after=>element "span" [] [] empty
  [DOM.Text before;DOM.Element "" "mark" [] [] [] empty [DOM.Text matched];DOM.Text after]
  |S.Fact text=>element "span"
  [] [] empty
- [DOM.Text(if String.eqb text ""then "—"else text)]
+ (if String.eqb (S.semantic_key value) "directory-path-value"
+  then directory_path_parts "" text
+  else [DOM.Text(if String.eqb text ""then "—"else text)])
  |S.ExternalLink url=>element "a"
  [("href",url);("target","_blank");("rel","noopener noreferrer")] [] empty [DOM.Text label]
  |S.ActionFeedback _ _ message=>element "p"
@@ -1069,10 +1087,22 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  |S.ReadingTimeline task_view reader_generation=>element "section"
  [("data-reading-root","true");("data-task-id",text_number(NavigationIdentity.task_view_task task_view));("data-reader-generation",text_number reader_generation)] [] empty children
  |S.PageBody page=>DOM.Element key (role_tag role) attrs (styles++Layout.page_properties env page) [] empty children
- |S.PageRegion region position=>element (role_tag role) ([("data-page-region",Composition.region_name region)] ++
+ |S.PageRegion region position=>
+   let region_attr:=[("data-page-region",Composition.region_name region)] in
    match region with
-   |Composition.BoardStages=>[("tabindex","0");("aria-label","看板状态列")]
-   |_=>[]end) [] empty children
+   |Composition.BoardStages=>
+     let scroll_key:=(key++"/track")%string in
+     let button direction label icon:=DOM.Element (key++"/"++direction)%string "button"
+       [("type","button");("data-board-scroll",direction);("aria-controls",scroll_key);
+        ("aria-label",label);("title",label)] [] [] empty (glyph icon) in
+     DOM.Element key "div" [("data-board-track-group","")] [] [] empty
+      [DOM.Element (key++"/controls")%string "div" [("data-board-scroll-controls","");("hidden","")] [] [] empty
+         [button "previous" "向左查看更多状态列" "chevron-left";
+          button "next" "向右查看更多状态列" "chevron-right"];
+       DOM.Element scroll_key "section"
+         ([("id",scroll_key);("tabindex","0");("aria-label","看板状态列")]++region_attr)
+         styles [] empty children]
+   |_=>element (role_tag role) region_attr [] empty children end
  |S.BoardGroup grouping=>element "div" (ControlContent.board_group_attributes grouping) [] empty children
  |S.MovableCard _ _=>DOM.Text ""
  |S.InteractiveNode c=>
@@ -1235,7 +1265,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  let paired:=combine(S.node_children value)children in
  let opened:=card_part describe false paired in
  let slot name:=map snd (filter(fun pair=>String.eqb(S.semantic_key(fst pair))name)paired)in
- let conversation:=slot "card/conversation" ++ slot "card/conversation-activity" in
+ let conversation:=slot "card/conversation" in
  let grip:=if movable then
    [DOM.Element (key++"/grip")%string "span" [("data-card-grip","");("title","拖动卡片");("aria-hidden","true")]
      [] [] empty (glyph "grip")] else [] in

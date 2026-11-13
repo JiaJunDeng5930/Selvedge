@@ -60,6 +60,10 @@ let readingLayoutScheduled = false;
 let pendingHistoryLocation = null;
 let historyLocation = null;
 let searchResultsPosition = null;
+let boardTrack = null;
+let boardFirstLane = null;
+let boardHasOverflow = false;
+const boardTrackResize = new ResizeObserver(updateBoardScroll);
 let focusRequest = 0;
 let pendingFocus = null;
 let suspendedFocus = null;
@@ -335,6 +339,17 @@ function renderDocument(plan, generation) {
   const scrollport = previous?.parentElement;
   const offset = scrollport?.scrollTop;
   renderer.render(plan, generation);
+  const track = surface.querySelector('[data-page-region="board-stages"]');
+  const firstLane = track?.firstElementChild ?? null;
+  if (track !== boardTrack || firstLane !== boardFirstLane) {
+    boardTrackResize.disconnect();
+    if (track !== boardTrack) boardHasOverflow = false;
+    boardTrack = track;
+    boardFirstLane = firstLane;
+    if (track) boardTrackResize.observe(track);
+    if (firstLane) boardTrackResize.observe(firstLane);
+  }
+  if (track && boardHasOverflow) track.previousElementSibling.hidden = false;
   const current = surface.querySelector(selector);
   if (previous === current) return;
   if (previous) {
@@ -344,6 +359,22 @@ function renderDocument(plan, generation) {
   }
   if (current) current.parentElement.scrollTop =
     current.dataset.key === searchResultsPosition?.key ? searchResultsPosition.offset : 0;
+}
+function updateBoardScroll() {
+  if (!boardTrack) return;
+  const controls = boardTrack.previousElementSibling;
+  const overflow = boardTrack.scrollWidth - boardTrack.clientWidth;
+  boardHasOverflow = overflow > 1;
+  controls.hidden = !boardHasOverflow;
+  for (const button of controls.querySelectorAll('[data-board-scroll]')) {
+    const available = button.dataset.boardScroll === 'next'
+      ? boardTrack.scrollLeft < overflow - 1
+      : boardTrack.scrollLeft > 1;
+    button.setAttribute('aria-disabled', String(!available));
+  }
+}
+function scrollBoard(direction) {
+  boardTrack.scrollBy({ left: direction * boardTrack.clientWidth / 2 });
 }
 function present(local) {
   surface.dataset.displayPending = String(publicationEvent('pending'));
@@ -1083,14 +1114,21 @@ async function authenticate(effect) {
 // The semantic surface declares every admissible destination; native drag only
 // supplies the observed target to that element's Place gesture.
 let draggedCard = null;
+surface.addEventListener('scroll', event => {
+  if (event.target === boardTrack) updateBoardScroll();
+}, true);
+surface.addEventListener('click', event => {
+  const button = event.target.closest?.('[data-board-scroll]');
+  if (!boardTrack || !button || button.getAttribute('aria-disabled') === 'true') return;
+  scrollBoard(button.dataset.boardScroll === 'next' ? 1 : -1);
+});
 surface.addEventListener('keydown', event => {
   // DEFENSE: WebKit does not scroll the focused board region on arrow keys.
   if (!event.defaultPrevented && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey &&
       (event.key === 'ArrowLeft' || event.key === 'ArrowRight') &&
-      event.target.matches?.('[data-page-region="board-stages"]') &&
-      event.target.scrollWidth > event.target.clientWidth) {
+      event.target === boardTrack && boardTrack.scrollWidth > boardTrack.clientWidth) {
     event.preventDefault();
-    event.target.scrollBy({ left: (event.key === 'ArrowRight' ? 1 : -1) * event.target.clientWidth / 2 });
+    scrollBoard(event.key === 'ArrowRight' ? 1 : -1);
   }
   if (event.key !== 'Escape') return;
   for (const node of surface.querySelectorAll('[data-help]:hover,[data-help]:focus-visible')) node.setAttribute('data-help-dismissed', '');
@@ -1438,6 +1476,7 @@ document.addEventListener('selectionchange', selectionChanged);
 window.addEventListener('pagehide', () => {
   disposed = true; document.removeEventListener('selectionchange', selectionChanged); document.removeEventListener('keydown', dismiss); document.removeEventListener('pointerdown', dismiss); connection?.abort(); chatgptLogin.dispose(); audio.dispose(); motion.dispose(); editorRepair.dispose(); physical.dispose(); renderer.dispose(); storage.flush();
   clearInterval(clockRefresh); document.removeEventListener('visibilitychange', refreshClock);
+  boardTrackResize.disconnect();
   for (const timer of timers) clearTimeout(timer);
   for (const entry of codeBlocks.values()) for (const physical of entry.views.values()) physical.renderer?.dispose();
   for (const controller of transfers.values()) controller.abort();

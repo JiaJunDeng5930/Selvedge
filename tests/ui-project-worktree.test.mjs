@@ -199,7 +199,7 @@ test('Project worktree defaults require a committed Git primary only while enabl
     .getByRole('button', { name: '移除目录', exact: true }).click();
 
   await browse.click();
-  await chooser.getByRole('button', { name: '上一级目录', exact: true }).click();
+  await chooser.getByRole('button', { name: '上一级', exact: true }).click();
   await folder.click();
   await folder.waitFor({ state: 'hidden' });
   await chooser.getByRole('status').filter({ hasText: '将作为辅助目录添加。此目录不能用作 Git 工作树的主目录。' }).waitFor();

@@ -127,7 +127,8 @@ Configure a CVM image, network and SSH key in the service configuration:
 }
 ```
 
-Set `TENCENTCLOUD_SECRET_ID` and `TENCENTCLOUD_SECRET_KEY` in the service
+`spot_max_price` is an hourly bid in the Tencent Cloud account's billing
+currency. Set `TENCENTCLOUD_SECRET_ID` and `TENCENTCLOUD_SECRET_KEY` in the service
 environment; `TENCENTCLOUD_TOKEN` is optional. Credentials do not belong in the
 configuration object. Optional settings are `ssh_user` (default `root`),
 `ssh_port` (22), `address_type` (`public` or `private`),

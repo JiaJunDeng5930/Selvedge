@@ -236,17 +236,17 @@ Definition directory_view snapshot s :=
           (label "此目录没有子目录。" "This directory has no subdirectories.")]
         |_,_=>[]end))%list
     |_=>[]end in
-   let navigation:=region parent "navigation" (label "目录导航" "Folder navigation") Roles.Section
-        ([region parent "directory-location-actions" "" Roles.Toolbar
+   let parent_action:=match resource with Resource.Loaded _ _ catalog=>
+        match string_field "parent" catalog with None=>[]|Some path=>
+         [declared parent Roles.Button(secondary "parent" (label "上一级" "Up")(Input.ServiceInput(Services.VisitDirectory path)))]end
+       |_=>[]end in
+   let navigation:=region parent "directory-location-actions" (label "目录导航" "Folder navigation") Roles.Section
+        (parent_action++
          [Node(part parent "location")"directory-location" (label "目录路径" "Directory") Roles.Field
           (EnterDirectory owner (Services.directory_location services)
            (fun value=>option_map(fun path=>Input.ServiceInput(Services.WriteDirectoryLocation path))(as_string value))
            (Some(Input.ServiceInput Services.GoDirectory)))[];
-         declared parent Roles.Button(secondary "go" (label "前往" "Go")(Input.ServiceInput Services.GoDirectory))]]++
-         match resource with Resource.Loaded _ _ catalog=>
-          match string_field "parent" catalog with None=>[]|Some path=>
-           [declared parent Roles.Button(secondary "parent" (label "上一级目录" "Parent directory")(Input.ServiceInput(Services.VisitDirectory path)))]end
-         |_=>[]end) in
+         declared parent Roles.Button(secondary "go" (label "前往" "Go")(Input.ServiceInput Services.GoDirectory))]) in
    [Node parent "directory-browser" caption Roles.Dialog
     (LayerRegion(LayerBehavior ModalDialog false ticket (part parent "location")
      (Services.directory_trigger request)"/main"(Services.directory_trigger request)

@@ -221,8 +221,7 @@ Definition cloud_form parent saved source view enabled : list (node Input.input)
    ([description parent "cloud-credentials" "腾讯云 API 凭据来自本地服务环境。";
      section "cloud-compute" "计算" (fun panel =>
        [field_row panel "placement" (fun row => fields row ["region"; "zone"]);
-        field_row panel "instance" (fun row => fields row ["image_id"; "instance_type"]);
-        text_field panel "spot_max_price" (label "spot_max_price") config enabled commit]);
+        field_row panel "instance" (fun row => fields row ["image_id"; "instance_type"; "spot_max_price"])]);
     section "cloud-network" "网络" (fun panel =>
       [field_row panel "network-ids" (fun row => fields row ["vpc_id"; "subnet_id"]);
        list_member panel "security_group_ids" (label "security_group_ids") "安全组 ID" (JString "") config enabled JString commit]);
@@ -251,7 +250,9 @@ Definition cloud_form parent saved source view enabled : list (node Input.input)
 Definition targets_form parent source enabled : list (node Input.input) :=
  let path := ["compaction"; "targets"] in
  let targets := Common.items source in
- (map (fun '(index, target) =>
+ ((match targets with
+   | [] => [description parent "context-limits-default" "当前使用默认限制。添加配置项可为指定模型设置限制。"]
+   | _ => [] end) ++ map (fun '(index, target) =>
    let key := ("target-" ++ index_label index)%string in
    let panel := part parent key in
    let fields := part panel "form-fields" in

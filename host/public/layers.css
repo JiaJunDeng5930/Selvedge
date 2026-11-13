@@ -64,18 +64,30 @@ dialog[data-semantic-key="project-editor"] {
   }
 }
 
-[data-semantic-key="directory-path-body"] {
+[data-semantic-key="directory-path-entry"] {
   display: grid !important;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start !important;
-  gap: .375rem !important;
+  position: relative;
 
-  & [data-semantic-key="value"] {
-    max-inline-size: 100%;
-    white-space: pre-wrap !important;
-    overflow-wrap: anywhere !important;
-    font-family: ui-monospace, monospace;
+  & > details { grid-column: 1 / -1; }
+  & > details > summary {
+    padding-inline-end: 2.25rem !important;
+    min-block-size: 2rem;
+    align-content: center;
   }
+  & > button {
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline-end: 0;
+  }
+}
+[data-semantic-key="directory-path-value"] {
+  display: block;
+  max-inline-size: 100%;
+  white-space: pre-wrap !important;
+  overflow-wrap: anywhere !important;
+  font-family: ui-monospace, monospace;
 }
 
 :is([data-semantic-key="handoff-route"], [data-semantic-key="task-graph/empty-route"]) {
@@ -269,14 +281,16 @@ button[data-semantic-key="automation"][role="switch"][aria-checked="true"]::afte
   object-fit: contain;
 }
 
-/* Directory location and Go are one operation. The folder list and the
-   action that confirms the current location occupy separate parts. */
 [data-semantic-key="directory-browser"] [data-semantic-key="directory-location-actions"] {
   display: grid !important;
-  grid-template-columns: minmax(0, 1fr) max-content;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: end !important;
-  gap: var(--panel-related-space) !important;
+  gap: .375rem !important;
 }
+[data-semantic-key="directory-location-actions"]:has(> button[data-semantic-key="parent"]) {
+  grid-template-columns: auto minmax(0, 1fr) auto !important;
+}
+[data-semantic-key="directory-location-actions"] > div { min-inline-size: 0 !important; }
 [data-semantic-key="directory-location-actions"] > button { align-self: end !important; }
 [data-semantic-key="directory-browser"] [data-semantic-key="directory-git-status"] {
   flex: 1 0 100%;
@@ -729,11 +743,10 @@ dialog[data-editor-repair-inline] > form[data-semantic-key="editor"] [data-seman
   cursor: pointer;
 }
 [data-semantic-key="board-filters"] [data-semantic-key="filter-assignee-options"] {
-  --assignee-row-size: 2.25rem;
-  max-block-size: max(var(--assignee-row-size), round(down, min(11.5rem, 36dvh), var(--assignee-row-size))) !important;
+  --assignee-row-size: 2rem;
+  max-block-size: max(var(--assignee-row-size), min(11.5rem, 36dvh)) !important;
   overflow-y: auto !important;
   scrollbar-width: thin;
-  scroll-snap-type: y mandatory;
   padding: 0 .25rem !important;
   gap: 0 !important;
   /* The local layer covers the scroll cue when the content ends. */
@@ -750,13 +763,12 @@ dialog[data-editor-repair-inline] > form[data-semantic-key="editor"] [data-seman
   display: flex !important;
   align-items: end;
   box-sizing: border-box;
-  block-size: var(--assignee-row-size) !important;
+  block-size: 1.15rem !important;
   margin: 0;
-  padding: 0 .5rem .25rem !important;
+  padding: 0 .5rem !important;
   flex: none !important;
   color: var(--selvedge-muted) !important;
   font-size: var(--rich-support-size) !important;
-  scroll-snap-align: start;
 }
 [data-semantic-key="board-filters"] [data-semantic-key="filter-assignee-options"] button {
   inline-size: 100% !important;
@@ -766,7 +778,6 @@ dialog[data-editor-repair-inline] > form[data-semantic-key="editor"] [data-seman
   justify-content: start !important;
   border: 0 !important;
   border-radius: .375rem !important;
-  scroll-snap-align: start;
 }
 [data-semantic-key="filter-assignee-options"] > button {
   box-shadow: inset 0 1px var(--selvedge-border);

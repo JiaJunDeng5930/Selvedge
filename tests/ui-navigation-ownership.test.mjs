@@ -93,7 +93,7 @@ async function requestWork(page, name = '浏览器工作组', verifyName = false
   await title.and(page.locator(':focus')).waitFor();
   assert.equal(await create.isDisabled(), true);
   if (verifyName) {
-    assert.equal(await title.getAttribute('placeholder'), '请输入工作组名称');
+    assert.equal(await title.getAttribute('placeholder'), null);
     assert.equal(await title.getAttribute('aria-required'), 'true');
     const alerts = editor.getByRole('alert');
     const reason = editor.locator('[data-semantic-key="editor-commit-reason"]');
