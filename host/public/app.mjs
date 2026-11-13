@@ -1084,6 +1084,14 @@ async function authenticate(effect) {
 // supplies the observed target to that element's Place gesture.
 let draggedCard = null;
 surface.addEventListener('keydown', event => {
+  // DEFENSE: WebKit does not scroll the focused board region on arrow keys.
+  if (!event.defaultPrevented && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey &&
+      (event.key === 'ArrowLeft' || event.key === 'ArrowRight') &&
+      event.target.matches?.('[data-page-region="board-stages"]') &&
+      event.target.scrollWidth > event.target.clientWidth) {
+    event.preventDefault();
+    event.target.scrollBy({ left: (event.key === 'ArrowRight' ? 1 : -1) * event.target.clientWidth / 2 });
+  }
   if (event.key !== 'Escape') return;
   for (const node of surface.querySelectorAll('[data-help]:hover,[data-help]:focus-visible')) node.setAttribute('data-help-dismissed', '');
 });

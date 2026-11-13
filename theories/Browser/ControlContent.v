@@ -72,7 +72,7 @@ Definition property_icon {e} (property : UX.property e) :=
   | UX.ModelProperty => None
   | UX.DeliveryProperty => Some "conversation"
   end.
-Definition stage_filter_glyph (stage : Domain.board_stage) :=
+Definition stage_glyph (stage : Domain.board_stage) :=
   match stage with
   | Domain.Backlog => "status-backlog"
   | Domain.Todo => "status-todo"
@@ -92,7 +92,7 @@ Definition priority_filter_glyph (priority : Domain.priority) :=
 Definition board_filter_glyph (category : BoardFilter.category) (value : string)
     : option string :=
   match category with
-  | BoardFilter.Status => option_map stage_filter_glyph
+  | BoardFilter.Status => option_map stage_glyph
       (find (fun stage => String.eqb value (Domain.stage_name stage)) Domain.stages)
   | BoardFilter.Priority => option_map priority_filter_glyph
       (find (fun priority => String.eqb value (Domain.priority_name priority)) Domain.priorities)
@@ -278,7 +278,7 @@ Definition project_header {A} describe env key project selected expanded
        ("inline-size",Typography.px (2 * target + scaled env 8));
        ("gap",pixels env 8);("flex","none")] auxiliary]).
 
-Definition lane_content {A} describe env key label stage count
+Definition lane_content {A} describe artwork env key label stage count
     (children : list (S.node A)) native :=
   let paired := combine children native in
   let header_actions := map snd (filter (fun pair => create_action describe (fst pair)) paired) in
@@ -294,17 +294,15 @@ Definition lane_content {A} describe env key label stage count
       [("display","flex");("align-items","center");("flex","1 1 0%");
        ("min-inline-size","0");("gap",pixels env 6)]
       [box (private_key key "stage-mark") "span"
-        [("data-board-stage-mark",stage);("aria-hidden","true")] [] [];
+        [("data-board-stage-mark",stage);("aria-hidden","true")] []
+        (match board_filter_glyph BoardFilter.Status stage with Some symbol=>artwork symbol|None=>[]end);
        span (private_key key "lane-title") [] (text_style Typography.Medium) label;
        span (private_key key "lane-count") [("data-board-count",show_natural count)]
          (text_style Typography.Regular) (show_natural count)];
      box (private_key key "lane-heading-trailing") "div" []
       [("display","flex");("align-items","center");("flex","none")] header_actions]] ++
-  match cards with
-  | [] => []
-  | _ => [box (private_key key "lane-cards") "div" [("data-board-cards","true")]
-    [("display","flex");("flex-direction","column");("gap",pixels env 8);("min-inline-size","0")] cards]
-  end.
+  [box (private_key key "lane-cards") "div" [("data-board-cards","true")]
+    [("display","flex");("flex-direction","column");("gap",pixels env 8);("min-inline-size","0")] cards].
 
 Definition collection_children (env : Layout.environment) key (children : list DOM.node) :=
   match children with
@@ -345,7 +343,7 @@ Definition container_content {A} (describe : A -> C.purpose)
     (artwork : string -> list DOM.node) env key label (role : Roles.role)
     (meaning : S.meaning A) (children : list (S.node A)) native : option (list DOM.node) :=
   match meaning with
-  | S.BoardLane stage count => Some (lane_content describe env key label stage count children native)
+  | S.BoardLane stage count => Some (lane_content describe artwork env key label stage count children native)
   | S.ProjectGroup project selected expanded =>
       let paired := combine children native in
       let members := map snd (filter (fun pair =>

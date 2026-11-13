@@ -127,7 +127,18 @@ test('Search groups an interleaved title and message hits and returns to each se
   const openAndReturn = async (hit, located) => {
     await hit.press('Enter');
     await located();
-    await main.getByRole('button', { name: '返回搜索结果', exact: true }).click();
+    const back = main.getByRole('button', { name: '返回搜索结果', exact: true });
+    assert.ok(await back.evaluate(button => {
+      const title = button.parentElement.querySelector('h2');
+      const control = button.getBoundingClientRect();
+      const heading = title?.getBoundingClientRect();
+      const visibleLabel = [...button.childNodes].some(child => child.nodeType === Node.TEXT_NODE
+        ? !!child.textContent.trim()
+        : child.matches('span:not(.visually-hidden)') && !!child.textContent.trim());
+      return !visibleLabel && !!heading && control.right <= heading.left &&
+        control.top < heading.bottom && heading.top < control.bottom;
+    }), 'An icon in the conversation header returns to search');
+    await back.click();
     await hit.and(page.locator(':focus')).waitFor();
     assert.equal(await query.inputValue(), '发布前');
   };

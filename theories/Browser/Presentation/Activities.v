@@ -96,8 +96,9 @@ Definition workspace_nodes {e} s occurrence parent (members:UX.collection e) :=
  let workspace:=UX.collection_workspace members in
  let roots:=Domain.workspace_roots workspace in
  let editable:=Parameters.editable e Fields.WorkspaceDirectories in
- let heading:=if Selvedge.Browser.Session.Observation.worktree_required(State.current_draft s e)
-  then "工作目录" else "工作目录（可选）" in
+ let heading:=match e with Identity.Project _=>
+  if Selvedge.Browser.Session.Observation.worktree_required(State.current_draft s e)
+  then "工作目录" else "工作目录（可选）" | _=>"" end in
  let buffer:=match find(fun layer=>N.eqb occurrence(State.layer_occurrence layer))(State.layers(State.navigation_state s))with
  |Some layer=>value_or ""(State.layer_parameter_buffer layer)|None=>""end in
  Node parent "workspace-collection" heading Roles.Section(WorkspaceCollection e members)

@@ -14,7 +14,7 @@ async function observed(predicate, explanation) {
 }
 
 async function inspectPermissionChoices(permissions, sandbox) {
-  const shared = '询问和自动审批共用当前设置（' + sandbox + '）。Bash 请求扩大权限时需要审批。';
+  const shared = '询问和自动审批 · ' + sandbox.replace('，', ' · ');
   const note = permissions.getByText(shared, { exact: true });
   await note.waitFor();
   assert.equal(await note.count(), 1, 'The restricted choices share one visible description');
@@ -23,8 +23,8 @@ async function inspectPermissionChoices(permissions, sandbox) {
   assert.ok(descriptionIds.includes(await note.getAttribute('id')),
     'Keyboard and screen-reader users have the same shared group context');
   const choice = name => permissions.getByRole('menuitemradio', { name, exact: true });
-  assert.match(await choice('询问审批').innerText(), /由你审批。/);
-  assert.match(await choice('自动审批').innerText(), /由 echo 审批。/);
+  assert.match(await choice('询问审批').innerText(), /需要扩大权限时会询问你。/);
+  assert.match(await choice('自动审批').innerText(), /需要扩大权限时由模型审批。/);
   const full = await choice('完全访问').innerText();
   assert.equal(full.match(/完全访问/g)?.length, 1);
   assert.match(full, /文件访问和联网不受限制，无需审批。/);
@@ -192,8 +192,9 @@ test('conversation and board controls distinguish same-name configurations and e
   await page.getByRole('button', { name: '筛选卡片', exact: true }).click();
   const filters = page.getByRole('dialog', { name: '筛选卡片', exact: true });
   await filters.locator('summary').filter({ hasText: '负责人' }).click();
-  const adaptiveFilter = filters.getByRole('checkbox', { name: adaptiveAstra, exact: true });
-  const fixedFilter = filters.getByRole('checkbox', { name: fixedAstra, exact: true });
+  const modelsFilter = filters.getByRole('region', { name: '模型', exact: true });
+  const adaptiveFilter = modelsFilter.getByRole('checkbox', { name: 'gpt-6-astra · 自适应推理强度', exact: true });
+  const fixedFilter = modelsFilter.getByRole('checkbox', { name: 'gpt-6-astra · 固定推理强度', exact: true });
   await adaptiveFilter.click();
   assert.equal(await adaptiveFilter.getAttribute('aria-checked'), 'true');
   await created.waitFor();

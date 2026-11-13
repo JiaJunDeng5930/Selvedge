@@ -34,9 +34,12 @@ Definition profile_name value :=
 Definition profile_effort_label value :=
  match Domain.profile_policy value with
  |Domain.FixedReasoning=>"Fixed effort"|Domain.AdaptivePolicy _=>"Adaptive effort" end.
+Definition localized_profile_effort_label value :=
+ match Domain.profile_policy value with
+ |Domain.FixedReasoning=>"固定推理强度"|Domain.AdaptivePolicy _=>"自适应推理强度" end.
 (** Disambiguate equal model names among the profiles available to the control.
     The profile key identifies a configuration even when provider and effort policy agree. *)
-Definition profile_label profiles value :=
+Definition profile_label_with (effort_label : Domain.profile -> string) profiles value :=
  let name:=profile_name value in
  let key:=Domain.profile_key value in
  let provider:=Domain.profile_provider value in
@@ -46,11 +49,13 @@ Definition profile_label profiles value :=
  let base:=if forallb same_provider peers then name else name++" · "++provider in
  match filter same_provider peers with
  |nil=>base
- |same_provider_peers=>let effort:=profile_effort_label value in
+ |same_provider_peers=>let effort:=effort_label value in
    let qualified:=base++" · "++effort in
-   if existsb(fun other=>String.eqb effort(profile_effort_label other))same_provider_peers
+   if existsb(fun other=>String.eqb effort(effort_label other))same_provider_peers
    then qualified++" ("++key++")" else qualified
  end.
+Definition profile_label := profile_label_with profile_effort_label.
+Definition localized_profile_label := profile_label_with localized_profile_effort_label.
 Definition sandbox_label sandbox:=match Selvedge.Kernel.Domain.sandbox_access sandbox with
 |Selvedge.Kernel.Domain.ReadOnly=>"只读"|Selvedge.Kernel.Domain.WorkspaceWrite=>"工作目录内可写"end.
 Definition network_label sandbox:=if Selvedge.Kernel.Domain.sandbox_network sandbox then "允许联网"else "联网受限".

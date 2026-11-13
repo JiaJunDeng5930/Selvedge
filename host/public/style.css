@@ -1163,11 +1163,8 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
 
 [data-board-stage] { border-radius: 8px !important; }
 [data-board-stage-mark] {
+  display: inline-flex;
   flex: none;
-  inline-size: .5rem;
-  block-size: .5rem;
-  border: 1px solid currentColor;
-  border-radius: 50%;
   color: var(--selvedge-muted);
 }
 [data-board-stage-mark="in_progress"], [data-board-stage-mark="in_review"] { color: var(--selvedge-warning); }
@@ -1260,7 +1257,7 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
   stroke-linejoin: round;
 }
 [data-interactive-component]:is([data-interactive-component="bar-chart"], [data-interactive-component="line-chart"]) {
-  gap: .25rem !important;
+  gap: 0 !important;
 }
 [data-semantic-key="interactive-markdown/chart-title"] {
   min-block-size: 2rem;
@@ -1271,21 +1268,28 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
   font-weight: 600 !important;
   line-height: 1.35 !important;
 }
+[data-semantic-key="interactive-markdown/chart-disclosure"] {
+  padding-inline: .5rem !important;
+}
 [data-semantic-key="interactive-markdown/chart-disclosure"] > summary {
   list-style: none;
   --control-rest-background: transparent !important;
-  display: inline-flex !important;
+  display: flex !important;
   align-items: center;
   gap: .4rem !important;
   inline-size: fit-content;
-  min-block-size: 2.25rem !important;
-  padding: .35rem .45rem !important;
+  min-block-size: 2rem !important;
+  margin-inline-start: auto;
+  padding: .125rem .45rem !important;
   border-color: transparent !important;
   border-radius: 6px !important;
   color: var(--selvedge-muted) !important;
   font-size: var(--rich-support-size, .8125rem) !important;
   white-space: nowrap;
   cursor: pointer;
+}
+@media (pointer: coarse) {
+  [data-semantic-key="interactive-markdown/chart-disclosure"] > summary { min-block-size: 2.75rem !important; }
 }
 [data-semantic-key="interactive-markdown/chart-disclosure"] > summary::-webkit-details-marker {
   display: none;
@@ -1308,11 +1312,13 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
 }
 [data-semantic-key="interactive-markdown/chart-data-region"] {
   max-inline-size: 100%;
+  padding-block-start: .25rem;
   overflow-x: auto;
 }
 [data-semantic-key="interactive-markdown/chart-data"] {
   inline-size: auto !important;
   max-inline-size: min(100%, 22rem) !important;
+  margin-inline-start: auto !important;
 
   & caption {
     position: absolute;
@@ -1500,8 +1506,10 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
 }
 
 :is(.markdown .table-scroll > table, [data-interactive-component="table"] > table) {
-  border-collapse: collapse;
   inline-size: 100% !important;
+}
+table:where(.markdown .table-scroll > *, [data-interactive-component="table"] > *, [data-semantic-key="interactive-markdown/chart-data"]) {
+  border-collapse: collapse;
   & :where(caption, th, td) { text-align: start; padding: .375rem .625rem; }
   & :where(th, td)[data-numeric-cell] {
     text-align: end;

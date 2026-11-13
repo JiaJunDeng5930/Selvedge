@@ -90,6 +90,9 @@ test('interactive answer sections keep a readable outline and each source contro
       const action = disclosure.getBoundingClientRect();
       const reset = footer.querySelector('[data-interactive-component="button"] button').getBoundingClientRect();
       const controls = footer.getBoundingClientRect();
+      const standalone = node.previousElementSibling
+        .querySelector('[data-semantic-key="interactive-markdown/source-controls"] > button')
+        .getBoundingClientRect();
       const text = document.createRange();
       text.selectNodeContents(disclosure);
       return {
@@ -98,17 +101,21 @@ test('interactive answer sections keep a readable outline and each source contro
         precedingGap: title.top - before.bottom,
         contentGap: code.getBoundingClientRect().top - title.bottom,
         footerInset: controls.left - code.getBoundingClientRect().left,
-        sharesRow: Math.abs(action.top - reset.top) <= 1 && reset.right < action.left,
+        sharesRow: Math.abs(action.top + action.height / 2 - reset.top - reset.height / 2) <= 1 &&
+          reset.right < action.left && Math.abs(reset.left - controls.left) <= 2,
+        sourceAtEnd: Math.abs(action.right - controls.right) <= 2 &&
+          Math.abs(action.right - standalone.right) <= 2,
         quietSource: action.width >= 32 && action.height >= 32 && action.width < reset.width &&
-          action.left - reset.right <= 16 && text.getBoundingClientRect().width <= 1,
+          text.getBoundingClientRect().width <= 1,
         footerFits: controls.left >= 0 && controls.right <= innerWidth + 1,
       };
     });
     assert.ok(geometry.headingSize > geometry.textSize, 'The section heading is larger than the explanation');
     assert.ok(geometry.precedingGap > geometry.contentGap, 'Section boundaries are clearer than gaps inside a section');
-    assert.ok(Math.abs(geometry.footerInset) <= 2 && geometry.footerFits, 'The source action starts at its own section edge');
+    assert.ok(Math.abs(geometry.footerInset) <= 2 && geometry.footerFits, 'The footer fits its own section');
     assert.ok(geometry.sharesRow, 'Reset and source actions share one footer row');
-    assert.ok(geometry.quietSource, 'The source control is a compact icon beside Reset with a full button target');
+    assert.ok(geometry.sourceAtEnd, 'The source control stays at the footer end with or without Reset');
+    assert.ok(geometry.quietSource, 'The source control is an icon with a full button target');
     const tableChrome = await timeline.getByRole('table').evaluateAll(tables => tables.map(table => {
       const header = getComputedStyle(table.tHead.rows[0].cells[0]);
       const body = getComputedStyle(table.tBodies[0].rows[1].cells[0]);

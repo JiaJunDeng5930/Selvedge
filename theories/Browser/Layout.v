@@ -180,10 +180,11 @@ Definition region_properties env (region : Composition.region) (position : Compo
       ("align-self","center")]
   | Composition.CreationIntroduction => [("text-align","center")]
   | Composition.BoardStages => [("display","grid");
-      ("grid-template-columns",("repeat(auto-fit, minmax(min(100%, " ++ Typography.px (lane_minimum_width p) ++ "), 1fr))")%string);
-      ("align-content","start"); ("align-items","stretch");
+      ("grid-auto-flow","column");
+      ("grid-auto-columns",("minmax(min(100%, " ++ Typography.px (lane_minimum_width p) ++ "), 1fr)")%string);
+      ("grid-template-rows","minmax(0, 1fr)"); ("align-items","stretch");
       ("gap",Typography.px (Enclosure.separation Enclosure.BoardColumns));
-      ("overflow","auto"); ("min-block-size","0"); ("flex","1 1 auto")]
+      ("overflow-x","auto"); ("min-block-size","0"); ("flex","1 1 auto")]
   | _ => [] end.
 
 Definition workspace_properties env (navigation_visible supporting_visible : bool) : list (string * string) :=

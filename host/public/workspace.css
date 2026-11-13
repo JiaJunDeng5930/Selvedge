@@ -232,11 +232,6 @@ main > [data-page-region="collection-actions"]:has(> [data-semantic-key="history
   font-weight: var(--rich-strong-weight);
 }
 
-[data-semantic-key="return-to-search"] {
-  align-self: start !important;
-  flex: none !important;
-}
-
 :is([data-semantic-key="task-graph/empty"], [data-semantic-key="project/empty"]) {
   align-items: center !important;
   gap: .75rem !important;
@@ -277,9 +272,28 @@ main > [data-page-region="collection-actions"]:has(> [data-semantic-key="history
 
 [data-page-region="board-stages"] {
   scrollbar-width: thin;
+  padding-block: 2px .375rem !important;
+}
+[data-page-region="board-stages"]:focus-visible {
+  outline: 2px solid var(--selvedge-focus);
+  outline-offset: -2px;
 }
 [data-page-region="board-stages"] > [data-board-stage] {
+  display: flex !important;
+  flex-direction: column !important;
   block-size: auto !important;
+  min-block-size: 0 !important;
+  overflow: hidden;
+}
+[data-board-cards] {
+  min-block-size: 0 !important;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  overscroll-behavior-block: contain;
+}
+[data-board-cards] > [data-card-id] {
+  flex-shrink: 0 !important;
 }
 
 [data-card-id] {
@@ -331,9 +345,15 @@ main > [data-page-region="collection-actions"]:has(> [data-semantic-key="history
 [data-card-row="conversation"] > [data-semantic-key="card/conversation"] {
   inline-size: fit-content !important;
   padding-inline: 0 !important;
+  --control-rest-color: var(--selvedge-text) !important;
 }
 [data-card-row] > :is([data-semantic-key="card/activity"], [data-semantic-key="card/conversation-activity"]) {
   inline-size: fit-content !important;
+}
+[data-card-row="conversation"] > [data-semantic-key="card/conversation-activity"] {
+  color: var(--selvedge-muted) !important;
+  font-size: var(--rich-support-size) !important;
+  font-weight: 400 !important;
 }
 
 dialog[data-semantic-key="card-details"] {

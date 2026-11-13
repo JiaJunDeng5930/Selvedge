@@ -4,7 +4,9 @@
   scrollbar-width: thin;
 }
 [data-view] > [data-page-region="timeline-content"] {
+  --reader-navigation-gutter: 2.5rem;
   min-block-size: min(2lh, 12dvh) !important;
+  padding-inline-end: var(--reader-navigation-gutter) !important;
   position: relative;
 }
 [data-reading-root] {
@@ -29,7 +31,9 @@
     max-inline-size: none !important;
     padding-inline-end: var(--reader-scrollbar-outset) !important;
 
-    & > [data-page-region="timeline-content"] { overflow: visible !important; }
+    & > [data-page-region="timeline-content"] {
+      overflow: visible !important;
+    }
     & > [data-page-region="timeline-content"] > [data-reading-root] {
       inline-size: calc(100% + var(--reader-scrollbar-outset)) !important;
       max-inline-size: none !important;
@@ -147,16 +151,26 @@
   white-space: normal;
   overflow-wrap: anywhere;
 }
+[data-workspace-heading]:has(> [data-semantic-key="return-to-search"]) > [data-page-region="conversation-title"] {
+  flex-basis: 5rem !important;
+  min-inline-size: 0 !important;
+}
+[data-semantic-key="return-to-search"] { flex: none !important; }
 [data-semantic-key="conversation-empty"], [data-semantic-key="conversation-unavailable"] {
   margin-block-start: .75rem;
   overflow-wrap: anywhere;
 }
 [data-page-region="latest-action"] {
   position: absolute !important;
-  inset-inline-end: .5rem;
+  inset-inline-end: 0;
   inset-block-end: .5rem;
   inline-size: max-content !important;
   z-index: 1;
+}
+@media (min-width: 48rem) and (pointer: fine) {
+  [data-view^="main-task/"] [data-page-region="latest-action"] {
+    inset-inline-end: calc(-1 * var(--reader-scrollbar-outset));
+  }
 }
 [data-page-region="latest-action"] > button {
   border: 1px solid var(--selvedge-border) !important;
@@ -262,7 +276,7 @@
   inline-size: 16rem !important;
   max-inline-size: calc(100vw - 1.5rem);
   block-size: fit-content !important;
-  max-block-size: min(26rem, calc(100dvh - 4.75rem)) !important;
+  max-block-size: calc(100dvh - 4.75rem) !important;
   min-block-size: 0 !important;
   overflow: hidden !important;
   border: 1px solid var(--selvedge-border) !important;
@@ -277,7 +291,9 @@
   display: none;
 }
 [data-semantic-key="task-details"] > [data-surface-role="dialog-body"] {
-  gap: .55lh !important;
+  scrollbar-width: thin;
+  scrollbar-color: var(--selvedge-muted) transparent;
+  scrollbar-gutter: stable;
 }
 [data-semantic-key="task-details"] > [data-surface-role="dialog-body"] [data-semantic-key="label"] {
   color: var(--selvedge-muted) !important;

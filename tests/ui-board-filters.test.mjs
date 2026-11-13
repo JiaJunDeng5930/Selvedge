@@ -34,6 +34,12 @@ test('board filters provide a compact keyboard-searchable assignee list', async 
   await dialog.waitFor();
   const desktop = await dialog.boundingBox();
   assert.ok(desktop && desktop.width < 600 && desktop.height < 450, 'Collapsed filters fit a compact desktop dialog');
+  for (const [stage, label] of [['in_progress', '进行中'], ['in_review', '待审核']]) {
+    const lane = page.locator(`[data-board-stage="${stage}"] [data-board-stage-mark] svg path`);
+    const choice = dialog.getByRole('checkbox', { name: label, exact: true }).locator('svg path').first();
+    const symbol = await lane.getAttribute('d');
+    assert.ok(symbol && symbol === await choice.getAttribute('d'), `${label} uses the same icon in its column and filter`);
+  }
   const assignee = dialog.locator('details').filter({ hasText: '负责人' });
   const summary = assignee.locator('summary');
   const search = dialog.getByRole('searchbox', { name: '搜索负责人', exact: true });
@@ -43,7 +49,7 @@ test('board filters provide a compact keyboard-searchable assignee list', async 
       const list = document.getElementById(id);
       if (!list || list.scrollHeight <= list.clientHeight) return false;
       const { top, bottom } = list.getBoundingClientRect();
-      const visible = [...list.children].map(option => option.getBoundingClientRect())
+      const visible = [...list.querySelectorAll('h3, button')].map(option => option.getBoundingClientRect())
         .filter(row => row.bottom > top + 1 && row.top < bottom - 1);
       return visible.length > 1 && visible.every(row => row.top >= top - 1 && row.bottom <= bottom + 1);
     }, await options.getAttribute('id'));
@@ -51,6 +57,15 @@ test('board filters provide a compact keyboard-searchable assignee list', async 
   await search.waitFor({ state: 'hidden' });
   await summary.press('Enter');
   await search.waitFor();
+  await options.getByRole('region', { name: '人员', exact: true }).getByRole('checkbox', { name: '我', exact: true }).waitFor();
+  await options.getByRole('region', { name: '模型', exact: true }).getByRole('checkbox', { name: 'interactive-fixture', exact: true }).waitFor();
+  const unassigned = options.getByRole('checkbox', { name: '未分配', exact: true });
+  await unassigned.focus();
+  assert.equal(await unassigned.getAttribute('aria-checked'), 'false');
+  assert.ok(await unassigned.evaluate(button => button.matches(':focus-visible') &&
+    getComputedStyle(button).outlineStyle === 'solid' && getComputedStyle(button).backgroundColor === 'rgba(0, 0, 0, 0)'),
+  'Keyboard focus does not use the checked appearance');
+  await search.focus();
   await wholeAssigneeRows();
   await dialog.evaluate(node => {
     window.fixtureBoardResize = new Promise(resolve => {
@@ -95,6 +110,7 @@ test('board filters provide a compact keyboard-searchable assignee list', async 
   await page.waitForFunction(id => document.activeElement?.id === id, await worker.getAttribute('id'));
   await page.keyboard.press('Space');
   await worker.and(page.locator('[aria-checked="true"]')).waitFor();
+  await worker.locator('span[aria-hidden="true"] svg').waitFor();
   await search.fill('does not match a model');
   assert.equal(await worker.getAttribute('aria-checked'), 'true');
   await summary.press('Enter');
@@ -453,13 +469,14 @@ test('card save shows whether a model will start, wait, or remain manual', async
   }, await Promise.all(optionFields.map(field => field.getAttribute('id'))));
   const upload = first.locator('input[type="file"]').and(first.getByLabel('添加附件', { exact: true }));
   const labels = first.getByRole('textbox', { name: '标签', exact: true });
+  const labelLines = await labels.evaluate(input => {
+    const style = getComputedStyle(input);
+    return (input.clientHeight - parseFloat(style.paddingBlockStart) - parseFloat(style.paddingBlockEnd)) /
+      parseFloat(style.lineHeight);
+  });
+  assert.ok(labelLines <= 1.2, 'Empty labels use one compact line');
   await labels.fill('发布\n体验走查');
   assert.equal(await labels.inputValue(), '发布\n体验走查');
-  assert.ok(await labels.evaluate(input => {
-    const style = getComputedStyle(input);
-    return input.clientHeight - parseFloat(style.paddingBlockStart) - parseFloat(style.paddingBlockEnd)
-      >= 3 * parseFloat(style.lineHeight) - 1;
-  }), 'The label editor has three visible lines');
   assert.ok(await upload.evaluate(input => {
     const control = input.closest('label');
     const icon = control.querySelector('svg').getBoundingClientRect();
@@ -483,10 +500,11 @@ test('card save shows whether a model will start, wait, or remain manual', async
   const [captureBox, draftingBox] = await Promise.all([continuous, drafting].map(checkbox => checkbox.evaluate(input => {
     const control = input.closest('[data-control-target="checkbox"]').getBoundingClientRect();
     const text = input.closest('label').querySelector(':scope > span:not([data-control-target])').getBoundingClientRect();
-    return { left: control.left, beforeLabel: control.right <= text.left && control.top < text.bottom && text.top < control.bottom };
+    return { beforeLabel: control.right <= text.left && control.top < text.bottom && text.top < control.bottom,
+      footer: input.closest('footer') !== null };
   })));
-  assert.ok(captureBox.beforeLabel && draftingBox.beforeLabel && Math.abs(captureBox.left - draftingBox.left) <= 1,
-    'Card creation checkbox targets share a left edge before their labels');
+  assert.ok(captureBox.beforeLabel && draftingBox.beforeLabel && captureBox.footer && !draftingBox.footer,
+    'Continue capture belongs with the commit, and assistance stays with the card fields');
   await drafting.check();
   await consequence(first, '保存后先生成卡片内容，暂不启动对话。');
   await stage(first).selectOption('todo');
@@ -627,8 +645,11 @@ test('the mobile card editor keeps real repairs visible and missing model choice
   await page.keyboard.press('Tab');
   assert.equal(await focused(disclosure), true, 'Tab reaches the collapsed disclosure heading');
   await page.keyboard.press('Tab');
+  assert.equal(await focused(footer.getByRole('checkbox', { name: '创建后继续添加', exact: true })), true,
+    'Tab skips fields in the closed disclosure and reaches continue capture in the footer');
+  await page.keyboard.press('Tab');
   assert.equal(await focused(footer.getByRole('button', { name: '取消', exact: true })), true,
-    'Tab skips fields in the closed disclosure');
+    'Cancel follows continue capture in the footer');
   await page.keyboard.press('Tab');
   assert.equal(await focused(submit), true);
   await page.keyboard.press('Enter');
@@ -708,22 +729,25 @@ test('the board keeps empty stages visible and counts only matching cards linked
   const { page, browser, command } = await browserFixture(t);
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
     .getByRole('button', { name: '卡片看板', exact: true }).click();
-  const board = page.locator('[data-page-region="board-stages"]');
+  const board = page.getByRole('region', { name: '看板状态列', exact: true });
   for (const viewport of [{ width: 1280, height: 900 }, { width: 760, height: 500 }, { width: 390, height: 620 }]) {
     await page.setViewportSize(viewport);
     await page.waitForFunction(() => {
       const scrollport = document.querySelector('[data-page-region="board-stages"]');
       const stages = [...(scrollport?.querySelectorAll('[data-board-stage]') ?? [])];
-      if (stages.length !== 6 || scrollport.scrollWidth > scrollport.clientWidth) return false;
+      if (stages.length !== 6 || scrollport.scrollWidth <= scrollport.clientWidth) return false;
       const bounds = scrollport.getBoundingClientRect();
-      return stages.every(stage => {
-        const { top, height, width } = stage.getBoundingClientRect();
-        return top >= bounds.top - 1 && height <= 80 && width >= Math.min(200, scrollport.clientWidth) - 1;
-      });
+      const tracks = stages.map(stage => stage.getBoundingClientRect());
+      return tracks.every((track, index) => track.top >= bounds.top - 1 &&
+        Math.abs(track.top - tracks[0].top) <= 1 && Math.abs(track.bottom - tracks[0].bottom) <= 1 &&
+        track.height > 100 && track.width >= Math.min(200, scrollport.clientWidth) - 1 &&
+        (index === 0 || track.left > tracks[index - 1].right));
     });
     await board.getByRole('region', { name: '已完成，0 张卡片', exact: true }).waitFor();
     await board.getByRole('region', { name: '已阻塞，0 张卡片', exact: true }).waitFor();
   }
+  await board.press('ArrowRight');
+  await page.waitForFunction(id => document.getElementById(id)?.scrollLeft > 0, await board.getAttribute('id'));
 
   await page.setViewportSize({ width: 1280, height: 900 });
   const message = 'Link an executing conversation';
@@ -739,13 +763,12 @@ test('the board keeps empty stages visible and counts only matching cards linked
   await card.waitFor();
   const tracks = await board.locator('[data-board-stage]').evaluateAll(stages =>
     stages.map(stage => ({ top: stage.getBoundingClientRect().top, bottom: stage.getBoundingClientRect().bottom })));
-  const firstRow = tracks.filter(track => Math.abs(track.top - tracks[0].top) < 1);
-  assert.ok(firstRow.length > 1 && tracks[0].bottom - tracks[0].top > 80
-    && firstRow.every(track => Math.abs(track.bottom - tracks[0].bottom) < 1),
+  assert.ok(tracks.length === 6 && tracks[0].bottom - tracks[0].top > 100
+    && tracks.every(track => Math.abs(track.top - tracks[0].top) < 1 && Math.abs(track.bottom - tracks[0].bottom) < 1),
     'Empty stages have the same track extent as a populated neighbor');
-  const completed = board.locator('[data-board-stage="done"]');
-  await card.locator('[data-card-grip]').dragTo(completed);
-  await completed.getByRole('article', { name: title, exact: true }).waitFor();
+  const review = board.getByRole('region', { name: '待审核，0 张卡片', exact: true });
+  await card.locator('[data-card-grip]').dragTo(review, { targetPosition: { x: 30, y: 100 } });
+  await board.getByRole('region', { name: '待审核，1 张卡片', exact: true }).getByRole('article', { name: title, exact: true }).waitFor();
   await card.getByRole('button', { name: '卡片操作', exact: true }).click();
   await page.getByRole('dialog', { name: '卡片操作', exact: true })
     .getByRole('button', { name: '移动卡片', exact: true }).click();
@@ -881,6 +904,11 @@ test('a conversation can be added to the board without starting another conversa
   const reviewCard = review.getByRole('article', { name: title, exact: true });
   const completed = reviewCard.getByText('对话已完成', { exact: true });
   await assertConversationActivity(reviewCard, '对话已完成');
+  assert.ok(await completed.evaluate(status => {
+    const action = status.parentElement.querySelector('button');
+    return action && parseFloat(getComputedStyle(status).fontSize) <= parseFloat(getComputedStyle(action).fontSize) &&
+      getComputedStyle(status).color !== getComputedStyle(action).color;
+  }), 'Linked conversation status has less visual emphasis than its open action');
   const heading = reviewCard.getByText(title, { exact: true });
   const reference = reviewCard.getByText(cards[0].identifier, { exact: true });
   const updated = reviewCard.getByText(/^(刚刚|\d+分钟前)$/u);

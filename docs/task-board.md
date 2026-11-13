@@ -3,7 +3,8 @@
 Open **卡片看板** in the sidebar to plan and track cards across projects. The
 sidebar's **对话范围** selects the conversations shown in the sidebar. The six
 board stages are 待规划, 待办, 进行中, 待审核, 已完成 and 已阻塞, with a separate
-archive target. Each stage has a card count and wraps to fit the available width.
+archive target. Each stage has a card count. Scroll sideways to reach later
+stages on the same row.
 
 ## Create and organize
 

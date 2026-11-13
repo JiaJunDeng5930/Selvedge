@@ -45,18 +45,16 @@ test('opening conversation details preserves the desktop reading position and co
   }), 'A wide table scrolls horizontally inside the reading region');
   const measure = () => reading.evaluate(root => {
     const bounds = root.getBoundingClientRect();
-    const pane = root.parentElement.getBoundingClientRect();
     const view = root.closest('[data-view]');
     const blocks = [...root.querySelectorAll('.table-scroll, .code-block')];
     return { bounds: bounds.toJSON(),
-      outsideMeasure: bounds.right - pane.right,
       gutter: Math.min(...blocks.map(block => bounds.right - block.getBoundingClientRect().right)),
       scrolls: root.scrollHeight > root.clientHeight,
       viewOverflow: view.scrollWidth > view.clientWidth,
       viewportWidth: innerWidth };
   });
   const assertDesktopGutter = geometry => {
-    assert.ok(geometry.scrolls && geometry.gutter >= 40 && geometry.outsideMeasure >= 20 &&
+    assert.ok(geometry.scrolls && geometry.gutter >= 40 &&
       !geometry.viewOverflow && geometry.bounds.right <= geometry.viewportWidth,
       'The native scrollbar is outside the reading measure and inside the conversation viewport');
   };
@@ -76,9 +74,9 @@ test('opening conversation details preserves the desktop reading position and co
   const [latestBounds, readingBounds, dockBounds] = await Promise.all([
     latest.boundingBox(), reading.boundingBox(), composer.boundingBox(),
   ]);
-  assert.ok(latestBounds.x >= readingBounds.x && latestBounds.x + latestBounds.width <= readingBounds.x + readingBounds.width &&
+  assert.ok(latestBounds.x >= readingBounds.x + readingBounds.width &&
     latestBounds.y >= readingBounds.y && latestBounds.y + latestBounds.height <= readingBounds.y + readingBounds.height,
-  'The return button overlays the reading area');
+  'The return button has its own space outside the reading column');
   assert.deepEqual(readingBounds, readingAtTail, 'Showing the return button preserves reading height');
   assert.deepEqual(dockBounds, dockAtTail, 'Showing the return button preserves the composer position');
   await page.waitForFunction(last => {
@@ -131,7 +129,7 @@ test('opening conversation details preserves the desktop reading position and co
   await compactDetails.waitFor({ state: 'hidden' });
   const compact = await measure();
   assert.ok(compact.scrolls && compact.bounds.right <= 390 && compact.gutter >= 6 && compact.gutter < 20 &&
-    compact.outsideMeasure === 0 && !compact.viewOverflow,
+    !compact.viewOverflow,
     'A compact conversation preserves a reading edge and uses the available width');
 
   await page.setViewportSize({ width: 900, height: 730 });

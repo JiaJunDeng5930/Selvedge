@@ -246,14 +246,16 @@ test('model charts and range controls keep their values readable', { timeout: 60
     const plot = svg.getBoundingClientRect();
     const action = chart.querySelector('summary').getBoundingClientRect();
     const title = chart.querySelector('[data-semantic-key="interactive-markdown/chart-title"]').getBoundingClientRect();
+    const viewport = svg.parentElement.getBoundingClientRect();
     return {
       inOrder: title.bottom <= plot.top && plot.bottom <= action.top,
+      inFooter: action.top - plot.bottom <= 8 && Math.abs(viewport.right - action.right) <= 16,
       withinViewport: action.left >= 0 && action.right <= innerWidth,
     };
   };
   for (const chart of [line, monthlyBars, bars]) {
-    assert.deepEqual(await chart.evaluate(chartGeometry), { inOrder: true, withinViewport: true },
-      'Each chart presents its title, plot, and data disclosure in reading order');
+    assert.deepEqual(await chart.evaluate(chartGeometry), { inOrder: true, inFooter: true, withinViewport: true },
+      'Each chart presents its data disclosure at the end of a footer immediately below the plot');
   }
   const barChart = bars.locator('xpath=../..');
   const geometry = await bars.evaluate(svg => {
@@ -302,6 +304,16 @@ test('model charts and range controls keep their values readable', { timeout: 60
   assert.ok(Math.abs(plotAfter.y - plotBefore.y) <= 1, 'Opening the table keeps the plot in place');
   assert.ok(tableBox.y >= plotAfter.y + plotAfter.height && tableBox.width < plotAfter.width / 2,
     'The exact values appear in a compact table below the plot');
+  const rowSeparators = locator => locator.evaluate(node => {
+    const header = getComputedStyle(node.tHead.rows[0].cells[0]);
+    const body = getComputedStyle(node.tBodies[0].rows[1].cells[0]);
+    return [header.borderBlockEnd, body.borderBlockStart];
+  });
+  const authoredSeparators = await rowSeparators(monthlyTable);
+  assert.ok(authoredSeparators.every(border => border.startsWith('1px solid')),
+    'Header and data rows use distinct separators');
+  assert.deepEqual(await rowSeparators(table), authoredSeparators,
+    'The compact chart table uses the authored table separators');
   const valueEdges = await table.evaluate(node => Array.from(node.querySelectorAll('td:last-child'), cell => {
     const range = document.createRange();
     range.selectNodeContents(cell);
@@ -321,7 +333,7 @@ test('model charts and range controls keep their values readable', { timeout: 60
   await page.keyboard.press('Enter');
   await table.waitFor({ state: 'hidden' });
   await page.setViewportSize({ width: 390, height: 844 });
-  assert.deepEqual(await bars.evaluate(chartGeometry), { inOrder: true, withinViewport: true },
+  assert.deepEqual(await bars.evaluate(chartGeometry), { inOrder: true, inFooter: true, withinViewport: true },
     'The data action remains reachable below the plot on a narrow screen');
   assert.ok(await bars.evaluate(svg => {
     const bounds = svg.getBoundingClientRect();

@@ -636,8 +636,10 @@ dialog[data-semantic-key="object-actions"] { padding: var(--layer-gap) !importan
   padding-inline: 0 !important;
   gap: var(--layer-gap) !important;
 }
-[data-semantic-key="workspace-settings"] [data-semantic-key="workspace-collection"] h3 {
-  color: var(--selvedge-muted) !important;
+[data-semantic-key="shared-explanation"] {
+  border-block-start: 1px solid var(--selvedge-border);
+  padding-block-start: .5rem !important;
+  margin-block-start: .125rem;
 }
 :is([data-semantic-key="object-actions"], [data-semantic-key="property-source"]) {
   & button:not([data-semantic-key="back"]) {
@@ -728,7 +730,7 @@ dialog[data-editor-repair-inline] > form[data-semantic-key="editor"] [data-seman
 }
 [data-semantic-key="board-filters"] [data-semantic-key="filter-assignee-options"] {
   --assignee-row-size: 2.25rem;
-  max-block-size: max(var(--assignee-row-size), round(down, min(10rem, 36dvh), var(--assignee-row-size))) !important;
+  max-block-size: max(var(--assignee-row-size), round(down, min(11.5rem, 36dvh), var(--assignee-row-size))) !important;
   overflow-y: auto !important;
   scrollbar-width: thin;
   scroll-snap-type: y mandatory;
@@ -739,16 +741,47 @@ dialog[data-editor-repair-inline] > form[data-semantic-key="editor"] [data-seman
     linear-gradient(var(--panel-background), var(--panel-background)) bottom / 100% .5rem no-repeat local,
     linear-gradient(transparent, var(--selvedge-border)) bottom / 100% .5rem no-repeat scroll !important;
 }
-[data-semantic-key="board-filters"] [data-semantic-key="filter-assignee-options"] > button {
+[data-semantic-key="filter-assignee-options"] :is([data-semantic-key="filter-assignee-people"], [data-semantic-key="filter-assignee-models"]) {
+  flex: none !important;
+  padding: 0 !important;
+  gap: 0 !important;
+}
+[data-semantic-key="filter-assignee-options"] h3 {
+  display: flex !important;
+  align-items: end;
+  box-sizing: border-box;
+  block-size: var(--assignee-row-size) !important;
+  margin: 0;
+  padding: 0 .5rem .25rem !important;
+  flex: none !important;
+  color: var(--selvedge-muted) !important;
+  font-size: var(--rich-support-size) !important;
+  scroll-snap-align: start;
+}
+[data-semantic-key="board-filters"] [data-semantic-key="filter-assignee-options"] button {
   inline-size: 100% !important;
   block-size: var(--assignee-row-size) !important;
   min-block-size: var(--assignee-row-size) !important;
   flex: none !important;
   justify-content: start !important;
   border: 0 !important;
+  border-radius: .375rem !important;
   scroll-snap-align: start;
 }
-[data-semantic-key="board-filters"] [data-semantic-key="filter-assignee-options"] > button > span:not([aria-hidden]) {
+[data-semantic-key="filter-assignee-options"] > button {
+  box-shadow: inset 0 1px var(--selvedge-border);
+}
+[data-semantic-key="filter-assignee-options"] button:focus-visible {
+  outline: 2px solid var(--selvedge-focus) !important;
+  outline-offset: -2px !important;
+}
+[data-semantic-key="filter-assignee-options"] button[aria-checked="false"]:focus-visible:not(:hover) {
+  background: transparent !important;
+}
+[data-semantic-key="filter-assignee-options"] button[aria-checked="true"] > span[aria-hidden="true"]:last-child {
+  color: var(--selvedge-accent) !important;
+}
+[data-semantic-key="filter-assignee-options"] button > span:not([aria-hidden]) {
   display: block !important;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -778,6 +811,15 @@ dialog[data-editor-repair-inline] > form[data-semantic-key="editor"] [data-seman
   display: grid !important;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
   gap: .5rem !important;
+}
+[data-semantic-key="card-options"] textarea[data-semantic-key="labels"] {
+  max-block-size: calc(3lh + 1rem) !important;
+  resize: none !important;
+}
+[data-surface-role="dialog-actions"] > label:has(input[data-semantic-key="keep_open"]) {
+  inline-size: auto !important;
+  flex: 0 0 auto !important;
+  margin-inline-end: auto;
 }
 [data-semantic-key="card-content"] [data-semantic-key="attachments"] > [data-file-picker] {
   align-self: flex-start;

@@ -203,12 +203,14 @@ button[data-source-disclosure]::after {
 .physical-markdown .markdown:has(> .code-block[data-interactive-active="true"]) > :is(h2, h3):not(:first-child) {
   margin-block-start: max(1.35rem, calc(2 * var(--physical-block-gap)));
 }
-.interactive-markdown-target [data-semantic-key="interactive-markdown/source-controls"] {
-  justify-content: flex-start !important;
+[data-semantic-key="interactive-markdown/source-controls"] {
+  align-items: center !important;
   flex-wrap: wrap !important;
   column-gap: .5rem !important;
   margin-block-start: .4rem;
   padding-block-start: .2rem;
+
+  & > button[data-source-disclosure] { margin-inline-start: auto !important; }
 
   & > [data-interactive-component="button"] {
     inline-size: fit-content !important;

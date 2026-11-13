@@ -10,9 +10,9 @@ From Selvedge.Browser.Session Require Import Input.
 From Selvedge.Programming Require Import Resource.
 From Selvedge.Browser.Session Require Import Services ObjectActions.
 From Selvedge.Interaction Require Import Attachments.
-From Selvedge.Interaction Require CardDecisions.
-From Selvedge.Interaction.Experience Require Model Activity Observation.
-From Selvedge.Interaction.Submission Require Draft.
+From Selvedge.Interaction Require CardDecisions ModelSelection.
+From Selvedge.Interaction.Submission Require Draft Observation.
+From Selvedge.Interaction.Experience Require Model Activity Observation ContextObservation.
 From Selvedge.Browser.Session Require State Navigation.
 Module SessionNavigation := Selvedge.Browser.Session.Navigation.
 From Selvedge.Interaction.Submission Require Fields Parameters.
@@ -199,9 +199,7 @@ Definition filter_choices snapshot category :=match category with
 |BoardFilter.Status=>map(fun stage=>(Selvedge.Features.Domain.stage_name stage,Selvedge.Features.Domain.stage_label stage))Selvedge.Features.Domain.stages
 |BoardFilter.Priority=>map(fun level=>(Selvedge.Features.Domain.priority_name level,Selvedge.Features.Domain.priority_label level))Selvedge.Features.Domain.priorities
 |BoardFilter.Date=>[("1","最近 24 小时");("7","最近 7 天");("30","最近 30 天")]
-|BoardFilter.Assignee=>("self","我")::(Selvedge.Features.Domain.owner_name Selvedge.Features.Domain.Unassigned,"未分配")::
- map(fun choice=>(Selvedge.Features.Domain.owner_name(Selvedge.Features.Domain.ProfileOwner(Fields.choice_value_of choice)),
-   Fields.choice_label choice))(Observation.selectable_profile_choices snapshot)
+|BoardFilter.Assignee=>[]
 |BoardFilter.Creator=>[("self","我")]
 |BoardFilter.Project=>("","未分配项目")::map(fun project=>(show_natural(project_id project),project_name project))(value_or[](Read.projects snapshot))
 |BoardFilter.Label=>map(fun value=>(value,value))(nodup string_dec(flat_map Read.card_labels(value_or[](Read.board_cards snapshot))))end.
@@ -218,9 +216,23 @@ Definition assignee_filter snapshot selection occurrence query parent :=
  let category:=BoardFilter.Assignee in
  let selected:=BoardFilter.filter_values selection category in
  let search:=BoardFilter.lower_text(BoardFilter.trim query)in
- let choices:=filter(fun '(value,label)=>existsb(String.eqb value)selected||
-    BoardFilter.contains search(BoardFilter.lower_text(label++" "++value)))(filter_choices snapshot category)in
  let key:=part parent "filter/assignee" in
+ let matching '(value,label):=existsb(String.eqb value)selected||
+    BoardFilter.contains search(BoardFilter.lower_text(label++" "++value)) in
+ let group name heading values:=match filter matching values with
+ |[]=>[]
+ |choices=>[region key name heading Roles.Section
+   (group_title (part key name) heading::map(filter_option parent category selected)choices)]
+ end in
+ let profiles:=ModelSelection.selectable_profiles(Selvedge.Interaction.Submission.Observation.catalog snapshot)in
+ let models:=map(fun profile=>(Selvedge.Features.Domain.owner_name
+    (Selvedge.Features.Domain.ProfileOwner(Selvedge.Kernel.Domain.profile_key profile)),
+    ContextObservation.localized_profile_label profiles profile))profiles in
+ let choices:=(group "filter-assignee-people" "人员" [("self","我")] ++
+   (if matching (Selvedge.Features.Domain.owner_name Selvedge.Features.Domain.Unassigned,"未分配")
+    then [filter_option parent category selected
+      (Selvedge.Features.Domain.owner_name Selvedge.Features.Domain.Unassigned,"未分配")]
+    else []) ++ group "filter-assignee-models" "模型" models)%list in
  let caption:=filter_title category++match selected with
    |[]=>""|_=>" · "++show_natural(N.of_nat(List.length selected))end in
  Node key "filter/assignee" caption Roles.Section ContentDisclosure
@@ -229,7 +241,7 @@ Definition assignee_filter snapshot selection occurrence query parent :=
    region key "filter-assignee-options" "负责人选项" Roles.Section
     (match choices with
     |[]=>[information key "empty" Information.Status "没有匹配的负责人。"]
-    |_=>map(filter_option parent category selected)choices end)].
+    |_=>choices end)].
 Definition board_filters snapshot s occurrence query parent :=
  let selection:=State.board_selection s in
  flat_map(fun category=>match category with

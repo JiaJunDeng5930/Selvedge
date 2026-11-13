@@ -77,6 +77,7 @@ test('project and directory choices open inside the composer menu and return to 
 
     await menu.locator('button[data-logical-key="composer/workspace"]').click();
     await workspace.getByRole('textbox', { name: '目录路径', exact: true }).waitFor();
+    assert.equal(await workspace.getByRole('heading', { name: /^工作目录/ }).count(), 1);
     assert.equal(await menu.isVisible(), false);
     const directories = await workspace.boundingBox();
     for (const panel of [projects, directories]) {

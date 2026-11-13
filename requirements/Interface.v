@@ -193,9 +193,10 @@ Export PlotProof(chart_axis_covers_values, chart_axis_coordinates_reach_both_plo
     interactive preview shows a loading status in place of its source. A
     refusal to mount leaves the original source available by disclosure.
     Headings distinguish sections in a long interactive answer. Each source
-    disclosure stays with its fence as an icon with an accessible label.
+    disclosure stays at the trailing edge of its fence footer as an icon
+    with an accessible label.
     Source copy and wrapping appear beside the revealed source.
-    A final reset for the fence shares its action bar.
+    A final reset for the fence stays at the leading edge of the same footer.
     Markdown and authored tables share row separators and header emphasis.
     Sortable column headings show the available control and its current
     direction while numeric headings remain aligned with their values.
@@ -206,8 +207,10 @@ Export PlotProof(chart_axis_covers_values, chart_axis_coordinates_reach_both_plo
     list equivalent. Charts display categories or numeric ticks along the axes,
     using authored axis labels for units. The axes enclose the plotted range
     and their endpoints agree with its coordinates. Grid lines remain subordinate
-    to the marks. A compact data disclosure below each plot preserves its exact
-    plotted rows in source order and aligns the numbers for comparison.
+    to the marks. Each plot has a data disclosure immediately below its
+    trailing edge. Its compact table shares header and row separators with
+    other tables, keeps exact plotted rows in source order and aligns numbers
+    for comparison.
     Compact list choices keep the check mark beside its label, and paired form
     cards share their row height when the available width keeps them side by side.
     [chart_accessible_values_keep_order] constrains that rendering projection.
@@ -276,8 +279,9 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     the current viewport while a new layout observation is pending.
     Collapsed desktop navigation keeps the new conversation and search actions
     beside the control that reopens the sidebar.
-    Returning to the latest message remains available within the reading area
-    without changing how much of the conversation or composer is visible.
+    Returning to the latest message uses the reading area's outer edge.
+    Its control stays clear of inline reading actions and does not change
+    how much of the conversation or composer is visible when it appears.
 
     A Work scopes the conversation tree, graph views and shared interface.
     Project groups organize the conversations in that scope independently of
@@ -288,10 +292,12 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     as cards and exposes the action to link or open a conversation on the card.
     Its execution count uses the same filters and observations as the execution
     view. Each stage retains a visible heading, count, and drop target when empty.
-    Stage lanes wrap within the board's available width and keep a consistent
-    boundary across each row. Their minimum width leaves room to read a card
-    title alongside its action menu. The assignee filter keeps its options searchable
-    and its selected values available while filtering the list.
+    Stage lanes follow one horizontal track. Their minimum width leaves room
+    to read a card title alongside its action menu. Empty lanes retain a drop
+    target with the same height. The filter and lane heading use the same
+    icon for each stage. The assignee filter distinguishes people, models
+    and unassigned cards while keeping its options searchable and its
+    selected indicator distinct from keyboard focus.
     Curved tree branches represent conversation lineage. Directed graph connections
     represent output routing, with the same rules and receipts available as text.
 
@@ -324,13 +330,15 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     The new conversation composer exposes a compact settings icon in its
     toolbar. The menu displays project, actual directory and run settings
     with the current choices. Its submenus open at the same anchor and use
-    the same language. Opening them keeps the composer in place.
+    the same language. Each menu has one visible title. Opening them keeps
+    the composer in place.
     Conversation details show the full working directory after expansion
-    and offer to copy it.
+    and offer to copy it. The details panel grows to fit its facts until it
+    reaches the available height, then scrolls within the panel.
     On desktop, the model menu keeps the new conversation heading clear when
     the viewport has room for both.
-    The permissions menu describes who approves each choice and presents
-    shared filesystem and network limits once.
+    The permissions menu describes what happens when an operation needs more
+    access and presents shared filesystem and network limits on a separate line.
     A graph can route new replies between existing conversations by selecting
     its source and receiver in the current scope. The empty graph page
     identifies conversation relay as the available relation and shows its
@@ -348,7 +356,8 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     the page.
 
     Opening a search result leaves the query, filters and page of results
-    available for further comparison. Results lead with a short readable
+    available for further comparison. A return action in the conversation
+    header restores those results. Results lead with a short readable
     excerpt and mark the matching text with a contrasting foreground and
     background. A result group names its conversation once, separates each
     actionable row and identifies each message by its speaker role.
@@ -366,7 +375,7 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     The assignee filter keeps complete rows in its scrollable list. Action menus
     show actions relevant to the card and keep their order while service checks
     change their availability. Applicable actions explain any current refusal.
-    A linked conversation's execution state appears beside its open action.
+    A linked conversation's execution state is secondary to its open action.
     The card reference and timestamp share a metadata row.
     Assisted capture places its model controls beside the card title and description.
     Assisted capture offers the board default when it names an eligible
@@ -374,7 +383,8 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     prompts for a selection. An unavailable configured model explains the repair.
     Cancelling a dialog with its own draft discards all unsaved fields,
     including choices inside collapsed options. A new card starts in the
-    stage selected by its entry point.
+    stage selected by its entry point. Label entry starts at one line and
+    grows for multiple labels. Continuous creation stays next to submit.
     The action area shows progress while a submitted edit is being processed.
     The fixed action area shows the same repair when the field or its inline
     explanation does not fit in view. Each repair is visible in one place.

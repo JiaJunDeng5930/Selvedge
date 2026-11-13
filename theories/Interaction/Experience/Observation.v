@@ -193,8 +193,7 @@ Definition permission_observation snapshot (value:Fields.observed) :=
  option_map(fun approval=>(sandbox,approval))(observed_approval snapshot value).
 Definition shared_permission_explanation value :=
  match observed_permission_sandbox value with
- |Some sandbox=>("询问和自动审批共用当前设置（"++sandbox_label sandbox++"，"++
-   network_label sandbox++"）。Bash 请求扩大权限时需要审批。")%string
+ |Some sandbox=>("询问和自动审批 · "++sandbox_label sandbox++" · "++network_label sandbox)%string
  |None=>"询问和自动审批在 Bash 请求扩大权限时需要审批。"end.
 Definition filesystem_summary := ContextObservation.filesystem_summary.
 Definition network_summary := ContextObservation.network_summary.
@@ -757,19 +756,6 @@ Definition assignment_available snapshot state {e}(assignment:assignment e):avai
   (fun _=>assignment_shape_available snapshot state assignment)
   (fun _=>Values.candidate_command snapshot(EC.current_time(EC.observed state))current assignment)
   (fun _=>Values.apply_assignment snapshot current assignment).
-Definition candidate_approval snapshot state {e}(subject:Model.subject e) applied
-    (command:option (Schema.command_value Selvedge.Kernel.Commands.command_specs)) :=
- if Parameters.live_configuration e Fields.ApprovalPolicy then
-  match e,command with
-  |Identity.Message task,Some command=>
-   settings<-FieldsObservation.task_settings task snapshot;;
-   profile<-FieldsObservation.task_profile task snapshot;;
-   Selvedge.Kernel.Codec.select_optional
-     (Selvedge.Kernel.Codec.parse_approval profile(FieldsObservation.catalog snapshot))
-     "approval" (Schema.encode_command command)(Selvedge.Kernel.Domain.settings_approval settings)
-  |_,_=>None end
- else updated<-applied;;
-   observed_approval snapshot(observe_subject snapshot(EC.with_draft updated state)subject).
 Definition candidate_consequences snapshot state {e}(subject:Model.subject e)
     (observed:Fields.observed)(applied:option Draft.draft)
     (command:option (Schema.command_value Selvedge.Kernel.Commands.command_specs)):list(summary_value e):=
@@ -808,21 +794,10 @@ Definition alternative_explanation snapshot e field (choice:Fields.choice_value)
    |"steer"=>delivery_explanation snapshot e Fields.Steer
    |_=>""end
  |Fields.ApprovalPolicy=>match Fields.choice_value_of choice with
-   |"ask-for-approval"=>"由你审批。"
-   |"approval-for-me"=>"由审批模型处理。"
+   |"ask-for-approval"=>"需要扩大权限时会询问你。"
+   |"approval-for-me"=>"需要扩大权限时由模型审批。"
    |"full-access"=>"文件访问和联网不受限制，无需审批。"|_=>""end
  |_=>""end.
-Definition candidate_explanation snapshot state {e}(subject:Model.subject e) choice applied command :=
- let field:=subject_declaration subject in
- let explanation:=alternative_explanation snapshot e field choice in
- match field with
- |Fields.ApprovalPolicy=>if String.eqb (Fields.choice_value_of choice) "approval-for-me" then
-   match candidate_approval snapshot state subject applied command with
-   |Some(Selvedge.Kernel.Domain.ReviewWith reviewer)=>
-     ("由 "++ContextObservation.profile_label(FieldsObservation.catalog snapshot)reviewer++" 审批。")%string
-   |_=>explanation end
-   else explanation
- |_=>explanation end.
 Definition selected_input snapshot {e}(subject:subject e)(observed:Fields.observed):option json:=
  match subject_declaration subject with
  |Fields.ApprovalPolicy=>match observed_approval snapshot observed with
@@ -844,7 +819,7 @@ Definition alternative_for_choice snapshot state {e}(subject:Model.subject e) cu
    (fun _=>assignment_shape snapshot subject form(fun _=>observed)listed incoming)
    (fun _=>command)(fun _=>applied)in
  Some(Alternative(Fields.choice_label choice)
-   (candidate_explanation snapshot state subject choice applied command)value
+   (alternative_explanation snapshot e (subject_declaration subject) choice)value
    (match selected with Some value=>Json.equal offered value|None=>false end)availability
    (candidate_consequences snapshot state subject observed applied command))
  else None.

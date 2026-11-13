@@ -193,7 +193,7 @@ Definition fork_history_control view :=
   [declared parent Roles.Button(Control key (ObjectActions.action_label action) Secondary
     (Input.OpenEditor owner(part parent key))(approval_availability action))]
  |_=>[]end.
-Definition task_contents snapshot s view parent task :=
+Definition task_contents snapshot s view parent task header_leading :=
  let id:=task_id task in
  let operations:=value_or[](Read.task_operations id snapshot)in
  let history:=AuditReading.timeline reading_actions(document_context snapshot s)(State.document_retention s)
@@ -205,11 +205,12 @@ Definition task_contents snapshot s view parent task :=
    [information parent "conversation-empty" Information.Description "Messages and task activity will appear here."]
   |_=>timeline end in
  ((match view with PrimaryTask _=>[page_region parent Composition.ConversationHeader Composition.HeadingPosition
+   (header_leading ++
    [page_region parent Composition.ConversationTitle Composition.HeadingPosition(title parent(task_title task)::worktree_feedback snapshot id parent);
   page_region parent Composition.TaskActions Composition.HeadingPosition
    (task_run_controls snapshot s task parent++
     [task_details_control s id parent;Collections.more parent(TaskActions id)]++
-    task_side_controls snapshot s id parent)]]
+    task_side_controls snapshot s id parent)])]
   |SideTask _=>[]end) ++
  [page_region parent Composition.TimelineContent Composition.BodyPosition
    (discarded_unfinished_notice s id parent ++
@@ -231,7 +232,7 @@ Definition conversation_page snapshot s view parent :=
      ([title parent "Conversation unavailable";
       information parent "conversation-unavailable-message" Information.Description "This task no longer exists."]++search_return)]]
  |Some task=>[Node(part parent "conversation")"conversation" ""Roles.Section(PageContext(Some view))
-  (search_return++task_contents snapshot s view parent task)]end.
+  (task_contents snapshot s view parent task search_return)]end.
 Definition history_scope (project:bool) selected choices parent :=
  Node(part parent(if project then"history/project"else"history/work"))"history-scope"(if project then"项目"else"工作组")Roles.Field
   (HistorySearchScope project selected choices(fun value=>

@@ -92,6 +92,7 @@ Definition describe snapshot state input:P.purpose:=match input with
 |Input.NavigationExpanded _=>P.ToggleNavigation(Navigation.expanded_for false state)
 |Input.TaskListVisible _=>P.ToggleNavigation(State.desktop_task_list_visible(State.navigation_state state))
 |Input.ToggleProjectGroup project=>P.ProjectDisclosure project
+|Input.ReturnToHistorySearch=>P.ActivityBack
 |Input.FollowLatest _=>P.Latest
 |Input.CopyPath _=>P.CopyPath
 |Input.RemoveAttachment _ _|Input.ActivityWorkspaceChange _ (Input.RemoveDirectory _)=>P.RemoveValue

@@ -253,17 +253,15 @@ Definition card_editor snapshot s e parent (target:Identity.card_subject) :=
    [pair "classification" (List.app stage [Fields.CardPriority]);
     pair "ownership" [Fields.CardOwner;Fields.CardProject]]
    (field_nodes snapshot s e parent [Fields.CardLabels]) in
- let '(assistance,capture):=match target with
-  |Identity.BoardCard None=>
-    let fields:=match Draft.contents(Session.current_draft s e)with
+ let assistance:=match target with
+  |Identity.BoardCard None=>match Draft.contents(Session.current_draft s e)with
       |Draft.CardBody _ _ _ true _ _=>[Fields.AssistedCapture;Fields.AssistanceProfile]
-      |_=>[Fields.AssistedCapture] end in
-    (fields,[Fields.ContinueCapture])
-  |_=> ([],[])end in
+      |_=>[Fields.AssistedCapture] end
+  |_=>[]end in
  let content:=Node(part parent "card-content")"card-content" "" Roles.Content Region
    (field_nodes snapshot s e parent ([Fields.CardDescription;Fields.CardAttachments]++assistance)) in
  (source++field_nodes snapshot s e parent [Fields.CardTitle]++
- [content;editor_options parent "card-options" "更多卡片选项" (details++field_nodes snapshot s e parent capture)])%list.
+ [content;editor_options parent "card-options" "更多卡片选项" details])%list.
 Definition fork_editor snapshot s e parent task :=
  let source:=value_or ("对话 #"++show_natural task)(option_map task_title(find_task task snapshot)) in
  [read_only parent "fork-source" "来源对话" source;
@@ -404,11 +402,14 @@ Definition editor_view snapshot (s:Session.state) e parent :=
  let context := match e with
    |TitlePrompts ConversationTitles=>[Settings.editor_context parent Services.SettingsGeneral]
    |_=>[]end in
+ let capture:=match e with
+   |Card None=>field_nodes snapshot s e parent [Fields.ContinueCapture]
+   |_=>[]end in
  [dialog_header parent (context ++ [title parent(editor_title e)]);
   Node parent "editor"(editor_title e)Roles.Section(ActionUnit e unit)
    (dialog_body parent body::
     [dialog_actions parent
-      (reason ++ commit_status parent unit ++ consequence ++ [declared parent Roles.Button(secondary "cancel"
+      (reason ++ commit_status parent unit ++ consequence ++ capture ++ [declared parent Roles.Button(secondary "cancel"
         (match e with Card _|TaskGraph _ _|Fork _|Compact _|WorkName _|TitlePrompts _=>"取消"|_=>"Cancel"end) Input.ClosePanel)] ++
        [Node(part parent "submit")"submit"(control_label submit)
          (commit_role unit(draft_feedback draft))(ActionCommit e assessment submit)[]])%list])].

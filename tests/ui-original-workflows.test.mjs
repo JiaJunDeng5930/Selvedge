@@ -80,6 +80,21 @@ test('a Project task keeps its readable context and its primary and supporting a
   assert.equal(await page.evaluate(() => navigator.clipboard.readText()), workspace);
   await details.getByText('指引版本', { exact: true }).waitFor();
   await details.getByText(revision, { exact: true }).waitFor();
+  const model = details.getByText('模型', { exact: true });
+  const bottomRow = () => model.evaluate(label => {
+    const body = label.closest('[data-surface-role="dialog-body"]');
+    const viewport = body.getBoundingClientRect();
+    const row = label.parentElement.getBoundingClientRect();
+    return { fits: row.top >= viewport.top && row.bottom <= viewport.bottom, scrollable: body.scrollHeight > body.clientHeight };
+  });
+  assert.equal((await bottomRow()).fits, true, 'The expanded desktop details show the entire model row');
+  await page.setViewportSize({ width: 1280, height: 360 });
+  await page.waitForFunction(() => document.querySelector('[data-semantic-key="task-details"]')
+    ?.getBoundingClientRect().bottom <= innerHeight);
+  await model.scrollIntoViewIfNeeded();
+  assert.deepEqual(await bottomRow(), { fits: true, scrollable: true },
+    'A short details panel scrolls to expose the entire model row');
+  await page.setViewportSize({ width: 1280, height: 900 });
 });
 
 test('a projectless task identifies its context without inventing a Project revision', async t => {

@@ -198,7 +198,7 @@ Definition editor {A} env (activity:bool) key label generation owner field (valu
  |Fields.MessageText=>[("min-block-size",Typography.px
    (Layout.input_line_height (Layout.parameters env) * Layout.writing_lines))]
  |Fields.CardLabels=>[("min-block-size",Typography.px
-   (editor_content_edges activity field+3*Layout.input_line_height (Layout.parameters env)))]
+   (editor_content_edges activity field+Layout.input_line_height (Layout.parameters env)))]
  |_=>[]end) ++
  [("max-block-size",Typography.px (editor_content_edges activity field+
    Layout.input_line_height (Layout.parameters env) *
@@ -719,8 +719,9 @@ Definition grouped_content {A} env activity (key label:string) (grouped:bool)
  (values:list(S.node A)) (children:list DOM.node) :=
  let paired:=combine values children in
  let headings:=map snd(filter(fun pair=>is_group_heading(fst pair))paired)in
- (match headings with []=>[DOM.Element(String.append key "/heading")"h3"[("id",String.append key "/heading")]
-   (NativeAppearance.information_properties env activity Information.GroupTitle)[]empty[DOM.Text label]]
+ (match headings with []=>if String.eqb label "" then [] else
+   [DOM.Element(String.append key "/heading")"h3"[("id",String.append key "/heading")]
+    (NativeAppearance.information_properties env activity Information.GroupTitle)[]empty[DOM.Text label]]
  |headings=>headings end)++
  [DOM.Element(String.append key "/@members")"div"[]
   ((if grouped then Layout.group_properties env activity else Layout.member_properties env activity true)++
@@ -1068,7 +1069,10 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  |S.ReadingTimeline task_view reader_generation=>element "section"
  [("data-reading-root","true");("data-task-id",text_number(NavigationIdentity.task_view_task task_view));("data-reader-generation",text_number reader_generation)] [] empty children
  |S.PageBody page=>DOM.Element key (role_tag role) attrs (styles++Layout.page_properties env page) [] empty children
- |S.PageRegion region position=>element (role_tag role) [("data-page-region",Composition.region_name region)] [] empty children
+ |S.PageRegion region position=>element (role_tag role) ([("data-page-region",Composition.region_name region)] ++
+   match region with
+   |Composition.BoardStages=>[("tabindex","0");("aria-label","看板状态列")]
+   |_=>[]end) [] empty children
  |S.BoardGroup grouping=>element "div" (ControlContent.board_group_attributes grouping) [] empty children
  |S.MovableCard _ _=>DOM.Text ""
  |S.InteractiveNode c=>
@@ -1190,7 +1194,8 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
    [("aria-labelledby",group_heading_keys key(S.node_children value))][]empty
    (grouped_content env activity key label true(S.node_children value)children)
  |S.WorkspaceCollection _ _=>element "section"
-   [("tabindex","-1");("aria-labelledby",group_heading_keys key(S.node_children value))][]empty
+   ([("tabindex","-1")] ++
+    if String.eqb label "" then [] else [("aria-labelledby",group_heading_keys key(S.node_children value))])[]empty
    (grouped_content env activity key label false(S.node_children value)children)
  |S.BoardLane stage count=>element (role_tag role)
    [("data-board-stage",stage);("data-drop-target",key);
