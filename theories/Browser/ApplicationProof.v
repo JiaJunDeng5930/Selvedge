@@ -35,11 +35,13 @@ Theorem ordinary_snapshot_preserves_connection namespace snapshot lagged state:
  Services.connection(SS.service_state state) /\ Authoring.result_effects result=[].
 Proof. split;reflexivity. Qed.
 
-Theorem stale_element_cannot_produce_a_product_input actual generation raw incoming:
+Theorem stale_element_cannot_produce_a_product_input context generation raw incoming:
  natural_field "generation" raw=Some incoming -> incoming<>generation ->
- Application.element actual generation raw=None.
+ Application.context_element context generation raw=None.
 Proof.
- intros Incoming Different. unfold Application.element, Application.resolve_native_element. rewrite Incoming.
+ intros Incoming Different. unfold Application.context_element.
+ destruct (Application.prepared_controls context); [|reflexivity].
+ unfold Application.resolve_native_element. rewrite Incoming.
  apply N.eqb_neq in Different. simpl. rewrite Different. reflexivity.
 Qed.
 
@@ -106,7 +108,9 @@ Qed.
 Theorem rebasing_a_canonical_prepared_state_agrees_with_prepare request context :
  Application.state request = Some(Application.prepared_state context) ->
  Application.prepared_encoding context = Application.SC.encode_state(Application.prepared_state context) ->
- Application.rebase request context = Application.prepare request.
+ Application.rebase request context = option_map
+   (fun next => Application.with_controls next (Application.prepared_controls context))
+   (Application.prepare request).
 Proof.
  intros Same Canonical. unfold Application.rebase, Application.prepare.
  destruct (field "world" request); cbn [bind]; [rewrite Same, Canonical|]; reflexivity.

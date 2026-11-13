@@ -2,7 +2,7 @@ From Stdlib Require Import String List Bool Arith NArith.
 From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Kernel Require Import OutputClassification.
 From Selvedge.Browser Require Import Document Keyboard Focus Reading Publication Observation Typography Layout FieldSession ControlContent.
-From Selvedge.Browser Require Import CodeBlock.
+From Selvedge.Browser Require Import CodeBlock DirectDOM.
 Module NativeAppearance := Selvedge.Browser.Appearance.
 Import ListNotations.
 Open Scope string_scope.
@@ -313,9 +313,9 @@ Definition code_targets who view := JObject(map(fun part=>(DocumentPublication.t
  JString(Observation.physical_target view(DocumentPublication.target_key who part))))
  [DocumentPublication.Toolbar;DocumentPublication.Body;DocumentPublication.Source;DocumentPublication.Frame;DocumentPublication.Preview]).
 Definition request_view source := match field "view" source with Some value=>Observation.decode_view value|None=>None end.
-Definition code_document env physical_view state :=
+Definition code_document env physical_view state : DOM.document :=
  let view:=CodeBlock.observe state in let who:=CodeBlock.identity state in
- DOM.encode(DOM.Document
+ DOM.Document
  (DOM.Element (Observation.physical_target physical_view (DocumentPublication.target_key who DocumentPublication.Toolbar)) "div"
  [("role","toolbar");("aria-label","Code actions")] (NativeAppearance.role_properties env Roles.Toolbar) [] (JObject[])
  (map(fun control=>DOM.Element (Observation.physical_target physical_view (String.append(CodeSource.key who)(match control with CodeBlock.CopyControl=>"/copy"|CodeBlock.WrapControl=>"/wrap" end))) "button"
@@ -329,20 +329,32 @@ Definition code_document env physical_view state :=
  [DOM.Binding "click" "activate" (DOM.CodeTarget(CodeBlock.encode_input(CodeBlock.control_input control)))]
  (JObject[]) (Document.glyph(match control with CodeBlock.WrapControl=>"wrap-lines"|CodeBlock.CopyControl=>
  match CodeBlock.presented_copy view with CodeBlock.Idle=>"copy-sheets"|CodeBlock.Pending _=>"spinner"|CodeBlock.Feedback _ true=>"check"|CodeBlock.Feedback _ false=>"warning"end end)))CodeBlock.controls))
- "" 0 false [] []).
+ "" 0 false [] [].
+Definition code_body_styles state := DOM.properties_json [
+ ("white-space",if CodeBlock.wrap state then "pre-wrap" else "pre");
+ ("overflow-wrap",if CodeBlock.wrap state then "anywhere" else "normal")].
 Definition code_call operation source := match
- (if String.eqb operation "present" then match field "state" source with
- Some encoded=>match CodeBlock.decode_state encoded with Some state=>CodeBlock.Executed state []|None=>CodeBlock.Rejected "TypeError" "Invalid code state" end
- |None=>CodeBlock.Rejected "TypeError" "Code state is required" end
- else CodeBlock.execute operation source),
- (match field "environment" source with Some env=>Observation.decode_environment env|None=>None end),request_view source with
- |CodeBlock.Executed state effects,Some env,Some view=>success(JObject[("state",CodeBlock.encode_state state);
- ("effects",JArray(map CodeBlock.encode_effect effects));("document",code_document env view state);
- ("targets",code_targets(CodeBlock.identity state)view);
- ("body_styles",DOM.properties_json [("white-space",if CodeBlock.wrap state then "pre-wrap" else "pre");
-   ("overflow-wrap",if CodeBlock.wrap state then "anywhere" else "normal")]);("wrap",JBool(CodeBlock.wrap state))])
- |CodeBlock.Rejected name message,_,_=>failure name message
- |_,_,_=>invalid "Code presentation requires actual environment and view observations" end.
+ CodeBlock.execute operation source with
+ |CodeBlock.Executed state effects=>success(JObject[("state",CodeBlock.encode_state state);
+ ("effects",JArray(map CodeBlock.encode_effect effects))])
+ |CodeBlock.Rejected name message=>failure name message end.
+
+Definition native_document operation source : option (json * list DOM.node) :=
+ match operation with
+ |"recovery"=>match natural_field "root_font_size_milli" source,binary_field "generation" source,string_field "reason" source with
+  |Some root,Some generation,Some reason=>
+   let document:=Document.recovery root generation reason in
+   Some(DOM.document_metadata document,[DOM.root document])
+  |_,_,_=>None end
+ |"code_present"=>match (match field "state" source with
+    Some state=>CodeBlock.decode_state state|None=>None end),
+    (match field "environment" source with Some env=>Observation.decode_environment env|None=>None end),request_view source with
+  |Some state,Some env,Some view=>
+   let document:=code_document env view state in
+   Some(JObject (("body_styles",code_body_styles state)::DOM.document_fields document),[DOM.root document])
+  |_,_,_=>None end
+ |_=>None end.
+Definition materialize_native_roots := @DirectDOM.materialize_roots.
 Definition menu_viewport_correction_call source :=
  let decimal name := match field name source with
    |Some value=>Schema.decode_value Schema.KDecimal value|None=>None end in
@@ -351,9 +363,6 @@ Definition menu_viewport_correction_call source :=
    success(JString(Layout.menu_viewport_correction x y width height))
  |_,_,_,_=>invalid "Menu placement requires its observed rectangle" end.
 Definition call operation source := match operation with
- |"recovery"=>match natural_field "root_font_size_milli" source,binary_field "generation" source,string_field "reason" source with
- |Some root,Some generation,Some reason=>success(Document.recovery root generation reason)
- |_,_,_=>invalid "Recovery requires the actual root font size, generation and reason"end
  |"focus_plan"=>focus_plan source|"responsive_rows"=>responsive_rows source
  |"key"=>native_key source|"editor_key"=>editor_key source
  |"field_session"=>FieldSession.field_session_call source
@@ -363,7 +372,6 @@ Definition call operation source := match operation with
  |"reading_bind"=>reading_bind source|"reading"=>reading_call source
  |"menu_viewport_correction"=>menu_viewport_correction_call source
  |"font_specs"=>font_specs source|"environment"=>environment_call source
- |"code_present"=>code_call "present" source
  |"interactive_fence"=>success(JBool(interactive_markdown_fence_observation source))
  |"code_key"=>match field "identity" source with Some encoded=>match CodeSource.decode_identity encoded with Some identity=>success(JString(CodeSource.key identity))|None=>invalid "Invalid code identity" end|None=>invalid "Code identity is required" end
  |"code_initial"=>code_call "initial" source|"code_step"=>code_call "step" source

@@ -13,19 +13,6 @@ let structured source number_text =
 let prepare source number_text =
   Js.Opt.option (Option.map retain (Model.selvedge_interaction_prepare (structured source number_text)))
 
-let rec to_js number = function
-  | Model.JNull -> Js.Unsafe.inject Js.null
-  | Model.JBool value -> Js.Unsafe.inject (Js.bool value)
-  | Model.JNumber token -> Js.Unsafe.fun_call number [| Js.Unsafe.inject (Js.string token) |]
-  | Model.JString value -> Js.Unsafe.inject (Js.string value)
-  | Model.JArray values -> Js.Unsafe.inject (Js.array (Array.of_list (List.map (to_js number) values)))
-  | Model.JObject fields ->
-      (* fromEntries creates own data properties, including "__proto__". *)
-      let entries = List.map (fun (key, value) ->
-        Js.array [| Js.Unsafe.inject (Js.string key); to_js number value |]) fields in
-      Js.Unsafe.fun_call (Js.Unsafe.pure_js_expr "Object.fromEntries")
-        [| Js.Unsafe.inject (Js.array (Array.of_list entries)) |]
-
 let context_for token =
   match Js.Optdef.to_option (Js.Unsafe.meth_call contexts "get" [| Js.Unsafe.inject token |]) with
   (* DEFENSE: The exported entry can be called without an issued context token. *)
@@ -44,28 +31,25 @@ let prepared_call operation source token number_text number =
   let next_token = if context == next then token else retain next in
   Js.array [| to_js number value; Js.Unsafe.inject next_token |]
 
-let native_array nodes = Js.Unsafe.inject (Js.array (Array.of_list nodes))
-
 let publish_native project source token number ops =
+  let context = context_for token in
+  Js.Opt.option (Option.map (native_nodes number ops) (project (Json.parse (Js.to_string source)) context))
+
+let publish_prepared project source token number ops =
   let context = context_for token in
   match project (Json.parse (Js.to_string source)) context with
   | None -> Js.Opt.empty
-  | Some (metadata, roots) ->
-      let text value =
-        Js.Unsafe.meth_call ops "text" [| Js.Unsafe.inject (Js.string value) |] in
-      let element head children =
-        Js.Unsafe.meth_call ops "element" [| to_js number head; native_array children |] in
-      let markdown head =
-        Js.Unsafe.meth_call ops "markdown" [| to_js number head |] in
-      let mount target children =
-        Js.Unsafe.meth_call ops "mount" [| Js.Unsafe.inject (Js.string target); native_array children |] in
-      let nodes = Model.selvedge_interaction_materialize_native_roots text element markdown mount roots in
-      Js.Opt.return (Js.Unsafe.obj [| "metadata", to_js number metadata; "roots", native_array nodes |])
+  | Some (presentation, next) ->
+      let output = native_nodes number ops presentation in
+      Js.Unsafe.set output "token" (if context == next then token else retain next);
+      Js.Opt.return output
 
 let () =
   let runtime = Js.Unsafe.get Js.Unsafe.global "@GLOBAL@" in
   Js.Unsafe.set runtime "prepare" (Js.wrap_callback prepare);
   Js.Unsafe.set runtime "rebase" (Js.wrap_callback rebase);
   Js.Unsafe.set runtime "preparedCall" (Js.wrap_callback prepared_call);
-  Js.Unsafe.set runtime "publishNativePicker" (Js.wrap_callback (publish_native Model.selvedge_interaction_native_picker));
+  Js.Unsafe.set runtime "publishNativeDocument" (Js.wrap_callback (publish_prepared Model.selvedge_interaction_native_document));
+  Js.Unsafe.set runtime "publishNativeRegion" (Js.wrap_callback (publish_prepared Model.selvedge_interaction_native_region));
+  Js.Unsafe.set runtime "publishNativePicker" (Js.wrap_callback (publish_prepared Model.selvedge_interaction_native_picker));
   Js.Unsafe.set runtime "publishNativeStream" (Js.wrap_callback (publish_native Model.selvedge_interaction_native_stream))

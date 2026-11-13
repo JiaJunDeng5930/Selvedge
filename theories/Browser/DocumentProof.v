@@ -26,7 +26,7 @@ Proof. repeat split; reflexivity. Qed.
 
 Theorem compiled_document_uses_configured_theme {A} (describe : A -> ControlPurpose.purpose)
     env generation (surface : Surface.surface A) :
-  field "target_updates" (compile describe env generation surface) = Some (JArray
+  field "target_updates" (DOM.document_metadata (compile_document describe env generation surface)) = Some (JArray
     (DOM.update_json (DOM.UpdateTarget "@document/root"
       [("data-theme",Appearance.theme_name (Surface.surface_appearance surface) (Layout.system_dark env))]
       [("color-scheme",Appearance.theme_name (Surface.surface_appearance surface) (Layout.system_dark env))]) ::

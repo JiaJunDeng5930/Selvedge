@@ -1,7 +1,7 @@
 import { boundary } from './model-boundary.mjs';
-import { browser, interaction, presentNative } from './browser-model-boundary.mjs';
+import { browser, interaction, presentNative, presentBrowserDocument } from './browser-model-boundary.mjs';
 import { JsonNumber, parseJson, stringifyJson } from './json-tokens.mjs';
-import { Renderer, filesFromEvent } from './renderer.mjs';
+import { Presentation, filesFromEvent } from './native-dom.mjs';
 import { editorKeyboard, applyByteSelection, selectingRadioGroup, radioTabTargets } from './keyboard.mjs';
 import { observeConnection } from './connection.mjs';
 import { AudioRuntime } from './audio.mjs';
@@ -278,8 +278,9 @@ function synchronizePrefixAuthority() {
 }
 function renderRecovery(reason) {
   surface.inert = false;
-  renderer.render(browser('recovery', { root_font_size_milli: physical.viewport().root_font_size_milli,
-    generation: publication.generation, reason }), publication.generation);
+  renderer.renderDocument(ops => presentBrowserDocument('recovery', {
+    root_font_size_milli: physical.viewport().root_font_size_milli, generation: publication.generation, reason,
+  }, ops), publication.generation);
 }
 function dispatch(input) {
   if (disposed) return;
@@ -304,7 +305,7 @@ function dispatch(input) {
   }
   publication = publicationEvent(decision.publication_event);
   if (decision.publication_event !== 'keep')
-    render(decision.native_stream ? 'stream' : decision.native_picker ? 'picker' : null);
+    render(decision.native_stream ? 'stream' : decision.native_region ? 'region' : decision.native_picker ? 'picker' : null);
   for (const effect of decision.effects) execute(effect).catch(fatal);
   return decision;
 }
@@ -336,12 +337,12 @@ function render(local = null) {
     fatal(error);
   }
 }
-function renderDocument(plan, generation) {
+function renderDocument(materialize, generation) {
   const selector = 'main > [data-page-region="history-results"]';
   const previous = surface.querySelector(selector);
   const scrollport = previous?.parentElement;
   const offset = scrollport?.scrollTop;
-  renderer.render(plan, generation);
+  renderer.renderDocument(materialize, generation);
   const track = surface.querySelector('[data-page-region="board-stages"]');
   const firstLane = track?.firstElementChild ?? null;
   const controls = track?.parentElement.querySelector('[data-board-scroll-controls]') ?? null;
@@ -404,14 +405,13 @@ function present(local) {
   const generation = publication.generation;
   const materialize = ops => presentNative(local, state, world, environment, generation, ops);
   const directlyPresented = local === 'picker' ? renderer.renderPicker(materialize, generation)
+    : local === 'region' ? renderer.renderRegions(materialize, generation)
     : local === 'stream' && renderer.renderStream(materialize, generation);
   const streamed = local === 'stream' && directlyPresented;
   if (!directlyPresented) {
     if (measuringDocument) { deferRender(); return; }
-    const plan = interaction('observe', { state, world, environment, generation,
-      namespace: publication.namespace, now: BigInt(Math.floor(Date.now() / 1000)), displayed_generation: publication.displayed_generation, semantic_lagged: publicationEvent('semantic_pending') });
     surface.dataset.displayPending = String(publicationEvent('pending'));
-    renderDocument(plan, generation);
+    renderDocument(ops => presentNative('document', state, world, environment, generation, ops), generation);
   }
   surface.dataset.sourcesFresh = String(sourceFresh);
   if (!streamed) physical.refresh();
@@ -516,7 +516,7 @@ function registerFiles(action, selected) {
     dispatch({ ...action, value: { handle, name: file.name, mime: file.type, bytes: file.size } });
   }
 }
-const renderer = new Renderer(surface, {
+const renderer = new Presentation(surface, {
   resolveTarget(source) { return browser('resolve_target', source); },
   fieldSession(source) { return browser('field_session', source); },
   focusPlan(source) { return browser('focus_plan', source); },
@@ -702,7 +702,7 @@ function publishCode(identity, view, text) {
   const key = browser('code_key', { identity });
   let entry = codeBlocks.get(key);
   if (!entry) {
-    const decision = browser('code_initial', { identity, view, text, environment });
+    const decision = browser('code_initial', { identity, text });
     entry = { key, identity, state: decision.state, views: new Map() };
     codeBlocks.set(key, entry);
   }
@@ -712,20 +712,22 @@ function publishCode(identity, view, text) {
 function renderCode(entry, decision) {
   entry.state = decision.state;
   for (const physical of entry.views.values()) {
-    const plan = browser('code_present', { state: entry.state, view: physical.view, environment });
-    const target = renderer.target(plan.targets.toolbar);
+    const targets = browser('code_targets', { identity: entry.identity, view: physical.view });
+    const target = renderer.target(targets.toolbar);
     if (target) {
       if (!physical.renderer || physical.renderer.root !== target) {
         physical.renderer?.dispose();
-        physical.renderer = new Renderer(target, { event(binding, event) {
+        physical.renderer = new Presentation(target, { event(binding, event) {
           if (!prefixAdmitted(renderer.generation)) return;
           event.preventDefault(); codeStep(entry, binding.action.input);
         } });
       }
-      physical.renderer.render(plan.document);
+      const metadata = physical.renderer.renderDocument(ops => presentBrowserDocument('code_present', {
+        state: entry.state, view: physical.view, environment,
+      }, ops));
+      const code = renderer.target(targets.body);
+      if (code) for (const { name, value } of metadata.body_styles) code.style.setProperty(name, value);
     }
-    const code = renderer.target(plan.targets.body);
-    if (code) for (const { name, value } of plan.body_styles) code.style.setProperty(name, value);
   }
   for (const effect of decision.effects) {
     if (effect.type === 'clipboard') navigator.clipboard.writeText(effect.text).then(
@@ -742,7 +744,7 @@ function renderCode(entry, decision) {
 function codeStep(entry, input) {
   // DEFENSE: a queued native event or clipboard completion can outlive its namespace's code view.
   if (codeBlocks.get(entry.key) !== entry) return;
-  renderCode(entry, browser('code_step', { state: entry.state, input, environment, view: entry.views.values().next().value.view }));
+  renderCode(entry, browser('code_step', { state: entry.state, input }));
 }
 
 const readingKey = node => node.dataset.taskId;

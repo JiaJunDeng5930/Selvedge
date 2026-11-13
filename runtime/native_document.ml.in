@@ -1,0 +1,28 @@
+
+let rec to_js number = function
+  | Model.JNull -> Js.Unsafe.inject Js.null
+  | Model.JBool value -> Js.Unsafe.inject (Js.bool value)
+  | Model.JNumber token -> Js.Unsafe.fun_call number [| Js.Unsafe.inject (Js.string token) |]
+  | Model.JString value -> Js.Unsafe.inject (Js.string value)
+  | Model.JArray values -> Js.Unsafe.inject (Js.array (Array.of_list (List.map (to_js number) values)))
+  | Model.JObject fields ->
+      (* fromEntries creates own data properties, including "__proto__". *)
+      let entries = List.map (fun (key, value) ->
+        Js.array [| Js.Unsafe.inject (Js.string key); to_js number value |]) fields in
+      Js.Unsafe.fun_call (Js.Unsafe.pure_js_expr "Object.fromEntries")
+        [| Js.Unsafe.inject (Js.array (Array.of_list entries)) |]
+
+let native_array nodes = Js.Unsafe.inject (Js.array (Array.of_list nodes))
+
+let native_nodes number ops (metadata, roots) =
+  let text value =
+    Js.Unsafe.meth_call ops "text" [| Js.Unsafe.inject (Js.string value) |] in
+  let element identity head children =
+    Js.Unsafe.meth_call ops "element"
+      [| Js.Unsafe.inject (Js.string identity); to_js number head; native_array children |] in
+  let markdown head =
+    Js.Unsafe.meth_call ops "markdown" [| to_js number head |] in
+  let mount target children =
+    Js.Unsafe.meth_call ops "mount" [| Js.Unsafe.inject (Js.string target); native_array children |] in
+  let nodes = Model.@MATERIALIZE@ text element markdown mount roots in
+  Js.Unsafe.obj [| "metadata", to_js number metadata; "roots", native_array nodes |]

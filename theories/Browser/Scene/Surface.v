@@ -1,4 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
+From Stdlib Require FSets.FMapAVL Structures.OrderedTypeEx.
 From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Features Require BoardFilter.
 From Selvedge.Browser Require Import NavigationIdentity.
@@ -292,6 +293,32 @@ Definition resolve_meaning {A} (content : meaning A) gesture value : option A :=
   | _, _ => None
   end.
 
+Module BindingMap := FMapAVL.Make OrderedTypeEx.String_as_OT.
+Definition receiver A := Gesture.gesture -> json -> option A.
+
+Definition press_receiver {A} (action : option A) : receiver A :=
+ fun gesture _ => match gesture with Gesture.Press => action | _ => None end.
+
+Definition bind_meaning {A B} (wrap : receiver A -> B) key (content : meaning A) (bindings : BindingMap.t B) :=
+ let bindings := BindingMap.add key (wrap (resolve_meaning content)) bindings in
+ match content with
+ | Graphic drawing => fold_left (fun bindings primitive => match primitive with
+   | Graphics.Hitbox target _ _ _ _ _ action => BindingMap.add target (wrap (press_receiver (Some action))) bindings
+   | _ => bindings end) (Graphics.primitives drawing) bindings
+ | InteractiveTable table => fold_left (fun bindings column =>
+   BindingMap.add (Components.column_key key column)
+     (wrap (press_receiver (if Components.column_enabled column then Components.column_sort column else None))) bindings)
+   (Components.table_columns table) bindings
+ | _ => bindings end.
+
+Fixpoint bind_node {A B} (wrap : receiver A -> B) (value : node A) (bindings : BindingMap.t B) :=
+ bind_meaning wrap (node_key value) (node_meaning value)
+   (fold_right (bind_node wrap) bindings (node_children value)).
+
+Definition unbind_node {A B} (value : node A) (bindings : BindingMap.t B) :=
+ BindingMap.fold (fun key _ result => BindingMap.remove key result)
+   (bind_node (fun _ => tt) value (BindingMap.empty unit)) bindings.
+
 Definition resolve_graphic {A} key gesture (drawing : Graphics.plot A) : option A :=
   match gesture with
   | Gesture.Press =>
@@ -328,24 +355,11 @@ Fixpoint resolve_node {A} key gesture value (tree : node A) : option A :=
       end in seek children
   end.
 
-Fixpoint resolve_nodes {A} key gesture value (items : list (node A)) :=
-  match items with
-  | [] => None
-  | child :: rest => match resolve_node key gesture value child with
-    | Some action => Some action | None => resolve_nodes key gesture value rest end
-  end.
-
 Definition is_modal_node {A} (node : node A) :=
   match layer_region (node_meaning node) with
   |Some behavior => modal_layer behavior|None => false end.
 Definition modal_nodes {A} (value : surface A) := filter is_modal_node (overlays value).
 Definition active_modal {A} (value : surface A) := hd_error (rev (modal_nodes value)).
-
-Definition resolve_element {A} (value : surface A) key gesture input :=
-  match active_modal value with
-  | Some modal => resolve_node key gesture input modal
-  | None => resolve_nodes key gesture input (List.app (base value) (overlays value))
-  end.
 
 Definition map_receiver {A B} (f : A -> B) (receive : json -> option A) value :=
   option_map f (receive value).

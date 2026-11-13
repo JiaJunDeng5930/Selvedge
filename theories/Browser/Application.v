@@ -6,19 +6,23 @@ From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Codec Identity.
 From Selvedge.Browser.Session Require Import Input InputCodecs.
 From Selvedge.Browser.Presentation Require Import ActionPurpose.
-From Selvedge.Browser Require Import Documents.
+From Selvedge.Browser Require Import Documents AuditReading.
 From Selvedge.Browser.Session Require State Codec Runtime Authoring Navigation NavigationCodec.
+From Selvedge.Browser.Scene Require Construction.
 From Selvedge.Interaction.Submission Require DraftCodec.
 From Selvedge.Browser.Presentation Require Gesture.
 From Selvedge.Browser.Presentation Require Composition.
 From Selvedge.Browser.Scene Require Surface Model.
-From Selvedge.Browser.Presentation Require View Pages LiveUpdate.
+From Selvedge.Browser.Presentation Require View Pages Layers LiveUpdate.
+From Selvedge.Interaction.Experience Require Read.
 From Selvedge.Kernel Require Streams.
-From Selvedge.Interaction Require Origin CommandAssessment.
-From Selvedge.Interaction.Interactive Require Language.
+From Selvedge.Interaction Require Origin CodeSource CommandAssessment.
+From Selvedge.Interaction.Interactive Require Language Types.
+From Selvedge.Interaction.Interactive Require State.
+From Selvedge.Browser.Interactive Require Render.
 From Selvedge.Interaction.Experience Require Activity.
 From Selvedge.Interaction.Submission Require Fields Parameters.
-From Selvedge.Browser Require Layout Observation Document DOM DirectDOM InputAuthority.
+From Selvedge.Browser Require Layout Observation Document DOM DirectDOM Focus InputAuthority.
 Import ListNotations.
 Open Scope string_scope.
 Module Session:=Selvedge.Browser.Session.State.
@@ -60,12 +64,57 @@ Record picker_update := PickerUpdate {
   picker_projection_for_update : option picker_projection
 }.
 Definition native_resolver := string -> Gesture.gesture -> json -> option Input.input.
-Record retained_scene_operations := RetainedSceneOperations {
-  retained_refresh_actions : list Input.input;
-  retained_resolver : native_resolver
+Record control_binding := ControlBinding {
+  binding_modal : option string;
+  binding_receive : S.receiver Input.input
 }.
-(** One admitted world and physical environment own the scene used to resolve
-    native events, collect action assessments, and compile the document. *)
+Record published_controls := PublishedControls {
+  published_receivers : S.BindingMap.t control_binding;
+  published_modals : list Focus.scope;
+  published_actions : list (option string * list Input.input)
+}.
+Definition scoped_node := (option string * S.node Input.input)%type.
+Definition bind_control (entry : scoped_node) := S.bind_node (ControlBinding (fst entry)) (snd entry).
+Definition some_list {A} (value : option A) := match value with Some item=>[item]|None=>[] end.
+Definition overlay_control (node : S.node Input.input) : scoped_node :=
+ ((if S.is_modal_node node then Some (S.node_key node) else None), node).
+Definition replace_controls current removed added scopes actions :=
+ let retained := fold_right (@S.unbind_node Input.input control_binding) (published_receivers current) removed in
+ PublishedControls (fold_right bind_control retained added) scopes actions.
+Definition initial_controls (value : S.surface Input.input) :=
+ let scopes := Document.surface_scopes (S.modal_nodes value) in
+ let actions := (None, flat_map S.node_actions (S.base value)) ::
+   map (fun node => (fst (overlay_control node), S.node_actions node)) (S.overlays value) in
+ replace_controls (PublishedControls (S.BindingMap.empty control_binding) [] []) []
+   (map (fun node => (None, node)) (S.base value) ++ map overlay_control (S.overlays value)) scopes actions.
+Definition active_scope scopes :=
+ match rev scopes with Focus.Temporary key _ _ _ _ :: _ => Some key | _ => None end.
+Definition same_scope first second := match first,second with
+ |None,None=>true|Some a,Some b=>String.eqb a b|_,_=>false end.
+Definition scoped_actions scopes (actions : list (option string * list Input.input)) :=
+ let active := active_scope scopes in
+ flat_map snd (filter (fun entry=>same_scope (fst entry) active) actions).
+Definition published_input current : native_resolver := fun key gesture value =>
+ binding<-S.BindingMap.find key (published_receivers current);;
+ if same_scope (binding_modal binding) (active_scope (published_modals current))
+ then binding_receive binding gesture value else None.
+
+Record region_root := RegionRoot {
+  region_node : scoped_node;
+  region_area : Document.area;
+  region_source : S.meaning Input.input;
+  region_view : option task_view;
+  region_append_to : option string
+}.
+Record region_update := RegionUpdate {
+  region_before : list (S.node Input.input);
+  region_roots : list region_root;
+  region_remove : list string;
+  region_scopes : option (list Focus.scope);
+  region_actions : list (option string * list Input.input)
+}.
+(** Native inputs use the bindings of the committed presentation. Full and
+    partial publications replace bindings only after their DOM is installed. *)
 Record prepared := Prepared {
   prepared_world : json;
   prepared_state : Session.state;
@@ -75,7 +124,8 @@ Record prepared := Prepared {
   prepared_picker_update : option picker_update;
   prepared_active_picker : option (S.node Input.input);
   prepared_stream_update : option (list LiveUpdate.part_update);
-  prepared_operations : option retained_scene_operations
+  prepared_controls : option published_controls;
+  prepared_region_update : option region_update
 }.
 Definition scene snapshot current env :=
  if Json.equal snapshot JNull then option_map(fun _=>V.initial_connection current)env
@@ -84,22 +134,25 @@ Definition prepared_scene context := prepared_scene_at context tt.
 Definition defer_scene (project : unit -> option (S.surface Input.input)) := project.
 Definition context_for_state snapshot current encoded env :=
  Prepared snapshot current encoded env
-   (defer_scene (fun _=>scene snapshot current env)) None None None None.
+   (defer_scene (fun _=>scene snapshot current env)) None None None None None.
+Definition with_controls context controls :=
+ Prepared (prepared_world context) (prepared_state context) (prepared_encoding context)
+   (prepared_environment context) (prepared_scene_at context) (prepared_picker_update context)
+   (prepared_active_picker context) (prepared_stream_update context) controls (prepared_region_update context).
 Definition prepare request :=
  snapshot<-field "world" request;; current<-state request;;
  let env:=environment request in
  Some(context_for_state snapshot current (SC.encode_state current) env).
-(** A previously admitted state can be projected against a new world or
-    environment. Scene-derived operations and publication patches belong to
-    the previous observations and are discarded by [context_for_state]. *)
+(** Rebase discards pending patches and keeps the controls still mounted in the browser. *)
 Definition rebase request context :=
  snapshot<-field "world" request;;
- Some(context_for_state snapshot (prepared_state context) (prepared_encoding context) (environment request)).
+ Some(with_controls (context_for_state snapshot (prepared_state context) (prepared_encoding context) (environment request))
+   (prepared_controls context)).
 Definition with_state context current :=
  let encoded:=SC.encode_state current in
  if Json.equal(prepared_encoding context)encoded then context else
  let snapshot:=prepared_world context in let env:=prepared_environment context in
- context_for_state snapshot current encoded env.
+ with_controls (context_for_state snapshot current encoded env) (prepared_controls context).
 
 Definition as_picker (node:S.node Input.input) :=
  if String.eqb (S.semantic_key node) "model-picker" then Some node else None.
@@ -254,31 +307,65 @@ Definition picker_patch input before after overlays :=
  else None.
 
 Definition materialize_native_roots := @DirectDOM.materialize_roots.
+Definition native_document (request : json) (context : prepared) : option ((json * list DOM.node) * prepared) :=
+ env<-prepared_environment context;; generation<-natural_field "generation" request;; actual<-prepared_scene context;;
+ let document := Document.compile_document (CP.describe (prepared_world context) (prepared_state context)) env generation actual in
+ Some ((DOM.document_metadata document, [DOM.root document]), with_controls context (Some (initial_controls actual))).
+
+Definition native_region (request : json) (context : prepared) : option ((json * list DOM.node) * prepared) :=
+ patch<-prepared_region_update context;; controls<-prepared_controls context;;
+ env<-prepared_environment context;; generation<-natural_field "generation" request;;
+ let describe := CP.describe (prepared_world context) (prepared_state context) in
+ let compile root := Document.compile_node describe env generation (region_area root) false
+   (region_source root) (region_view root) None (snd (region_node root)) in
+ let append := flat_map (fun root => match region_append_to root with
+   |None=>[]|Some target=>[JObject [("key",JString (S.node_key (snd (region_node root))));("target",JString target)]] end)
+   (region_roots patch) in
+ let updates := flat_map (fun root => Document.target_updates (region_view root) (snd (region_node root))) (region_roots patch) in
+ let metadata := JObject ([("remove", JArray (map JString (region_remove patch)));("append", JArray append);
+   ("target_updates",JArray (map DOM.update_json updates))] ++ match region_scopes patch with
+   |Some scopes=>[("focus_scope",JArray (map DOM.scope_json scopes))]|None=>[]end)%list in
+ let next := replace_controls controls (region_before patch) (map region_node (region_roots patch))
+   (value_or (published_modals controls) (region_scopes patch)) (region_actions patch) in
+ Some ((metadata, map compile (region_roots patch)), with_controls context (Some next)).
+
 Fixpoint native_controls (node:DOM.node) : bool :=
  match node with
  |DOM.Text _=>true
  |DOM.Element _ _ _ _ _ _ children=>forallb native_controls children
  |DOM.Markdown _ _ _ _|DOM.Mount _ _=>false
  end.
-Definition native_picker (request:json) (context:prepared) : option (json * list DOM.node) :=
+Definition native_picker (request:json) (context:prepared) : option ((json * list DOM.node) * prepared) :=
  patch<-prepared_picker_update context;;
+ controls<-prepared_controls context;;
  env<-prepared_environment context;;
  generation<-natural_field "generation" request;;
  let describe:=CP.describe(prepared_world context)(prepared_state context)in
  let layer:=option_map(Document.compile_node describe env generation
     Document.OutsideArea false S.Region None None)(picker_after patch)in
- let publish workspace overlays targets flags composer:=
+ let publish workspace overlays targets flags composer composer_node :=
+  let scopes:=Document.surface_scopes(filter S.is_modal_node overlays) in
   let key:=match composer with Some(DOM.Element key _ _ _ _ _ _)=>JString key|_=>JNull end in
   let metadata:=JObject([
    ("composer",key);
    ("before",value_or JNull(option_map JString(picker_before patch)));
    ("after",value_or JNull(option_map(fun node=>JString(S.node_key node))(picker_after patch)));
    ("layer_stack",JString(workspace++"/overlays"));
-   ("focus_scope",JArray(map DOM.scope_json(Document.surface_scopes(filter S.is_modal_node overlays))));
+   ("focus_scope",JArray(map DOM.scope_json scopes));
    ("target_updates",JArray(map DOM.update_json targets))]++flags)%list in
   let nodes value:=match value with Some node=>[node]|None=>[]end in
   let roots:=List.app(nodes composer)(nodes layer)in
-  if forallb native_controls roots then Some(metadata,roots)else None in
+  let bindings:=match picker_before patch with
+   |Some key=>S.BindingMap.fold (fun id value kept=>
+      if same_scope (binding_modal value) (Some key) then S.BindingMap.remove id kept else kept)
+     (published_receivers controls) (published_receivers controls)
+   |None=>published_receivers controls end in
+  let added:=(some_list (option_map overlay_control (picker_after patch)) ++ some_list composer_node)%list in
+  let actions:=(filter (fun entry=>match fst entry,picker_before patch with
+   |Some old,Some key=>negb(String.eqb old key)|_,_=>true end) (published_actions controls) ++
+   map (fun node=>(fst (overlay_control node),S.node_actions node)) (some_list (picker_after patch)))%list in
+  let next:=PublishedControls (fold_right bind_control bindings added) scopes actions in
+  if forallb native_controls roots then Some((metadata,roots),with_controls context (Some next))else None in
  match picker_projection_for_update patch with
  |Some projection=>
    let composer:=projected_composer projection in
@@ -287,6 +374,8 @@ Definition native_picker (request:json) (context:prepared) : option (json * list
    publish V.workspace_key (projected_overlays projection)(value_or [](option_map composer_updates composer))
     [("partial_target_updates",JBool true);
      ("removed_target_updates",JArray(map JString(removed_picker_targets projection)))] root
+     (option_map (fun projection=>(match composer_view projection with
+       |Some (SideTask _)=>active_scope (published_modals controls)|_=>None end, composer_node projection)) composer)
  |None=>
  actual<-prepared_scene context;;
  let owns_picker (node:S.node Input.input):=match S.node_meaning node with
@@ -300,7 +389,7 @@ Definition native_picker (request:json) (context:prepared) : option (json * list
   let theme:=Document.NativeAppearance.theme_name(S.surface_appearance actual)(Layout.system_dark env)in
   publish (S.workspace_key actual)(S.overlays actual)
    (DOM.UpdateTarget "@document/root" [("data-theme",theme)] [("color-scheme",theme)]
-       ::flat_map(Document.target_updates None)all) [] (Some composer)
+       ::flat_map(Document.target_updates None)all) [] (Some composer) None
  |_=>None end end.
 
 Definition native_stream (request:json) (context:prepared) : option (json * list DOM.node) :=
@@ -322,16 +411,9 @@ Definition resolve_native_element (resolve:native_resolver) generation raw:=
  key<-string_field "key" raw;;gesture<-bind(string_field "gesture" raw)Gesture.decode_gesture;;
  value<-Some(value_or JNull(field "value" raw));;
  resolve key gesture value else None.
-Definition resolve_scene (actual:option(S.surface Input.input)) key gesture value :=
- bind actual(fun surface=>S.resolve_element surface key gesture value).
-Definition element (actual:option(S.surface Input.input)) generation raw :=
- resolve_native_element (resolve_scene actual)generation raw.
 Definition context_element context generation raw :=
- match prepared_active_picker context with
- |Some modal=>resolve_native_element(fun key gesture value=>S.resolve_node key gesture value modal)generation raw
- |None=>match prepared_operations context with
-   |Some operations=>resolve_native_element(retained_resolver operations)generation raw
-   |None=>resolve_native_element(fun key gesture value=>resolve_scene(prepared_scene context)key gesture value)generation raw end end.
+ controls<-prepared_controls context;;
+ resolve_native_element (published_input controls) generation raw.
 Definition admitted_element request context raw :=
  let native:=natural_field "native_displayed_generation" request in
  generation<-native;; input<-context_element context generation raw;;
@@ -358,7 +440,8 @@ Definition decision_packet context effects error handled visible_error acknowled
  ("visible_error",JBool visible_error);("feedback_update",JString(feedback_update error visible_error acknowledge));("handled",JBool handled);
  ("fence_admitted",match fence_admitted with Some value=>JBool value|None=>JNull end);
  ("native_picker",JBool(match prepared_picker_update context with Some _=>true|None=>false end));
- ("native_stream",JBool(match prepared_stream_update context with Some _=>true|None=>false end))].
+ ("native_stream",JBool(match prepared_stream_update context with Some _=>true|None=>false end));
+ ("native_region",JBool(match prepared_region_update context with Some _=>true|None=>false end))].
 Definition refresh context decision:=match prepared_scene context with
 |Some actual=>SA.append decision(SA.refresh (prepared_world context)(S.current_actions actual)(SA.result_state decision))
 |None=>decision end.
@@ -366,7 +449,7 @@ Definition deferred_state_change context current :=
  let encoded:=SC.encode_state current in
  if Json.equal(prepared_encoding context)encoded then (context,false) else
  let snapshot:=prepared_world context in let env:=prepared_environment context in
- (context_for_state snapshot current encoded env,true).
+ (with_controls (context_for_state snapshot current encoded env) (prepared_controls context),true).
 Definition deferred_state context current := fst(deferred_state_change context current).
 Definition refresh_picker stepped_context stepped scopes :=
  let fast:=bind(bind scopes modal_from_overlays)as_picker in
@@ -393,6 +476,101 @@ Definition restore_rejected_field input raw decision:=
     (SA.result_error decision)(SA.result_visible_error decision)
   |_,_=>decision end
  |_,_=>decision end.
+
+Definition details_layer state :=
+ layer<-hd_error (Session.layers (Session.navigation_state state));;
+ match Session.layer_panel layer with
+ |Session.InformationPanel (Session.TaskDetails task)=>Some (task, layer)
+ |_=>None end.
+
+Definition details_input context input := match input with
+ |Input.OpenInformation (Session.TaskDetails _) _=>true
+ |Input.ClosePanel=>match details_layer (prepared_state context) with Some _=>true|None=>false end
+ |_=>false end.
+
+Definition details_navigation context :=
+ let current:=prepared_state context in
+ let nav:=NavigationCodec.encode_navigation (Session.navigation_state current) in
+ let layers:=Session.layers (Session.navigation_state current) in
+ let underlying:=match details_layer current with Some _=>tl layers|None=>layers end in
+ JObject [("navigation", without_fields ["layers"] nav);
+   ("layers", JArray (map NavigationCodec.encode_layer underlying))].
+
+Definition details_region before after : option region_update :=
+ controls<-prepared_controls before;; env<-prepared_environment after;; size<-capacity env;;
+ let stable context:=without_fields ["navigation";"next_layer"] (prepared_encoding context) in
+ if negb (Json.equal (stable before) (stable after) && Json.equal (details_navigation before) (details_navigation after))
+ then None else
+ let old:=prepared_state before in let current:=prepared_state after in let snapshot:=prepared_world after in
+ task<-match Session.location (Session.navigation_state current) with Conversation task=>Some task|_=>None end;;
+ info<-Read.find_task task snapshot;;
+ let actions:=Pages.task_actions snapshot current info V.main_key in
+ let trigger:=Pages.task_details_control current task V.main_key in
+ let matches pair:=N.eqb task (fst pair) && String.eqb (Session.layer_trigger (snd pair)) (S.node_key trigger) in
+ match details_layer old, details_layer current with
+ |None, Some opening | Some opening, None=>
+   if matches opening then
+   let overlays:=V.view_overlay_scopes snapshot current size (compact_picker env) in
+   let scopes:=Document.surface_scopes (filter S.is_modal_node overlays) in
+   let render layer:=Layers.layer_view snapshot current size (compact_picker env) layer in
+   let old_layer:=option_map (fun pair=>Layers.layer_view snapshot old size (compact_picker env) (snd pair)) (details_layer old) in
+   let new_layer:=option_map (fun pair=>render (snd pair)) (details_layer current) in
+   let '(page_nodes, layers):=V.relocate_details_trigger current size [actions] (some_list new_layer) in
+   let root scope area source view target node:=RegionRoot (scope,node) area source view target in
+   let region_actions:=map (root None Document.PageArea (S.PageContext (Some (PrimaryTask task))) (Some (PrimaryTask task)) None) page_nodes in
+   let region_layer:=map (fun node=>root (fst (overlay_control node)) Document.OutsideArea S.Region None
+     (Some (V.workspace_key++(if Document.beside_layer node then "/beside" else "/overlays"))) node) layers in
+   let actions:=(filter (fun entry=>match fst entry,old_layer with
+     |Some key,Some node=>negb(String.eqb key (S.node_key node))|_,_=>true end) (published_actions controls) ++
+     map (fun node=>(fst (overlay_control node),S.node_actions node)) (filter S.is_modal_node layers))%list in
+   Some (RegionUpdate (Pages.task_actions snapshot old info V.main_key :: some_list old_layer)
+     (region_actions++region_layer)%list (some_list (option_map (@S.node_key Input.input) old_layer)) (Some scopes) actions)
+   else None
+ |_,_=>None end.
+
+Definition language_owner input := match input with
+ |Types.SourceChanged owner _ _ _ _|Types.SourceDisclosure owner|Types.CopyDefinition owner=>Some owner
+ |Types.ValueChanged identity _|Types.ActionClicked identity|Types.ViewChanged identity _=>Some (Types.event_owner identity)
+ |_=>SR.callback_owner input end.
+
+Definition published_fence namespace context owner : list region_root :=
+ let snapshot:=prepared_world context in let state:=prepared_state context in
+ let retained:=Session.document_retention state in let authority:=SR.context namespace snapshot state in
+ match Documents.publication_identity authority owner retained,
+   State.find_block owner (State.blocks (Session.interactive_state state)) with
+ |Some identity,Some block=>match CodeSource.document_source identity with
+   |CodeSource.Generated _ viewing _ _=>
+     let source:=Render.fence_for identity block (Documents.environment authority false) in
+     let modal:=match prepared_controls context with Some controls=>active_scope (published_modals controls)|None=>None end in
+     flat_map (fun view=>if N.eqb viewing (task_view_task view) then
+       let '(scope,area):=match view with
+        |PrimaryTask _=>(None,Document.PageArea)
+        |SideTask task=>let key:=Construction.part (Navigation.panel_key (Session.SideConversationPanel task)) "layer" in
+          (if same_scope modal (Some key) then Some key else None,Document.DialogArea) end in
+       [RegionRoot (scope,AuditReading.in_view view (S.map_node Input.Interactive source)) area
+       (S.ReadingTimeline view (Session.reader_generation (Navigation.reader_for state viewing))) (Some view) None]
+       else []) (Navigation.visible_task_views state)
+   |_=>[] end
+ |_,_=>[] end.
+
+Definition fence_region namespace owner before after : option region_update :=
+ controls<-prepared_controls before;;
+ let stable context:=without_fields ["interactive";"documents"] (prepared_encoding context) in
+ if negb (Json.equal (stable before) (stable after)) then None else
+ match published_fence namespace after owner with
+ |[]=>None
+ |roots=>Some (RegionUpdate (map (fun root=>snd (region_node root)) (published_fence namespace before owner))
+     roots [] None (published_actions controls)) end.
+
+Definition requested_region namespace input context := match input with
+ |Input.CodeObserved source=>match Documents.admit_observation
+   (SR.context namespace (prepared_world context) (prepared_state context)) source
+   (Session.document_retention (prepared_state context)) with
+   |Documents.AdmittedObservation language _=>option_map (fence_region namespace) (language_owner language)
+   |_=>None end
+ |Input.Interactive language=>option_map (fence_region namespace) (language_owner language)
+ |_=>if details_input context input then Some details_region else None end.
+
 Definition run_input request context namespace input raw:=
  let stepped:=native_step namespace(prepared_world context)(flag "semantic_lagged" request)input raw(prepared_state context)in
  let candidate:=picker_input context input && match input with
@@ -401,8 +579,20 @@ Definition run_input request context namespace input raw:=
  let stepped_context:=if candidate then deferred_state context(SA.result_state stepped)
                       else with_state context(SA.result_state stepped)in
  let scopes:=if candidate then projected_picker_scopes stepped_context else None in
+ let project:=requested_region namespace input context in
+ let changed:=negb (Json.equal (prepared_encoding context) (prepared_encoding stepped_context)) in
+ let region:=if changed then bind project (fun project=>project context stepped_context) else None in
  let decision:=restore_rejected_field input raw
-  (if candidate then refresh_picker stepped_context stepped scopes else refresh stepped_context stepped)in
+  (match region with
+   |Some patch=>match prepared_controls context with
+     |Some controls=>SA.append stepped (SA.refresh (prepared_world context)
+       (scoped_actions (value_or (published_modals controls) (region_scopes patch)) (region_actions patch)) (SA.result_state stepped))
+     |None=>stepped end
+   |None=>if candidate then refresh_picker stepped_context stepped scopes else
+     match input with
+     |Input.Snapshot|Input.EnvironmentObserved=>refresh stepped_context stepped
+     |_=>if negb changed then stepped
+     else refresh stepped_context stepped end end)in
  let '(updated, changed):=if candidate then deferred_state_change stepped_context(SA.result_state decision)
               else (with_state stepped_context(SA.result_state decision),false)in
  let patch:=if candidate then
@@ -410,7 +600,9 @@ Definition run_input request context namespace input raw:=
     match bind overlays (picker_patch input context updated)with
     |Some patch=>Some patch|None=>picker_update_for input context updated end else None in
  let final:=Prepared (prepared_world updated)(prepared_state updated)(prepared_encoding updated)
-   (prepared_environment updated)(prepared_scene_at updated)patch (bind patch picker_after) None None in
+   (prepared_environment updated)(prepared_scene_at updated)patch (bind patch picker_after) None (prepared_controls updated)
+   (if Json.equal (prepared_encoding updated) (prepared_encoding stepped_context) then region
+    else bind project (fun project=>project context updated)) in
  (decision,input_publication input(prepared_encoding context)(prepared_encoding final),final).
 
 Definition stable_stream_context before after source :=
@@ -444,12 +636,10 @@ Definition stream_projection namespace source context next :=
  else let document:=bind projection fst in
    if stable_stream_context context next document then Some(HiddenStream document)else None.
 
-Definition scene_operations context := match prepared_operations context with
- |Some operations=>operations
- |None=>match prepared_active_picker context with
-  |Some modal=>RetainedSceneOperations(S.node_actions modal)(fun key gesture value=>S.resolve_node key gesture value modal)
-  |None=>let scene:=prepared_scene context in
-    RetainedSceneOperations(match scene with Some actual=>S.current_actions actual|None=>[]end)(resolve_scene scene)end end.
+Definition refresh_published context decision := match prepared_controls context with
+|Some controls=>SA.append decision(SA.refresh(prepared_world context)
+ (scoped_actions (published_modals controls) (published_actions controls))(SA.result_state decision))
+|None=>refresh context decision end.
 
 Definition run_stream request context namespace source :=
  let input:=Input.Stream source in
@@ -458,8 +648,7 @@ Definition run_stream request context namespace source :=
  let next:=deferred_state context(SA.result_state stepped)in
  let finish decision final :=
   (decision,input_publication input(prepared_encoding context)(prepared_encoding final),final)in
- let prepare_current current:=context_for_state snapshot current(SC.encode_state current)
-   (prepared_environment context)in
+ let prepare_current current:=with_state context current in
  match stream_projection namespace source context next with
  |None=>let observed:=with_state context(SA.result_state stepped)in
    let decision:=refresh observed stepped in
@@ -467,13 +656,12 @@ Definition run_stream request context namespace source :=
  |Some change=>
    (* The updated preview has no action descendants. Only the text changes,
       so the assessment inputs from the visible scene are still current. *)
-   let operations:=scene_operations context in
-   let decision:=SA.append stepped(SA.refresh snapshot (retained_refresh_actions operations)(SA.result_state stepped))in
+   let decision:=refresh_published context stepped in
    let final:=deferred_state next(SA.result_state decision)in
    let present document scene patch :=
     if stable_stream_context context final document then
      Some(Prepared snapshot (prepared_state final)(prepared_encoding final)
-       (prepared_environment final)scene None(prepared_active_picker context)patch(Some operations))
+       (prepared_environment final)scene None(prepared_active_picker context)patch(prepared_controls context) None)
     else None in
    match change with
    |HiddenStream document=>match present document (prepared_scene_at context)None with
@@ -526,13 +714,7 @@ Definition restore_update_session snapshot checkpoint current :=
 Definition prepared_call operation request context : json * prepared :=
  let snapshot:=prepared_world context in
  let unchanged response:=(response,context) in
- if String.eqb operation "observe"then
-  unchanged(match prepared_environment context,natural_field "generation" request with
-  |Some env,Some generation=>match prepared_scene context with
-   |None=>Json.failure "MissingScene" "The current workspace could not be presented."
-   |Some actual=>Json.success(Document.compile(CP.describe snapshot(prepared_state context))env generation actual)end
-  |_,_=>Json.failure "InvalidEnvironment" "A current physical environment and publication generation are required."end)
- else if String.eqb operation "accepts_element"then
+ if String.eqb operation "accepts_element"then
   unchanged(match field "input" request,natural_field "generation" request with
   |Some raw,Some _=>Json.success(JBool(match admitted_element request context raw with Some _=>true|None=>false end))
   |_,_=>Json.success(JBool false)end)

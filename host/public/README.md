@@ -11,14 +11,18 @@ plugin do not load the UI models. `browser-model-boundary.mjs` adds the browser 
 interaction entry points. Their JSON text boundary retains numeric lexemes and
 UTF-8 text; no compiler-private object layout is shared with JavaScript.
 
-`renderer.mjs` interprets a closed vocabulary of elements, text, Markdown and
-portals. It retains keyed native elements, delegates input decisions to the
-extracted field-session state machine, and sends only the current element key,
-gesture, value and publication generation. The interaction program resolves that
-element against its current surface. SVG primitives and coordinates are constructed by Gallina;
-JavaScript only creates their fixed SVG elements. Native dialog modal behavior,
-focus, selection, pointer hit tests and physical measurements remain browser
-observations and effects.
+The extracted browser program calls `native-dom.mjs` to create and update
+elements, text and Markdown, and to mount children in physical Markdown targets.
+The adapter retains keyed elements and delegates input decisions to the extracted
+field-session state machine. Gallina constructs SVG primitives and coordinates.
+Native dialog behavior, focus, selection, pointer hit tests and physical
+measurements remain browser observations and effects.
+
+The interaction program records each control's receiver when its region is
+published. Native events resolve against those receivers and the active modal
+scope. A details toggle updates the relevant toolbar and panel, while a fence
+callback updates its own Markdown mount. Both publish the updated bindings
+together with their DOM.
 
 The pinned Markdown parser and formatter assets remain under `vendor`, with their
 licenses. Only a real mounted Markdown record owns its fence observer; a rendering
@@ -33,7 +37,7 @@ is not tracked. Run the browser tests through the real service fixtures in
 acceptance test.
 
 
-The renderer maintains physical DOM identities independently of logical document
+The DOM adapter maintains physical identities independently of logical document
 and editor ownership. Logical focus and reading requests are resolved by the
 extracted browser rules against observed native targets. Responsive navigation
 uses one real header; native dialog order follows the declared layer order.

@@ -194,6 +194,12 @@ Definition task_run_controls snapshot s (task:Read.task) parent :=
    else[information parent "run-status" Information.Status(Read.task_caption task)])++
  (if paused then run_control snapshot s task parent "unfreeze" else [])++
  (if working then run_control snapshot s task parent "interrupt" else []))%list.
+Definition task_actions snapshot s task parent :=
+ let id:=task_id task in
+ page_region parent Composition.TaskActions Composition.HeadingPosition
+  (task_run_controls snapshot s task parent++
+   [task_details_control s id parent;Collections.more parent(TaskActions id)]++
+   task_side_controls snapshot s id parent).
 Definition task_has_composer s task :=negb(String.eqb(task_status task)"archived")||
  match Draft.find_draft(Message(task_id task))(State.drafts(State.authoring_state s))with Some _=>true|None=>false end.
 Definition task_composer snapshot s view parent task :=
@@ -225,10 +231,7 @@ Definition task_contents snapshot s view parent task header_leading :=
  ((match view with PrimaryTask _=>[page_region parent Composition.ConversationHeader Composition.HeadingPosition
    (header_leading ++
    [page_region parent Composition.ConversationTitle Composition.HeadingPosition(title parent(task_title task)::worktree_feedback snapshot id parent);
-  page_region parent Composition.TaskActions Composition.HeadingPosition
-   (task_run_controls snapshot s task parent++
-    [task_details_control s id parent;Collections.more parent(TaskActions id)]++
-    task_side_controls snapshot s id parent)])]
+    task_actions snapshot s task parent])]
   |SideTask _=>[]end) ++
  [page_region parent Composition.TimelineContent Composition.BodyPosition
    (discarded_unfinished_notice s id parent ++

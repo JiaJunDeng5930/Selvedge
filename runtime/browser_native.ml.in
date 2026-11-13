@@ -1,0 +1,8 @@
+
+let publish_native_document operation source number ops =
+  Js.Opt.option (Option.map (native_nodes number ops)
+    (Model.selvedge_browser_native_document (Js.to_string operation) (Json.parse (Js.to_string source))))
+
+let () =
+  let runtime = Js.Unsafe.get Js.Unsafe.global "@GLOBAL@" in
+  Js.Unsafe.set runtime "publishNativeDocument" (Js.wrap_callback publish_native_document)

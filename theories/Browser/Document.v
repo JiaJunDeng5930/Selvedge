@@ -1336,7 +1336,9 @@ Definition is_navigation {A}(value:S.node A) :=
 Definition is_header {A}(value:S.node A) := match S.node_role value with Roles.CompactHeader=>true|_=>false end.
 Definition beside_layer {A}(value:S.node A) := match S.node_meaning value with
  |S.LayerRegion behavior|S.NavigationRegion _ behavior|S.ActivityGroup _ _ _ behavior=>negb(Model.modal_layer behavior)|_=>false end.
-Definition compile {A} (describe:A->C.purpose) env generation (surface:S.surface A) : json :=
+Definition beside_key {A} (surface:S.surface A) := String.append (S.workspace_key surface) "/beside".
+
+Definition compile_document {A} (describe:A->C.purpose) env generation (surface:S.surface A) : DOM.document :=
  let all:=S.base surface ++ S.overlays surface in
  let compile:=compile_node describe env generation OutsideArea false S.Region None None in
  let base:=S.base surface in
@@ -1346,7 +1348,7 @@ Definition compile {A} (describe:A->C.purpose) env generation (surface:S.surface
  let beside:=filter beside_layer (S.overlays surface) in
  let layers:=filter(fun value=>negb(beside_layer value))(S.overlays surface) in
  let theme:=NativeAppearance.theme_name (S.surface_appearance surface) (Layout.system_dark env) in
- DOM.encode (DOM.Document
+ DOM.Document
  (DOM.Element "selvedge" "div" [("data-selvedge-root","true")]
  (NativeAppearance.root_properties env ++ [("display","flex");("flex-direction","row");("block-size","100%");("min-block-size","0")]) [] empty
  [DOM.Element (S.workspace_key surface) "div" [("data-measure-region","workspace")]
@@ -1355,12 +1357,13 @@ Definition compile {A} (describe:A->C.purpose) env generation (surface:S.surface
  [("display","flex");("flex-direction","row");("flex","1");("min-inline-size","0");("min-block-size","0")] [] empty
  (map compile navigation ++ [DOM.Element "main-layout" "div" [("data-measure-region","main")]
  [("display","flex");("flex-direction","row");("flex","1");("min-inline-size","0");("min-block-size","0")]
- [] empty (map compile main ++ map compile beside)])]);
+ [] empty (map compile main ++ [DOM.Element (beside_key surface) "div" []
+ [("display","contents")] [] empty (map compile beside)])])]);
  DOM.Element (String.append(S.workspace_key surface)"/overlays") "div" [("data-layer-stack","true")]
  [] [] empty (map compile layers)])
  "Selvedge" generation false
- (DOM.UpdateTarget "@document/root" [("data-theme",theme)] [("color-scheme",theme)]::flat_map (target_updates None) all) (surface_scopes(S.modal_nodes surface))).
-Definition recovery root generation reason := DOM.encode(DOM.Document
+ (DOM.UpdateTarget "@document/root" [("data-theme",theme)] [("color-scheme",theme)]::flat_map (target_updates None) all) (surface_scopes(S.modal_nodes surface)).
+Definition recovery root generation reason : DOM.document := DOM.Document
  (DOM.Element "@browser/utility" "section"[("role","alert");("aria-label","无法显示界面")]
  (Typography.properties root Typography.Body Typography.Regular++
  [("display","flex");("flex-direction","column");("gap","12px");("padding","16px");
@@ -1376,4 +1379,4 @@ Definition recovery root generation reason := DOM.encode(DOM.Document
  DOM.Element "@browser/utility/diagnostic" "details"[][][]empty
   [DOM.Element "@browser/utility/summary" "summary"[][][]empty[DOM.Text "错误详情"];
    DOM.Text reason]])
- "Selvedge" generation true [] []).
+ "Selvedge" generation true [] [].
