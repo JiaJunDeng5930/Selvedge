@@ -203,7 +203,7 @@ test('interactive fences keep their original source collapsed while the preview 
       if ([...document.querySelectorAll('[role="status"]')].some(status =>
         status.textContent === '正在加载对话…' && painted(status))) probe.pendingSeen = true;
       const reader = document.querySelector('main section[aria-label="Conversation"]');
-      if (probe.firstPaint === null && reader && painted(reader)) {
+      if (probe.firstPaint === null && reader && painted(reader) && Number(getComputedStyle(reader).opacity) > 0) {
         const tail = [...reader.querySelectorAll('p')].find(node => node.textContent === 'Settled reply ends here.');
         const end = reader.querySelector('button[aria-label="创建对话分支"]');
         const visible = node => {

@@ -87,7 +87,14 @@ test('Search groups an interleaved title and message hits and returns to each se
     fixture.finish(index, { text });
     await taskIdle(fixture.running.service, task_id);
   };
-  await complete(firstPrompt, firstReply);
+  const slowerReply = [firstReply, '',
+    ...Array.from({ length: 8 }, (_, index) => [
+      '```selvedge-ui',
+      `<ui id="history-preview-${index}">${' '.repeat(2800)}<metric id="value" label="部署检查 ${index}" value="3"/></ui>`,
+      '```', '',
+    ].join('\n')),
+  ].join('\n');
+  await complete(firstPrompt, slowerReply);
   await complete('列出复核要求。', secondReply);
 
   await page.getByRole('button', { name: '搜索对话', exact: true }).click();
@@ -155,6 +162,7 @@ test('Search groups an interleaved title and message hits and returns to each se
       const [range] = CSS.highlights?.get('selvedge-history-match') ?? [];
       if (range) return range.toString() === '发布前' &&
         range.startContainer.parentElement.closest('[data-reading-anchor]')?.textContent.includes(text);
+      if (CSS.highlights && typeof Highlight === 'function') return false;
       return Array.from(document.querySelectorAll('[data-reading-root] [data-history-match]'))
         .some(article => article.textContent.includes(text));
     }, text));

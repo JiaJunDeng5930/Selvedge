@@ -998,6 +998,8 @@ function layoutReading() {
     if (readingVisits.get(node) !== generation) {
       const loading = node.dataset.readingCommitted === 'true' && (locating || node.querySelector(unsettledReadingContent));
       node.toggleAttribute('data-reading-initial', Boolean(loading));
+      // Keep the text measurable for history search while the reader is hidden.
+      node.inert = Boolean(loading);
       if (loading) continue;
       // The same viewport that receives the first visible frame must receive
       // its reading position before paint. Later live updates stay visible.

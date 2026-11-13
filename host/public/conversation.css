@@ -23,7 +23,7 @@
   outline-offset: calc(-1 * var(--native-focus-width));
 }
 [data-reading-initial] {
-  visibility: hidden;
+  opacity: 0;
 }
 [data-semantic-key="reading-initial-status"] {
   display: none;
