@@ -159,9 +159,10 @@ test('Search groups an interleaved title and message hits and returns to each se
   for (const [card, text] of [[first, firstReply], [first, firstPrompt], [second, secondReply]]) {
     const hit = card.getByRole('button').filter({ hasText: text });
     await openAndReturn(hit, () => page.waitForFunction(text => {
+      const article = document.activeElement;
+      if (!article?.matches('article') || !article.textContent.includes(text)) return false;
       const [range] = CSS.highlights?.get('selvedge-history-match') ?? [];
-      if (range) return range.toString() === '发布前' &&
-        range.startContainer.parentElement.closest('[data-reading-anchor]')?.textContent.includes(text);
+      if (range) return range.toString() === '发布前' && article.contains(range.startContainer);
       if (CSS.highlights && typeof Highlight === 'function') return false;
       return Array.from(document.querySelectorAll('[data-reading-root] [data-history-match]'))
         .some(article => article.textContent.includes(text));

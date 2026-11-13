@@ -29,8 +29,8 @@ export function cancelDisplay(id) {
 // Target text, visible cursor, and parser stack are deliberately independent.
 // The parser sees each character once; closed DOM nodes never get reparsed.
 export class PacedText {
-  constructor(write, end, { frame = scheduleDisplay, cancel = cancelDisplay, smooth = true } = {}) {
-    Object.assign(this, { write, end, frame, cancel, smooth, target: '', visible: 0, done: false, stopped: false, scheduled: null, last: -Infinity });
+  constructor(write, end, { frame = scheduleDisplay, cancel = cancelDisplay, smooth = true, defer } = {}) {
+    Object.assign(this, { write, end, frame, cancel, smooth, defer, target: '', visible: 0, done: false, stopped: false, scheduled: null, last: -Infinity });
     this.finished = null;
     this.completion = new Promise(resolve => { this.resolveCompletion = resolve; });
     this.prefixWaiters = new Set();
@@ -66,7 +66,7 @@ export class PacedText {
   tick(time) {
     this.scheduled = null;
     if (this.stopped) return;
-    if (time - this.last < 32) { this.schedule(); return; }
+    if (this.defer?.() || this.smooth && time - this.last < 32) { this.schedule(); return; }
     this.last = time;
     const backlog = this.target.length - this.visible;
     const size = this.smooth && !this.done ? Math.max(24, Math.ceil(backlog / 5)) : 4096;

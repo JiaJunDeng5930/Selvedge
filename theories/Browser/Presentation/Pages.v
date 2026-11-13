@@ -176,19 +176,24 @@ Definition task_details_control s task parent :=
 Definition run_control snapshot s (task:Read.task) parent key :=
  match ObjectActions.resolve snapshot s (TaskActions(Read.task_id task)) key with
  |Some action=>match ObjectActions.command action with
-  |Some command=>[declared parent Roles.Button(Control key (ObjectActions.action_label action) Secondary
-    (Input.Command command)(approval_availability action))]
+  |Some command=>let control:=Control key (ObjectActions.action_label action) Secondary
+    (Input.Command command)(approval_availability action)in
+   (* Keep the action eligible for automatic admission while concealing an
+      interrupt that cannot yet be used. A submitted interrupt remains visible. *)
+   [if String.eqb key "interrupt" then match ObjectActions.action_status action with
+    |ObjectActions.Available|ObjectActions.InFlight=>declared parent Roles.Button control
+    |_=>Node(part parent key)"interrupt-unavailable"(control_label control) Roles.Button (Activate control)[]end
+    else declared parent Roles.Button control]
   |None=>[]end
  |None=>[]end.
 Definition task_run_controls snapshot s (task:Read.task) parent :=
  let status:=Read.task_status task in
  let working:=Read.task_working task && negb(String.eqb status "archived") in
  let paused:=String.eqb status "frozen" in
- if working || negb(String.eqb status "active") then
- ([information parent "run-status" Information.Status(Read.task_caption task)]++
+ ((if String.eqb status "active" then []
+   else[information parent "run-status" Information.Status(Read.task_caption task)])++
  (if paused then run_control snapshot s task parent "unfreeze" else [])++
- (if working then run_control snapshot s task parent "interrupt" else []))%list
- else [].
+ (if working then run_control snapshot s task parent "interrupt" else []))%list.
 Definition task_has_composer s task :=negb(String.eqb(task_status task)"archived")||
  match Draft.find_draft(Message(task_id task))(State.drafts(State.authoring_state s))with Some _=>true|None=>false end.
 Definition task_composer snapshot s view parent task :=

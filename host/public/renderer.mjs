@@ -512,12 +512,17 @@ export class Renderer {
     for (const [target, node] of record.markdownTargets) this.targets.set(target, node);
     if (value.complete) record.markdown.finish();
     if (value.metadata.origin && value.metadata.epoch !== undefined && value.metadata.revision !== undefined) {
-      record.fences ??= new MarkdownFenceObserver({ onFence: observed => {
-        if (this.records.get(key) !== record) return;
-        const admitted = this.callbacks.fence?.(record.metadata, observed);
-        if (admitted === false && (observed.closed || (observed.ending !== 'open' && observed.inputPrefix === record.text)))
-          record.markdown.refusePreview(observed.ordinal);
-      } });
+      record.fences ??= new MarkdownFenceObserver({
+        // During the first visit, give readable Markdown the frame budget
+        // before starting the independently rendered interactive components.
+        defer: () => Boolean(record.node.closest('[data-reading-initial]')?.querySelector('[data-markdown-parsing]')),
+        onFence: observed => {
+          if (this.records.get(key) !== record) return;
+          const admitted = this.callbacks.fence?.(record.metadata, observed);
+          if (admitted === false && (observed.closed || (observed.ending !== 'open' && observed.inputPrefix === record.text)))
+            record.markdown.refusePreview(observed.ordinal);
+        },
+      });
       record.fences.sync({ text: value.value, epoch: stringifyJson(value.metadata.epoch),
         revision: value.metadata.revision, ending: value.metadata.ending ?? (value.complete ? 'complete' : 'open') });
     }

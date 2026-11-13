@@ -401,17 +401,50 @@ test('keyboard users can read unavailable action reasons, choice context and col
 test('execution controls appear beside active work and stay out of conversation details', { timeout: 60000 }, async t => {
   const fixture = await browserFixture(t);
   const { page, command } = fixture;
+  const releaseAssessment = Promise.withResolvers();
+  const releaseInterrupt = Promise.withResolvers();
+  const assessmentStarted = Promise.withResolvers();
+  const interruptStarted = Promise.withResolvers();
+  t.after(() => {
+    releaseAssessment.resolve();
+    releaseInterrupt.resolve();
+  });
+  await page.route('**/api/assess', async route => {
+    if (route.request().postDataJSON()?.command?.op === 'interrupt') {
+      assessmentStarted.resolve();
+      await releaseAssessment.promise;
+    }
+    await route.continue();
+  });
+  await page.route('**/api/browser/command', async route => {
+    if (route.request().postDataJSON()?.command?.op === 'interrupt') {
+      interruptStarted.resolve();
+      await releaseInterrupt.promise;
+    }
+    await route.continue();
+  });
   const { task_id } = await command({ op: 'create', profile: fixture.profile, message: 'Stop this running reply' });
   await selectTask(fixture, task_id);
   const main = page.getByRole('main');
   const stop = main.getByRole('button', { name: '停止当前执行', exact: true });
-  await stop.waitFor();
+  const reader = main.getByRole('region', { name: 'Conversation', exact: true });
+  await reader.getByRole('status').filter({ hasText: /正在(准备|生成)回复/ }).waitFor();
+  await assessmentStarted.promise;
+  assert.equal(await main.getByText('Working', { exact: true }).count(), 0);
+  assert.equal(await stop.isVisible(), false);
+  releaseAssessment.resolve();
+  await stop.and(main.getByRole('button', { disabled: false })).waitFor();
   await main.getByRole('button', { name: '任务详情', exact: true }).click();
   const details = page.getByRole('complementary', { name: '任务详情', exact: true });
   await details.waitFor();
   assert.equal(await details.getByRole('button', { name: /停止当前执行|创建对话分支|暂停对话/ }).count(), 0);
   await main.getByRole('button', { name: '任务详情', exact: true }).click();
   await stop.click();
+  await interruptStarted.promise;
+  assert.equal(await stop.isVisible(), true);
+  assert.equal(await stop.getAttribute('aria-busy'), 'true');
+  releaseInterrupt.resolve();
   await stop.waitFor({ state: 'hidden' });
+  await main.getByText('Stopped', { exact: true }).waitFor();
   assert.equal((await command({ op: 'read', task_id })).task.status, 'stopped');
 });

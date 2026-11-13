@@ -123,7 +123,10 @@ Export NavigationProof(new_selection_intent_prevents_work_completion_selection,
     conversation view before the receipt. A refusal restores the creation draft.
     A successful receipt selects the persisted conversation when the creation is
     still in the foreground. An active conversation shows progress at the reply
-    position while it is ready for processing or awaits model output.
+    position while it is ready for processing or awaits model output. The
+    conversation header presents an interrupt when admitted and retains it
+    during submission. It shows lifecycle statuses that require a separate
+    indication, such as a paused or stopped conversation.
     The admission observation is bound to subject,
     action, occurrence, draft revision and world sequence.
     [available_native_has_current_admission] and

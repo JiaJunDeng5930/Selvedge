@@ -61,6 +61,7 @@
 [data-reading-root] > button[data-semantic-key="fork-current-history"] {
   align-self: flex-start;
 }
+[data-page-region="task-actions"] [data-semantic-key="interrupt-unavailable"] { display: none !important; }
 [data-reading-root] > [data-semantic-key="reply-pending"] {
   align-self: flex-start;
   padding-inline: .25rem;
@@ -85,6 +86,10 @@
 }
 [data-reading-root] [data-history-match] {
   outline: 2px solid var(--selvedge-accent);
+  outline-offset: 2px;
+}
+[data-reading-root] [data-reading-anchor][tabindex="-1"]:focus-visible {
+  outline: 1px solid var(--selvedge-focus);
   outline-offset: 2px;
 }
 ::highlight(selvedge-history-match) {

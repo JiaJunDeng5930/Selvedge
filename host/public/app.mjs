@@ -930,10 +930,13 @@ function locateHistoryRange(pending, root, target, range) {
   else revealHistoryLocation(location);
 }
 function revealHistoryLocation(location) {
-  const { root, target, range, readerGeneration } = location;
-  root.focus({ preventScroll: true });
-  if (range && CSS.highlights && typeof Highlight === 'function') CSS.highlights.set(historyHighlight, new Highlight(range));
-  else target.dataset.historyMatch = readerGeneration;
+  const { target, range, readerGeneration } = location;
+  target.setAttribute('tabindex', '-1');
+  target.addEventListener('blur', () => target.removeAttribute('tabindex'), { once: true });
+  target.focus({ preventScroll: true });
+  if (range && CSS.highlights && typeof Highlight === 'function') {
+    CSS.highlights.set(historyHighlight, new Highlight(range));
+  } else target.dataset.historyMatch = readerGeneration;
   location.timer = setTimeout(() => clearHistoryHighlight(location), historyHighlightMs);
   timers.add(location.timer);
 }
