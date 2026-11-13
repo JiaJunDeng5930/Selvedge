@@ -107,16 +107,24 @@ Definition retained_part {A} (action:actions A) context retained interactive sta
      [control (identity++"/dismiss-unfinished") "关闭未完成回复" (action.(reading_retained) identity false)]))]
  (if visible then [S.Node identity "generated-output" "Interrupted output" R.AssistantMessage (reading source (document_source stamp) retained)
    (attachments action.(reading_interactive) context retained interactive source)] else []).
+Definition reply_pending (task:json) : option string :=
+ match string_field "status" task,string_field "phase" task with
+ |Some "active",Some "ready"=>Some "正在准备回复…"
+ |Some "active",Some "model_pending"
+ |Some "active",Some "context_pending"
+ |Some "active",Some "reasoning_pending"=>Some "正在生成回复…"
+ |_,_=>None end.
 Definition timeline {A} (action:actions A) context retained interactive view disclosures : list (S.node A) :=
  let task:=NavigationIdentity.task_view_task view in
- let messages:=match DocumentState.find_task task (context_world context) with Some value=>items "history" value|None=>[] end in
+ let observed:=DocumentState.find_task task (context_world context) in
+ let messages:=value_or[](option_map (items "history") observed) in
  let history:=map (group action context retained interactive task disclosures messages) (Audit.reading_groups 0 messages) in
  let live:=flat_map (fun output=>if N.eqb task (Streams.output_task output)
    then map (preview action.(reading_interactive) context retained interactive output) (Streams.output_parts output) else []) (current_previews context) in
  let live:=match live with
- |[]=>match bind (DocumentState.find_task task (context_world context)) (string_field "phase") with
-   |Some "model_pending" |Some "context_pending" |Some "reasoning_pending"=>
-     [S.Node "reply-pending" "reply-pending" "正在生成回复…" R.Content
+ |[]=>match bind observed reply_pending with
+   |Some status=>
+     [S.Node "reply-pending" "reply-pending" status R.Content
        (S.InformationText Information.Status) []]
    |_=>[] end
  |_=>live end in

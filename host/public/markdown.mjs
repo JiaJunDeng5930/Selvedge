@@ -308,7 +308,6 @@ export class Markdown {
     const close = (completed) => {
       const entry = stack.pop();
       delete entry.node.dataset.pending;
-      if (entry.codeSource) entry.codeSource.frame.dataset.markdownFenceClosed = '';
       if (stack.length === 1) { entry.node.dataset.stable = 'true'; this.stableBlocks++; }
       if (entry.type === smd.IMAGE && entry.imageURL) {
         const image = document.createElement('img');

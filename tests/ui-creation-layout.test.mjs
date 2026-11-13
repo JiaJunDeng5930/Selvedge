@@ -101,6 +101,7 @@ test('an explicit send shows the captured new message in a temporary conversatio
   const admit = Promise.withResolvers();
   const commandStarted = Promise.withResolvers();
   const submit = Promise.withResolvers();
+  const resumeSnapshots = Promise.withResolvers();
   const prefix = 'Verify the composer progress';
   const sent = prefix + '!';
   const messageText = command => typeof command?.message === 'string' ? command.message : command?.message?.[0]?.text;
@@ -123,6 +124,11 @@ test('an explicit send shows the captured new message in a temporary conversatio
       commandStarted.resolve();
       await submit.promise;
     }
+    await route.continue();
+  });
+  await page.route('**/api/browser/state', async route => {
+    // Observe the real creation receipt before later scheduled phases arrive.
+    await resumeSnapshots.promise;
     await route.continue();
   });
   try {
@@ -153,7 +159,13 @@ test('an explicit send shows the captured new message in a temporary conversatio
     assert.equal(await captured.isVisible(), true);
     assert.equal(await progress.isVisible(), true);
     assert.deepEqual(submissions, [sent]);
+    const creation = page.waitForResponse(response => response.url().endsWith('/api/browser/command')
+      && response.request().postDataJSON()?.command?.op === 'create');
     submit.resolve();
+    const { reply } = await (await creation).json();
+    assert.equal(reply.ok, true);
+    await reader.getByRole('status').filter({ hasText: '正在准备回复…' }).waitFor();
+    resumeSnapshots.resolve();
     await captured.waitFor();
     await status.waitFor({ state: 'hidden' });
     const generation = reader.getByRole('status').filter({ hasText: '正在生成回复…' });
@@ -202,6 +214,7 @@ test('an explicit send shows the captured new message in a temporary conversatio
   } finally {
     admit.resolve();
     submit.resolve();
+    resumeSnapshots.resolve();
   }
 });
 

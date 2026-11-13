@@ -122,8 +122,9 @@ Export NavigationProof(new_selection_intent_prevents_work_completion_selection,
     conversation places its captured message and submission status in a temporary
     conversation view before the receipt. A refusal restores the creation draft.
     A successful receipt selects the persisted conversation when the creation is
-    still in the foreground. The conversation shows progress at the reply position
-    while it awaits model output. The admission observation is bound to subject,
+    still in the foreground. An active conversation shows progress at the reply
+    position while it is ready for processing or awaits model output.
+    The admission observation is bound to subject,
     action, occurrence, draft revision and world sequence.
     [available_native_has_current_admission] and
     [an_admitted_captured_submission_executes_its_captured_command] constrain
@@ -201,9 +202,9 @@ Export PlotProof(chart_axis_covers_values, chart_axis_coordinates_reach_both_plo
     language. Ordinary Markdown keeps its standard presentation. A pending
     interactive preview reserves space and shows a loading status in place
     of its source. The conversation end action waits for pending previews.
-    Opening a conversation shows one loading status until its available
-    Markdown and closed interactive previews are ready at the intended position.
-    An unfinished preview can stay at the end of a live reply while it streams.
+    Opening a conversation reveals its available Markdown at the intended
+    reading position as soon as the text is ready. Interactive previews
+    may finish loading in place after the surrounding text appears.
     An already visible timeline continues displaying live replies.
     Mounting a preview above the current passage preserves its reading
     position. A refusal leaves the original source available by disclosure.

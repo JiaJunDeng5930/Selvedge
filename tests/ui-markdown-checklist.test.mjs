@@ -236,13 +236,12 @@ test('interactive fences keep their original source collapsed while the preview 
       if (loading && readerVisible) probe.overlappingStatus = true;
       if (probe.firstPaint === null && readerVisible) {
         const tail = [...reader.querySelectorAll('p')].find(node => node.textContent === 'Settled reply ends here.');
-        const end = reader.querySelector('button[aria-label="创建对话分支"]');
         const visible = node => {
           if (!node || !painted(node)) return false;
           const bounds = node.getBoundingClientRect(), viewport = reader.getBoundingClientRect();
           return bounds.top >= viewport.top - 1 && bounds.bottom <= viewport.bottom + 1;
         };
-        probe.firstPaint = { tail: visible(tail), end: visible(end) };
+        probe.firstPaint = { tail: visible(tail) };
       }
       if (probe.running) requestAnimationFrame(sample);
     }
@@ -262,7 +261,7 @@ test('interactive fences keep their original source collapsed while the preview 
   assert.equal(probe.pendingSeen, true, 'A delayed history gives one visible loading status');
   assert.equal(probe.overlappingStatus, false, 'The conversation loading status never overlays visible content');
   assert.equal(await page.getByText('正在加载对话…', { exact: true }).isVisible(), false);
-  assert.deepEqual(probe.firstPaint, { tail: true, end: true }, 'The first visible viewport is the settled conversation tail');
+  assert.deepEqual(probe.firstPaint, { tail: true }, 'The first visible viewport includes the conversation tail');
   await timeline.getByRole('button', { name: '创建对话分支', exact: true }).waitFor();
   const declined = timeline.locator('.code-block').filter({ hasText: '无法显示交互界面' });
   const raw = declined.locator('pre');

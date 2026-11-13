@@ -947,6 +947,9 @@ function retryHistoryLocation() {
   const root = target?.closest('[data-reading-root]');
   if (!target?.isConnected || target.dataset.readingAnchor !== 'true' || !root?.clientHeight ||
       !historyReaderOwns(root, pending) || renderer.modal && !renderer.modal.contains(root)) return;
+  // Align the match against assembled text so content below it cannot change
+  // the initial scroll clamp after it has appeared.
+  if (root.querySelector('[data-markdown-parsing]')) return;
   const record = renderer.records.get(pending.markdown_key);
   const markdown = record?.markdown;
   if (!markdown || !target.contains(record.node)) return;
@@ -989,18 +992,15 @@ function scheduleReadingLayout() {
     if (!disposed) { retryHistoryLocation(); layoutReading(); }
   });
 }
-// An open fence at the end of a live reply may need more model output to mount.
-const unsettledReadingContent = '[data-markdown-parsing], [data-markdown-fence-closed][data-interactive-preview-candidate]:not([data-interactive-active], [data-interactive-preview-failed])';
 function layoutReading() {
   for (const node of surface.querySelectorAll('[data-reading-root="true"]')) {
     const locating = pendingHistoryLocation && historyReaderOwns(node, pendingHistoryLocation);
     const generation = node.dataset.readerGeneration;
     const completing = node.hasAttribute('data-reading-initial');
     if (readingVisits.get(node) !== generation) {
-      // A mounted widget can still change layout when its native display is published.
-      const widgetsPending = surface.dataset.displayPending === 'true' &&
-        node.querySelector('[data-interactive-pending]');
-      const loading = locating || widgetsPending || node.querySelector(unsettledReadingContent);
+      // Reveal at the reading position once the available text has arrived.
+      // Widgets keep their own placeholders and can finish after this first paint.
+      const loading = locating || node.querySelector('[data-markdown-parsing]');
       node.toggleAttribute('data-reading-initial', Boolean(loading));
       // Keep the text measurable for history search while the reader is hidden.
       node.inert = Boolean(loading);
