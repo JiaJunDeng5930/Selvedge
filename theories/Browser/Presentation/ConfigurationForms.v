@@ -221,14 +221,16 @@ Definition cloud_form parent saved source view enabled : list (node Input.input)
    ([description parent "cloud-credentials" "腾讯云 API 凭据来自本地服务环境。";
      section "cloud-compute" "计算" (fun panel =>
        [field_row panel "placement" (fun row => fields row ["region"; "zone"]);
-        field_row panel "instance" (fun row => fields row ["image_id"; "instance_type"; "spot_max_price"])]);
+        field_row panel "instance" (fun row => fields row ["image_id"; "instance_type"])]);
     section "cloud-network" "网络" (fun panel =>
       [field_row panel "network-ids" (fun row => fields row ["vpc_id"; "subnet_id"]);
        list_member panel "security_group_ids" (label "security_group_ids") "安全组 ID" (JString "") config enabled JString commit]);
     section "cloud-ssh" "SSH" (fun panel =>
       [field_row panel "authentication" (fun row =>
         [text_field row "key_id" (label "key_id") config enabled commit;
-         ModelProfiles.wide_field row (text_field row "ssh_private_key" (label "ssh_private_key") config enabled commit)])])]
+         ModelProfiles.wide_field row (text_field row "ssh_private_key" (label "ssh_private_key") config enabled commit)])]);
+    section "cloud-billing" "计费" (fun panel =>
+      [field_row panel "spot-price" (fun row => fields row ["spot_max_price"])])]
     ++ optional_details parent "cloud-options" "连接选项" view config
        ["ssh_user"; "ssh_port"; "address_type"; "api_endpoint"; "internet_max_bandwidth_out"; "startup_timeout_ms"]
        enabled (fun panel =>
@@ -252,7 +254,8 @@ Definition targets_form parent source enabled : list (node Input.input) :=
  let targets := Common.items source in
  ((match targets with
    | [] => [description parent "context-limits-default" "当前使用默认限制。添加配置项可为指定模型设置限制。"]
-   | _ => [] end) ++ map (fun '(index, target) =>
+   | _ => [description parent "target-requirements" "模型配置名称和上下文窗口为必填项。";
+           description parent "target-defaults" "输出预留默认为窗口的八分之一，上限 8192 token。缓存时长留空时不启用缓存空闲触发。"] end) ++ map (fun '(index, target) =>
    let key := ("target-" ++ index_label index)%string in
    let panel := part parent key in
    let fields := part panel "form-fields" in
@@ -279,6 +282,12 @@ Definition structured_form path parent saved source view enabled : list (node In
  | ["remote"] => relay_form parent source enabled
  | ["cloud"] => cloud_form parent saved source view enabled
  | ["compaction"; "targets"] => targets_form parent source enabled
- | _ => [value_list parent "paths" "文件和目录" "路径" (JString "")
-           (Common.items source) enabled JString (assign path)]
+ | _ =>
+   let paths := Common.items source in
+   (match path, paths with
+    | ["skills"], [] => [description parent "skills-discovery"
+        "当前自动查找服务和项目目录中的技能。可添加 SKILL.md 文件路径。"]
+    | _, _ => []
+    end ++ [value_list parent "paths" "文件和目录" "路径" (JString "")
+               paths enabled JString (assign path)])%list
  end.

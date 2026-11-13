@@ -270,6 +270,7 @@ export class Markdown {
     const codeSources = new Map();
     const document = root.ownerDocument;
     const showPreviewFailure = source => {
+      source.frame.dataset.interactivePreviewFailed = '';
       source.status.firstChild.textContent = '无法显示交互界面';
       const disclosure = document.createElement('button');
       disclosure.type = 'button';
@@ -422,6 +423,7 @@ export class Markdown {
     this.buffer = new PacedText(chunk => { smd.parser_write(parser, chunk); reportCode(); options.onChange?.(); }, () => {
       smd.parser_end(parser);
       while (stack.length > 1) close(false);
+      delete root.dataset.markdownParsing;
       reportCode(); options.onChange?.();
       this.parserEnded = true;
       this.settleIfFinished();
@@ -429,7 +431,10 @@ export class Markdown {
   }
   get text() { return this.buffer.target; }
   append(text) { this.buffer.append(text); }
-  finish() { this.buffer.finish(); }
+  finish() {
+    if (!this.parserEnded) this.root.dataset.markdownParsing = '';
+    this.buffer.finish();
+  }
   isCaughtUp() { return !this.disposed && this.buffer.isCaughtUp() && this.decorations.size === 0; }
   async whenCaughtUp(length = this.buffer.target.length) {
     if (!await this.buffer.whenCaughtUp(length) || this.disposed) return false;

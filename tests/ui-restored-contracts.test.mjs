@@ -249,13 +249,13 @@ test('model charts and range controls keep their values readable', { timeout: 60
     const viewport = svg.parentElement.getBoundingClientRect();
     return {
       inOrder: title.bottom <= plot.top && plot.bottom <= action.top,
-      inFooter: action.top - plot.bottom <= 8 && Math.abs(viewport.right - action.right) <= 16,
+      inFooter: action.top - plot.bottom <= 8 && Math.abs(viewport.left - action.left) <= 12,
       withinViewport: action.left >= 0 && action.right <= innerWidth,
     };
   };
   for (const chart of [line, monthlyBars, bars]) {
     assert.deepEqual(await chart.evaluate(chartGeometry), { inOrder: true, inFooter: true, withinViewport: true },
-      'Each chart presents its data disclosure at the end of a footer immediately below the plot');
+      'Each chart presents its data disclosure at the leading edge immediately below the plot');
   }
   const barChart = bars.locator('xpath=../..');
   const geometry = await bars.evaluate(svg => {
@@ -300,10 +300,10 @@ test('model charts and range controls keep their values readable', { timeout: 60
   await page.keyboard.press('Enter');
   const table = lineChart.getByRole('table', { name: '图表数据', exact: true });
   await table.waitFor();
-  const [plotAfter, tableBox] = await Promise.all([line.boundingBox(), table.boundingBox()]);
+  const [plotAfter, tableBox, disclosureBox] = await Promise.all([line, table, disclosure].map(node => node.boundingBox()));
   assert.ok(Math.abs(plotAfter.y - plotBefore.y) <= 1, 'Opening the table keeps the plot in place');
-  assert.ok(tableBox.y >= plotAfter.y + plotAfter.height && tableBox.width < plotAfter.width / 2 &&
-    Math.abs(tableBox.x - plotAfter.x) <= 12, 'The compact table starts at the leading edge below the plot');
+  assert.ok(tableBox.y >= disclosureBox.y + disclosureBox.height && tableBox.width < plotAfter.width / 2 &&
+    Math.abs(tableBox.x - disclosureBox.x) <= 1, 'The compact table starts under its disclosure at the same edge');
   const rowSeparators = locator => locator.evaluate(node => {
     const header = getComputedStyle(node.tHead.rows[0].cells[0]);
     const body = getComputedStyle(node.tBodies[0].rows[1].cells[0]);

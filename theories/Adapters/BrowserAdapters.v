@@ -36,7 +36,7 @@ Definition history_excerpt (needle : string) (width : nat) (text : string) : opt
     Codec.bind (Utf8.chunks text) (fun chunks =>
     let position := Search.match_offset needle lowered 0 in
     let start := (position - 44)%nat in
-    let stop := (position + width + 72)%nat in
+    let stop := (position + width + 100)%nat in
     Some ((if Nat.eqb start 0 then "" else "…") ++
       Search.trim (Utf8.render_chunks (firstn (stop - start)%nat (skipn start chunks))) ++
       (if Nat.ltb stop (List.length chunks) then "…" else "")))

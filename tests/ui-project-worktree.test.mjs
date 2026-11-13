@@ -134,6 +134,8 @@ test('Project worktree defaults require a committed Git primary only while enabl
   const choose = chooser.getByRole('button', { name: '使用此目录', exact: true });
   await folder.click();
   await folder.waitFor({ state: 'hidden' });
+  await chooser.getByRole('heading', { name: 'Ordinary directory', exact: true }).waitFor();
+  assert.equal(await chooser.getByRole('textbox', { name: '目录路径', exact: true }).inputValue(), ordinary);
   await chooser.getByRole('status').filter({ hasText: '主目录须位于包含提交的 Git 仓库中。' }).waitFor();
   assert.equal(await choose.isDisabled(), true);
   await chooser.getByRole('button', { name: '取消', exact: true }).click();

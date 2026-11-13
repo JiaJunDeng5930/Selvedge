@@ -197,9 +197,8 @@ Definition write_status parent view : list (node Input.input) :=
 Definition is_resettable := Config.can_reset.
 Definition reset_button parent entry enabled label :=
  if is_resettable entry then [button parent "restore-default" label enabled Services.ResetConfiguration] else [].
-Definition save_enabled entry raw view enabled :=
- enabled && Configuration.dirty view &&
- match Config.interpret_setting_input entry raw with Some _ => true | None => false end.
+Definition save_enabled view enabled :=
+ enabled && Configuration.dirty view && Configuration.can_assign view.
 Definition boolean_control parent path label raw (enabled : bool) :=
  let key := "setting-switch" in
  let on := String.eqb raw "true" in
@@ -234,7 +233,7 @@ Definition compact_setting parent services entry :=
     if Configuration.dirty view then
       [button bar "cancel" "撤销编辑" enabled Services.CancelConfigurationEdit;
        action bar "save" (match Config.setting_input entry with Config.Boolean => "重试保存" | _ => save_label path end)
-         Primary (save_enabled entry raw view enabled) Services.SetConfiguration]
+         Primary (save_enabled view enabled) Services.SetConfiguration]
     else [])%list
  | None => []
  end in
@@ -619,8 +618,8 @@ Definition configuration_dialog generation id section caption trigger fallback v
              (if dirty then "放弃更改" else "取消") Secondary ready Services.CancelConfigurationEdit;
            primary]])])].
 
-Definition configuration_save id entry raw view enabled :=
- let status := if save_enabled entry raw view enabled then Available
+Definition configuration_save id entry view enabled :=
+ let status := if save_enabled view enabled then Available
    else Unavailable
      (if negb enabled then "请等待当前操作完成"
       else if negb (Configuration.dirty view) then
@@ -628,12 +627,14 @@ Definition configuration_save id entry raw view enabled :=
         | ["compaction"; "targets"], [] => "添加配置项后可以保存"
         | _, _ => "修改设置后可以保存"
         end
-      else "请修正输入后再保存") in
+      else match Config.setting_path entry with
+        | ["compaction"; "targets"] => "请填写有效的模型配置名称与上下文窗口，并检查可选限制"
+        | _ => "请修正输入后再保存"
+        end) in
  configuration_action_with_status id "save" "保存" "保存" Primary status Services.SetConfiguration.
 
-Definition collection_editor generation id section entry draft view enabled item : list (node Input.input) :=
+Definition collection_editor generation id section entry view enabled item : list (node Input.input) :=
  let path := Config.setting_path entry in
- let raw := Configuration.draft_input draft in
  let add := editor_trigger path "begin-add" in
  let dialog caption trigger := configuration_dialog generation id section caption trigger add view in
  match Configuration.new_item view with
@@ -653,11 +654,11 @@ Definition collection_editor generation id section entry draft view enabled item
      | Some source => [dialog ("编辑「" ++ name ++ "」") trigger
          [ConfigurationForms.item_fields path id source view enabled]
          [ConfigurationForms.button id "remove-item" ("移除" ++ item) enabled (Services.RemoveConfigurationItem name)]
-         (configuration_save id entry raw view enabled)]
+         (configuration_save id entry view enabled)]
      | None => [dialog ("移除「" ++ name ++ "」？") trigger
          [note id "description" ("此" ++ item ++ "将从设置中移除。")] []
          (configuration_action id "confirm-remove" "移除" ("移除" ++ item) Destructive
-           (save_enabled entry raw view enabled) Services.SetConfiguration)]
+           (save_enabled view enabled) Services.SetConfiguration)]
      end
    end
  end.
@@ -675,7 +676,7 @@ Definition configuration_editor s : list (node Input.input) :=
      let raw := Configuration.draft_input draft in
      let enabled := can_edit path services in
      match ConfigurationForms.collection_item path with
-     | Some item => collection_editor generation id section entry draft view enabled item
+     | Some item => collection_editor generation id section entry view enabled item
      | None =>
        let trigger := editor_trigger path "open" in
        let '(label, description) := copy path in
@@ -691,7 +692,7 @@ Definition configuration_editor s : list (node Input.input) :=
                       else reset_button id entry enabled "恢复默认" in
        [configuration_dialog generation id section label trigger (part settings_root "close") view
          fields restore
-         (configuration_save id entry raw view enabled)]
+         (configuration_save id entry view enabled)]
      end
    else []
  | _, _ => []

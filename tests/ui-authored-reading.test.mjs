@@ -72,3 +72,37 @@ test('changing an authored status filter twice retains its reading position and 
     return reader && reader.scrollHeight - reader.clientHeight - reader.scrollTop <= 1;
   });
 });
+
+test('a passage keeps its place when an earlier widget in the same reply grows', { timeout: 60_000 }, async t => {
+  const fixture = await browserFixture(t);
+  const { page, command, profile } = fixture;
+  const title = 'Read beyond an interactive section';
+  const { task_id } = await command({ op: 'create', profile, message: title });
+  const deadline = Date.now() + 10_000;
+  while (!fixture.requests[0] && Date.now() < deadline) await new Promise(done => setTimeout(done, 20));
+  assert.ok(fixture.requests[0]);
+  fixture.finish(0, { text: ['```selvedge-ui', authored, '```', '', passage(24)].join('\n') });
+  await taskIdle(fixture.running.service, task_id);
+  await page.getByRole('button', { name: title, exact: true }).click();
+  const reader = page.getByRole('region', { name: 'Conversation', exact: true });
+  const target = reader.getByRole('heading', { name: '阅读段落 6', exact: true });
+  const source = reader.getByRole('button', { name: '展开源码', exact: true });
+  await source.waitFor();
+  const offset = () => target.evaluate(node => {
+    const reader = node.closest('[data-reading-root]');
+    return node.getBoundingClientRect().top - reader.getBoundingClientRect().top;
+  });
+  await reader.hover();
+  await page.mouse.wheel(0, (await offset()) - 8);
+  await page.waitForFunction(() => {
+    const reader = document.querySelector('[data-reading-root]');
+    const heading = Array.from(reader.querySelectorAll('h3')).find(node => node.textContent === '阅读段落 6');
+    return Math.abs(heading.getBoundingClientRect().top - reader.getBoundingClientRect().top - 8) < 3;
+  });
+  await page.getByRole('button', { name: 'Return to latest', exact: true }).waitFor();
+  const before = await offset();
+  await source.evaluate(button => button.focus({ preventScroll: true }));
+  await page.keyboard.press('Enter');
+  await reader.getByRole('button', { name: '收起源码', exact: true }).waitFor();
+  assert.ok(Math.abs(await offset() - before) < 3, 'The visible passage remains at its original offset');
+});

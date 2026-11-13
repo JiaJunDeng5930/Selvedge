@@ -193,11 +193,18 @@ test('interactive fences keep their original source collapsed while the preview 
   fixture.finish(0, { text: [...sections, '```selvedge-ui example\nAn ordinary example.\n```'].join('\n\n') });
   const { task } = await taskIdle(running.service, task_id);
   await page.evaluate(() => {
-    const probe = { flashing: false, running: true };
+    const probe = { flashing: false, prematureEnd: false, pendingSeen: false, running: true };
     window.fencePaintProbe = probe;
     function sample() {
       for (const code of document.querySelectorAll('pre > code')) {
         if (code.textContent.startsWith('<ui id="preview-') && code.getClientRects().length > 0) probe.flashing = true;
+      }
+      const pending = [...document.querySelectorAll('[role="status"]')].some(status =>
+        status.textContent === '正在加载交互界面…' && status.getBoundingClientRect().height > 0);
+      if (pending) {
+        probe.pendingSeen = true;
+        const end = document.querySelector('button[aria-label="创建对话分支"]');
+        if (end && getComputedStyle(end).visibility === 'visible') probe.prematureEnd = true;
       }
       if (probe.running) requestAnimationFrame(sample);
     }
@@ -209,11 +216,14 @@ test('interactive fences keep their original source collapsed while the preview 
   const previews = timeline.locator('.code-block[data-interactive-active="true"]');
   await previews.nth(15).waitFor();
   await timeline.getByText('An ordinary example.', { exact: true }).waitFor();
-  const flashing = await page.evaluate(() => {
+  const probe = await page.evaluate(() => {
     window.fencePaintProbe.running = false;
-    return window.fencePaintProbe.flashing;
+    return window.fencePaintProbe;
   });
-  assert.equal(flashing, false, 'No interactive source is exposed before its preview or an explicit disclosure');
+  assert.equal(probe.flashing, false, 'No interactive source is exposed before its preview or an explicit disclosure');
+  assert.equal(probe.pendingSeen, true, 'A delayed preview was sampled during loading');
+  assert.equal(probe.prematureEnd, false, 'A partially loaded conversation does not show the end action');
+  await timeline.getByRole('button', { name: '创建对话分支', exact: true }).waitFor();
   const declined = timeline.locator('.code-block').filter({ hasText: '无法显示交互界面' });
   const raw = declined.locator('pre');
   const reveal = declined.getByRole('button', { name: '展开源码', exact: true });

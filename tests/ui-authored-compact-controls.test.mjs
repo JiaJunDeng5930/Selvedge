@@ -62,6 +62,8 @@ test('authored forms and state adjustments keep related controls together', { ti
 
   const main = page.getByRole('main');
   const notes = main.getByRole('textbox', { name: '备注', exact: true });
+  const amountSlider = main.getByRole('slider', { name: '数量（1—50）', exact: true });
+  const amountInput = main.getByRole('textbox', { name: '数量：与滑块同步', exact: true });
   const details = main.getByRole('checkbox', { name: '显示计算明细', exact: true });
   const cardByLabel = label => main.locator('[data-interactive-component="card"]')
     .filter({ has: page.getByText(label, { exact: true }) });
@@ -110,6 +112,12 @@ test('authored forms and state adjustments keep related controls together', { ti
     assert.ok(right && right.x >= 0 && right.x + right.width <= width);
     const [firstForm, secondForm] = await Promise.all([textFields.boundingBox(), numberFields.boundingBox()]);
     assert.ok(firstForm && secondForm);
+    const [sliderBounds, inputBounds] = await Promise.all([amountSlider.boundingBox(), amountInput.boundingBox()]);
+    assert.ok(sliderBounds && inputBounds &&
+      Math.abs(sliderBounds.y + sliderBounds.height / 2 - inputBounds.y - inputBounds.height / 2) <= 1 &&
+      inputBounds.x - (sliderBounds.x + sliderBounds.width) <= 12 &&
+      inputBounds.x + inputBounds.width <= secondForm.x + secondForm.width,
+    `Both quantity controls stay together within the card at ${width}px`);
     const [card, value, ...buttons] = await Promise.all([counter, metric, action('加一'), action('减一'), action('归零')].map(node => node.boundingBox()));
     assert.ok(card && value && card.x >= 0 && card.x + card.width <= width);
     assert.ok(buttons.every(box => box && box.x >= card.x && box.x + box.width <= card.x + card.width));
@@ -132,6 +140,13 @@ test('authored forms and state adjustments keep related controls together', { ti
       }
     }
   }
+  const amountEquals = (label, value) => page.waitForFunction(({ label, value }) =>
+    [...document.querySelectorAll('main input')].some(input => input.getAttribute('aria-label') === label && input.value === value),
+  { label, value });
+  await amountSlider.press('ArrowRight');
+  await amountEquals('数量：与滑块同步', '9');
+  await amountInput.fill('12');
+  await amountEquals('数量（1—50）', '12');
   const ready = button => button.and(counter.locator('button:enabled:not([aria-disabled="true"])'));
   const editedNotes = '第一行备注\n改过的第二行\n第三行';
   await notes.and(main.locator('textarea:not([inert])')).fill(editedNotes);

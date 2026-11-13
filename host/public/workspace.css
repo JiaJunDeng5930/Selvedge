@@ -191,7 +191,16 @@ main > [data-page-region="collection-actions"]:has(> [data-semantic-key="history
 
 [data-page-region="history-results"]
   [data-semantic-key="result"] > button[data-semantic-key="open"]:has(> [data-semantic-key="result-speaker"])::after {
+  content: "↳";
   grid-row: 1 / span 2;
+  inline-size: 1rem;
+  block-size: auto;
+  margin-inline-end: 0;
+  border: 0;
+  transform: none;
+  color: var(--selvedge-muted);
+  font: var(--rich-body-size)/1 var(--rich-body-font);
+  text-align: center;
 }
 
 [data-page-region="history-results"]
@@ -297,18 +306,15 @@ main > [data-page-region="collection-actions"]:has(> [data-semantic-key="history
   border-color: var(--selvedge-accent) !important;
 }
 
-[data-board-track-group] {
-  display: flex;
-  flex-direction: column;
-  flex: 1 1 auto;
-  min-block-size: 0;
-  min-inline-size: 0;
-}
 [data-board-scroll-controls]:not([hidden]) {
   display: flex;
-  justify-content: flex-end;
+  flex: none;
   gap: .25rem;
-  padding-block-end: .25rem;
+}
+[data-semantic-key="board/working-empty"] {
+  flex: none;
+  align-self: flex-start;
+  padding: .25rem 0;
 }
 [data-board-scroll] {
   display: grid;

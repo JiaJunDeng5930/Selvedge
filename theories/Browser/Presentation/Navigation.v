@@ -20,7 +20,7 @@ Definition home_destination : destination := ("home","首页",Start).
 Definition graph_destination : destination := ("task-graphs",task_graphs_label,Graphs).
 Definition history_search_destination : destination := ("history-search","搜索对话",HistorySearch).
 Definition destinations : list destination := [
- ("board","卡片看板",Board);("projects","项目",Projects);
+ ("board","卡片看板",Board);("projects","项目",Projects);graph_destination;
  history_search_destination].
 Definition route_eq_dec : forall a b:route,{a=b}+{a<>b}.
 Proof. repeat decide equality. Defined.
@@ -105,13 +105,12 @@ Definition rename_work s :=
 Definition work_destinations s controls :=
  let navigation:=State.navigation_state s in
  let current:=State.location navigation in
- region "/navigation" "work-destinations" "Work destinations" Roles.NavigationSection
-  (destination_node Roles.NavigationEntry current "/global-navigation" graph_destination::
-   List.app (match State.active_work navigation with None=>[]|Some work=>
-    [declared "/navigation"(Roles.NavigationEntry(match current with SharedUI selected _=>N.eqb selected work|_=>false end))
+ match State.active_work navigation with None=>controls|Some work=>
+ [region "/navigation" "work-destinations" "Work destinations" Roles.NavigationSection
+  (declared "/navigation"(Roles.NavigationEntry(match current with SharedUI selected _=>N.eqb selected work|_=>false end))
       (secondary "work/shared-ui" "共享 UI"(Input.Navigate(SharedUI work
-        (match current with SharedUI _ task=>task|_=>None end))))]
-   end) controls).
+        (match current with SharedUI _ task=>task|_=>None end))))::controls)]
+ end.
 Definition task_collection snapshot s :=
  let navigation:=State.navigation_state s in
  let current:=State.location navigation in
@@ -132,22 +131,21 @@ Definition task_collection snapshot s :=
     [new_task Roles.NavigationEntry current]::content).
 Definition task_navigation snapshot s :=
  Node "/navigation" "navigation" "Task tree" Roles.Navigation Region
-  [region "/navigation" "header" "Task tree" Roles.NavigationHeader
-   (title(part "/navigation" "header") "对话"::rename_work s);
-   work_destinations s [];
-   task_collection snapshot s].
+  ([region "/navigation" "header" "Task tree" Roles.NavigationHeader
+   (title(part "/navigation" "header") "对话"::rename_work s)]++
+   work_destinations s []++[task_collection snapshot s])%list.
 Definition desktop_task_navigation snapshot s :=
  let '(home_key,home_label,home_route):=home_destination in
  Node "/navigation" "navigation" "Task tree" Roles.Navigation Region
-  [region "/navigation" "header" "Workspace" Roles.NavigationHeader
+  ([region "/navigation" "header" "Workspace" Roles.NavigationHeader
     [declared "/global-navigation" (Roles.NavigationEntry false)
       (secondary home_key home_label(Input.Navigate home_route));
      declared(part "/navigation" "header") Roles.Button
       (secondary "toggle" "Collapse Task sidebar"(Input.TaskListVisible false))];
-   work_picker snapshot s "/work-tabs" "work/overview";
-   work_destinations s (rename_work s);
+   work_picker snapshot s "/work-tabs" "work/overview"]++
+   work_destinations s (rename_work s)++[
    task_collection snapshot s;
-   global_navigation s].
+   global_navigation s])%list.
 Definition work_summary snapshot selected :=
  match tasks snapshot with
  |None=>"对话列表不可用"

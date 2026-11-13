@@ -143,15 +143,19 @@ Definition board_toolbar snapshot s parent :=
      (CardArchive(N.of_nat(List.length(value_or[](archived_cards snapshot)))))
      [declared(part parent "archive-destination")Roles.Button(secondary "open" "归档卡片"(Input.OpenBoard State.ArchivedCards(part(part parent "archive-destination")"open")))]]].
 Definition board_page snapshot s parent :=
- [browse_heading parent
+ let cards:=Projection.visible_cards snapshot s in
+ let empty:list(node Input.input):=match cards,BoardFilter.filter_tab(State.board_selection s)with
+  |Some [],BoardFilter.Working=>[information parent "board/working-empty" Information.Status "没有正在执行的卡片"]
+  |_,_=>[]end in
+ ([browse_heading parent
    (page_region parent Composition.BoardTitle Composition.HeadingPosition
      [title parent "卡片看板";
       information parent "board-scope" Information.Description "卡片可以关联已有对话，也可以交给模型启动新对话。"])
    [board_group parent "primary-action" PrimaryAction
      [declared parent Roles.PrimaryButton(primary "card/new" "新建卡片"(Input.NewCard BoardDomain.Backlog(part parent "card/new")))]];
-  page_region parent Composition.BoardControls Composition.HeadingPosition(board_toolbar snapshot s parent);
-  page_region parent Composition.BoardStages Composition.BodyPosition
-   (match Projection.visible_cards snapshot s with
+  page_region parent Composition.BoardControls Composition.HeadingPosition(board_toolbar snapshot s parent)] ++ empty ++
+ [page_region parent Composition.BoardStages Composition.BodyPosition
+   (match cards with
     |None=>[information parent "pending" Information.Description "正在加载看板。"]
     |Some cards=>let candidates:=value_or[](Read.board_cards snapshot)in
      map(fun stage=>let key:=part parent(BoardDomain.stage_name stage)in
@@ -160,7 +164,7 @@ Definition board_page snapshot s parent :=
         (BoardLane(BoardDomain.stage_name stage)(N.of_nat(List.length entries)))
         (group_title key(BoardDomain.stage_label stage)::
          declared key Roles.Button(secondary "card/new" ("新建卡片 · "++BoardDomain.stage_label stage)(Input.NewCard stage(part key "card/new")))::
-         map(card_node snapshot s parent candidates key)(Read.display_cards entries)))BoardDomain.stages end)].
+         map(card_node snapshot s parent candidates key)(Read.display_cards entries)))BoardDomain.stages end)])%list.
 Definition graph_endpoint_label graph name :=
  match Read.graph_endpoint graph name with
  |Some task=>String.concat ""[name;"（对话 #";show_natural task;"）"]

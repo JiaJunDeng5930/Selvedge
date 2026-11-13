@@ -1018,13 +1018,14 @@ main:has(> [data-page-region="creation-introduction"]) {
 [data-composer-menu]:not([data-anchor-available="false"]) {
   max-block-size: calc(100% - 2 * var(--layer-clearance)) !important;
   position-area: top span-left !important;
-  position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline, --native-menu-confined !important;
+  position-try-fallbacks: flip-inline !important;
   align-self: end !important;
   justify-self: end !important;
   inset: auto calc(0px - var(--layer-clearance)) calc(var(--layer-gap) - var(--layer-clearance)) auto !important;
 }
 @media (min-height: 640px) {
-  [data-composer-menu]:not([data-anchor-available="false"]) {
+  :where(#surface:has(main > [data-page-region="creation-introduction"]))
+    [data-composer-menu]:not([data-anchor-available="false"]) {
     position-area: bottom span-left !important;
     align-self: start !important;
     inset: calc(var(--layer-gap) - var(--layer-clearance)) calc(0px - var(--layer-clearance)) auto auto !important;
@@ -1286,7 +1287,6 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
   gap: .4rem !important;
   inline-size: fit-content;
   min-block-size: 2rem !important;
-  margin-inline-start: auto;
   padding: .125rem .45rem !important;
   border-color: transparent !important;
   border-radius: 6px !important;
@@ -1391,10 +1391,11 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
 }
 
 [data-semantic-key="interactive-markdown/range-number"] {
+  --paired-input-height: 2.125rem;
   display: grid !important;
-  grid-template-columns: minmax(0, 1fr) minmax(3.75rem, 6rem);
+  grid-template-columns: minmax(0, 1fr) minmax(3.75rem, 5rem);
   align-items: start;
-  gap: .25rem .625rem !important;
+  gap: .25rem 0 !important;
   min-inline-size: 0;
   max-inline-size: min(100%, 28.625rem) !important;
 
@@ -1402,7 +1403,35 @@ main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !importan
           [data-semantic-key="interactive-markdown/range-number-detail"]) { grid-column: 1 / -1; }
   & > [data-interactive-component="slider"] [data-interactive-slider] > div,
   & > [data-interactive-component="number-input"] > div > div > span:first-child { display: none !important; }
-  & > [data-interactive-component] input { min-inline-size: 0 !important; }
+  & [data-interactive-slider] {
+    align-items: center;
+    block-size: var(--paired-input-height);
+    max-inline-size: none;
+    padding-inline: .625rem;
+    border: 1px solid var(--selvedge-border);
+    border-inline-end: 0;
+    border-start-start-radius: 8px;
+    border-end-start-radius: 8px;
+    background: var(--selvedge-inset);
+  }
+  & input { min-inline-size: 0 !important; }
+  & input[type="range"] {
+    block-size: 100% !important;
+    margin: 0;
+    padding: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+  }
+  & > [data-interactive-component="number-input"] input {
+    block-size: var(--paired-input-height) !important;
+    border-start-start-radius: 0 !important;
+    border-end-start-radius: 0 !important;
+    text-align: center !important;
+    font-variant-numeric: tabular-nums;
+  }
+}
+@media (pointer: coarse) {
+  [data-semantic-key="interactive-markdown/range-number"] { --paired-input-height: 2.75rem; }
 }
 
 [data-interactive-component="checkbox"] [data-checkbox-mark],

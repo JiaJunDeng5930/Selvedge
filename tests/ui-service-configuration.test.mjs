@@ -231,6 +231,18 @@ test('Task and Service settings restore only saved values that differ from their
     const keyBounds = await privateKey.boundingBox();
     assert.ok(keyBounds.y + keyBounds.height < actionsAfterScroll.y,
       'The last field can be brought fully above the fixed actions');
+    const spotPrice = textbox(form, '竞价价格上限（账户币种/小时）');
+    const [instanceBounds, priceBounds] = await Promise.all([
+      textbox(form, '实例规格').boundingBox(), spotPrice.boundingBox(),
+    ]);
+    assert.ok(priceBounds.y >= instanceBounds.y + instanceBounds.height,
+      'The hourly price has room for its complete label below the instance fields');
+    const priceLabel = form.getByText('竞价价格上限（账户币种/小时）', { exact: true });
+    assert.equal(await priceLabel.evaluate(node => {
+      const text = document.createRange();
+      text.selectNodeContents(node);
+      return text.getClientRects().length;
+    }), 1);
     const config = cloud.tencent_cvm;
     for (const [name, value] of [
       ['地域', config.region], ['可用区', config.zone], ['镜像 ID', config.image_id],
@@ -266,6 +278,7 @@ test('Context settings show seconds and offer reset only for a changed value', {
   const configuration = path.join(running.service.home, 'config.json');
   // Explicit settings with equivalent numeric spellings are still at their defaults.
   await writeFile(configuration, `{"format":${JSON.stringify(defaultConfig.format)},
+    "profiles":{"limits-fixture":{"provider":"responses","model":"limits-fixture"}},
     "compaction":{"enabled":true,"background_percent":6.5e1,"blocking_percent":90,"idle_lead_ms":6e4}}`);
   const dialog = page.getByRole('dialog', { name: '设置', exact: true });
   const openContext = async () => {
@@ -279,6 +292,8 @@ test('Context settings show seconds and offer reset only for a changed value', {
   const restoreIdle = idle.locator('xpath=ancestor::*[@data-semantic-key="settings-controls"]')
     .getByRole('button', { name: '恢复默认', exact: true });
   const save = dialog.getByRole('button', { name: '保存', exact: true });
+  const button = (container, name) => container.getByRole('button', { name, exact: true });
+  const textbox = (container, name) => container.getByRole('textbox', { name, exact: true });
   const saved = () => dialog.getByRole('status').filter({ hasText: '设置已保存' }).waitFor();
   const policy = async () => JSON.parse(await readFile(configuration, 'utf8')).compaction;
 
@@ -292,9 +307,32 @@ test('Context settings show seconds and offer reset only for a changed value', {
   assert.equal(await limitSave.isDisabled(), true);
   assert.equal(await limitSave.getAttribute('data-help'), '添加配置项后可以保存');
   await limits.getByRole('button', { name: '添加配置项', exact: true }).click();
-  await limits.getByRole('textbox', { name: '模型配置名称', exact: true }).waitFor();
-  await limits.getByRole('button', { name: '放弃更改', exact: true }).click();
+  const profile = textbox(limits, '模型配置名称');
+  const window = textbox(limits, '上下文窗口（token）');
+  await limits.getByText('模型配置名称和上下文窗口为必填项。', { exact: true }).waitFor();
+  await limits.getByText(/输出预留默认为窗口的八分之一/).waitFor();
+  assert.equal(await limitSave.isDisabled(), true);
+  await profile.fill('limits-fixture');
+  assert.equal(await limitSave.isDisabled(), true);
+  await window.fill('1');
+  assert.equal(await limitSave.isDisabled(), true);
+  await window.fill('100000');
+  assert.equal(await limitSave.isEnabled(), true);
+  await limitSave.click();
   await limits.waitFor({ state: 'hidden' });
+  assert.deepEqual((await policy()).targets, [{ profile: 'limits-fixture', window_tokens: 100000 }]);
+
+  await dialog.getByRole('radio', { name: '扩展', exact: true }).click();
+  await button(dialog, '编辑来源').click();
+  const skills = page.getByRole('dialog', { name: '技能来源', exact: true });
+  const discovery = skills.getByText(/当前自动查找服务和项目目录中的技能/);
+  await discovery.waitFor();
+  await button(skills, '添加路径').click();
+  await textbox(skills, '路径 1').waitFor();
+  await discovery.waitFor({ state: 'hidden' });
+  await button(skills, '放弃更改').click();
+  await skills.waitFor({ state: 'hidden' });
+  await dialog.getByRole('radio', { name: '上下文', exact: true }).click();
 
   await idle.fill('60.0001');
   assert.equal(await save.isDisabled(), true, 'The seconds editor must not round a fraction of a millisecond');

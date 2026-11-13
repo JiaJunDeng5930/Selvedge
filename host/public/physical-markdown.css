@@ -137,6 +137,13 @@
   color: var(--selvedge-muted);
   font-size: var(--rich-support-size);
 }
+.code-block[data-interactive-preview-candidate]:not([data-interactive-active], [data-interactive-preview-failed])
+  > .interactive-preview-status {
+  min-block-size: clamp(6rem, 22dvh, 10rem);
+  padding-inline: .75rem;
+  border-radius: .5rem;
+  background: var(--selvedge-inset);
+}
 button[data-source-disclosure] {
   --source-disclosure-target: max(2rem, 32px);
   flex: none;

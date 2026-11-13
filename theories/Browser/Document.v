@@ -123,13 +123,15 @@ Definition role_tag role := match role with
 Definition text_tag role := match role with
  | Information.IntroductionTitle => "h1" | Information.SurfaceTitle=>"h2"
  | Information.GroupTitle=>"h3" | Information.Status=>"output" | _=>"span" end.
+Definition directory_path_segment text :=
+ DOM.Element "" "span" [("data-path-segment","")] [] [] (JObject []) [DOM.Text text].
 Fixpoint directory_path_parts (chunk path : string) : list DOM.node :=
  match path with
- |EmptyString=>[DOM.Text chunk]
+ |EmptyString=>if String.eqb chunk "" then [] else [directory_path_segment chunk]
  |String char rest=>
    let chunk:=String.append chunk (String char EmptyString) in
    if Ascii.eqb char "/"%char then
-     DOM.Text chunk :: DOM.Element "" "wbr" [] [] [] (JObject []) [] :: directory_path_parts "" rest
+     directory_path_segment chunk :: DOM.Element "" "wbr" [] [] [] (JObject []) [] :: directory_path_parts "" rest
    else directory_path_parts chunk rest
  end.
 Definition native_string value := match value with
@@ -894,7 +896,9 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
    [DOM.Text description]] else []))in
  match meaning with
  |S.InformationText info=>element (text_tag info) ([("tabindex","-1")] ++
-   match info with Information.Status=>[("role","status")]|_=>[]end) [] empty [DOM.Text label]
+   match info with Information.Status=>[("role","status")]|_=>[]end) [] empty
+   (if String.eqb (S.semantic_key value) "full-path"
+    then directory_path_parts "" label else [DOM.Text label])
  |S.ReadOnly text=>element "span" [] [] empty [DOM.Text text]
  |S.HistoryMatch before matched after=>element "span" [] [] empty
  [DOM.Text before;DOM.Element "" "mark" [] [] [] empty [DOM.Text matched];DOM.Text after]
@@ -1090,18 +1094,16 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  |S.PageRegion region position=>
    let region_attr:=[("data-page-region",Composition.region_name region)] in
    match region with
-   |Composition.BoardStages=>
-     let scroll_key:=(key++"/track")%string in
+   |Composition.BoardControls=>
      let button direction label icon:=DOM.Element (key++"/"++direction)%string "button"
-       [("type","button");("data-board-scroll",direction);("aria-controls",scroll_key);
+       [("type","button");("data-board-scroll",direction);
         ("aria-label",label);("title",label)] [] [] empty (glyph icon) in
-     DOM.Element key "div" [("data-board-track-group","")] [] [] empty
-      [DOM.Element (key++"/controls")%string "div" [("data-board-scroll-controls","");("hidden","")] [] [] empty
+     element (role_tag role) region_attr [] empty (children++
+       [DOM.Element (key++"/scroll")%string "div" [("data-board-scroll-controls","");("hidden","")] [] [] empty
          [button "previous" "向左查看更多状态列" "chevron-left";
-          button "next" "向右查看更多状态列" "chevron-right"];
-       DOM.Element scroll_key "section"
-         ([("id",scroll_key);("tabindex","0");("aria-label","看板状态列")]++region_attr)
-         styles [] empty children]
+          button "next" "向右查看更多状态列" "chevron-right"]])
+   |Composition.BoardStages=>
+     element "section" ([("tabindex","0");("aria-label","看板状态列")]++region_attr) [] empty children
    |_=>element (role_tag role) region_attr [] empty children end
  |S.BoardGroup grouping=>element "div" (ControlContent.board_group_attributes grouping) [] empty children
  |S.MovableCard _ _=>DOM.Text ""

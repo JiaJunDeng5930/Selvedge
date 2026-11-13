@@ -190,8 +190,10 @@ Export PlotProof(chart_axis_covers_values, chart_axis_coordinates_reach_both_plo
 
     Explicit interactive fences reuse the common scene and bounded expression
     language. Ordinary Markdown keeps its standard presentation. A pending
-    interactive preview shows a loading status in place of its source. A
-    refusal to mount leaves the original source available by disclosure.
+    interactive preview reserves space and shows a loading status in place
+    of its source. The conversation end action waits for pending previews.
+    Mounting a preview above the current passage preserves its reading
+    position. A refusal leaves the original source available by disclosure.
     Headings distinguish sections in a long interactive answer. Each source
     disclosure stays at the trailing edge of its fence footer as an icon
     with an accessible label.
@@ -207,11 +209,12 @@ Export PlotProof(chart_axis_covers_values, chart_axis_coordinates_reach_both_plo
     list equivalent. Charts display categories or numeric ticks along the axes,
     using authored axis labels for units. The axes enclose the plotted range
     and their endpoints agree with its coordinates. Grid lines remain subordinate
-    to the marks. Each plot has a data disclosure immediately below its
-    trailing edge. Its compact table shares header and row separators with
+    to the marks. The data disclosure below each plot and its compact table
+    share a leading edge. The table shares header and row separators with
     other tables, keeps exact plotted rows in source order and aligns numbers
-    for comparison. The compact table aligns with the plot's leading edge
-    and uses the same numeric grouping as the chart.
+    for comparison. It uses the same numeric grouping as the chart.
+    An adjacent slider and numeric input for the same value share a field
+    outline and centerline while preserving both editing methods.
     Compact list choices keep the check mark beside its label, and paired form
     cards share their row height when the available width keeps them side by side.
     [chart_accessible_values_keep_order] constrains that rendering projection.
@@ -291,17 +294,21 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     its details, and a separate control starts a conversation with its defaults.
     The board and project management are global. The board identifies its items
     as cards and exposes the action to link or open a conversation on the card.
-    Its execution filter shows a count distinct from the stage counts.
+    Its execution filter shows a count distinct from the stage counts and
+    explains when the selected filter leaves no executing cards.
     Each stage retains a heading, count and drop target when empty.
     Stage lanes follow one horizontal track. Their minimum width leaves room
     to read a card title alongside its action menu. Empty lanes retain a drop
-    target with the same height. Previous and next controls reveal columns
-    outside the viewport. The filter and lane heading use the same
+    target with the same height. Previous and next controls join the toolbar
+    when columns extend beyond the viewport. The filter and lane heading use the same
     icon for each stage. The assignee filter distinguishes people, models
     and unassigned cards while keeping its options searchable and its
     selected indicator distinct from keyboard focus.
     Curved tree branches represent conversation lineage. Directed graph connections
     represent output routing, with the same rules and receipts available as text.
+    A conversation transfer names its source and receiver beside the direction
+    between them. Its optional JSON definition opens in a separate section
+    that leaves the selected conversations and submit action available.
 
     Creation starts with the input needed for the common operation. A new
     conversation starts with a message, and a board card can be captured with a
@@ -380,7 +387,9 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     The assignee filter keeps complete rows in its scrollable list. Action menus
     show actions relevant to the card and keep their order while service checks
     change their availability. Applicable actions explain any current refusal.
-    A linked conversation's execution state is secondary within its open action.
+    The card action menu separates deletion from routine actions. The card editor
+    identifies its linked conversation. The conversation's execution state is
+    secondary within its open action on the board.
     The card reference and timestamp share a metadata row.
     Assisted capture places its model controls beside the card title and description.
     Assisted capture offers the board default when it names an eligible
@@ -424,6 +433,12 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     [reader_occurrences_preserve_the_task_reading_position] constrain the requested
     focus target and retained reading state. The browser performs the physical
     focus and scroll. Anchored menus refer to their actual trigger.
+    Menus in the composer share an attachment edge. When there is space below
+    the new-conversation composer, they open there to keep the title clear.
+    The narrow portrait model picker has a dedicated bottom sheet.
+    The task graph is reachable with the other workspace destinations. Task
+    details separate the environment, permissions and execution into readable
+    groups. A shown directory path breaks at separators when its segments fit.
     On desktop the conversation reader leaves space between the content and its
     scrollbar. The scrollbar uses a subdued color from the reading palette.
 

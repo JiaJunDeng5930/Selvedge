@@ -235,11 +235,14 @@ Definition field_section snapshot s e parent name fields:=
 Definition editor_options {A} parent key label (children:list(node A)) :=
  Node(part parent key)key label Roles.Section EditorOptions children.
 Definition card_editor snapshot s e parent (target:Identity.card_subject) :=
+ let linked task:=read_only parent "linked-conversation" "关联对话"
+   (value_or ("对话 #"++show_natural task)(option_map task_title(find_task task snapshot))) in
  let source:=match target with
- |Identity.BoardCard _=>[]
+ |Identity.BoardCard id=>match bind (bind id (fun card=>Read.find_card card snapshot)) Read.card_task with
+   |Some task=>[linked task]
+   |None=>[]end
  |Identity.ConversationCard task=>
-  List.app [read_only parent "linked-conversation" "关联对话"
-    (value_or ("对话 #"++show_natural task)(option_map task_title(find_task task snapshot)))] (
+  List.app [linked task] (
   match Read.card_link_stage task snapshot with
   |Some stage=>List.app [read_only parent "destination-stage" "预计进入"(Selvedge.Features.Domain.stage_label stage)]
    (match stage with
@@ -307,7 +310,8 @@ Definition handoff_fields snapshot e parent work (handoff:GraphAuthoring.handoff
       [graph_endpoint parent "handoff-source" GraphAuthoring.source_endpoint_label choices source target (fun id=>assign name id target);
        Node(part parent "handoff-direction")"handoff-direction" "" Roles.Decorative(Fact "→")[];
        graph_endpoint parent "handoff-target" GraphAuthoring.target_endpoint_label choices target source (fun id=>assign name source id)];
-     information parent "handoff-purpose" Information.Description "自动把新回复作为消息转发。"]
+     information parent "handoff-purpose" Information.Description
+      "来源对话的新回复会作为消息发送给接收对话。"]
   |Some(inl shortage)=>
     information parent "handoff-needs-conversations" Information.Description shortage::
     match e with
@@ -329,10 +333,15 @@ Definition graph_editor snapshot s e parent (graph:option N) work :=
  match picker_scope with
  |None=>declaration
  |Some scope=>
-   let quick:=match graph_handoff (Draft.contents(Session.current_draft s e)) with
+   let body:=Draft.contents(Session.current_draft s e) in
+   let quick:=match graph_handoff body with
     |Some handoff=>handoff_fields snapshot e parent scope handoff
-    |None=>[]end in
-   (quick++[editor_options parent "graph-options" "编辑 JSON 定义" declaration])%list
+    |None=>match body with
+      |Draft.TaskGraphBody _ _ (Some _) _=>
+        [information parent "handoff-custom" Information.Description "自定义转发规则在 JSON 定义中编辑。"]
+      |_=>[]end
+    end in
+   (quick++[editor_options parent "graph-options" "高级配置" declaration])%list
  end.
 Definition title_prompt_reset snapshot s scope parent : list (node Input.input) :=
  let owner := TitlePrompts scope in
@@ -383,6 +392,7 @@ Definition editor_view snapshot (s:Session.state) e parent :=
  let reason:=commit_reason parent assessment in
  let consequence:=if UX.action_pending unit then [] else match e with
  |Card _=>match Observe.card_save_consequence snapshot s draft with
+  |Some BoardFacts.SaveLinked|None=>[]
   |Some value=>[information parent "card-save-consequence" Information.Description
    (match value with
     |BoardFacts.SaveManual=>"只保存卡片。对话需要手动启动。"
@@ -392,8 +402,7 @@ Definition editor_view snapshot (s:Session.state) e parent :=
     |BoardFacts.SaveWaitsForModel=>"保存后进入队列，等模型空闲再尝试启动对话。"
     |BoardFacts.SaveDrafts=>"保存后先生成卡片内容，暂不启动对话。"
     |BoardFacts.SaveDraftsThenQueues=>"保存后先生成卡片内容，成功后自动排队。"
-    |BoardFacts.SaveLinked=>"保存卡片，保留已关联的对话。"end)]
-  |None=>[]end
+    |BoardFacts.SaveLinked=>""end)] end
  |_=>[]end in
  let body := (title_prompt_help e parent ++
    section_nodes snapshot s e parent ++

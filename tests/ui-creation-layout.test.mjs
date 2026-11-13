@@ -58,6 +58,31 @@ test('the composer gear keeps its menu clear of the draft at desktop and mobile 
   }
 });
 
+test('desktop and landscape composer menus open on the same side of their triggers', async t => {
+  const { page } = await browserFixture(t);
+  for (const viewport of [{ width: 1280, height: 720 }, { width: 844, height: 390 }]) {
+    await page.setViewportSize(viewport);
+    for (const [trigger, name] of [
+      [page.getByRole('button', { name: /^Model:/ }), 'Model'],
+      [page.getByRole('button', { name: /^权限:/ }), '权限'],
+      [creationEnvironmentTrigger(page), '工作环境'],
+    ]) {
+      const anchor = await trigger.boundingBox();
+      await trigger.click();
+      const menu = page.getByRole('dialog', { name, exact: true });
+      await menu.waitFor();
+      const box = await menu.boundingBox();
+      assert.ok(insideViewport(box, viewport));
+      assert.ok(viewport.height === 720 ? box.y >= anchor.y + anchor.height - 2 : box.y + box.height <= anchor.y + 2,
+        `${name} opens from its trigger at ${viewport.width}×${viewport.height}`);
+      assert.ok(Math.abs(box.x + box.width - anchor.x - anchor.width) <= 2,
+        `${name} aligns its trailing edge to the trigger`);
+      await page.keyboard.press('Escape');
+      await menu.waitFor({ state: 'hidden' });
+    }
+  }
+});
+
 test('project and directory choices open inside the composer menu and return to it', async t => {
   const { page } = await browserFixture(t);
   const menu = page.getByRole('dialog', { name: '工作环境', exact: true });

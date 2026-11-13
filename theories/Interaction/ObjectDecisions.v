@@ -41,9 +41,9 @@ Definition card_decisions snapshot clock (card:Read.card) :=
     else immediate "archive" "归档卡片" (G.Cmd_archive_card(G.Build_archive_card id revision observed));
    immediate "pin" (if Read.card_pinned card then "取消置顶" else "置顶卡片")
      (G.Cmd_pin_card(G.Build_pin_card id revision observed(Some(negb(Read.card_pinned card)))));
-   confirmed "delete" "删除卡片" (G.Cmd_delete_card(G.Build_delete_card id revision observed));
    immediate "regenerate" "重新生成标题" (G.Cmd_regenerate_card_title
-     (G.Build_regenerate_card_title id revision observed (option_map Read.board_draft_profile(Read.board_configuration snapshot))))]
+     (G.Build_regenerate_card_title id revision observed (option_map Read.board_draft_profile(Read.board_configuration snapshot))));
+   confirmed "delete" "删除卡片" (G.Cmd_delete_card(G.Build_delete_card id revision observed))]
  end.
 Definition decisions snapshot clock subject :=
  if subject_exists snapshot subject then match subject with

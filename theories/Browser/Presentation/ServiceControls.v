@@ -6,6 +6,7 @@ From Selvedge.Kernel Require WorkspaceBackend.
 From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Codec Identity.
 From Selvedge.Interaction Require World.
+From Selvedge.Interaction.Experience Require Model.
 From Selvedge.Interaction.Experience Require ContextObservation.
 From Selvedge.Interaction.Experience Require Observation.
 From Selvedge.Browser.Session Require Import Appearance Input.
@@ -236,6 +237,12 @@ Definition directory_view snapshot s :=
           (label "此目录没有子目录。" "This directory has no subdirectories.")]
         |_,_=>[]end))%list
     |_=>[]end in
+   let current_folder:=match resource with Resource.Loaded _ _ catalog=>
+        match string_field "path" catalog with
+        |Some path=>[information parent "directory-current-name" Information.GroupTitle
+          (Selvedge.Interaction.Experience.Model.directory_basename path)]
+        |None=>[]end
+       |_=>[]end in
    let parent_action:=match resource with Resource.Loaded _ _ catalog=>
         match string_field "parent" catalog with None=>[]|Some path=>
          [declared parent Roles.Button(secondary "parent" (label "上一级" "Up")(Input.ServiceInput(Services.VisitDirectory path)))]end
@@ -252,7 +259,7 @@ Definition directory_view snapshot s :=
      (Services.directory_trigger request)"/main"(Services.directory_trigger request)
      (Input.ServiceInput Services.CloseDirectory)true true))
     [dialog_header parent [title parent caption];
-     dialog_body parent((source++navigation::match resource with
+     dialog_body parent((source++current_folder++navigation::match resource with
       |Resource.Loaded _ _ _=>[region parent "folders" (label "子目录" "Folders") Roles.Section content]
       |_=>content end)%list);
      dialog_actions parent

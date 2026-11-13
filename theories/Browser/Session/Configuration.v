@@ -2,7 +2,8 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json TextJson Utf8.
 From Selvedge.Interaction Require Import Codec.
 From Selvedge.Interaction Require ServiceConfiguration.
-From Selvedge.Adapters Require ProviderCatalog.
+From Selvedge.Adapters Require Common ProviderCatalog.
+From Selvedge.Adapters Require Configuration.
 From Selvedge.Programming Require Import Resource.
 Import ListNotations.
 Open Scope string_scope.
@@ -215,10 +216,28 @@ Definition new_collection_entries s :=
   then Some (entries ++ [item])%list else None.
 Definition can_add_item s :=
   match new_collection_entries s with Some _ => true | None => false end.
+Definition compaction_targets_admitted targets s :=
+  current <- available s ;;
+  policy <- Config.find_setting ["compaction"] current ;;
+  profiles <- Config.find_setting ["profiles"] current ;;
+  let proposed := Common.set (Config.setting_value policy) "targets" targets in
+  Selvedge.Adapters.Configuration.admit_policy
+    (JObject [("compaction", proposed)]) (Config.setting_value profiles).
 Definition assignment entry draft s :=
   match new_item s with
   | Some _ => bind (new_collection_entries s) (fun entries => collection_value entries s)
-  | None => Config.interpret_setting_input entry (draft_input draft)
+  | None =>
+    value <- Config.interpret_setting_input entry (draft_input draft) ;;
+    match Config.setting_path entry with
+    | ["compaction"; "targets"] =>
+      option_map (fun _ => value) (compaction_targets_admitted value s)
+    | _ => Some value
+    end
+  end.
+Definition can_assign s :=
+  match editing s with
+  | Some (_, draft, entry) => match assignment entry draft s with Some _ => true | None => false end
+  | None => false
   end.
 Definition remove_item name :=
   update_collection (fun entries s =>

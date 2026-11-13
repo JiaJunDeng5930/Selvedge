@@ -716,6 +716,12 @@ test('the card action menu keeps positions while service assessments settle', as
   for (const name of ['启动对话', '置顶卡片', '删除卡片'])
     await action(name).and(page.locator(':not([aria-disabled="true"])')).waitFor();
   assertMenu(await rows(), order);
+  const remove = await action('删除卡片').evaluate(button => ({
+    color: getComputedStyle(button).color,
+    separator: getComputedStyle(button, '::before').borderBlockStartWidth,
+  }));
+  assert.equal(remove.separator, '1px');
+  assert.notEqual(remove.color, await action('编辑卡片').evaluate(button => getComputedStyle(button).color));
   await action('移动卡片').click();
   await page.getByRole('dialog', { name: '移动卡片', exact: true }).waitFor();
 });
@@ -755,6 +761,11 @@ test('the board keeps empty stages visible and counts only matching cards linked
       range.selectNodeContents(label);
       return range.getClientRects().length;
     }), 1, 'The execution filter stays on one line');
+    const [filterBounds, previousBounds, nextBounds] = await Promise.all(
+      [executionFilter, previous, next].map(control => control.boundingBox()));
+    const middle = box => box.y + box.height / 2;
+    assert.ok([previousBounds, nextBounds].every(box => Math.abs(middle(box) - middle(filterBounds)) <= 2),
+      'Scroll controls sit in the same toolbar row as the execution filter');
     await board.getByRole('region', { name: '已完成，0 张卡片', exact: true }).waitFor();
     await board.getByRole('region', { name: '已阻塞，0 张卡片', exact: true }).waitFor();
   }
@@ -829,14 +840,25 @@ test('the board keeps empty stages visible and counts only matching cards linked
   await link.waitFor({ state: 'hidden' });
 
   await assertConversationActivity(card, '工作中');
+  await card.getByRole('button', { name: '卡片操作', exact: true }).click();
+  await page.getByRole('menu', { name: '卡片操作', exact: true })
+    .getByRole('button', { name: '编辑卡片', exact: true }).click();
+  const editor = page.getByRole('dialog', { name: '编辑卡片', exact: true });
+  await editor.getByText('关联对话', { exact: true }).waitFor();
+  await editor.getByText(task.title, { exact: true }).waitFor();
+  await editor.getByRole('button', { name: '取消', exact: true }).click();
+  await editor.waitFor({ state: 'hidden' });
   const working = page.getByRole('radio', { name: '仅执行中 · 1', exact: true });
   await working.click();
   await board.locator('[data-board-stage="in_progress"]').getByRole('article', { name: title, exact: true }).waitFor();
   const search = page.getByPlaceholder('搜索卡片', { exact: true });
   await search.fill('different card title');
   await page.getByRole('radio', { name: '仅执行中 · 0', exact: true }).waitFor();
+  const noWorkingCards = page.getByRole('status').filter({ hasText: /^没有正在执行的卡片$/ });
+  await noWorkingCards.waitFor();
   await card.waitFor({ state: 'hidden' });
   await search.clear();
+  await noWorkingCards.waitFor({ state: 'hidden' });
   await card.getByRole('button', { name: '打开对话', exact: true }).click();
   await page.getByRole('main').getByRole('article', { name: 'Message', exact: true })
     .getByText(message, { exact: true }).waitFor();

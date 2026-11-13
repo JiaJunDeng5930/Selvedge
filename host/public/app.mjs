@@ -31,6 +31,7 @@ const readings = new Map();
 const readingMeasurements = new Map();
 const readingPointers = new Map();
 const readingLayouts = new WeakMap();
+const readingBlocks = new WeakMap();
 const restoredReadingOffsets = new WeakMap();
 const codeBlocks = new Map();
 const storagePolicy = interaction('interactive_storage_policy');
@@ -62,6 +63,7 @@ let historyLocation = null;
 let searchResultsPosition = null;
 let boardTrack = null;
 let boardFirstLane = null;
+let boardScrollControls = null;
 let boardHasOverflow = false;
 const boardTrackResize = new ResizeObserver(updateBoardScroll);
 let focusRequest = 0;
@@ -341,6 +343,12 @@ function renderDocument(plan, generation) {
   renderer.render(plan, generation);
   const track = surface.querySelector('[data-page-region="board-stages"]');
   const firstLane = track?.firstElementChild ?? null;
+  const controls = track?.parentElement.querySelector('[data-board-scroll-controls]') ?? null;
+  if (controls !== boardScrollControls || track !== boardTrack) {
+    boardScrollControls = controls;
+    for (const button of controls?.querySelectorAll('[data-board-scroll]') ?? [])
+      button.setAttribute('aria-controls', track.id);
+  }
   if (track !== boardTrack || firstLane !== boardFirstLane) {
     boardTrackResize.disconnect();
     if (track !== boardTrack) boardHasOverflow = false;
@@ -349,7 +357,7 @@ function renderDocument(plan, generation) {
     if (track) boardTrackResize.observe(track);
     if (firstLane) boardTrackResize.observe(firstLane);
   }
-  if (track && boardHasOverflow) track.previousElementSibling.hidden = false;
+  if (controls && boardHasOverflow) controls.hidden = false;
   const current = surface.querySelector(selector);
   if (previous === current) return;
   if (previous) {
@@ -361,12 +369,11 @@ function renderDocument(plan, generation) {
     current.dataset.key === searchResultsPosition?.key ? searchResultsPosition.offset : 0;
 }
 function updateBoardScroll() {
-  if (!boardTrack) return;
-  const controls = boardTrack.previousElementSibling;
+  if (!boardTrack || !boardScrollControls) return;
   const overflow = boardTrack.scrollWidth - boardTrack.clientWidth;
   boardHasOverflow = overflow > 1;
-  controls.hidden = !boardHasOverflow;
-  for (const button of controls.querySelectorAll('[data-board-scroll]')) {
+  boardScrollControls.hidden = !boardHasOverflow;
+  for (const button of boardScrollControls.querySelectorAll('[data-board-scroll]')) {
     const available = button.dataset.boardScroll === 'next'
       ? boardTrack.scrollLeft < overflow - 1
       : boardTrack.scrollLeft > 1;
@@ -754,6 +761,7 @@ function acceptReading(key, node, decision, locationTarget, publishIntent = true
   for (const effect of decision.effects) {
     if (effect.type === 'leave_viewport') {
       if (!locationTarget) retireHistoryLocation(node);
+      readingBlocks.delete(node);
       restoredReadingOffsets.delete(node);
       node.scrollTo({ top: node.scrollTop, left: node.scrollLeft, behavior: 'instant' });
     }
@@ -775,8 +783,10 @@ function acceptReading(key, node, decision, locationTarget, publishIntent = true
       if (target) {
         const location = currentHistoryLocation(node);
         const bounds = location?.target === target && location.range && firstRangeRect(location.range);
-        node.scrollTop += (bounds?.top ?? target.getBoundingClientRect().top) - readingTop(node) -
-          (bounds ? location.offset : Number(effect.anchor.offset));
+        const block = readingBlocks.get(node);
+        const local = block?.anchor === target && target.contains(block.node) ? block : null;
+        node.scrollTop += (bounds?.top ?? (local?.node ?? target).getBoundingClientRect().top) - readingTop(node) -
+          (bounds ? location.offset : local?.offset ?? Number(effect.anchor.offset));
         restoredReadingOffsets.set(node, node.scrollTop);
         // Keep the ordinary message bookmark usable after this Range is retired.
         if (bounds) observeReadingAnchor(node, decision.state, target);
@@ -814,7 +824,17 @@ function observeReadingAnchor(node, state, selected) {
     const bounds = target.getBoundingClientRect();
     return bounds.bottom > top && bounds.top < top + node.clientHeight;
   });
-  if (anchor) readings.set(readingKey(node), browser('reading', { state, event: 'anchor', anchor: {
+  if (!anchor) return;
+  const block = selected ? null : Array.from(anchor.querySelectorAll('.physical-markdown > .markdown > [data-stable]')).find(target => {
+    const bounds = target.getBoundingClientRect();
+    return bounds.bottom > top && bounds.top < top + node.clientHeight &&
+      !target.matches('[data-interactive-preview-candidate]:not([data-interactive-active], [data-interactive-preview-failed])');
+  });
+  // The durable bookmark identifies the message. A retained Markdown block
+  // also identifies the visible passage when an earlier widget in that message grows.
+  if (block) readingBlocks.set(node, { anchor, node: block, offset: block.getBoundingClientRect().top - top });
+  else readingBlocks.delete(node);
+  readings.set(readingKey(node), browser('reading', { state, event: 'anchor', anchor: {
     key: anchor.dataset.readingIdentity, offset: String(anchor.getBoundingClientRect().top - top) } }).state);
 }
 function retireReadingMeasurement(node) {
@@ -969,11 +989,13 @@ function layoutReading() {
     const dock = node.closest('[data-view]')?.querySelector('[data-composer-dock]');
     const bookmark = readings.get(readingKey(node))?.anchor;
     const anchor = bookmark ? readingAnchor(node, bookmark.key) : null;
+    const block = readingBlocks.get(node);
+    const bookmarkNode = block?.anchor === anchor && anchor?.contains(block.node) ? block.node : anchor;
     const location = currentHistoryLocation(node);
     const hit = location?.range && firstRangeRect(location.range);
     const signature = JSON.stringify([node.dataset.readerGeneration, node.clientWidth, node.clientHeight,
       node.scrollHeight, dock?.getBoundingClientRect().height ?? 0,
-      anchor ? anchor.getBoundingClientRect().top - readingTop(node) + node.scrollTop : null,
+      bookmarkNode ? bookmarkNode.getBoundingClientRect().top - readingTop(node) + node.scrollTop : null,
       hit ? hit.top - readingTop(node) + node.scrollTop : null]);
     if (readingLayouts.get(node) === signature && node.style.getPropertyValue('scroll-padding-block-end') !== '') continue;
     readingLayouts.set(node, signature);

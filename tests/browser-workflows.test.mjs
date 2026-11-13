@@ -270,19 +270,21 @@ test('ordered image content and the active composer survive responsive navigatio
     'The narrow workspace stays within the page width');
   await tasks.focus();
   await tasks.press('Space');
-  await page.getByRole('dialog', { name: '对话', exact: true }).waitFor();
-  await page.getByRole('dialog', { name: '对话', exact: true })
-    .getByRole('button', { name: '任务图', exact: true }).waitFor();
+  const taskDrawer = page.getByRole('dialog', { name: '对话', exact: true });
+  await taskDrawer.waitFor();
+  assert.equal(await taskDrawer.getByRole('button', { name: '任务图', exact: true }).count(), 0);
   await page.keyboard.press('Escape');
-  await page.getByRole('dialog', { name: '对话', exact: true }).waitFor({ state: 'hidden' });
+  await taskDrawer.waitFor({ state: 'hidden' });
   assert.equal(await tasks.evaluate(node => node === document.activeElement), true,
     'Closing the Task tree restores its actual keyboard launcher');
-  await tasks.press('Enter');
-  await page.getByRole('dialog', { name: '对话', exact: true })
-    .getByRole('button', { name: '任务图', exact: true }).click();
+  const launcher = page.getByRole('button', { name: 'Global navigation', exact: true });
+  await launcher.press('Enter');
+  const navigation = page.getByRole('dialog').getByRole('navigation', { name: 'Global destinations', exact: true });
+  await navigation.getByRole('button', { name: '项目', exact: true }).waitFor();
+  await navigation.getByRole('button', { name: '任务图', exact: true }).click();
   await page.getByRole('main').getByRole('heading', { name: '任务图', exact: true }).waitFor();
-  await page.getByRole('button', { name: 'Global navigation', exact: true }).click();
-  await page.getByRole('dialog').getByRole('button', { name: '卡片看板', exact: true }).click();
+  await launcher.click();
+  await navigation.getByRole('button', { name: '卡片看板', exact: true }).click();
   await page.getByRole('main').getByText('卡片看板', { exact: true }).waitFor();
 });
 
@@ -326,14 +328,17 @@ test('task graph setup creates its conversations in scope and routes replies', {
   const create = dialog.getByRole('button', { name: '创建对话转发', exact: true });
   await create.waitFor();
   const declaration = dialog.getByRole('textbox', { name: 'JSON 定义', exact: true });
-  const advanced = dialog.getByText('编辑 JSON 定义', { exact: true });
+  const advanced = dialog.getByText('高级配置', { exact: true });
   assert.equal(await declaration.isVisible(), false);
   await advanced.click();
-  const declarationBounds = await declaration.boundingBox();
-  assert.ok(declarationBounds?.height >= 140, 'The expanded JSON editor has room for multiple lines');
-  assert.equal(await dialog.getByText('JSON 定义', { exact: true }).isVisible(), false);
+  await dialog.getByText('JSON 定义', { exact: true }).waitFor();
   const initialDeclaration = await declaration.inputValue();
   assert.match(initialDeclaration, /^\{\n  "name": "对话转发",\n  "nodes": \[\n    \{/);
+  const custom = JSON.parse(initialDeclaration);
+  custom.rules[0].key = 'custom';
+  await declaration.fill(JSON.stringify(custom, null, 2));
+  await dialog.getByText('自定义转发规则在 JSON 定义中编辑。', { exact: true }).waitFor();
+  assert.equal(await declaration.isVisible(), true);
   const editedDeclaration = initialDeclaration.replace('"name": "对话转发"', '"name" :  "对话转发"');
   await declaration.fill(editedDeclaration);
   await advanced.click();
@@ -416,6 +421,35 @@ test('task graph setup creates its conversations in scope and routes replies', {
   const direction = dialog.locator('[data-semantic-key="handoff-direction"]');
   const compactHeader = page.locator('[data-surface-role="compact-header"]');
   const desktop = page.viewportSize();
+  for (const viewport of [{ width: 1280, height: 720 }, { width: 390, height: 740 }]) {
+    await page.setViewportSize(viewport);
+    await advanced.click();
+    const [from, to, options, json, lineHeight, submit] = await Promise.all([
+      sourcePicker.boundingBox(), receiverPicker.boundingBox(), advanced.boundingBox(),
+      declaration.boundingBox(), declaration.evaluate(node => parseFloat(getComputedStyle(node).lineHeight)),
+      create.boundingBox(),
+    ]);
+    assert.ok(from && to && options && json && submit);
+    assert.ok(from.y >= 0 && to.y + to.height < options.y && options.y + options.height < json.y,
+      'Both conversations remain visible above the advanced configuration');
+    assert.ok(json.height >= 3 * lineHeight && json.y + json.height < submit.y,
+      'The advanced editor shows several lines and leaves room for the transfer action');
+    assert.equal(await sourcePicker.inputValue(), String(source));
+    assert.equal(await receiverPicker.inputValue(), String(receiver));
+    await advanced.click();
+  }
+  await page.setViewportSize({ width: 844, height: 390 });
+  await advanced.click();
+  const [landscapeRoute, landscapeJson, landscapeSubmit] = await Promise.all([
+    dialog.getByRole('region', { name: '转发方向', exact: true }).boundingBox(),
+    declaration.boundingBox(), create.boundingBox(),
+  ]);
+  assert.ok(landscapeRoute && landscapeJson && landscapeSubmit);
+  assert.ok(landscapeRoute.x + landscapeRoute.width < landscapeJson.x
+    && landscapeRoute.y + landscapeRoute.height < landscapeSubmit.y
+    && landscapeJson.y + landscapeJson.height < landscapeSubmit.y,
+    'Landscape shows the route beside the JSON editor with the action below both');
+  await advanced.click();
   for (const width of [desktop.width, 390, 320]) {
     await page.setViewportSize({ width, height: desktop.height });
     await compactHeader.waitFor({ state: width === desktop.width ? 'hidden' : 'visible' });

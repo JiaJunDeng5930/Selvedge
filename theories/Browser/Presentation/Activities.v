@@ -345,7 +345,7 @@ Definition activity_fields snapshot s {e} (occurrence:N) parent (activity:Act.ac
  |_=>[]end.
 Definition current_layer s occurrence:=find(fun layer=>N.eqb occurrence(State.layer_occurrence layer))(State.layers(State.navigation_state s)).
 Definition inspection_label kind:=match kind with
-|UX.ModelProperty=>"Model settings…"|UX.PermissionsProperty=>"自定义权限…"|UX.DeliveryProperty=>"查看设置…"|_=>"Configuration source…"end.
+|UX.ModelProperty=>"Model settings…"|UX.PermissionsProperty=>"自定义权限…"|UX.DeliveryProperty=>"发送方式详情…"|_=>"Configuration source…"end.
 Definition view_title {e}(activity:Act.activity e)(view:Act.view e):string:=match view with
 |Act.DependentView subject|Act.InspectionView(Some subject)=>Parameters.label(UX.subject_declaration subject)
 |Act.InspectionView None=>match UX.property_kind_of(Act.activity_property activity)with UX.ModelProperty=>"Model settings"|_=>UX.property_label(Act.activity_property activity)end

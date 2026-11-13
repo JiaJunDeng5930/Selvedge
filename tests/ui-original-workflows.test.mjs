@@ -58,7 +58,14 @@ test('a Project task keeps its readable context and its primary and supporting a
   const details = page.getByRole('complementary', { name: '任务详情', exact: true });
   await details.getByText('Harbour 海港', { exact: true }).waitFor();
   for (const name of ['工作环境', '权限', '运行信息']) {
-    await details.getByRole('heading', { name, exact: true }).waitFor();
+    const heading = details.getByRole('heading', { name, exact: true });
+    await heading.waitFor();
+    if (name !== '工作环境') {
+      const separation = await heading.evaluate(node =>
+        node.getBoundingClientRect().top -
+        node.parentElement.previousElementSibling.lastElementChild.getBoundingClientRect().bottom);
+      assert.ok(separation >= 12, `${name} is separated from the preceding section`);
+    }
   }
   const pathText = details.getByText(workspace, { exact: true });
   assert.equal(await pathText.isVisible(), false, 'The compact summary shows the directory name before revealing its path');
@@ -71,9 +78,17 @@ test('a Project task keeps its readable context and its primary and supporting a
     range.selectNodeContents(node);
     const lines = [...range.getClientRects()];
     const region = node.closest('details').getBoundingClientRect();
-    return { lines: lines.length, fits: lines.every(line => line.left >= region.left && line.right <= region.right) };
+    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+    let text;
+    for (let current; (current = walker.nextNode());) if (current.length) text = current;
+    const end = text.length;
+    range.setStart(text, text.data.lastIndexOf('/') + 1);
+    range.setEnd(text, end);
+    return { lines: lines.length, fits: lines.every(line => line.left >= region.left && line.right <= region.right),
+      directoryLines: range.getClientRects().length };
   });
   assert.ok(pathLayout.lines > 1 && pathLayout.fits, 'The full directory path wraps inside the narrow details');
+  assert.equal(pathLayout.directoryLines, 1, 'A directory that fits a line wraps as a whole segment');
   const copy = details.getByRole('button', { name: '复制工作目录路径', exact: true });
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   await copy.press('Enter');
