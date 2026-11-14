@@ -121,6 +121,7 @@ Definition observe_field snapshot (value:Draft.draft) (field:Fields.field) : Fie
    |Fields.ForkCount=>Fields.CountValue count|Fields.ForkMessages=>Fields.TextsValue messages
    |_=>prospective context end
  |Draft.CompactBody _ summary=>match field with Fields.CompactionSummary=>Fields.OptionalTextValue summary|_=>Fields.NotApplicable end
+ |Draft.WorkflowDefinitionBody _ _ source|Draft.WorkflowStartBody _ source=>match field with Fields.TaskGraphDeclaration=>Fields.TextValue source|_=>Fields.NotApplicable end
  |Draft.TaskGraphBody _ declaration _ _=>match field with Fields.TaskGraphDeclaration=>Fields.TextValue declaration|_=>Fields.NotApplicable end
  |Draft.TitlePromptsBody _ _ task agent profile=>match field with
    |Fields.TaskTitlePrompt=>Fields.TextValue task|Fields.AgentTitlePrompt=>Fields.TextValue agent

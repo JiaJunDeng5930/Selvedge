@@ -911,6 +911,104 @@ Definition resolve_workspace_workspace (payload : resolve_workspace_payload) := 
 Definition resolve_workspace_project_id_admitted (payload : resolve_workspace_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd values))).
 Definition resolve_workspace_project_id (payload : resolve_workspace_payload) := ArgumentProjection.field (Field "project_id" (KOptional KNatural)) (List.nth 2 resolve_workspace_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (resolve_workspace_project_id_admitted payload).
 
+Definition create_workflow_schema := command_fields (List.nth 73 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition create_workflow_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 73 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition create_workflow_payload := CommandPayload.t create_workflow_schema create_workflow_input_declaration true.
+Definition create_workflow_proposal := CommandPayload.t create_workflow_schema create_workflow_input_declaration false.
+Definition Build_create_workflow (proposed_create_workflow_work_id : option (denote KNatural)) (proposed_create_workflow_name : denote KText) (proposed_create_workflow_nodes : denote (KArray KJson)) (proposed_create_workflow_connections : denote (KArray KJson)) : create_workflow_proposal := CommandPayload.propose (@FCons (OmittableField "work_id" KNatural) _ proposed_create_workflow_work_id (@FCons (Field "name" KText) _ proposed_create_workflow_name (@FCons (Field "nodes" (KArray KJson)) _ proposed_create_workflow_nodes (@FCons (Field "connections" (KArray KJson)) _ proposed_create_workflow_connections FNil)))).
+Definition Admit_create_workflow := @CommandPayload.admit create_workflow_schema create_workflow_input_declaration.
+Definition create_workflow_work_id_admitted (payload : create_workflow_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd values)).
+Definition create_workflow_work_id (payload : create_workflow_payload) := ArgumentProjection.field (OmittableField "work_id" KNatural) (List.nth 1 create_workflow_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (create_workflow_work_id_admitted payload).
+Definition create_workflow_name_admitted (payload : create_workflow_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd values))).
+Definition create_workflow_name (payload : create_workflow_payload) := ArgumentProjection.field (Field "name" KText) (List.nth 2 create_workflow_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (create_workflow_name_admitted payload).
+Definition create_workflow_nodes_admitted (payload : create_workflow_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd values)))).
+Definition create_workflow_nodes (payload : create_workflow_payload) := ArgumentProjection.field (Field "nodes" (KArray KJson)) (List.nth 3 create_workflow_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (create_workflow_nodes_admitted payload).
+Definition create_workflow_connections_admitted (payload : create_workflow_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd (snd values))))).
+Definition create_workflow_connections (payload : create_workflow_payload) := ArgumentProjection.field (Field "connections" (KArray KJson)) (List.nth 4 create_workflow_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (create_workflow_connections_admitted payload).
+
+Definition update_workflow_schema := command_fields (List.nth 74 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition update_workflow_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 74 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition update_workflow_payload := CommandPayload.t update_workflow_schema update_workflow_input_declaration true.
+Definition update_workflow_proposal := CommandPayload.t update_workflow_schema update_workflow_input_declaration false.
+Definition Build_update_workflow (proposed_update_workflow_workflow_id : denote KNatural) (proposed_update_workflow_name : denote KText) (proposed_update_workflow_nodes : denote (KArray KJson)) (proposed_update_workflow_connections : denote (KArray KJson)) : update_workflow_proposal := CommandPayload.propose (@FCons (Field "workflow_id" KNatural) _ proposed_update_workflow_workflow_id (@FCons (Field "name" KText) _ proposed_update_workflow_name (@FCons (Field "nodes" (KArray KJson)) _ proposed_update_workflow_nodes (@FCons (Field "connections" (KArray KJson)) _ proposed_update_workflow_connections FNil)))).
+Definition Admit_update_workflow := @CommandPayload.admit update_workflow_schema update_workflow_input_declaration.
+Definition update_workflow_workflow_id_admitted (payload : update_workflow_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd values)).
+Definition update_workflow_workflow_id (payload : update_workflow_payload) := ArgumentProjection.field (Field "workflow_id" KNatural) (List.nth 1 update_workflow_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (update_workflow_workflow_id_admitted payload).
+Definition update_workflow_name_admitted (payload : update_workflow_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd values))).
+Definition update_workflow_name (payload : update_workflow_payload) := ArgumentProjection.field (Field "name" KText) (List.nth 2 update_workflow_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (update_workflow_name_admitted payload).
+Definition update_workflow_nodes_admitted (payload : update_workflow_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd values)))).
+Definition update_workflow_nodes (payload : update_workflow_payload) := ArgumentProjection.field (Field "nodes" (KArray KJson)) (List.nth 3 update_workflow_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (update_workflow_nodes_admitted payload).
+Definition update_workflow_connections_admitted (payload : update_workflow_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd (snd values))))).
+Definition update_workflow_connections (payload : update_workflow_payload) := ArgumentProjection.field (Field "connections" (KArray KJson)) (List.nth 4 update_workflow_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (update_workflow_connections_admitted payload).
+
+Definition start_workflow_schema := command_fields (List.nth 75 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition start_workflow_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 75 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition start_workflow_payload := CommandPayload.t start_workflow_schema start_workflow_input_declaration true.
+Definition start_workflow_proposal := CommandPayload.t start_workflow_schema start_workflow_input_declaration false.
+Definition Build_start_workflow (proposed_start_workflow_workflow_id : denote KNatural) (proposed_start_workflow_entrance : denote KText) (proposed_start_workflow_message : denote KText) : start_workflow_proposal := CommandPayload.propose (@FCons (Field "workflow_id" KNatural) _ proposed_start_workflow_workflow_id (@FCons (Field "entrance" KText) _ proposed_start_workflow_entrance (@FCons (Field "message" KText) _ proposed_start_workflow_message FNil))).
+Definition Admit_start_workflow := @CommandPayload.admit start_workflow_schema start_workflow_input_declaration.
+Definition start_workflow_workflow_id_admitted (payload : start_workflow_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd values)).
+Definition start_workflow_workflow_id (payload : start_workflow_payload) := ArgumentProjection.field (Field "workflow_id" KNatural) (List.nth 1 start_workflow_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (start_workflow_workflow_id_admitted payload).
+Definition start_workflow_entrance_admitted (payload : start_workflow_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd values))).
+Definition start_workflow_entrance (payload : start_workflow_payload) := ArgumentProjection.field (Field "entrance" KText) (List.nth 2 start_workflow_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (start_workflow_entrance_admitted payload).
+Definition start_workflow_message_admitted (payload : start_workflow_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd values)))).
+Definition start_workflow_message (payload : start_workflow_payload) := ArgumentProjection.field (Field "message" KText) (List.nth 3 start_workflow_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (start_workflow_message_admitted payload).
+
+Definition list_workflows_schema := command_fields (List.nth 76 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition list_workflows_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 76 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition list_workflows_payload := CommandPayload.t list_workflows_schema list_workflows_input_declaration true.
+Definition list_workflows_proposal := CommandPayload.t list_workflows_schema list_workflows_input_declaration false.
+Definition Build_list_workflows  : list_workflows_proposal := CommandPayload.propose FNil.
+Definition Admit_list_workflows := @CommandPayload.admit list_workflows_schema list_workflows_input_declaration.
+
+Definition read_workflow_instance_schema := command_fields (List.nth 77 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition read_workflow_instance_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 77 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition read_workflow_instance_payload := CommandPayload.t read_workflow_instance_schema read_workflow_instance_input_declaration true.
+Definition read_workflow_instance_proposal := CommandPayload.t read_workflow_instance_schema read_workflow_instance_input_declaration false.
+Definition Build_read_workflow_instance (proposed_read_workflow_instance_instance_id : denote KNatural) : read_workflow_instance_proposal := CommandPayload.propose (@FCons (Field "instance_id" KNatural) _ proposed_read_workflow_instance_instance_id FNil).
+Definition Admit_read_workflow_instance := @CommandPayload.admit read_workflow_instance_schema read_workflow_instance_input_declaration.
+Definition read_workflow_instance_instance_id_admitted (payload : read_workflow_instance_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd values)).
+Definition read_workflow_instance_instance_id (payload : read_workflow_instance_payload) := ArgumentProjection.field (Field "instance_id" KNatural) (List.nth 1 read_workflow_instance_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (read_workflow_instance_instance_id_admitted payload).
+
+Definition choose_workflow_connection_schema := command_fields (List.nth 78 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition choose_workflow_connection_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 78 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition choose_workflow_connection_payload := CommandPayload.t choose_workflow_connection_schema choose_workflow_connection_input_declaration true.
+Definition choose_workflow_connection_proposal := CommandPayload.t choose_workflow_connection_schema choose_workflow_connection_input_declaration false.
+Definition Build_choose_workflow_connection (proposed_choose_workflow_connection_connection : denote KText) : choose_workflow_connection_proposal := CommandPayload.propose (@FCons (Field "connection" KText) _ proposed_choose_workflow_connection_connection FNil).
+Definition Admit_choose_workflow_connection := @CommandPayload.admit choose_workflow_connection_schema choose_workflow_connection_input_declaration.
+Definition choose_workflow_connection_connection_admitted (payload : choose_workflow_connection_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd values)).
+Definition choose_workflow_connection_connection (payload : choose_workflow_connection_payload) := ArgumentProjection.field (Field "connection" KText) (List.nth 1 choose_workflow_connection_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (choose_workflow_connection_connection_admitted payload).
+
+Definition configure_ticket_workflow_schema := command_fields (List.nth 79 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition configure_ticket_workflow_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 79 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition configure_ticket_workflow_payload := CommandPayload.t configure_ticket_workflow_schema configure_ticket_workflow_input_declaration true.
+Definition configure_ticket_workflow_proposal := CommandPayload.t configure_ticket_workflow_schema configure_ticket_workflow_input_declaration false.
+Definition Build_configure_ticket_workflow (proposed_configure_ticket_workflow_card_id : denote KNatural) (proposed_configure_ticket_workflow_revision : denote KNatural) (proposed_configure_ticket_workflow_observed_at : option (denote KText)) (proposed_configure_ticket_workflow_workflow_id : denote KNatural) (proposed_configure_ticket_workflow_entrance : denote KText) : configure_ticket_workflow_proposal := CommandPayload.propose (@FCons (Field "card_id" KNatural) _ proposed_configure_ticket_workflow_card_id (@FCons (Field "revision" KNatural) _ proposed_configure_ticket_workflow_revision (@FCons (OmittableField "observed_at" KText) _ proposed_configure_ticket_workflow_observed_at (@FCons (Field "workflow_id" KNatural) _ proposed_configure_ticket_workflow_workflow_id (@FCons (Field "entrance" KText) _ proposed_configure_ticket_workflow_entrance FNil))))).
+Definition Admit_configure_ticket_workflow := @CommandPayload.admit configure_ticket_workflow_schema configure_ticket_workflow_input_declaration.
+Definition configure_ticket_workflow_card_id_admitted (payload : configure_ticket_workflow_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd values)).
+Definition configure_ticket_workflow_card_id (payload : configure_ticket_workflow_payload) := ArgumentProjection.field (Field "card_id" KNatural) (List.nth 1 configure_ticket_workflow_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (configure_ticket_workflow_card_id_admitted payload).
+Definition configure_ticket_workflow_revision_admitted (payload : configure_ticket_workflow_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd values))).
+Definition configure_ticket_workflow_revision (payload : configure_ticket_workflow_payload) := ArgumentProjection.field (Field "revision" KNatural) (List.nth 2 configure_ticket_workflow_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (configure_ticket_workflow_revision_admitted payload).
+Definition configure_ticket_workflow_observed_at_admitted (payload : configure_ticket_workflow_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd values)))).
+Definition configure_ticket_workflow_observed_at (payload : configure_ticket_workflow_payload) := ArgumentProjection.field (OmittableField "observed_at" KText) (List.nth 3 configure_ticket_workflow_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (configure_ticket_workflow_observed_at_admitted payload).
+Definition configure_ticket_workflow_workflow_id_admitted (payload : configure_ticket_workflow_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd (snd values))))).
+Definition configure_ticket_workflow_workflow_id (payload : configure_ticket_workflow_payload) := ArgumentProjection.field (Field "workflow_id" KNatural) (List.nth 4 configure_ticket_workflow_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (configure_ticket_workflow_workflow_id_admitted payload).
+Definition configure_ticket_workflow_entrance_admitted (payload : configure_ticket_workflow_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd (snd (snd values)))))).
+Definition configure_ticket_workflow_entrance (payload : configure_ticket_workflow_payload) := ArgumentProjection.field (Field "entrance" KText) (List.nth 5 configure_ticket_workflow_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (configure_ticket_workflow_entrance_admitted payload).
+
+Definition start_ticket_workflow_schema := command_fields (List.nth 80 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition start_ticket_workflow_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 80 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition start_ticket_workflow_payload := CommandPayload.t start_ticket_workflow_schema start_ticket_workflow_input_declaration true.
+Definition start_ticket_workflow_proposal := CommandPayload.t start_ticket_workflow_schema start_ticket_workflow_input_declaration false.
+Definition Build_start_ticket_workflow (proposed_start_ticket_workflow_card_id : denote KNatural) (proposed_start_ticket_workflow_revision : denote KNatural) (proposed_start_ticket_workflow_observed_at : option (denote KText)) : start_ticket_workflow_proposal := CommandPayload.propose (@FCons (Field "card_id" KNatural) _ proposed_start_ticket_workflow_card_id (@FCons (Field "revision" KNatural) _ proposed_start_ticket_workflow_revision (@FCons (OmittableField "observed_at" KText) _ proposed_start_ticket_workflow_observed_at FNil))).
+Definition Admit_start_ticket_workflow := @CommandPayload.admit start_ticket_workflow_schema start_ticket_workflow_input_declaration.
+Definition start_ticket_workflow_card_id_admitted (payload : start_ticket_workflow_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd values)).
+Definition start_ticket_workflow_card_id (payload : start_ticket_workflow_payload) := ArgumentProjection.field (Field "card_id" KNatural) (List.nth 1 start_ticket_workflow_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (start_ticket_workflow_card_id_admitted payload).
+Definition start_ticket_workflow_revision_admitted (payload : start_ticket_workflow_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd values))).
+Definition start_ticket_workflow_revision (payload : start_ticket_workflow_payload) := ArgumentProjection.field (Field "revision" KNatural) (List.nth 2 start_ticket_workflow_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (start_ticket_workflow_revision_admitted payload).
+Definition start_ticket_workflow_observed_at_admitted (payload : start_ticket_workflow_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd values)))).
+Definition start_ticket_workflow_observed_at (payload : start_ticket_workflow_payload) := ArgumentProjection.field (OmittableField "observed_at" KText) (List.nth 3 start_ticket_workflow_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (start_ticket_workflow_observed_at_admitted payload).
+
 Inductive command_value (admitted : bool) : Type :=
 
 | Cmd_configure_task_execution (payload : CommandPayload.t configure_task_execution_schema configure_task_execution_input_declaration admitted)
@@ -1058,6 +1156,22 @@ Inductive command_value (admitted : bool) : Type :=
 | Cmd_retry_worktree_archive (payload : CommandPayload.t retry_worktree_archive_schema retry_worktree_archive_input_declaration admitted)
 
 | Cmd_resolve_workspace (payload : CommandPayload.t resolve_workspace_schema resolve_workspace_input_declaration admitted)
+
+| Cmd_create_workflow (payload : CommandPayload.t create_workflow_schema create_workflow_input_declaration admitted)
+
+| Cmd_update_workflow (payload : CommandPayload.t update_workflow_schema update_workflow_input_declaration admitted)
+
+| Cmd_start_workflow (payload : CommandPayload.t start_workflow_schema start_workflow_input_declaration admitted)
+
+| Cmd_list_workflows (payload : CommandPayload.t list_workflows_schema list_workflows_input_declaration admitted)
+
+| Cmd_read_workflow_instance (payload : CommandPayload.t read_workflow_instance_schema read_workflow_instance_input_declaration admitted)
+
+| Cmd_choose_workflow_connection (payload : CommandPayload.t choose_workflow_connection_schema choose_workflow_connection_input_declaration admitted)
+
+| Cmd_configure_ticket_workflow (payload : CommandPayload.t configure_ticket_workflow_schema configure_ticket_workflow_input_declaration admitted)
+
+| Cmd_start_ticket_workflow (payload : CommandPayload.t start_ticket_workflow_schema start_ticket_workflow_input_declaration admitted)
 
 .
 
@@ -1207,6 +1321,22 @@ Arguments Cmd_retry_worktree_archive {admitted}.
 
 Arguments Cmd_resolve_workspace {admitted}.
 
+Arguments Cmd_create_workflow {admitted}.
+
+Arguments Cmd_update_workflow {admitted}.
+
+Arguments Cmd_start_workflow {admitted}.
+
+Arguments Cmd_list_workflows {admitted}.
+
+Arguments Cmd_read_workflow_instance {admitted}.
+
+Arguments Cmd_choose_workflow_connection {admitted}.
+
+Arguments Cmd_configure_ticket_workflow {admitted}.
+
+Arguments Cmd_start_ticket_workflow {admitted}.
+
 Definition command := command_value true.
 
 Definition proposal := command_value false.
@@ -1217,7 +1347,7 @@ Definition proposal := command_value false.
 
 Definition command_interpretations : Selvedge.Programming.CommandDeclarations.interpretations true Selvedge.Kernel.Commands.command_declarations command :=
 
-((fun arguments => Cmd_configure_task_execution (Admit_configure_task_execution arguments)), ((fun arguments => Cmd_create (Admit_create arguments)), ((fun arguments => Cmd_create_idle (Admit_create_idle arguments)), ((fun arguments => Cmd_send (Admit_send arguments)), ((fun arguments => Cmd_steer (Admit_steer arguments)), ((fun arguments => Cmd_cancel_operation (Admit_cancel_operation arguments)), ((fun arguments => Cmd_freeze (Admit_freeze arguments)), ((fun arguments => Cmd_unfreeze (Admit_unfreeze arguments)), ((fun arguments => Cmd_stop (Admit_stop arguments)), ((fun arguments => Cmd_interrupt (Admit_interrupt arguments)), ((fun arguments => Cmd_archive (Admit_archive arguments)), ((fun arguments => Cmd_fork (Admit_fork arguments)), ((fun arguments => Cmd_open_side_conversation (Admit_open_side_conversation arguments)), ((fun arguments => Cmd_return_side_conversation (Admit_return_side_conversation arguments)), ((fun arguments => Cmd_compact (Admit_compact arguments)), ((fun arguments => Cmd_read (Admit_read arguments)), ((fun arguments => Cmd_search_history (Admit_search_history arguments)), ((fun arguments => Cmd_list (Admit_list arguments)), ((fun arguments => Cmd_describe (Admit_describe arguments)), ((fun arguments => Cmd_create_project (Admit_create_project arguments)), ((fun arguments => Cmd_update_project (Admit_update_project arguments)), ((fun arguments => Cmd_delete_project (Admit_delete_project arguments)), ((fun arguments => Cmd_list_projects (Admit_list_projects arguments)), ((fun arguments => Cmd_read_project (Admit_read_project arguments)), ((fun arguments => Cmd_review_approval (Admit_review_approval arguments)), ((fun arguments => Cmd_record_speech_transcript (Admit_record_speech_transcript arguments)), ((fun arguments => Cmd_accept_speech_delegation (Admit_accept_speech_delegation arguments)), ((fun arguments => Cmd_create_card (Admit_create_card arguments)), ((fun arguments => Cmd_update_card (Admit_update_card arguments)), ((fun arguments => Cmd_move_card (Admit_move_card arguments)), ((fun arguments => Cmd_archive_card (Admit_archive_card arguments)), ((fun arguments => Cmd_restore_card (Admit_restore_card arguments)), ((fun arguments => Cmd_delete_card (Admit_delete_card arguments)), ((fun arguments => Cmd_run_card (Admit_run_card arguments)), ((fun arguments => Cmd_link_card (Admit_link_card arguments)), ((fun arguments => Cmd_regenerate_card_title (Admit_regenerate_card_title arguments)), ((fun arguments => Cmd_pin_card (Admit_pin_card arguments)), ((fun arguments => Cmd_board_settings (Admit_board_settings arguments)), ((fun arguments => Cmd_list_cards (Admit_list_cards arguments)), ((fun arguments => Cmd_read_card (Admit_read_card arguments)), ((fun arguments => Cmd_configure_chatgpt_connections (Admit_configure_chatgpt_connections arguments)), ((fun arguments => Cmd_chatgpt_exec (Admit_chatgpt_exec arguments)), ((fun arguments => Cmd_chatgpt_cancel (Admit_chatgpt_cancel arguments)), ((fun arguments => Cmd_chatgpt_forget (Admit_chatgpt_forget arguments)), ((fun arguments => Cmd_chatgpt_projects (Admit_chatgpt_projects arguments)), ((fun arguments => Cmd_chatgpt_project (Admit_chatgpt_project arguments)), ((fun arguments => Cmd_chatgpt_operation (Admit_chatgpt_operation arguments)), ((fun arguments => Cmd_chatgpt_operations (Admit_chatgpt_operations arguments)), ((fun arguments => Cmd_remote_enable (Admit_remote_enable arguments)), ((fun arguments => Cmd_remote_disable (Admit_remote_disable arguments)), ((fun arguments => Cmd_remote_grant (Admit_remote_grant arguments)), ((fun arguments => Cmd_remote_revoke (Admit_remote_revoke arguments)), ((fun arguments => Cmd_remote_status (Admit_remote_status arguments)), ((fun arguments => Cmd_create_task_graph (Admit_create_task_graph arguments)), ((fun arguments => Cmd_update_task_graph (Admit_update_task_graph arguments)), ((fun arguments => Cmd_delete_task_graph (Admit_delete_task_graph arguments)), ((fun arguments => Cmd_list_task_graphs (Admit_list_task_graphs arguments)), ((fun arguments => Cmd_read_task_graph (Admit_read_task_graph arguments)), ((fun arguments => Cmd_read_title_settings (Admit_read_title_settings arguments)), ((fun arguments => Cmd_configure_title_settings (Admit_configure_title_settings arguments)), ((fun arguments => Cmd_create_work (Admit_create_work arguments)), ((fun arguments => Cmd_rename_work (Admit_rename_work arguments)), ((fun arguments => Cmd_create_work_task (Admit_create_work_task arguments)), ((fun arguments => Cmd_list_works (Admit_list_works arguments)), ((fun arguments => Cmd_read_work (Admit_read_work arguments)), ((fun arguments => Cmd_read_work_ui (Admit_read_work_ui arguments)), ((fun arguments => Cmd_apply_work_ui_patch (Admit_apply_work_ui_patch arguments)), ((fun arguments => Cmd_create_worktree_task (Admit_create_worktree_task arguments)), ((fun arguments => Cmd_create_workspace_task (Admit_create_workspace_task arguments)), ((fun arguments => Cmd_list_worktrees (Admit_list_worktrees arguments)), ((fun arguments => Cmd_read_worktree (Admit_read_worktree arguments)), ((fun arguments => Cmd_retry_worktree_archive (Admit_retry_worktree_archive arguments)), ((fun arguments => Cmd_resolve_workspace (Admit_resolve_workspace arguments)), tt))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))).
+((fun arguments => Cmd_configure_task_execution (Admit_configure_task_execution arguments)), ((fun arguments => Cmd_create (Admit_create arguments)), ((fun arguments => Cmd_create_idle (Admit_create_idle arguments)), ((fun arguments => Cmd_send (Admit_send arguments)), ((fun arguments => Cmd_steer (Admit_steer arguments)), ((fun arguments => Cmd_cancel_operation (Admit_cancel_operation arguments)), ((fun arguments => Cmd_freeze (Admit_freeze arguments)), ((fun arguments => Cmd_unfreeze (Admit_unfreeze arguments)), ((fun arguments => Cmd_stop (Admit_stop arguments)), ((fun arguments => Cmd_interrupt (Admit_interrupt arguments)), ((fun arguments => Cmd_archive (Admit_archive arguments)), ((fun arguments => Cmd_fork (Admit_fork arguments)), ((fun arguments => Cmd_open_side_conversation (Admit_open_side_conversation arguments)), ((fun arguments => Cmd_return_side_conversation (Admit_return_side_conversation arguments)), ((fun arguments => Cmd_compact (Admit_compact arguments)), ((fun arguments => Cmd_read (Admit_read arguments)), ((fun arguments => Cmd_search_history (Admit_search_history arguments)), ((fun arguments => Cmd_list (Admit_list arguments)), ((fun arguments => Cmd_describe (Admit_describe arguments)), ((fun arguments => Cmd_create_project (Admit_create_project arguments)), ((fun arguments => Cmd_update_project (Admit_update_project arguments)), ((fun arguments => Cmd_delete_project (Admit_delete_project arguments)), ((fun arguments => Cmd_list_projects (Admit_list_projects arguments)), ((fun arguments => Cmd_read_project (Admit_read_project arguments)), ((fun arguments => Cmd_review_approval (Admit_review_approval arguments)), ((fun arguments => Cmd_record_speech_transcript (Admit_record_speech_transcript arguments)), ((fun arguments => Cmd_accept_speech_delegation (Admit_accept_speech_delegation arguments)), ((fun arguments => Cmd_create_card (Admit_create_card arguments)), ((fun arguments => Cmd_update_card (Admit_update_card arguments)), ((fun arguments => Cmd_move_card (Admit_move_card arguments)), ((fun arguments => Cmd_archive_card (Admit_archive_card arguments)), ((fun arguments => Cmd_restore_card (Admit_restore_card arguments)), ((fun arguments => Cmd_delete_card (Admit_delete_card arguments)), ((fun arguments => Cmd_run_card (Admit_run_card arguments)), ((fun arguments => Cmd_link_card (Admit_link_card arguments)), ((fun arguments => Cmd_regenerate_card_title (Admit_regenerate_card_title arguments)), ((fun arguments => Cmd_pin_card (Admit_pin_card arguments)), ((fun arguments => Cmd_board_settings (Admit_board_settings arguments)), ((fun arguments => Cmd_list_cards (Admit_list_cards arguments)), ((fun arguments => Cmd_read_card (Admit_read_card arguments)), ((fun arguments => Cmd_configure_chatgpt_connections (Admit_configure_chatgpt_connections arguments)), ((fun arguments => Cmd_chatgpt_exec (Admit_chatgpt_exec arguments)), ((fun arguments => Cmd_chatgpt_cancel (Admit_chatgpt_cancel arguments)), ((fun arguments => Cmd_chatgpt_forget (Admit_chatgpt_forget arguments)), ((fun arguments => Cmd_chatgpt_projects (Admit_chatgpt_projects arguments)), ((fun arguments => Cmd_chatgpt_project (Admit_chatgpt_project arguments)), ((fun arguments => Cmd_chatgpt_operation (Admit_chatgpt_operation arguments)), ((fun arguments => Cmd_chatgpt_operations (Admit_chatgpt_operations arguments)), ((fun arguments => Cmd_remote_enable (Admit_remote_enable arguments)), ((fun arguments => Cmd_remote_disable (Admit_remote_disable arguments)), ((fun arguments => Cmd_remote_grant (Admit_remote_grant arguments)), ((fun arguments => Cmd_remote_revoke (Admit_remote_revoke arguments)), ((fun arguments => Cmd_remote_status (Admit_remote_status arguments)), ((fun arguments => Cmd_create_task_graph (Admit_create_task_graph arguments)), ((fun arguments => Cmd_update_task_graph (Admit_update_task_graph arguments)), ((fun arguments => Cmd_delete_task_graph (Admit_delete_task_graph arguments)), ((fun arguments => Cmd_list_task_graphs (Admit_list_task_graphs arguments)), ((fun arguments => Cmd_read_task_graph (Admit_read_task_graph arguments)), ((fun arguments => Cmd_read_title_settings (Admit_read_title_settings arguments)), ((fun arguments => Cmd_configure_title_settings (Admit_configure_title_settings arguments)), ((fun arguments => Cmd_create_work (Admit_create_work arguments)), ((fun arguments => Cmd_rename_work (Admit_rename_work arguments)), ((fun arguments => Cmd_create_work_task (Admit_create_work_task arguments)), ((fun arguments => Cmd_list_works (Admit_list_works arguments)), ((fun arguments => Cmd_read_work (Admit_read_work arguments)), ((fun arguments => Cmd_read_work_ui (Admit_read_work_ui arguments)), ((fun arguments => Cmd_apply_work_ui_patch (Admit_apply_work_ui_patch arguments)), ((fun arguments => Cmd_create_worktree_task (Admit_create_worktree_task arguments)), ((fun arguments => Cmd_create_workspace_task (Admit_create_workspace_task arguments)), ((fun arguments => Cmd_list_worktrees (Admit_list_worktrees arguments)), ((fun arguments => Cmd_read_worktree (Admit_read_worktree arguments)), ((fun arguments => Cmd_retry_worktree_archive (Admit_retry_worktree_archive arguments)), ((fun arguments => Cmd_resolve_workspace (Admit_resolve_workspace arguments)), ((fun arguments => Cmd_create_workflow (Admit_create_workflow arguments)), ((fun arguments => Cmd_update_workflow (Admit_update_workflow arguments)), ((fun arguments => Cmd_start_workflow (Admit_start_workflow arguments)), ((fun arguments => Cmd_list_workflows (Admit_list_workflows arguments)), ((fun arguments => Cmd_read_workflow_instance (Admit_read_workflow_instance arguments)), ((fun arguments => Cmd_choose_workflow_connection (Admit_choose_workflow_connection arguments)), ((fun arguments => Cmd_configure_ticket_workflow (Admit_configure_ticket_workflow arguments)), ((fun arguments => Cmd_start_ticket_workflow (Admit_start_ticket_workflow arguments)), tt))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))).
 
 Definition admitted_command := Selvedge.Kernel.CommandDeclarations.observed_command.
 
@@ -1379,6 +1509,22 @@ Definition declared_command {admitted} (value : command_value admitted) : comman
 
 | Cmd_resolve_workspace _ => List.nth 72 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
+| Cmd_create_workflow _ => List.nth 73 Selvedge.Kernel.Commands.command_specs (Command "" [])
+
+| Cmd_update_workflow _ => List.nth 74 Selvedge.Kernel.Commands.command_specs (Command "" [])
+
+| Cmd_start_workflow _ => List.nth 75 Selvedge.Kernel.Commands.command_specs (Command "" [])
+
+| Cmd_list_workflows _ => List.nth 76 Selvedge.Kernel.Commands.command_specs (Command "" [])
+
+| Cmd_read_workflow_instance _ => List.nth 77 Selvedge.Kernel.Commands.command_specs (Command "" [])
+
+| Cmd_choose_workflow_connection _ => List.nth 78 Selvedge.Kernel.Commands.command_specs (Command "" [])
+
+| Cmd_configure_ticket_workflow _ => List.nth 79 Selvedge.Kernel.Commands.command_specs (Command "" [])
+
+| Cmd_start_ticket_workflow _ => List.nth 80 Selvedge.Kernel.Commands.command_specs (Command "" [])
+
 end.
 
 Definition encode {admitted} (value : command_value admitted) : json := match value with
@@ -1528,6 +1674,22 @@ Definition encode {admitted} (value : command_value admitted) : json := match va
 | Cmd_retry_worktree_archive payload => CommandPayload.encode (List.nth 71 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
 | Cmd_resolve_workspace payload => CommandPayload.encode (List.nth 72 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+
+| Cmd_create_workflow payload => CommandPayload.encode (List.nth 73 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+
+| Cmd_update_workflow payload => CommandPayload.encode (List.nth 74 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+
+| Cmd_start_workflow payload => CommandPayload.encode (List.nth 75 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+
+| Cmd_list_workflows payload => CommandPayload.encode (List.nth 76 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+
+| Cmd_read_workflow_instance payload => CommandPayload.encode (List.nth 77 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+
+| Cmd_choose_workflow_connection payload => CommandPayload.encode (List.nth 78 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+
+| Cmd_configure_ticket_workflow payload => CommandPayload.encode (List.nth 79 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+
+| Cmd_start_ticket_workflow payload => CommandPayload.encode (List.nth 80 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
 end.
 
@@ -1679,6 +1841,22 @@ Record handler_table (A : Type) := Handlers {
 
  handle_resolve_workspace : resolve_workspace_payload -> A;
 
+ handle_create_workflow : create_workflow_payload -> A;
+
+ handle_update_workflow : update_workflow_payload -> A;
+
+ handle_start_workflow : start_workflow_payload -> A;
+
+ handle_list_workflows : list_workflows_payload -> A;
+
+ handle_read_workflow_instance : read_workflow_instance_payload -> A;
+
+ handle_choose_workflow_connection : choose_workflow_connection_payload -> A;
+
+ handle_configure_ticket_workflow : configure_ticket_workflow_payload -> A;
+
+ handle_start_ticket_workflow : start_ticket_workflow_payload -> A;
+
 }.
 
 Arguments Handlers {A}.
@@ -1829,6 +2007,22 @@ Arguments handle_retry_worktree_archive {A}.
 
 Arguments handle_resolve_workspace {A}.
 
+Arguments handle_create_workflow {A}.
+
+Arguments handle_update_workflow {A}.
+
+Arguments handle_start_workflow {A}.
+
+Arguments handle_list_workflows {A}.
+
+Arguments handle_read_workflow_instance {A}.
+
+Arguments handle_choose_workflow_connection {A}.
+
+Arguments handle_configure_ticket_workflow {A}.
+
+Arguments handle_start_ticket_workflow {A}.
+
 Definition dispatch {A : Type} (handlers : handler_table A) (value : command) : A := match value with
 
 | Cmd_configure_task_execution payload => handle_configure_task_execution handlers payload
@@ -1976,5 +2170,21 @@ Definition dispatch {A : Type} (handlers : handler_table A) (value : command) : 
 | Cmd_retry_worktree_archive payload => handle_retry_worktree_archive handlers payload
 
 | Cmd_resolve_workspace payload => handle_resolve_workspace handlers payload
+
+| Cmd_create_workflow payload => handle_create_workflow handlers payload
+
+| Cmd_update_workflow payload => handle_update_workflow handlers payload
+
+| Cmd_start_workflow payload => handle_start_workflow handlers payload
+
+| Cmd_list_workflows payload => handle_list_workflows handlers payload
+
+| Cmd_read_workflow_instance payload => handle_read_workflow_instance handlers payload
+
+| Cmd_choose_workflow_connection payload => handle_choose_workflow_connection handlers payload
+
+| Cmd_configure_ticket_workflow payload => handle_configure_ticket_workflow handlers payload
+
+| Cmd_start_ticket_workflow payload => handle_start_ticket_workflow handlers payload
 
 end.

@@ -121,7 +121,7 @@ Export TaskGraphProofs(expansion_has_declared_meaning,
     supplies an exit receipt. The instance retains its observed exit results.
 
     The completion contract below uses the instance's full set of current path
-    dispositions, including paths that already reached exits. Its eventual
+    dispositions, including paths that already reached exits. Its
     binding must account for every branch admitted by the actual start and
     forwarding operations. In particular, it cannot derive paths from visible
     activity dots or discard a queued, blocked or failed path to prove success.
@@ -136,6 +136,10 @@ Export TaskGraphProofs(expansion_has_declared_meaning,
 Definition workflow_completion_contract {Path : Type} (paths : list Path)
     (reached_exit : Path -> Prop) (outstanding complete : Prop) : Prop :=
   complete <-> paths <> nil /\ List.Forall reached_exit paths /\ ~ outstanding.
+
+From Selvedge.Features Require WorkflowProofs.
+Export WorkflowProofs(completion_reports_all_paths_at_exits,
+  completion_does_not_hide_outstanding_paths).
 
 From Selvedge.Features Require BoardProofs TitleProofs TitleRuntime.
 From Selvedge.Kernel Require FeatureAdmissionProofs.

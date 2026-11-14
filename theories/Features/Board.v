@@ -106,7 +106,9 @@ Definition edited_card (input:patch) (observed:BoardParameters.clock) (card:Selv
 Definition update_card (id revision:N) (observed:BoardParameters.clock) (input:patch) (value:world) :=
  CardScope.with_card id revision value (fun card=>let draft:=apply_patch input (Selvedge.Features.Domain.card_contents card) in
  if editable card && (unlinked card || retains_assignment input card) &&
-   retains_active_stage input card value && valid_draft draft value
+   retains_active_stage input card value &&
+   (negb (BoardFacts.workflow_in_progress id value) || match Selvedge.Features.Domain.draft_stage draft with Selvedge.Features.Domain.InProgress=>true|_=>false end) &&
+   valid_draft draft value
  then save id (edited_card input observed card) value
  else Selvedge.Kernel.State.reject "card_locked" "Restore archived cards before editing. Linked assignees stay fixed, active conversations keep their cards in progress, and card fields must be valid." value).
 Fixpoint insert_before (id:N) (before:option N) (order:list N) := match order with []=>[id] | item::rest=>
@@ -115,7 +117,8 @@ Definition move_card (id revision:N) (observed:BoardParameters.clock)
  (destination:Selvedge.Features.Domain.board_stage) (target:option N) (value:world) :=
  let now:=observed in CardScope.with_card id revision value (fun card=>
  let valid_target:=match target with None=>true | Some target=>negb (N.eqb target id) && match CardScope.lookup target value with Some other=>negb (Selvedge.Features.Domain.card_archived other) && String.eqb (Selvedge.Features.Domain.stage_name destination) (Selvedge.Features.Domain.stage_name (Selvedge.Features.Domain.draft_stage (Selvedge.Features.Domain.card_contents other))) && Bool.eqb (Selvedge.Features.Domain.card_pinned card) (Selvedge.Features.Domain.card_pinned other) | None=>false end end in
- if editable card && BoardFacts.stage_available card destination value && valid_target then let updated:=revised (with_stage destination (Selvedge.Features.Domain.card_contents card)) now card in
+ if editable card && BoardFacts.stage_available card destination value &&
+   (negb (BoardFacts.workflow_in_progress id value) || match destination with Selvedge.Features.Domain.InProgress=>true|_=>false end) && valid_target then let updated:=revised (with_stage destination (Selvedge.Features.Domain.card_contents card)) now card in
  let changed:=put id updated value in let b:=registry changed in
  Selvedge.Kernel.State.accept (result id updated) (store ((set Selvedge.Features.Domain.board_order (fun _=>(insert_before id target (filter (fun other=>negb (N.eqb id other)) (Selvedge.Features.Domain.board_order b)))) (b))) changed) []
  else Selvedge.Kernel.State.reject "invalid_card_move" "The card must be editable and the insertion target must remain in the destination column and pin group" value).
@@ -128,7 +131,7 @@ Definition link_result (id revision:N) (observed:BoardParameters.clock) (target:
  CommandResult.bind (CardScope.select_card id revision value) (fun card=>
  match Selvedge.Kernel.State.find_task target value with None=>CommandResult.refuse "task_not_found" "The conversation to link does not exist" | Some _=>
  let used:=existsb (fun candidate=>match candidate with Some other=>match Selvedge.Features.Domain.card_task other with Some linked=>N.eqb linked target | None=>false end | None=>false end) (Selvedge.Features.Domain.board_cards (registry value)) in
- if editable card && unlinked card && negb used then
+ if editable card && unlinked card && negb used && negb (BoardFacts.has_workflow id value) then
  let updated:=revised (with_stage BoardFacts.initial_link_stage (Selvedge.Features.Domain.card_contents card)) observed card in
  CommandResult.Accepted (save_change id (set Selvedge.Features.Domain.card_start_error (fun _=>"")
    (set Selvedge.Features.Domain.card_task (fun _=>Some target) updated)) value)
@@ -157,7 +160,7 @@ Definition archive_card (id revision:N) (observed:BoardParameters.clock) (archiv
  match target with Some target=>
  let stopped:=Tasks.control_command target Tasks.Interrupt (decision_world saved) in
  Selvedge.Kernel.State.Decision (decision_world stopped) (decision_reply saved) (decision_effects stopped) | None=>saved end).
-Definition delete_card (id revision:N) (value:world) := CardScope.with_card id revision value (fun card=>if busy card value then Selvedge.Kernel.State.reject "card_locked" "Wait for the linked conversation's active work to settle before deleting this card" value else
+Definition delete_card (id revision:N) (value:world) := CardScope.with_card id revision value (fun card=>if busy card value || BoardFacts.workflow_in_progress id value then Selvedge.Kernel.State.reject "card_locked" "Wait for the linked conversation's active work to settle before deleting this card" value else
  let b:=registry value in Selvedge.Kernel.State.accept JNull (store ((set Selvedge.Features.Domain.board_order (fun _=>(filter (fun other=>negb (N.eqb id other)) (Selvedge.Features.Domain.board_order b))) (set Selvedge.Features.Domain.board_cards (fun _=>(replace id None (Selvedge.Features.Domain.board_cards b))) (b)))) value) []).
 Fixpoint attachment_prompt (files:list Selvedge.Features.Domain.attachment) := match files with []=>"" | file::rest=>String.append "
 - " (String.append (Selvedge.Features.Domain.attachment_name file) (String.append ": " (String.append (Selvedge.Features.Domain.attachment_path file) (attachment_prompt rest)))) end.
@@ -176,7 +179,7 @@ Definition launch_settings (draft:Selvedge.Features.Domain.card_draft) :=
    Codec.empty_settings_request.
 Definition run_result (id revision:N) (observed:BoardParameters.clock) (caller:option N) (value:world) :=
  let now:=observed in CommandResult.bind (CardScope.select_card id revision value) (fun card=>
- match BoardFacts.runnable_profile card value with
+ match if BoardFacts.has_workflow id value then None else BoardFacts.runnable_profile card value with
  | None=>CommandResult.refuse "card_not_runnable" "The card already has a conversation, is locked, has no model profile, or its model profile is busy"
  | Some profile=>
  let settings:=launch_settings (Selvedge.Features.Domain.card_contents card) in
@@ -274,7 +277,7 @@ Definition ready (card:Selvedge.Features.Domain.card) (value:world) := runnable 
 Definition priority_rank (p:Selvedge.Features.Domain.priority) :N := match p with Selvedge.Features.Domain.Urgent=>4 | Selvedge.Features.Domain.High=>3 | Selvedge.Features.Domain.Medium=>2 | Selvedge.Features.Domain.Low=>1 | Selvedge.Features.Domain.NoPriority=>0 end.
 Definition queued (value:world) := let order:=Selvedge.Features.Domain.board_order (registry value) in
  flat_map (fun pinned=>flat_map (fun priority=>filter (fun id=>match CardScope.lookup id value with Some card=>
- Bool.eqb pinned (Selvedge.Features.Domain.card_pinned card) && N.eqb priority (priority_rank (Selvedge.Features.Domain.draft_priority (Selvedge.Features.Domain.card_contents card))) && ready card value | None=>false end) order) [4%N;3%N;2%N;1%N;0%N]) [true;false].
+ Bool.eqb pinned (Selvedge.Features.Domain.card_pinned card) && N.eqb priority (priority_rank (Selvedge.Features.Domain.draft_priority (Selvedge.Features.Domain.card_contents card))) && ready card value && negb (BoardFacts.has_workflow id value) | None=>false end) order) [4%N;3%N;2%N;1%N;0%N]) [true;false].
 Definition next (value:world) := if Selvedge.Features.Domain.board_automatic (registry value) then hd_error (queued value) else None.
 Definition save_consequence (id:N) (value:world) : option BoardFacts.save_consequence :=
  match CardScope.lookup id value with None=>None|Some card=>

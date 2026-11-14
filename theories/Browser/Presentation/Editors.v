@@ -27,6 +27,7 @@ Definition editor_title e := match e with
 |Identity.Project None=>"新建项目"|Identity.Project(Some _)=>"编辑项目"|Card None=>"新建卡片"|Card(Some _)=>"编辑卡片"
 |CardForConversation _=>"添加到看板"
 |Fork _=>ObjectActions.fork_label|Compact _=>"压缩上下文"
+|WorkflowDefinition None _=>"创建工作流"|WorkflowDefinition (Some _) _=>"编辑工作流"|WorkflowStart _=>"启动工作流"
 |TaskGraph None _=>graph_creation_label|TaskGraph(Some _) _=>"编辑任务图"
 |WorkName None=>"新建工作组"|WorkName(Some _) =>"重命名工作组"
 |TitlePrompts ConversationTitles=>Settings.conversation_titles_label
@@ -38,6 +39,7 @@ Definition submit_label snapshot draft e :=match Draft.contents draft with
 |_=>match e with
 |NewTask _=>"Start task"|Message _=>"发送"|Identity.Project None=>"创建项目"|Identity.Project(Some _)=>"保存"|Card None=>"创建卡片"
 |CardForConversation _=>"添加卡片"
+|WorkflowDefinition None _=>"创建工作流"|WorkflowDefinition (Some _) _=>"保存"|WorkflowStart _=>"启动工作流"
 |TaskGraph None _=>graph_creation_label|TaskGraph(Some _) _=>"保存"|Fork _=>"创建分支"|Card(Some _)=>"保存"
 |WorkName None=>"创建工作组"|WorkName(Some _)=>"保存"
 |Compact _=>"压缩"|TitlePrompts _=>"保存"end end.
@@ -236,7 +238,7 @@ Definition editor_sections e :=match e with
  |None=>[("Creation options",[Fields.ContinueCapture;Fields.AssistedCapture;Fields.AssistanceProfile])]|Some _=>[]end)%list
 |Fork _=>[("Fork",[Fields.ForkCount;Fields.ForkMessages]);execution_section]
 |Compact _=>[("Compaction",[Fields.CompactionSummary])]
-|TaskGraph _ _=>[("Task graph",[Fields.TaskGraphDeclaration])]
+|TaskGraph _ _|WorkflowDefinition _ _|WorkflowStart _=>[("Task graph",[Fields.TaskGraphDeclaration])]
 |Identity.Project _|CardForConversation _|WorkName _|TitlePrompts _=>[]end.
 Definition field_section snapshot s e parent name fields:=
  Node(part parent name)name name Roles.Section(ObjectGroup(UX.group_owner e fields))
@@ -380,6 +382,7 @@ Definition section_nodes snapshot s e parent :=
  |Card id=>card_editor snapshot s e parent (Identity.BoardCard id)
  |CardForConversation task=>card_editor snapshot s e parent (Identity.ConversationCard task)
  |Fork task=>fork_editor snapshot s e parent task
+ |WorkflowDefinition _ _|WorkflowStart _=>field_nodes snapshot s e parent [Fields.TaskGraphDeclaration]
  |TaskGraph graph work=>graph_editor snapshot s e parent graph work
  |WorkName _=>field_nodes snapshot s e parent [Fields.WorkName]
  |TitlePrompts scope=>title_prompt_fields snapshot s scope parent
@@ -428,6 +431,6 @@ Definition editor_view snapshot (s:Session.state) e parent :=
    (dialog_body parent body::
     [dialog_actions parent
       (reason ++ commit_status parent unit ++ consequence ++ capture ++ [declared parent Roles.Button(secondary "cancel"
-        (match e with Card _|TaskGraph _ _|Fork _|Compact _|WorkName _|TitlePrompts _=>"取消"|_=>"Cancel"end) Input.ClosePanel)] ++
+        (match e with Card _|TaskGraph _ _|WorkflowDefinition _ _|WorkflowStart _|Fork _|Compact _|WorkName _|TitlePrompts _=>"取消"|_=>"Cancel"end) Input.ClosePanel)] ++
        [Node(part parent "submit")"submit"(control_label submit)
          (commit_role unit(draft_feedback draft))(ActionCommit e assessment submit)[]])%list])].

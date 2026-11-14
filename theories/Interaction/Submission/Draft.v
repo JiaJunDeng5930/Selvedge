@@ -22,6 +22,8 @@ Inductive body :=
     (assist : bool) (profile : string) (keep_open : bool)
 | ForkBody (task count : N) (messages : list string) (context : Context.configuration)
 | CompactBody (task : N) (summary : option string)
+| WorkflowDefinitionBody (id work : option N) (source : string)
+| WorkflowStartBody (id : N) (source : string)
 | TaskGraphBody (graph : option N) (declaration : string) (parsed : option json) (work : option N)
 | TitlePromptsBody (scope : title_prompt_scope) (revision : N)
     (task_prompt agent_prompt : string) (agent_profile : option string).
@@ -55,7 +57,9 @@ Definition owner value := match contents value with
 | CardBody card _ _ _ _ _ => Identity.card_editor card
 | ForkBody task _ _ _ => Identity.Fork task
 | CompactBody task _ => Identity.Compact task
-| TaskGraphBody graph _ _ work => Identity.graph_editor graph work
+| WorkflowDefinitionBody id work _ => Identity.WorkflowDefinition id work
+ | WorkflowStartBody id _ => Identity.WorkflowStart id
+ | TaskGraphBody graph _ _ work => Identity.graph_editor graph work
 | TitlePromptsBody scope _ _ _ _ => Identity.TitlePrompts scope end.
 Definition empty_text := Text "" [].
 Definition empty_workspace := Selvedge.Kernel.Domain.Workspace [] None.
@@ -70,7 +74,9 @@ Definition new_body e := match e with
 | Identity.CardForConversation task => new_card (Identity.ConversationCard task) "" Selvedge.Features.Domain.InProgress None
 | Identity.Fork task => ForkBody task 1 [] (Context.Configuration (Context.ParentTask task) None None None)
 | Identity.Compact task => CompactBody task None
-| Identity.TaskGraph id work => TaskGraphBody id "" None work
+| Identity.WorkflowDefinition id work => WorkflowDefinitionBody id work ""
+ | Identity.WorkflowStart id => WorkflowStartBody id ""
+ | Identity.TaskGraph id work => TaskGraphBody id "" None work
 | Identity.WorkName work => WorkNameBody work ""
 | Identity.TitlePrompts scope => TitlePromptsBody scope 0 "" "" None end.
 Definition new_draft e := Draft 0 (new_body e) Editing "" None.

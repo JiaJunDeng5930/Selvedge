@@ -2,7 +2,7 @@ From Stdlib Require Import String List NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Kernel Require Import Domain State Queries CommandExecution Tasks.
-From Selvedge.Features Require Import Work Board Worktree TaskGraph Remote Chatgpt Compaction TitleRuntime WorkspaceBinding.
+From Selvedge.Features Require Import Work Board Worktree TaskGraph Remote Chatgpt Compaction TitleRuntime WorkspaceBinding Workflow.
 Module G := Selvedge.Generated.Commands.
 Module Declarations := Selvedge.Kernel.Commands.
 Open Scope string_scope.
@@ -82,7 +82,29 @@ Definition handlers : G.handler_table interpretation := {|
  G.handle_list_worktrees := fun payload => Observation (fun caller value => Selvedge.Features.Worktree.handle_list_worktrees payload caller value);
  G.handle_read_worktree := fun payload => Observation (fun caller value => Selvedge.Features.Worktree.handle_read_worktree payload caller value);
  G.handle_retry_worktree_archive := fun payload => Mutation (fun context value => Selvedge.Features.Worktree.handle_retry_worktree_archive payload (option_map Tasks.native_owner context) value);
- G.handle_resolve_workspace := fun payload => Observation (fun caller value => Selvedge.Features.Worktree.handle_resolve_workspace payload caller value)
+ G.handle_resolve_workspace := fun payload => Observation (fun caller value => Selvedge.Features.Worktree.handle_resolve_workspace payload caller value);
+ G.handle_create_workflow := fun p => Mutation (fun _ => Workflow.save_graph None (G.create_workflow_work_id p)
+   (G.create_workflow_name p) (G.create_workflow_nodes p) (G.create_workflow_connections p));
+ G.handle_update_workflow := fun p => Mutation (fun _ v =>
+   let id := G.update_workflow_workflow_id p in
+   match Workflow.lookup_graph id v with
+   | Some g => Workflow.save_graph (Some id) (Selvedge.Features.WorkflowTypes.workflow_work g)
+       (G.update_workflow_name p) (G.update_workflow_nodes p) (G.update_workflow_connections p) v
+   | None => reject "workflow_not_found" "The workflow does not exist." v end);
+ G.handle_start_workflow := fun p => Mutation (fun _ =>
+   Workflow.start (G.start_workflow_workflow_id p) (G.start_workflow_entrance p)
+     (TextPart (G.start_workflow_message p) :: nil) None None);
+ G.handle_list_workflows := fun _ => Observation (fun _ v =>
+   success (JObject (("definitions", Workflow.definitions_json v) ::
+     ("instances", Workflow.instances_json v) :: nil)));
+ G.handle_read_workflow_instance := fun p => Observation (fun _ => Workflow.read_instance (G.read_workflow_instance_instance_id p));
+ G.handle_choose_workflow_connection := fun p => Mutation (fun context => Workflow.choose context (G.choose_workflow_connection_connection p));
+ G.handle_configure_ticket_workflow := fun p => Mutation (fun _ v =>
+   Workflow.ticket_configure (G.configure_ticket_workflow_card_id p) (G.configure_ticket_workflow_revision p)
+     (G.configure_ticket_workflow_workflow_id p) (G.configure_ticket_workflow_entrance p) v);
+ G.handle_start_ticket_workflow := fun p => Mutation (fun _ =>
+   Workflow.ticket_start (G.start_ticket_workflow_card_id p) (G.start_ticket_workflow_revision p)
+     (Selvedge.Features.BoardParameters.observed_clock (G.start_ticket_workflow_observed_at_admitted p)))
 |}.
 Definition task_origin {A : Type} (context : option A) := match context with Some _ => true | None => false end.
 Definition origin_failure := State.failure "access_denied" "This command is not available to task-originated calls".

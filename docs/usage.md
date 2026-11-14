@@ -34,6 +34,35 @@ unsupported image input explicitly. The independent
 [ChatGPT plugin](../plugins/selvedge-chatgpt/README.md) exposes explicitly shared
 Projects through Secure MCP Tunnel, with grants separate from ordinary Tasks.
 
+## Workflow instances
+
+Open **任务图** and choose **创建工作流** in the desired Work. A definition
+lists `nodes` and `connections`. Each node has a `key` and a `kind` of
+`entrance`, `exit`, or `task`. A Task node names either `task_id` or a
+configured `profile` and `creation` policy. Use `once` to keep one Task
+conversation per instance, or `each` for a fresh conversation per delivery.
+
+Each connection names its `key`, `source`, and `target`. Messages forward
+unchanged by default. A connection also accepts the existing output, literal
+and concatenation expressions. A Task with several outgoing connections
+receives each connection's `description` and calls
+`choose_workflow_connection` before its final answer. An entrance can send
+the same message down multiple paths. Every path must reach an exit before
+the instance completes.
+
+Use **启动工作流** and supply the entrance key and message, or choose a
+workflow and entrance in a ticket's details and then start its instance.
+The active nodes show one dot per instance, with the same color on each of
+its active nodes. Instance details link to its Tasks and show exit results
+or blocked paths. A ticket follows its current instance and completes
+automatically when that instance succeeds. Direct starts and ticket starts
+create separate instances, and editing the definition affects later starts.
+
+The terminal exposes the same operations through `create_workflow`,
+`update_workflow`, `start_workflow`, `list_workflows`,
+`read_workflow_instance`, `configure_ticket_workflow` and
+`start_ticket_workflow`.
+
 ## Workspaces and projects
 
 Each task freezes its own workspace: zero or more canonical directory roots and,
