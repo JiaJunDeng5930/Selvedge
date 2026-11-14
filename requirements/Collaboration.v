@@ -1,9 +1,12 @@
-(** * Undertakings, planned work and declared handoffs
+(** * Undertakings, tickets and workflow instances
 
-    A Work groups an undertaking, a Task executes a conversation, a graph routes
-    replies, and a board card records planned work. Linking them does not merge
-    their identity, authority or lifecycle. Independent names and shared source
-    must remain editable without rewriting the execution they describe.
+    A Work groups an undertaking. A workflow definition describes reusable
+    message routing, a workflow instance executes one invocation of that
+    definition, and a Task retains a conversation. A board card (ticket)
+    records a deliverable and can delegate its execution to an instance.
+    Users must be able to run the same definition for different tickets without
+    mixing their messages, conversations or results. Independent names and
+    shared source remain editable without rewriting the execution they describe.
     Refusal contracts require failure, unchanged state and no emitted effects;
     human-readable diagnostic wording is not part of that behavior.
     Deletion, renaming and board settings need an acknowledgement of the
@@ -24,6 +27,9 @@ Export WorkProofs(witnessed_root_birth_records_its_work,
     associated ancestor. [witnessed_root_birth_records_its_work] consumes the
     actual fresh birth rather than an arbitrary world-changing callback;
     [new_root_ownership_preserves_existing_roots] preserves earlier ownership.
+    A Work can hold independent workflow definitions. Each instance belongs
+    to its definition's Work, as do the Tasks it creates. Changing the selected
+    Work in the browser changes the view without changing those associations.
 
     The shared interface belongs to the Work registry, so changing conversations
     does not erase it. Tool callers supply no competing Work target. Patches
@@ -36,58 +42,100 @@ Export WorkProofs(witnessed_root_birth_records_its_work,
     [shared_ui_patch_preserves_task_ownership] prevents source editing from
     transferring execution ownership. *)
 
-From Selvedge.Features Require GraphConstructionProofs TaskGraphProofs.
-Export GraphConstructionProofs(public_resolved_graph_installs_its_exact_typed_plan,
-  existing_birth_keeps_its_original_identity,
-  failed_create_graph_keeps_the_complete_world).
-Export TaskGraphProofs(resolved_installation_succeeds,
-  installed_plan_associates_its_work,
-  graph_removal_preserves_other_identities,
-  expansion_has_declared_meaning,
+From Selvedge.Features Require TaskGraphProofs.
+Export TaskGraphProofs(expansion_has_declared_meaning,
   pending_deliveries_obey_registry_order,
   actual_delivery_reaches_idle_task,
   unchanged_history_has_no_new_outputs,
   observed_provider_text_retains_its_requested_mode_and_is_routed).
 
-(** ** Graphs express connections using ordinary Task operations
+(** ** A workflow definition is callable at any of its entrance nodes
 
-    A graph stores finite task references and output reactions. Its declaration
-    supplies both execution and presentation; arbitrary captured callbacks
-    would need a separate persistence and display meaning. Existing references
-    are resolved against the original observation, before any new Tasks are
-    allocated. A guessed future identity cannot acquire the meaning Existing.
-    Installation establishes all connections before new Tasks can execute, and
-    rejected installation is atomic.
+    A definition contains nodes and directed connections. Saving it makes its
+    nodes and connections available to start and inspect. It does not start an
+    instance or create its Tasks. A start names the definition and one of its
+    entrance nodes and supplies a message. The accepted start creates a fresh
+    instance, captures the selected definition and admits the message to that
+    entrance. A refused start leaves no instance, Task, ticket association or
+    dispatch effect. Edits affect later starts. An existing instance retains
+    the definition it started with, including its connection choices.
 
-    The selected Work is part of the installed graph. Work reads and graph
-    updates use that field. Deleting the graph removes the association along
-    with the graph's other data.
+    A graph can have several entrances. An entrance produces the received
+    message unchanged, and its outgoing connections use ordinary forwarding.
+    In particular, an entrance with several outgoing connections forwards
+    along each of them. An exit records the received message and ends the path
+    that reached it. Reaching an exit does not finish other paths.
 
-    [TaskGraphSemantics] gives the ordered meaning independently of the runtime
-    expander. [expansion_has_declared_meaning],
-    [pending_deliveries_obey_registry_order] and
-    [actual_delivery_reaches_idle_task] connect it to actual delivery. An
-    implementation that emits no handoffs cannot satisfy the positive result.
-    Fresh nonempty assistant replies trigger reactions; installation does not
-    replay old outputs. [unchanged_history_has_no_new_outputs] binds that
-    boundary to the committed history position. The request receiver already
-    consumes each model completion once, and inherited fork context retains its
-    original producer. Rechecking every old origin adds no routing authority.
-    Routing follows the returned assistant message, so the
-    source's requested output mode cannot silently discard its text.
-    [observed_provider_text_retains_its_requested_mode_and_is_routed] connects
-    that requirement to the actual provider callback and reaction hook.
-    Replies containing tool calls await their results instead of triggering a
-    handoff; nonassistant context is not handoff text.
+    A Task node uses ordinary conversation admission. When configured to
+    create a Task, it either creates a fresh Task for every delivery or creates
+    one on its first delivery and uses that same Task for later deliveries to
+    the node in the same instance. Separate instances have separate created
+    Tasks. This lets later work retain its context where requested and makes
+    fresh context available where requested. If a node refers to an existing
+    conversation, that reference retains ordinary Task identity and Work
+    admission. The work sent to a Task and the result accepted from it still
+    belong to a particular delivery in a particular instance. When multiple
+    deliveries target the same conversation, keep each outstanding until its
+    own result is accepted or its failure recorded. A later delivery must
+    not silently replace one the workflow still needs to settle. *)
 
-    Reliable handoff is part of the committed transition and reuses normal
-    input admission. A target refusal remains observable without discarding the
-    source reply. Optional plugin observations and tool hooks do not substitute
-    for that transport. Editing rules affects subsequent journal inputs, not
-    already delivered messages. Removing a graph removes its connections,
-    leaving Task and Work lifecycle to their owners. Cycles cause later Task
-    activity; they do not synchronously run a model inside a graph transition
-    or establish termination of an entire conversation. *)
+(** ** Tasks choose a connection for the current delivery
+
+    Connections retain the declared output, literal and concatenation message
+    rules. [expansion_has_declared_meaning] selects the existing meaning of
+    those rules. Ordinary input admission still governs the destination. A
+    refusal remains observable and leaves the path unfinished. The exported
+    delivery and provider theorems cover the existing handoff operation. The
+    workflow extension must bind forwarding and its receipt to the actual
+    instance and delivery; those theorems alone do not establish this binding.
+
+    Each outgoing connection of a Task node with multiple choices has an
+    identity and a description of when to use it. Supply those choices and
+    descriptions to the Task at creation, or with the workflow's input if
+    the conversation already exists. Use the captured definition to interpret
+    its choice. The Task calls a tool before its final answer to
+    select one outgoing connection for the current delivery. Acceptance of a
+    choice sends no message. The tool refuses a connection outside that
+    delivery's outgoing choices without changing its routing. Once the
+    corresponding final answer arrives, forward its content through the
+    chosen connection only. With one outgoing connection, forward the final
+    answer without requiring the tool.
+
+    A final answer without the required choice sends a reminder to the same
+    Task and leaves its delivery outstanding. Forwarding then requires both a
+    choice and a subsequent final answer. A choice for an earlier delivery,
+    a result from another instance, old conversation history, an unrelated
+    turn or an intermediate reply that requests tools cannot advance the
+    current delivery. Accepting the final answer consumes that delivery's
+    authority to forward, so a late or repeated result cannot act on later
+    work in the same Task. In particular, reusing a conversation does not
+    reuse its previous choice. *)
+
+(** ** Every path must reach an exit before the instance completes
+
+    An accepted start establishes a path. Forwarding replaces the current
+    position with the resulting paths and carries each through pending
+    delivery, Task activity or waiting for a result. Paths may revisit a node.
+    A blocked delivery or a path that runs out of connections at a node other
+    than an exit remains unfinished. Neither inactivity nor a Task failure
+    supplies an exit receipt. The instance retains its observed exit results.
+
+    The completion contract below uses the instance's full set of current path
+    dispositions, including paths that already reached exits. Its eventual
+    binding must account for every branch admitted by the actual start and
+    forwarding operations. In particular, it cannot derive paths from visible
+    activity dots or discard a queued, blocked or failed path to prove success.
+    Outstanding work includes work awaiting admission, routing, a choice or a
+    final answer, as well as Tasks still executing work for that instance.
+    Unrelated turns in a conversation do not count as instance work. The last
+    valid exit and settlement of outstanding work must make completion
+    observable without another user action. External providers are responsible
+    for supplying results; the system does not guarantee that a model answers
+    or that an arbitrary cycle reaches an exit. *)
+
+Definition workflow_completion_contract {Path : Type} (paths : list Path)
+    (reached_exit : Path -> Prop) (outstanding complete : Prop) : Prop :=
+  complete <-> paths <> nil /\ List.Forall reached_exit paths /\ ~ outstanding.
 
 From Selvedge.Features Require BoardProofs TitleProofs TitleRuntime.
 From Selvedge.Kernel Require FeatureAdmissionProofs.
@@ -117,7 +165,8 @@ Export TitleProofs(admitted_title_issues_observed_request,
 
 (** ** Plans remain editable without rewriting execution
 
-    Launching a card captures an ordinary Task request. The card remains a plan:
+    Launching a card assigned to an ordinary model captures a Task request.
+    The card remains a plan:
     its title, description, Project, attachments, priority and labels may change
     while the linked Task runs. [admitted_card_edit_preserves_its_execution]
     requires the actual update to save the exact patch and retain the complete
@@ -163,6 +212,24 @@ Export TitleProofs(admitted_title_issues_observed_request,
     conversation refuses the command without leaving an unlinked card or
     requesting drafting effects. An existing association opens its card from
     the conversation's actions.
+
+    A workflow-backed ticket selects a definition and an entrance before
+    launch. Launch supplies the ticket's captured request as the entrance
+    message, creates the instance and records it as the ticket's current
+    execution in one accepted operation. A refused launch leaves the ticket
+    and execution state unchanged. An instance can also start directly from
+    its Work without a ticket. Editing the ticket's plan does not change an
+    accepted invocation.
+
+    At most one instance is current for a ticket. Starting again creates a
+    new instance and retains the earlier one for inspection. Only successful
+    completion of the ticket's current instance authorizes automatic entry
+    into Done, and that completion updates the ticket without manual review.
+    An earlier instance's result and the state of one constituent Task have
+    no such authority. A failed or blocked instance leaves the deliverable
+    unfinished and its execution available for inspection. This requirement
+    is specific to workflow-backed tickets; ordinary Task associations keep
+    their existing stage rules.
 
     Ordinary creation retains the requested draft. Automatic execution selects
     pinned cards first, then urgent through unprioritized cards, retaining manual
