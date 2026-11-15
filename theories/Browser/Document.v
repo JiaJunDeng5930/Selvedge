@@ -899,7 +899,10 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
    match info with Information.Status=>[("role","status")]|_=>[]end) [] empty
    (if String.eqb (S.semantic_key value) "full-path"
     then directory_path_parts "" label else [DOM.Text label])
- |S.ReadOnly text=>element "span" [] [] empty [DOM.Text text]
+ |S.ReadOnly text=>if String.eqb (S.semantic_key value) "workflow-instance-dot" then
+   DOM.Element key "span" (attrs++[("title",label);("aria-label",label);("tabindex","0")])
+     (styles++[("display","block");("background-color",text)]) [] empty []
+   else element "span" [] [] empty [DOM.Text text]
  |S.HistoryMatch before matched after=>element "span" [] [] empty
  [DOM.Text before;DOM.Element "" "mark" [] [] [] empty [DOM.Text matched];DOM.Text after]
  |S.Fact text=>element "span"

@@ -1,3 +1,4 @@
+From Selvedge.Features Require Workflow.
 From Stdlib Require Import String List NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Numbers Domain Codec Context State Tasks ContextUpdates Observation Workspace.
@@ -118,5 +119,8 @@ Definition world_json (value : world) :=
  ("works", JArray (indexed Features.work_json 0 (Selvedge.Features.Domain.feature_works features)));
  ("graphs", JArray (Features.present_values graph_snapshot (Selvedge.Features.Domain.feature_graphs features)));
  ("board", Selvedge.Features.Observation.board_json_in_world value);
+ ("workflows", Workflow.definitions_json value);
+ ("workflow_instances", Workflow.instances_json value);
+ ("ticket_workflows", Workflow.ticket_bindings_json value);
  ("worktrees", JArray (map Features.worktree_json (Selvedge.Features.Domain.feature_worktrees features)));
  ("remote", Features.remote_json (Selvedge.Features.Domain.feature_remote features))].

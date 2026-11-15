@@ -126,6 +126,8 @@ Definition update_body snapshot (body:Draft.body) (field:Fields.field) (incoming
      |_=>None end
    |_=>DraftCodec.decode_body(Draft.owner(Draft.Draft 0 body Draft.Editing "" None))(replace(Parameters.name field)incoming(DraftCodec.encode_body body))end
  |None=>match field,body with
+   |Fields.TaskGraphDeclaration,Draft.WorkflowDefinitionBody id work _ => option_map (Draft.WorkflowDefinitionBody id work) (as_string incoming)
+   |Fields.TaskGraphDeclaration,Draft.WorkflowStartBody id _ => option_map (Draft.WorkflowStartBody id) (as_string incoming)
    |Fields.TaskGraphDeclaration,Draft.TaskGraphBody graph _ _ work=>declaration<-as_string incoming;;
      Some(Draft.TaskGraphBody graph declaration(TextJson.parse_json declaration)work)
    |Fields.MessageText,Draft.MessageBody task message delivery=>text<-as_string incoming;;Some(Draft.MessageBody task(Draft.Text text(Draft.text_images message))delivery)

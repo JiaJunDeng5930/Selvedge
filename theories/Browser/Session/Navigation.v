@@ -124,7 +124,7 @@ Definition panel_key panel:=match panel with
  |State.InformationPanel kind=>information_key kind
  |State.Confirmation _ _ _=>"confirm/cancel"end.
 Definition initial_attention panel:=match panel with
- |State.EditorPanel (Identity.TitlePrompts _|Identity.Fork _|Identity.TaskGraph _ _)=>
+ |State.EditorPanel (Identity.TitlePrompts _|Identity.Fork _|Identity.TaskGraph _ _|Identity.WorkflowDefinition _ _|Identity.WorkflowStart _)=>
    (* Open at the visible introduction when the standard field is below it or collapsed. *)
    NavigationIdentity.key_part(panel_key panel)"heading"
  |State.InformationPanel(State.TaskDetails _)=>NavigationIdentity.key_part(panel_key panel)"heading"
@@ -198,6 +198,7 @@ Definition editor_available snapshot owner:=match owner with
  |Project(Some id)=>match DocumentState.find_world "projects" "id" id snapshot with Some _=>true|None=>false end
  |Card(Some id)=>match field "board" snapshot with Some board=>match DocumentState.find_world "cards" "id" id board with Some _=>true|None=>false end|None=>false end
  |CardForConversation task=>match DocumentState.find_task task snapshot with Some _=>true|None=>false end
+ |WorkflowDefinition (Some id) _|WorkflowStart id=>match DocumentState.find_world "workflows" "workflow_id" id snapshot with Some _=>true|None=>false end
  |TaskGraph(Some id)_=>match DocumentState.find_world "graphs" "graph_id" id snapshot with Some _=>true|None=>false end
  |WorkName(Some id)=>match DocumentState.find_work id snapshot with Some _=>true|None=>false end
  |NewTask(Some work)=>match DocumentState.find_work work snapshot with Some _=>true|None=>false end

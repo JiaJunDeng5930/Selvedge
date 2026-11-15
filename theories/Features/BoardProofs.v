@@ -120,6 +120,7 @@ Theorem launch_links_and_preserves_created_task : forall id revision observed ca
  CardScope.lookup id value=Some card ->
  revision=F.card_revision card ->
  BoardFacts.runnable_profile card value=Some profile ->
+ BoardFacts.has_workflow id value=false ->
  let settings:=Board.launch_settings (F.card_contents card) in
  Worktree.create_selected_result profile (Some "default")
    (Board.task_contents id (F.card_contents card))
@@ -133,12 +134,12 @@ Theorem launch_links_and_preserves_created_task : forall id revision observed ca
    world_tasks (decision_world launched)=world_tasks (Worktree.transition_world birth) /\
    decision_effects launched=Worktree.transition_effects birth.
 Proof.
- intros id revision observed caller value card profile birth found current runnable settings Created launched.
+ intros id revision observed caller value card profile birth found current runnable OrdinaryTicket settings Created launched.
  subst revision.
  unfold launched, Board.run, Board.run_result.
  rewrite selecting_a_card_retains_the_observed_value.
  rewrite found,N.eqb_refl. cbn [CommandResult.bind].
- rewrite runnable. fold settings. rewrite Created.
+ rewrite OrdinaryTicket,runnable. fold settings. rewrite Created.
  cbn [CommandResult.map CommandResult.bind CommandResult.decide CommandResult.resolve CommandResult.accept
    CommandResult.change_world CommandResult.change_value CommandResult.change_effects accept decision_world decision_effects].
  assert (created_keeps_card : CardScope.lookup id (Worktree.transition_world birth)=Some card).
@@ -161,6 +162,7 @@ Theorem admitted_link_preserves_execution_and_drafting : forall id observed targ
  F.card_task card=None -> Selvedge.Kernel.State.find_task target value=Some task ->
  (forall other, In (Some other) (F.board_cards (Board.registry value)) ->
    F.card_task other<>Some target) ->
+ BoardFacts.has_workflow id value=false ->
  let linked:=Board.link id (F.card_revision card) observed target value in
  bool_default "ok" (decision_reply linked) false=true /\
  exists updated,
@@ -177,7 +179,7 @@ Theorem admitted_link_preserves_execution_and_drafting : forall id observed targ
    F.feature_titles (world_features (decision_world linked))=F.feature_titles (world_features value) /\
    decision_effects linked=[].
 Proof.
- intros id observed target value card task Found Active Unlinked Target Unused linked.
+ intros id observed target value card task Found Active Unlinked Target Unused OrdinaryTicket linked.
  assert (NotUsed:existsb (fun candidate=>match candidate with Some other=>
    match F.card_task other with Some linked=>N.eqb linked target | None=>false end
    | None=>false end) (F.board_cards (Board.registry value))=false).
@@ -189,7 +191,7 @@ Proof.
  rewrite selecting_a_card_retains_the_observed_value,Found,N.eqb_refl.
  cbn [CommandResult.bind]. rewrite Target.
  unfold Board.editable,BoardFacts.editable,Board.unlinked,BoardFacts.unlinked.
- rewrite Active,Unlinked,NotUsed.
+ rewrite Active,Unlinked,NotUsed,OrdinaryTicket.
  cbn [negb andb Board.save CommandResult.decide CommandResult.resolve CommandResult.accept CommandResult.change_value
    CommandResult.change_world CommandResult.change_effects Board.save_change
    accept decision_reply decision_world decision_effects].
@@ -390,6 +392,8 @@ Theorem admitted_card_edit_preserves_its_execution : forall id observed value ca
  (Board.patch_stage input=None \/ Board.busy card value=false \/
    Board.patch_stage input=Some F.InProgress) ->
  Board.valid_draft (Board.apply_patch input (F.card_contents card)) value=true ->
+ (BoardFacts.workflow_in_progress id value = false \/
+  F.draft_stage (Board.apply_patch input (F.card_contents card)) = F.InProgress) ->
  let changed:=Board.update_card id (F.card_revision card) observed input value in
  bool_default "ok" (decision_reply changed) false=true /\
  exists updated,
@@ -411,7 +415,7 @@ Theorem admitted_card_edit_preserves_its_execution : forall id observed value ca
    F.feature_titles (world_features (decision_world changed))=F.feature_titles (world_features value) /\
    decision_effects changed=[].
 Proof.
- intros id observed value card input Found Active Assignment Stage Valid changed.
+ intros id observed value card input Found Active Assignment Stage Valid WorkflowStage changed.
  assert (Assigned:Board.unlinked card || Board.retains_assignment input card=true).
  { unfold Board.unlinked,BoardFacts.unlinked,Board.retains_assignment.
    destruct Assignment as [Unlinked|[Absent|Same]].
@@ -430,7 +434,14 @@ Proof.
  rewrite selecting_a_card_retains_the_observed_value,Found,N.eqb_refl.
  cbn [CommandResult.resolve].
  unfold Board.editable,BoardFacts.editable.
- rewrite Active,Assigned,StageAllowed,Valid.
+ assert (WorkflowAllowed :
+   negb (BoardFacts.workflow_in_progress id value) ||
+   match F.draft_stage (Board.apply_patch input (F.card_contents card)) with
+   | F.InProgress => true | _ => false end = true).
+ { destruct WorkflowStage as [Idle|Working].
+   - now rewrite Idle.
+   - rewrite Working. apply Bool.orb_true_r. }
+ rewrite Active,Assigned,StageAllowed,WorkflowAllowed,Valid.
  cbn [negb andb Board.save CommandResult.accept CommandResult.change_value
    CommandResult.change_world CommandResult.change_effects Board.save_change
    accept decision_reply decision_world decision_effects].
@@ -530,6 +541,7 @@ Proof.
  cbn [CommandResult.bind] in accepted |- *. rewrite found in accepted |- *.
  destruct (N.eqb revision (F.card_revision card)); [|discriminate].
  cbn [CommandResult.bind] in accepted |- *.
+ destruct (BoardFacts.has_workflow id value); [discriminate|].
  destruct (BoardFacts.runnable_profile card value) as [profile|]; [|discriminate].
  cbn zeta in accepted |- *.
  destruct (Worktree.create_selected_result profile (Some "default")
@@ -616,7 +628,7 @@ Theorem automatic_queue_follows_pin_priority_and_board_order : forall value,
    filter (fun id => match CardScope.lookup id value with
    | Some card => Bool.eqb pinned (F.card_pinned card) &&
        String.eqb (F.priority_name priority) (F.priority_name (F.draft_priority (F.card_contents card))) &&
-       Board.ready card value
+       Board.ready card value && negb (BoardFacts.has_workflow id value)
    | None => false end) (F.board_order (Board.registry value)))
    [F.Urgent;F.High;F.Medium;F.Low;F.NoPriority]) [true;false].
 Proof.
@@ -625,12 +637,12 @@ Proof.
    filter (fun id => match CardScope.lookup id value with
    | Some card => Bool.eqb pinned (F.card_pinned card) &&
        N.eqb (Board.priority_rank priority) (Board.priority_rank (F.draft_priority (F.card_contents card))) &&
-       Board.ready card value
+       Board.ready card value && negb (BoardFacts.has_workflow id value)
    | None => false end) (F.board_order (Board.registry value)) =
    filter (fun id => match CardScope.lookup id value with
    | Some card => Bool.eqb pinned (F.card_pinned card) &&
        String.eqb (F.priority_name priority) (F.priority_name (F.draft_priority (F.card_contents card))) &&
-       Board.ready card value
+       Board.ready card value && negb (BoardFacts.has_workflow id value)
    | None => false end) (F.board_order (Board.registry value))).
  { intros pinned priority; apply filter_ext; intro id.
    destruct (CardScope.lookup id value) as [card|]; [|reflexivity].

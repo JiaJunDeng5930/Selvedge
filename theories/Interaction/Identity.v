@@ -10,6 +10,8 @@ Inductive editor :=
 | NewTask (work : option N) | Message (task : N) | Project (id : option N)
 | Card (id : option N) | CardForConversation (task : N) | Fork (task : N)
 | Compact (task : N) | TaskGraph (id work : option N)
+| WorkflowDefinition (id work : option N)
+| WorkflowStart (id : N)
 | WorkName (work : option N) | TitlePrompts (scope : title_prompt_scope).
 
 (* Existing graphs keep their editor when the surrounding Work selection changes. *)
@@ -34,6 +36,8 @@ Definition encode_editor (e : editor) : json :=
   | CardForConversation task => record "conversation_card" (Some task) None
   | Fork t => record "fork" (Some t) None
   | Compact t => record "compact" (Some t) None | TaskGraph i w => record "graph" i w
+  | WorkflowDefinition id w => record "workflow_definition" id w
+  | WorkflowStart id => record "workflow_start" (Some id) None
   | WorkName w => record "work" w None
   | TitlePrompts ConversationTitles => record "title_prompts" None None
   | TitlePrompts BoardTitles => record "board_title_prompt" None None
@@ -51,6 +55,8 @@ Definition decode_editor (j : json) : option editor :=
   | Some "fork", Some (Some t), Some None => Some (Fork t)
   | Some "compact", Some (Some t), Some None => Some (Compact t)
   | Some "graph", Some i, Some w => Some (graph_editor i w)
+  | Some "workflow_definition", Some id, Some work => Some (WorkflowDefinition id work)
+  | Some "workflow_start", Some (Some id), Some None => Some (WorkflowStart id)
   | Some "work", Some w, Some None => Some (WorkName w)
   | Some "title_prompts", Some None, Some None => Some (TitlePrompts ConversationTitles)
   | Some "board_title_prompt", Some None, Some None => Some (TitlePrompts BoardTitles)

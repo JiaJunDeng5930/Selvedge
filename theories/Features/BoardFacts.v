@@ -1,3 +1,4 @@
+From Selvedge.Features Require WorkflowTypes.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Numbers Domain State.
@@ -28,6 +29,24 @@ Definition stage_available (card:Selvedge.Features.Domain.card) (destination:Sel
 Definition unlinked (card:Selvedge.Features.Domain.card) := match Selvedge.Features.Domain.card_task card with None=>true | _=>false end.
 Definition active_for (owner:Selvedge.Features.Domain.owner) (value:world) := N.of_nat (List.length (filter
  (fun candidate=>match candidate with Some card=>String.eqb (Selvedge.Features.Domain.owner_name owner) (Selvedge.Features.Domain.owner_name (Selvedge.Features.Domain.draft_owner (Selvedge.Features.Domain.card_contents card))) && busy card value | None=>false end) (Selvedge.Features.Domain.board_cards (registry value)))).
+Definition workflow_binding {A} id (bindings : list (N * A)) :=
+ option_map snd (find (fun pair => N.eqb (fst pair) id) bindings).
+Definition workflow_setting id value :=
+ workflow_binding id (Selvedge.Features.Domain.feature_ticket_workflows (world_features value)).
+Definition workflow_instance_id id value :=
+ workflow_binding id (Selvedge.Features.Domain.feature_ticket_instances (world_features value)).
+Definition workflow_instance id value :=
+ match workflow_instance_id id value with
+ | Some key => nth_error (Selvedge.Features.Domain.feature_instances (world_features value)) (N.to_nat key)
+ | None => None end.
+Definition workflow_in_progress id value :=
+ match workflow_instance id value with
+ | Some instance => existsb (fun path => match WorkflowTypes.path_value path with
+     | WorkflowTypes.Pending _ | WorkflowTypes.Executing _ _ _ | WorkflowTypes.Forwarding _ _ _ _ => true
+     | _ => false end) (WorkflowTypes.instance_paths instance)
+ | None => false end.
+Definition has_workflow id value :=
+ match workflow_setting id value with Some _=>true | None=>false end.
 Definition runnable_profile (card:Selvedge.Features.Domain.card) (value:world) :=
  if request_available card && unlinked card then
  match Selvedge.Features.Domain.draft_owner (Selvedge.Features.Domain.card_contents card) with

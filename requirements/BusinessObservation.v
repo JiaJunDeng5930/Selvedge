@@ -1,7 +1,9 @@
 (** * Business information has one entry-independent meaning
 
-    A Task, Project, Board card or Task graph has the same business facts
-    whether the user asks in a browser or a terminal. The entry can choose
+    A Task, Project, ticket, workflow definition or workflow instance has the
+    same business facts whether the user asks in a browser or a terminal.
+    Instance observations identify its definition, Task activity by node,
+    outstanding work and exit results. The entry can choose
     headings, prominence, grouping and navigation. The published world selects
     the observed objects and their facts. An unavailable observation remains
     distinguishable from an observed empty collection.

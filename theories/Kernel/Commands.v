@@ -127,7 +127,19 @@ Definition command_declarations : list command_declaration := [
   DeclareCommand WorktreeQuery TaskExcluded (WireCommand "list_worktrees" []);
   DeclareCommand WorktreeQuery TaskExcluded (WireCommand "read_worktree" task_identity);
   DeclareCommand WorktreeChange TaskExcluded (WireCommand "retry_worktree_archive" task_identity);
-  DeclareCommand WorktreeQuery TaskExcluded (WireCommand "resolve_workspace" [typed (D.nullable workspace_declaration) (nullable "workspace" KJson); typed (D.nullable identity) (nullable "project_id" KNatural)])
+  DeclareCommand WorktreeQuery TaskExcluded (WireCommand "resolve_workspace" [typed (D.nullable workspace_declaration) (nullable "workspace" KJson); typed (D.nullable identity) (nullable "project_id" KNatural)]);
+  DeclareCommand TaskGraphChange TaskExcluded (WireCommand "create_workflow"
+    [u32 (opt "work_id" KNatural); req "name" KText; req "nodes" (KArray KJson); req "connections" (KArray KJson)]);
+  DeclareCommand TaskGraphChange TaskExcluded (WireCommand "update_workflow"
+    [u32 (req "workflow_id" KNatural); req "name" KText; req "nodes" (KArray KJson); req "connections" (KArray KJson)]);
+  DeclareCommand TaskGraphChange TaskExcluded (WireCommand "start_workflow"
+    [u32 (req "workflow_id" KNatural); req "entrance" KText; req "message" KText]);
+  DeclareCommand TaskGraphQuery TaskExcluded (WireCommand "list_workflows" []);
+  DeclareCommand TaskGraphQuery TaskExcluded (WireCommand "read_workflow_instance" [u32 (req "instance_id" KNatural)]);
+  DeclareCommand TaskGraphChange TaskAllowed (WireCommand "choose_workflow_connection" [req "connection" KText]);
+  DeclareCommand BoardChange TaskExcluded (WireCommand "configure_ticket_workflow"
+    (card_identity ++ [u32 (req "workflow_id" KNatural); req "entrance" KText]));
+  DeclareCommand BoardChange TaskExcluded (WireCommand "start_ticket_workflow" card_identity)
 ].
 Definition command_specs := map declared_schema command_declarations.
 Definition task_command_allowed (name : string) :=

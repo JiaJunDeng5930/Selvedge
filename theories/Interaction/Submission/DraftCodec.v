@@ -84,6 +84,7 @@ Definition encode_body value := match value with
 |CardBody _ revision value assist profile keep=>JObject[("revision",number revision);("card",encode_card value);("assisted",JBool assist);("draft_profile",JString profile);("keep_open",JBool keep)]
 |ForkBody _ count messages configuration=>JObject[("child_count",number count);("messages",JArray(map JString messages));("context",encode_configuration configuration)]
 |CompactBody _ summary=>JObject[("summary",option_text summary)]
+|WorkflowDefinitionBody _ _ source|WorkflowStartBody _ source=>JObject[("declaration",JString source)]
 |TaskGraphBody _ declaration parsed _=>JObject[("declaration",JString declaration);("parsed",optional_value(fun x=>x)parsed)]
 |TitlePromptsBody _ revision task agent profile=>JObject[("revision",number revision);("task_prompt",JString task);
  ("agent_prompt",JString agent);("agent_profile",option_text profile)]end.
@@ -100,6 +101,8 @@ Definition decode_body e value :option body :=match e with
 |Identity.CardForConversation task=>decode_card_body (Identity.ConversationCard task) value
 |Identity.Fork task=>count<-natural_field "child_count" value;;messages<-list_field as_string "messages" value;;configuration<-bind(field "context" value)(decode_editor_configuration e);;Some(ForkBody task count messages configuration)
 |Identity.Compact task=>option_map(CompactBody task)(bind(field "summary" value)decode_option_text)
+|Identity.WorkflowDefinition id work=>option_map(WorkflowDefinitionBody id work)(string_field "declaration" value)
+|Identity.WorkflowStart id=>option_map(WorkflowStartBody id)(string_field "declaration" value)
 |Identity.TaskGraph graph work=>declaration<-string_field "declaration" value;;parsed<-bind(field "parsed" value)(parse_optional(fun value=>Some value));;Some(TaskGraphBody graph declaration parsed work)
 |Identity.TitlePrompts scope=>revision<-natural_field "revision" value;;task<-string_field "task_prompt" value;;agent<-string_field "agent_prompt" value;;
  profile<-bind(field "agent_profile" value)decode_option_text;;Some(TitlePromptsBody scope revision task agent profile)end.

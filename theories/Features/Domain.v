@@ -1,6 +1,7 @@
 From Stdlib Require Import String List Bool NArith Numbers.DecimalString.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Programming Require Import Schema RequestEnvelope FiniteChoice.
+From Selvedge.Features Require WorkflowTypes.
 From Selvedge.Features Require Import Titles CompactionTypes ConnectionGrants BoardClock.
 From Selvedge.Kernel Require Import Domain ChatgptArguments WorkspaceBackend Codec.
 From Selvedge.Foundation Require Export RemoteIdentity.
@@ -112,11 +113,15 @@ Record state := State {
  feature_sharing : connection_state;
  feature_titles : list title_entry;
  feature_title_settings : title_settings;
- feature_compaction : CompactionTypes.state
+ feature_compaction : CompactionTypes.state;
+ feature_workflows : list (option (@WorkflowTypes.definition graph_message));
+ feature_instances : list (@WorkflowTypes.instance graph_message);
+ feature_ticket_workflows : list (N * WorkflowTypes.invocation);
+ feature_ticket_instances : list (N * N)
 }.
 Definition initial := State (Board [] [] false ""%string) [] [] [] []
  (Remote false [] 1 []) (ConnectionState ConnectionGrants.Grants.empty [] 0) []
- (TitleSettings 0 Titles.default_board_instructions Titles.default_instructions None) CompactionTypes.initial.
+ (TitleSettings 0 Titles.default_board_instructions Titles.default_instructions None) CompactionTypes.initial [] [] [] [].
 
 Definition resource_json (tree : worktree) := JObject [
  ("task_id"%string, JNumber (show_natural (worktree_task tree)));

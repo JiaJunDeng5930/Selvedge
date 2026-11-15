@@ -547,3 +547,29 @@ dialog[data-semantic-key="card-details"] {
 [data-semantic-key="task-graph/edges"] line {
   stroke: var(--selvedge-connector);
 }
+
+[data-semantic-key="workflow-node"] {
+  overflow: visible !important;
+  background: var(--selvedge-surface, Canvas);
+  border: 1px solid var(--selvedge-border, GrayText);
+  border-radius: 0.5rem;
+  padding: 0.35rem 0.65rem;
+}
+[data-semantic-key="workflow-instance-markers"] {
+  position: absolute;
+  inset-block-start: -0.45rem;
+  inset-inline-end: 0.5rem;
+  display: flex;
+  flex-direction: row !important;
+  inline-size: max-content !important;
+  gap: 0.25rem;
+}
+[data-semantic-key="workflow-instance-dot"] {
+  flex: none;
+  inline-size: 0.65rem !important;
+  block-size: 0.65rem !important;
+  min-inline-size: 0.65rem;
+  min-block-size: 0.65rem;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--selvedge-surface, Canvas);
+}

@@ -26,6 +26,20 @@ Definition materialize_body snapshot preference e :option Draft.body:=match e wi
    Selvedge.Features.Domain.InProgress (Read.task_project conversation))
 |Identity.Fork task=>settings<-Observation.task_settings task snapshot;;Some(Draft.ForkBody task 1 [] (Context.Configuration(Context.ParentTask task)None None None))
 |Identity.Compact task=>match World.find_task task snapshot with Some _=>Some(Draft.CompactBody task None)|None=>None end
+|Identity.WorkflowDefinition None work=>
+ let definition:=JObject[("name",JString "");("nodes",JArray []);("connections",JArray [])] in
+ Some(Draft.WorkflowDefinitionBody None work (GraphAuthoring.render_declaration definition))
+|Identity.WorkflowDefinition (Some id) work=>
+ definition<-World.find_world "workflows" "workflow_id" id snapshot;;
+ name<-field "name" definition;;nodes<-field "nodes" definition;;edges<-field "connections" definition;;
+ Some(Draft.WorkflowDefinitionBody (Some id) work
+   (GraphAuthoring.render_declaration (JObject[("name",name);("nodes",nodes);("connections",edges)])))
+|Identity.WorkflowStart id=>
+ definition<-World.find_world "workflows" "workflow_id" id snapshot;;
+ let entries:=match array_field "nodes" definition with Some nodes=>nodes|None=>[]end in
+ let first:=find (fun n=>match string_field "kind" n with Some kind=>String.eqb kind "entrance"|None=>false end) entries in
+ let entry:=match bind first (field "key") with Some key=>key|None=>JString ""end in
+ Some(Draft.WorkflowStartBody id (GraphAuthoring.render_declaration (JObject[("entrance",entry);("message",JString "")])))
 |Identity.TaskGraph None work=>
  let declaration := GraphAuthoring.handoff_declaration GraphAuthoring.empty_handoff in
  Some(Draft.TaskGraphBody None (GraphAuthoring.render_declaration declaration) (Some declaration) work)

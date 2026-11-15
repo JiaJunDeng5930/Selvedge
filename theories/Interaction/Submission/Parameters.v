@@ -30,7 +30,7 @@ Definition fields e := match e with
     CardProject; CardLabels; CardAttachments]
 | Identity.Fork _ => [ForkCount; ForkMessages] ++ context_fields
 | Identity.Compact _ => [CompactionSummary]
-| Identity.TaskGraph _ _ => [TaskGraphDeclaration]
+| Identity.TaskGraph _ _ | Identity.WorkflowDefinition _ _ | Identity.WorkflowStart _ => [TaskGraphDeclaration]
 | Identity.WorkName _ => [WorkName]
 | Identity.TitlePrompts scope => match scope with
   | ConversationTitles => [AgentTitleProfile; title_prompt_field scope]

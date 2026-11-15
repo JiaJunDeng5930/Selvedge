@@ -103,9 +103,7 @@ Arguments Layout {A}.
 Arguments nodes {A}.
 Arguments edges {A}.
 
-Definition arrange {A} (graph : Read.graph) : layout A :=
-  let routes := connections graph in
-  let entries := Read.graph_nodes graph in
+Definition arrange_nodes {A} entries routes : layout A :=
   let groups := columns (List.length entries) routes entries in
   let rows := fold_left (fun count group => Nat.max count (List.length group)) groups 0%nat in
   let content_height := extent node_height row_gap rows in
@@ -118,3 +116,6 @@ Definition arrange {A} (graph : Read.graph) : layout A :=
     flat_map (fun '(index, edge) => outside_curve (height + Z.of_nat index * lane_spacing) edge)
       (combine (seq 0 lanes) outside) in
   Layout placed (Graphics.Plot (Z.to_pos width) (Z.to_pos (height + Z.of_nat lanes * lane_spacing)) curves).
+
+Definition arrange {A} (graph : Read.graph) : layout A :=
+  arrange_nodes (A:=A) (Read.graph_nodes graph) (connections graph).

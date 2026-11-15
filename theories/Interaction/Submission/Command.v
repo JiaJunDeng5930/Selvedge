@@ -53,6 +53,12 @@ Definition command_json (now:option N)(value:Draft.body):option json:=
  |Draft.ForkBody task count messages configuration=>Some(record "fork"[("task_id",number task);("child_count",number count);("messages",JArray(map(fun text=>content text [])messages));("settings",settings configuration);
    ("settings_origin",JString(match Context.context_origin configuration with Context.EnvironmentDefaults|Context.ProjectDefaults _=>"environment"|_=>"parent"end))])
  |Draft.CompactBody task summary=>Some(record "compact"(present "summary"(DraftCodec.option_text summary)[("task_id",number task)]))
+ |Draft.WorkflowDefinitionBody id work source=>parsed<-TextJson.parse_json source;;
+   Some(record (match id with None=>"create_workflow"|Some _=>"update_workflow"end)
+   (match id with Some id=>("workflow_id",number id)::object_fields parsed
+    |None=>present "work_id"(optional_id work)(object_fields parsed)end))
+ |Draft.WorkflowStartBody id source=>parsed<-TextJson.parse_json source;;
+   Some(record "start_workflow" (("workflow_id",number id)::object_fields parsed))
  |Draft.TaskGraphBody graph declaration parsed work=>parsed<-parsed;;Some(record(match graph with None=>"create_task_graph"|Some _=>"update_task_graph"end)
    (present "graph_id"(optional_id graph)(match graph with None=>present "work_id"(optional_id work)(object_fields parsed)|Some _=>object_fields parsed end)))
  |Draft.TitlePromptsBody _ revision task agent profile=>Some(record "configure_title_settings"

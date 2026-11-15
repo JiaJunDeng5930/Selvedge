@@ -165,6 +165,7 @@ Definition card_details snapshot s id parent :=match Read.find_card id snapshot 
   |Some entry=>[group_title (part parent "conversation") "关联对话";
     Navigation.task_entry_tree(State.location(State.navigation_state s))[] parent(TaskTree entry [])]
   |None=>Collections.card_conversation snapshot parent card "" end)++
+ Collections.ticket_workflow_controls snapshot parent card ++
  [region parent "card-detail-actions" "卡片操作" Roles.Toolbar
    (detail_action_nodes snapshot s(CardActions id)parent)])%list end.
 Definition board_automation_description (automatic:bool) :=

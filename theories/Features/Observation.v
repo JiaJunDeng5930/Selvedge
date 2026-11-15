@@ -1,3 +1,4 @@
+From Selvedge.Features Require WorkflowTypes.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Utf8.
 From Selvedge.Programming Require Import Schema.
@@ -76,8 +77,18 @@ Definition title_settings_json (value : Selvedge.Features.Domain.title_settings)
  ("agent_profile", match Selvedge.Features.Domain.title_agent_profile value with
    | Some key => JString key | None => JNull end)].
 
-Definition card_json_in_world (value:world) (id:N) (card:Selvedge.Features.Domain.card) := match card_json id card with JObject fields=>JObject (fields++[
- ("activity",JString (BoardFacts.activity card value));("capabilities",JObject [
+Definition card_workflow_fields value id :=
+ match BoardFacts.workflow_setting id value with
+ | Some setting => [("workflow_id",number (WorkflowTypes.invocation_graph setting));
+   ("workflow_entrance",JString (WorkflowTypes.invocation_entrance setting));
+   ("workflow_instance_id",optional_number (BoardFacts.workflow_instance_id id value))]
+ | None => [] end.
+Definition card_json_in_world (value:world) (id:N) (card:Selvedge.Features.Domain.card) := match card_json id card with JObject fields=>JObject (fields++card_workflow_fields value id++[
+ ("activity",JString (if BoardFacts.workflow_in_progress id value then "running"
+   else if BoardFacts.has_workflow id value then
+     match Selvedge.Features.Domain.draft_stage (Selvedge.Features.Domain.card_contents card) with
+     | Selvedge.Features.Domain.Completed=>"completed"|Selvedge.Features.Domain.Blocked=>"failed"|_=>"not_started"end
+   else BoardFacts.activity card value));("capabilities",JObject [
  ("edit",JBool (BoardFacts.editable card));("metadata",JBool (BoardFacts.editable card));("regenerate",JBool (BoardFacts.request_available card));("drag",JBool (BoardFacts.editable card));
  ("run",JBool (BoardFacts.runnable card value));("archive",JBool (negb (Selvedge.Features.Domain.card_archived card)));("restore",JBool (Selvedge.Features.Domain.card_archived card));("delete",JBool (negb (BoardFacts.busy card value)))])]) | other=>other end.
 Definition board_json_in_world (value:world) :=

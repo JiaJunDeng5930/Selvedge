@@ -319,7 +319,8 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     scope and gives the conversation count for each choice. A project name opens
     its details, and a separate control starts a conversation with its defaults.
     The board and project management are global. The board identifies its items
-    as cards and exposes the action to link or open a conversation on the card.
+    as cards. It exposes actions to link or open a conversation on an ordinary
+    card and to open the current instance on a workflow-backed ticket.
     Its execution filter shows a count distinct from the stage counts and
     explains when the selected filter leaves no executing cards.
     View choices and filters are adjacent. Search has a compact field beside
@@ -333,12 +334,10 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     and unassigned cards while keeping its options searchable and its
     selected indicator distinct from keyboard focus.
     Curved tree branches represent conversation lineage. Directed graph connections
-    represent output routing, with the same rules and receipts available as text.
+    represent message routing, with the same rules and receipts available as text.
     The graph destination, its empty state and the creation action name the same
-    object. The empty state describes how a graph routes conversation replies.
-    A conversation transfer names its source and receiver beside the direction
-    between them. Its optional JSON definition opens in a separate section
-    that leaves the selected conversations and submit action available.
+    object. The empty state describes how a workflow routes messages through
+    nodes. A connection identifies its source and receiver beside the direction.
 
     Creation starts with the input needed for the common operation. A new
     conversation starts with a message, and a board card can be captured with a
@@ -383,22 +382,27 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     the viewport has room for both.
     The permissions menu describes what happens when an operation needs more
     access and presents shared filesystem and network limits on a separate line.
-    A graph can route new replies between existing conversations by selecting
-    its source and receiver in the current scope. The empty graph page
-    identifies conversation relay as the available relation and shows its
-    direction beside the creation action. The entry action, form
-    title and commit label use the same name for creating a conversation relay.
-    Each endpoint choice leads with its conversation title and includes an
-    identifier for titles shared by multiple choices in the scope.
-    The same graph editor can also accept a structured declaration for other
-    rules. The expanded declaration starts with indented JSON in a monospace
-    editor. Collapsing it preserves edits and manual formatting.
-    When the current scope has too few conversations, the source and receiver
-    form and its unavailable commit identify how many more are needed.
-    A conversation created from graph setup belongs to that scope. The
-    conversation composer offers an explicit return to the graph draft and
-    successful creation returns there while that navigation intent still owns
-    the page.
+    Users can save a workflow definition in the current Work before any of its
+    Tasks exist. Its editor identifies entrance, exit and Task nodes, the Task
+    creation policy and the descriptions on alternative outgoing connections.
+    Start presents the selected definition and entrance and accepts a message.
+    The ticket launch surface lets the user select the definition and entrance
+    for the ticket's message and open the resulting instance after acceptance.
+
+    A small marker beside a workflow node represents one instance with at
+    least one Task actively executing work at that node. Every node satisfying
+    that condition shows a marker, including simultaneous nodes of the same
+    instance. Its markers share a color, and different instances shown together
+    have distinguishable colors. Display a marker against the node in the
+    definition used by its instance, so a later edit cannot misplace its
+    activity. The marker identifies the instance and its
+    active Tasks without requiring the user to distinguish colors alone. Its
+    position leaves the node's connections readable. Multiple active Tasks
+    for the same instance and node are available through the marker.
+    The marker disappears when activity at that node ends. A quiet graph can
+    represent an unfinished instance with pending or blocked work. The
+    instance and ticket show completion only from the domain's completion
+    observation, which includes all paths and outstanding work.
 
     Opening a search result leaves the query, filters and page of results
     available for further comparison. A return action in the conversation

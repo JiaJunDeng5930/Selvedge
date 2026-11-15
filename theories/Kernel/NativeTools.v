@@ -21,6 +21,8 @@ Record command_binding := CommandBinding {
  binding_description : string
 }.
 Definition bindings := [
+ CommandBinding "choose_workflow_connection" "choose_workflow_connection" None
+   "Choose one of the outgoing connection keys supplied for the current workflow delivery. Call this before giving your final answer. The final answer is forwarded over the selected connection.";
   CommandBinding "create_task" "create" None "Create an independent task with a configured model. Settings obey the caller's workspace and permission bounds.";
   CommandBinding "fork_task" "fork" (Some "task_id") "Fork this task within every ancestor's descendant limit. The caller receives 0 and each child receives its one-based branch number. Supply no messages or exactly one message per child.";
   CommandBinding "search_history" "search_history" None "Search committed user and assistant messages by literal keyword or phrase (ASCII case-insensitive). Restrict to a project or Work, or both. Message matches include a zero-based message_index; use read_task with after=message_index to read the original message. Set include_titles to also find conversations by their current title.";
