@@ -6,6 +6,7 @@ From Selvedge.Foundation Require Import RemoteIdentity.
 From Selvedge.Programming Require ArgumentDeclaration DeclarationFields.
 From Selvedge.Foundation Require OptionList.
 From Selvedge.Host Require Import RemoteProtocol.
+From Selvedge.Foundation Require ListCount.
 Module RP := RemoteProtocol.
 Module D := ArgumentDeclaration.
 Module F := DeclarationFields.
@@ -34,7 +35,7 @@ Definition same_grant := RP.same_authority.
 Definition permitted values value := existsb (fun other => same_grant other value) (RP.grant_values values).
 Definition find_connection data id := find (fun entry => String.eqb (connection_id entry) id) (connections data).
 Definition forget values id := filter (fun entry => negb (String.eqb (connection_id entry) id)) values.
-Definition queued_for data id := N.of_nat (List.length (filter (fun job => String.eqb (owner job) id) (pending data))).
+Definition queued_for data id := N.of_nat (ListCount.count (fun job => String.eqb (owner job) id) (pending data)).
 Definition queued_bytes data := fold_left (fun total job => total + bytes job) (pending data) 0.
 Fixpoint release_budget values id size := match values with [] => [] | job::rest =>
  if String.eqb (owner job) id && N.eqb (bytes job) size

@@ -1,4 +1,5 @@
 From Stdlib Require Import List Bool NArith Lia.
+From Selvedge.Foundation Require Import ListCountProofs.
 From Selvedge.Foundation Require Import RegistryProofs.
 From Selvedge.Kernel Require Import Domain State Tasks.
 Import ListNotations.
@@ -8,14 +9,14 @@ Lemma descendant_count_app : forall ancestor left right,
  Tasks.descendant_count ancestor (left ++ right) =
  (Tasks.descendant_count ancestor left + Tasks.descendant_count ancestor right)%N.
 Proof.
- intros; unfold Tasks.descendant_count; rewrite filter_app, length_app, Nat2N.inj_add; reflexivity.
+ intros; unfold Tasks.descendant_count; rewrite !count_selected, filter_app, length_app, Nat2N.inj_add; reflexivity.
 Qed.
 
 Lemma descendant_count_depends_only_on_lineages : forall ancestor left right,
  map task_lineage left = map task_lineage right ->
  Tasks.descendant_count ancestor left = Tasks.descendant_count ancestor right.
 Proof.
- intros ancestor left right Same; unfold Tasks.descendant_count.
+ intros ancestor left right Same; unfold Tasks.descendant_count. rewrite !count_selected.
  rewrite <- (length_map task_lineage (filter (fun task => existsb (N.eqb ancestor) (task_lineage task)) left)),
    <- (length_map task_lineage (filter (fun task => existsb (N.eqb ancestor) (task_lineage task)) right)).
  rewrite <- !filter_map_swap, Same; reflexivity.
@@ -33,7 +34,7 @@ Proof.
    - destruct (existsb (N.eqb ancestor) lineage); reflexivity.
    - rewrite Head; destruct (existsb (N.eqb ancestor) lineage) eqn:Contains; cbn in *;
        [now rewrite IH|exact IH]. }
- unfold Tasks.descendant_count; rewrite Length.
+ unfold Tasks.descendant_count; rewrite count_selected, Length.
  destruct (existsb (N.eqb ancestor) lineage); reflexivity.
 Qed.
 

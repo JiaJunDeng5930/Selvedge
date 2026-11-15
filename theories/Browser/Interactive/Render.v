@@ -232,9 +232,16 @@ Definition cell_value p row :=
  let value:=get_path (property_text "field" p) row in
  IP.TableCell (formatted_value value (property_text "format" p)) (numeric_value value).
 Definition numeric_column p rows :=
- let values:=map (get_path (property_text "field" p)) rows in
- existsb numeric_value values &&
- forallb (fun value=>match value with JNull=>true|_=>numeric_value value end) values.
+ let read:=get_path (property_text "field" p) in
+ let fix scan seen remaining :=
+   match remaining with
+   | [] => seen
+   | row::rest => match read row with
+     | JNull => scan seen rest
+     | JNumber _ => scan true rest
+     | _ => false
+     end
+   end in scan false rows.
 Definition table_column event_id b (sortable active:bool) rows p : IP.table_column Types.input :=
  let id:=property_text "id" p in
  IP.TableColumn id (property_text "label" p)

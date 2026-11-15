@@ -6,6 +6,7 @@ From Selvedge.Kernel Require Codec Domain ChatgptArguments.
 From Selvedge.Features Require ConnectionGrants.
 From Selvedge.Programming Require AdapterResult.
 From Selvedge.Adapters Require Import Common Observation.
+From Selvedge.Programming Require Schema.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
@@ -16,7 +17,7 @@ Module P := AdapterResult.
 
 Definition keys source allowed := is_object source &&
   forallb (fun entry => existsb (String.eqb (fst entry)) allowed) (object_fields source) &&
-  Nat.eqb (List.length (nodup string_dec (map fst (object_fields source)))) (List.length (object_fields source)).
+  Schema.unique_names (map fst (object_fields source)).
 Definition ascii_letter n := ((65 <=? n) && (n <=? 90)) || ((97 <=? n) && (n <=? 122)).
 Definition ascii_name n := ascii_letter n || ((48 <=? n) && (n <=? 57)) || (n =? 95).
 Definition valid_name name := match Utf8.decode name with Some (first::rest) =>

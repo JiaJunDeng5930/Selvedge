@@ -60,7 +60,7 @@ Definition discover (task : task) (arguments : json) :=
  let offset := natural_default "offset" arguments 0 in
  let limit := natural_default "limit" arguments 5 in
  let page := if exact then matches else
-  firstn (N.to_nat limit) (if N.leb offset (N.of_nat (List.length matches)) then skipn (N.to_nat offset) matches else []) in
+  firstn (N.to_nat limit) (skipn (N.to_nat offset) matches) in
  JObject [("tools",JArray (map (fun tool => JObject [("name",JString (tool_name tool));("description",JString (tool_description tool));("parameters",tool_schema tool)]) page));
   ("missing",JArray (map JString (filter (fun name => negb (existsb (fun tool => String.eqb name (tool_name tool)) tools)) names)));
   ("total_matches",number (N.of_nat (List.length matches)));

@@ -19,6 +19,7 @@ Definition status_label (value : task) := match task_lifecycle value with
  | Running _ _ => if task_busy value then "Working" else "Ready"
  | Frozen _ _ => "Paused" | Stopped _ _ => "Stopped" | Archived _ => "Archived" end.
 From Selvedge.Kernel Require RealtimeContext.
+From Selvedge.Foundation Require ListCount.
 
 (** Task observations include the frozen context consumed by the experience layer;
     the model-tool settings codec remains the narrower protocol it already owns. *)
@@ -85,8 +86,8 @@ Definition task_snapshot (id : N) (value : task) (features : Selvedge.Features.D
  | _ => JNull end)])
  | value => value end.
 Definition project_task_count (id : N) (tasks : list task) :=
- N.of_nat (List.length (filter (fun task => match settings_project (task_current_settings task) with
- | Some selected => N.eqb selected id | None => false end) tasks)).
+ N.of_nat (ListCount.count (fun task => match settings_project (task_current_settings task) with
+ | Some selected => N.eqb selected id | None => false end) tasks).
 Definition project_summary_json (tasks : list task) (id : N) (value : project) :=
  JObject (project_fields id value ++ [
  ("root_count", number (N.of_nat (List.length (workspace_roots (project_workspace value)))));

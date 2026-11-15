@@ -27,8 +27,16 @@ Definition request_available (card:Selvedge.Features.Domain.card) := editable ca
 Definition stage_available (card:Selvedge.Features.Domain.card) (destination:Selvedge.Features.Domain.board_stage) (value:world) :=
  negb (busy card value) || match destination with Selvedge.Features.Domain.InProgress=>true | _=>false end.
 Definition unlinked (card:Selvedge.Features.Domain.card) := match Selvedge.Features.Domain.card_task card with None=>true | _=>false end.
-Definition active_for (owner:Selvedge.Features.Domain.owner) (value:world) := N.of_nat (List.length (filter
- (fun candidate=>match candidate with Some card=>String.eqb (Selvedge.Features.Domain.owner_name owner) (Selvedge.Features.Domain.owner_name (Selvedge.Features.Domain.draft_owner (Selvedge.Features.Domain.card_contents card))) && busy card value | None=>false end) (Selvedge.Features.Domain.board_cards (registry value)))).
+Definition active_card_for owner value candidate :=
+ match candidate with
+ | Some card =>
+   String.eqb (Selvedge.Features.Domain.owner_name owner)
+     (Selvedge.Features.Domain.owner_name (Selvedge.Features.Domain.draft_owner (Selvedge.Features.Domain.card_contents card))) &&
+   busy card value
+ | None => false
+ end.
+Definition has_active_card owner value :=
+ existsb (active_card_for owner value) (Selvedge.Features.Domain.board_cards (registry value)).
 Definition workflow_binding {A} id (bindings : list (N * A)) :=
  option_map snd (find (fun pair => N.eqb (fst pair) id) bindings).
 Definition workflow_setting id value :=
@@ -51,7 +59,7 @@ Definition runnable_profile (card:Selvedge.Features.Domain.card) (value:world) :
  if request_available card && unlinked card then
  match Selvedge.Features.Domain.draft_owner (Selvedge.Features.Domain.card_contents card) with
  | Selvedge.Features.Domain.ProfileOwner profile=>
-   if N.ltb (active_for (Selvedge.Features.Domain.ProfileOwner profile) value) 1 then Some profile else None
+   if has_active_card (Selvedge.Features.Domain.ProfileOwner profile) value then None else Some profile
  | _=>None end else None.
 Definition runnable (card:Selvedge.Features.Domain.card) (value:world) :=
  match runnable_profile card value with Some _=>true | None=>false end.

@@ -6,6 +6,11 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
 
+Local Lemma contains_projected {A : Type} (project : A -> json) values expected :
+ contains (map project values) expected =
+ existsb (fun value => JsonObjects.equivalent (project value) expected) values.
+Proof. unfold contains. induction values; cbn [map existsb]; [reflexivity|now rewrite IHvalues]. Qed.
+
 Lemma admitted_reasoning_retains_the_committed_request_effort : forall effect profile reasoning,
  BackendRequests.admit_reasoning effect profile = AdapterResult.Accepted (Some reasoning) ->
  reasoning = JObject [("effort",BackendRequests.request_effort effect)].
@@ -53,6 +58,7 @@ Proof.
  unfold BackendRequests.admit_reasoning in Admitted.
  rewrite Account, Levels, Adaptive, TaskRequest, andb_false_r in Admitted.
  cbn [andb negb orb] in Admitted.
+ rewrite <- !contains_projected in Admitted.
  fold levels in Admitted.
  destruct (contains levels (request_effort effect) && contains levels (effective_effort effect)) eqn:Supported;
    [now apply andb_true_iff in Supported|discriminate].

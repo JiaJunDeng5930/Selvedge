@@ -1,4 +1,5 @@
 From Stdlib Require Import String List Bool NArith Lia.
+From Selvedge.Foundation Require Import ListCountProofs.
 From Selvedge.Host Require Import RemoteConnectorSession.
 Import ListNotations.
 Open Scope N_scope.
@@ -79,7 +80,7 @@ Proof.
  apply N.ltb_lt in PerConnection. apply N.ltb_lt in Total. apply N.leb_le in Bytes.
  set (next := Session (pairing_code data) (connections data) (Queued id size::pending data) (notice_sequence data)).
  assert (ConnectionCount : queued_for next id = N.succ (queued_for data id)).
- { unfold next,queued_for. cbn [pending filter owner]. rewrite String.eqb_refl.
+ { unfold next,queued_for. rewrite !count_selected. cbn [pending filter owner]. rewrite String.eqb_refl.
    apply Nat2N.inj_succ. }
  assert (TotalCount : N.of_nat (List.length (pending next)) = N.succ (N.of_nat (List.length (pending data)))).
  { unfold next. cbn [pending List.length]. apply Nat2N.inj_succ. }
@@ -127,7 +128,7 @@ Theorem completed_queue_work_releases_capacity g data id size :
 Proof.
  intro Present. unfold step. cbn. rewrite N.eqb_refl. cbn.
  exists (Session (pairing_code data) (connections data) (release_budget (pending data) id size) (notice_sequence data)).
- split; [reflexivity|]. unfold queued_for,queued_bytes. cbn [pending].
+ split; [reflexivity|]. unfold queued_for,queued_bytes. rewrite !count_selected. cbn [pending].
  pose proof (release_budget_accounting (pending data) id size Present) as [Total [PerConnection Bytes]].
  repeat split; assumption.
 Qed.
