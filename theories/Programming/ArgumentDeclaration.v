@@ -4,6 +4,7 @@ From Selvedge.Programming Require EncodedObject.
 From Selvedge.Foundation Require BoundedInteger.
 From Selvedge.Programming Require Refinement.
 From Selvedge.Foundation Require Import Json Numbers.
+From Selvedge.Foundation Require Comparison.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Foundation Require Import Utf8.
 Import ListNotations.
@@ -41,6 +42,45 @@ Inductive t :=
 | Object (properties : list (string * bool * t))
 | OpenObject (properties : list (string * bool * t))
 | Union (alternatives : list t).
+
+Definition same_text_constraints left right :=
+ N.eqb (minimum_characters left) (minimum_characters right) &&
+ N.eqb (maximum_characters left) (maximum_characters right) &&
+ N.eqb (maximum_bytes left) (maximum_bytes right) &&
+ Bool.eqb (text_no_nul left) (text_no_nul right) &&
+ Bool.eqb (text_nonblank left) (text_nonblank right) &&
+ Bool.eqb (text_lower_hex left) (text_lower_hex right) &&
+ Comparison.option (Comparison.list String.eqb) (text_choices left) (text_choices right).
+
+Fixpoint same_text_format left right :=
+ match left, right with
+ | ConstrainedText x, ConstrainedText y => same_text_constraints x y
+ | PrintableUtf16 low high, PrintableUtf16 low' high' =>
+    N.eqb low low' && N.eqb high high'
+ | NaturalSpelling low high, NaturalSpelling low' high' =>
+    N.eqb low low' && Comparison.option N.eqb high high'
+ | PrefixedSpelling prefix suffix, PrefixedSpelling prefix' suffix' =>
+    String.eqb prefix prefix' && same_text_format suffix suffix'
+ | _, _ => false end.
+
+Fixpoint same (same_json : json -> json -> bool) (left right : t) : bool :=
+ match left, right with
+ | Reject, Reject | RawObject, RawObject | Null, Null => true
+ | EncodedObject depth, EncodedObject depth' => Nat.eqb depth depth'
+ | Value kind, Value kind' => if Schema.kind_eq_dec kind kind' then true else false
+ | Const value, Const value' => same_json value value'
+ | Textual format, Textual format' => same_text_format format format'
+ | Natural low high, Natural low' high' => N.eqb low low' && N.eqb high high'
+ | SafeInteger low high, SafeInteger low' high' => Z.eqb low low' && Z.eqb high high'
+ | Array element, Array element' => same same_json element element'
+ | BoundedArray low high element, BoundedArray low' high' element' =>
+    N.eqb low low' && N.eqb high high' && same same_json element element'
+ | Object fields, Object fields' | OpenObject fields, OpenObject fields' =>
+    Comparison.list (fun '(name, required, field) '(name', required', field') =>
+      String.eqb name name' && Bool.eqb required required' && same same_json field field') fields fields'
+ | Union choices, Union choices' => Comparison.list (same same_json) choices choices'
+ | _, _ => false end.
+
 Definition Any := Value KJson.
 Definition Boolean := Value KBool.
 Definition Text constraints := Textual (ConstrainedText constraints).

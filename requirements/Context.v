@@ -143,7 +143,9 @@ From Selvedge.Kernel Require ContextSelectionProofs ModelRequestProofs
   CompactionPlanProofs TaskWakeProofs.
 From Selvedge.Features Require CompactionProofs CompactionRequestProofs.
 From Selvedge.Adapters Require ProviderCompactionProofs.
-Export CompactionRequestProofs(maintenance_context_installs_its_exact_continuation).
+Export CompactionRequestProofs(maintenance_context_installs_its_exact_continuation,
+  unchanged_description_is_compatible,
+  different_native_parameter_bounds_invalidate_the_description).
 Export TaskWakeProofs(an_actual_wake_keeps_its_pending_context_demand).
 Export ContextSelectionProofs(adoption_keeps_the_original_history,
   adopted_replacement_rebuilds_from_captured_context,
@@ -205,7 +207,10 @@ Export ReasoningProofs(evaluator_tool_evidence_keeps_the_original_json,
     A ticket identifies a request, but does not establish that its measurement
     still describes the current history, settings, tool capabilities or suffix.
     Compaction therefore retains its captured typed input across measurement,
-    preparation and validation. [measured_scope_and_reserve_reach_the_executed_request]
+    preparation and validation. Comparing that input with the current task uses
+    the domain declarations directly. Reconstructing the public schemas of
+    native tools for each compatibility check adds work to both scheduling and
+    journal recovery. [measured_scope_and_reserve_reach_the_executed_request]
     connects the measurement to the request actually sent. Manual compaction
     first uses the same context-observation operation as inference. A frozen or
     stopped completion cancels that manual job and records the reason while

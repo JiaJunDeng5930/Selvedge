@@ -3,7 +3,7 @@ From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Domain Codec PluginProtocol.
 Import ListNotations.
 Definition available (catalog : list tool) (value : tool) :=
- existsb (fun current => Json.equal (Codec.tool_json current) (Codec.tool_json value)) catalog.
+ existsb (fun current => same_tool Json.equal current value) catalog.
 Definition task_tools (value : task) := contract_tools (task_contract value).
 Definition callable (value : task) (environment : environment) :=
  map tool_name (filter (available (environment_tools environment)) (task_tools value)).

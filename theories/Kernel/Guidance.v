@@ -36,7 +36,22 @@ Definition of_values (values : D.denote declaration) : option t := match values 
 Definition parse source := match D.decode declaration source with Some values => of_values values | None => None end.
 Definition json (value : t) := match value with
  | Some value => D.encode body_declaration (proj1_sig value) | None => JNull end.
-Definition same (left right : t) := Json.equal (json left) (json right).
+Definition same (left right : t) :=
+ match left, right with
+ | None, None => true
+ | Some prior, Some current =>
+   match proj1_sig prior, proj1_sig current with
+   | inl absent, inl absent' =>
+     String.eqb (proj1_sig (fst (proj1_sig absent))) (proj1_sig (fst (proj1_sig absent')))
+   | inr (inl present), inr (inl present') =>
+     let '(workspace, (path, (revision, (instructions, _)))) := proj1_sig present in
+     let '(workspace', (path', (revision', (instructions', _)))) := proj1_sig present' in
+     String.eqb (proj1_sig workspace) (proj1_sig workspace') &&
+     String.eqb (proj1_sig path) (proj1_sig path') &&
+     String.eqb (proj1_sig revision) (proj1_sig revision') &&
+     String.eqb (proj1_sig instructions) (proj1_sig instructions')
+   | _, _ => false end
+ | _, _ => false end.
 
 (** Dropping text restrictions is a type projection; it never runs a second
     parser. The source declaration's bounds discharge this once for every use. *)

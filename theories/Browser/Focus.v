@@ -29,12 +29,11 @@ Definition resolve requested preferred_view candidates : option string :=
   match find (fun candidate => String.eqb requested (target_key candidate)) candidates with
   | Some candidate => Some (target_key candidate)
   | None =>
-      let aliases := filter (fun candidate =>
-        existsb (String.eqb requested) (target_aliases candidate)) candidates in
+      let alias candidate := existsb (String.eqb requested) (target_aliases candidate) in
       match find (fun candidate =>
-        String.eqb preferred_view (target_view candidate)) aliases with
+        alias candidate && String.eqb preferred_view (target_view candidate)) candidates with
       | Some candidate => Some (target_key candidate)
-      | None => option_map target_key (hd_error aliases)
+      | None => option_map target_key (find alias candidates)
       end
   end.
 
@@ -49,7 +48,7 @@ Definition resolve_request requested fallback preferred_view candidates (recover
  let found:=match fallback with Some target=>resolve_return requested target preferred_view candidates
  |None=>resolve requested preferred_view candidates end in
  match found with Some key=>Some key|None=>if recover_missing then
-   option_map target_key(hd_error(filter target_sequential candidates))else None end.
+   option_map target_key(find target_sequential candidates)else None end.
 Definition cycle (backward : bool) (current : string) (targets : list string) : option string :=
   let ordered := if backward then rev targets else targets in
   let fix after remaining := match remaining with

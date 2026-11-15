@@ -478,7 +478,7 @@ Theorem stopped_operation_retains_its_concurrency_slot : forall id card value ta
  CardScope.lookup id value=Some card ->
  BoardFacts.linked_task card value=Some task ->
  Selvedge.Kernel.Domain.task_lifecycle task=Selvedge.Kernel.Domain.Stopped phase (first::rest) ->
- (0 < BoardFacts.active_for (F.draft_owner (F.card_contents card)) value)%N /\
+ BoardFacts.has_active_card (F.draft_owner (F.card_contents card)) value=true /\
  BoardFacts.runnable card value=false.
 Proof.
  intros id card value task phase first rest Found linked stopped.
@@ -489,15 +489,9 @@ Proof.
    destruct (registry_at id (F.board_cards (F.feature_board (world_features value)))) as [[stored|]|] eqn:Located; try discriminate.
    injection Found as Same; subst stored. eapply registry_lookup_is_member; exact Located. }
  split.
- - unfold BoardFacts.active_for.
-   assert (Counted:In (Some card) (filter
-     (fun candidate=>match candidate with Some other=>
-       String.eqb (F.owner_name (F.draft_owner (F.card_contents card)))
-         (F.owner_name (F.draft_owner (F.card_contents other))) && BoardFacts.busy other value
-       | None=>false end) (F.board_cards (BoardFacts.registry value)))).
-   { apply filter_In. split; [exact Present|]. cbn. now rewrite String.eqb_refl,busy. }
-   destruct (filter _ _) as [|selected rest_cards]; [contradiction|].
-   cbn [List.length]; rewrite Nat2N.inj_succ; lia.
+ - unfold BoardFacts.has_active_card. apply existsb_exists.
+   exists (Some card). split; [exact Present|].
+   cbn [BoardFacts.active_card_for]. now rewrite String.eqb_refl,busy.
  - assert (Linked:BoardFacts.unlinked card=false).
    { unfold BoardFacts.linked_task in linked; unfold BoardFacts.unlinked.
      destruct (F.card_task card); [reflexivity|discriminate]. }

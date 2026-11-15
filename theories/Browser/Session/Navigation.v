@@ -13,6 +13,7 @@ From Selvedge.Interaction.Submission Require Draft.
 From Selvedge.Interaction.Experience Require Model Activity.
 From Selvedge.Interaction.Submission Require Fields Parameters.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
+From Selvedge.Foundation Require OptionList.
 Import ListNotations.
 Open Scope list_scope.
 Open Scope string_scope.
@@ -271,19 +272,17 @@ Definition creating_conversation state : option Draft.text :=
   else None in
  match State.location navigation with
  |Start=>
-  let captured:=hd_error(flat_map(fun entry=>match State.purpose entry with
+  let captured:=OptionList.find_map(fun entry=>match State.purpose entry with
    |State.DraftSubmission draft generation layer _
    |State.DraftAdmission draft _ generation layer _
-   |State.ProjectPreference draft _ generation layer _=>
-    match pending draft generation layer with Some message=>[message]|None=>[]end
-   |_=>[] end)(State.awaiting(State.authoring_state state)))in
+   |State.ProjectPreference draft _ generation layer _=>pending draft generation layer
+   |_=>None end)(State.awaiting(State.authoring_state state))in
   match captured with Some _=>captured|None=>
-   hd_error(flat_map(fun resource=>
+   OptionList.find_map(fun resource=>
     match Services.captured_preparation resource,resource_request resource with
-    |true,Some request=>match pending (Services.preparation_draft request)
-      (Services.preparation_generation request) (Services.preparation_layer request) with
-      |Some message=>[message]|None=>[]end
-    |_,_=>[]end)(Services.preparations(State.service_state state)))
+    |true,Some request=>pending (Services.preparation_draft request)
+      (Services.preparation_generation request) (Services.preparation_layer request)
+    |_,_=>None end)(Services.preparations(State.service_state state))
   end
  |_=>None end.
 Definition create_work snapshot state:=

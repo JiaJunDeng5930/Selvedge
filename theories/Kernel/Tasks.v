@@ -7,6 +7,7 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Utf8 FreshNames.
 From Selvedge.Programming Require Import Refinement.
 From Selvedge.Kernel Require Import Numbers Domain Codec Context ContextUpdates State History ModelCapabilities TaskConstraints.
+From Selvedge.Foundation Require ListCount.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -302,7 +303,7 @@ Definition cancel_operation (id operation_id : N) (value : world) :=
 Definition quiescent (task : task) :=
  negb (task_busy task) && Nat.eqb (List.length (task_queued task)) 0.
 Definition descendant_count (ancestor : N) (tasks : list task) :=
- N.of_nat (List.length (filter (fun task => existsb (N.eqb ancestor) (task_lineage task)) tasks)).
+ N.of_nat (ListCount.count (fun task => existsb (N.eqb ancestor) (task_lineage task)) tasks).
 Definition ancestor_capacity (value:world)(ancestor:N):option(N*N):=
  match find_task ancestor value with
  |Some task=>Some(descendant_count ancestor(world_tasks value),contract_max_descendants(task_contract task))

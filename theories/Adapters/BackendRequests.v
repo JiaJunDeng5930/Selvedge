@@ -150,14 +150,17 @@ Definition admit_reasoning effect profile : outcome (option json) :=
  let value := Some (reasoning_value effect) in
  let observed := get (get profile "model_info") "supported_reasoning_levels" in
  if account profile && is_array observed then
-   let levels := map (fun level => get level "effort") (items observed) in
-   if Nat.eqb (List.length levels) 0 && negb (is_object (get (get effect "model") "adaptive_reasoning"))
+   let levels := items observed in
+   let effort level := get level "effort" in
+   let has_effort expected := existsb (fun level => JsonObjects.equivalent (effort level) expected) levels in
+   if (match levels with [] => true | _ => false end) &&
+      negb (is_object (get (get effect "model") "adaptive_reasoning"))
    then Accepted None
    (* DEFENSE: A refreshed account catalog can remove an effort retained by a
       Task's frozen policy; both the wire baseline and selected effort must fit. *)
    else if independent_kind (str effect "kind") ||
-     (contains levels (request_effort effect) && contains levels (effective_effort effect)) then Accepted value
-   else reject ("This account model supports these reasoning levels: " ++ String.concat ", " (map text levels))
+     (has_effort (request_effort effect) && has_effort (effective_effort effect)) then Accepted value
+   else reject ("This account model supports these reasoning levels: " ++ String.concat ", " (map (fun level => text (effort level)) levels))
  else Accepted value.
 Definition output_limit effect :=
  if has effect "max_output_tokens" then Some (get effect "max_output_tokens")

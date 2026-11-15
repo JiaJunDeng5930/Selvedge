@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith Lia.
-From Selvedge.Foundation Require Import Json.
+From Selvedge.Foundation Require Import Json ListCountProofs.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Kernel Require Import Numbers Domain State Codec Workspace CommandExecution Queries LifecycleProofs.
 From Selvedge.Features Require Import WorkspaceBinding.
@@ -200,7 +200,9 @@ Proof.
  exists (Publication.project_summary_json (world_tasks value) id project); split.
  - unfold Queries.projects_json, Publication.projects_json.
    apply in_map_iff; exists (id,project); split; [reflexivity|exact Present].
- - repeat split; reflexivity.
+ - split; [|split; reflexivity].
+   unfold Publication.project_summary_json, Publication.project_task_count.
+   now rewrite count_selected.
 Qed.
 
 Theorem reviewer_delegation_ignores_display_metadata : forall child parent other_child other_parent,
