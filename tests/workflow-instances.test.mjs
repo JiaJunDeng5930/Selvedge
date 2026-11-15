@@ -227,6 +227,17 @@ test('workflows can be authored and started in place from the browser', { timeou
   const graph = main.getByRole('region', { name: 'Browser workflow', exact: true });
   await graph.waitFor();
   const canvas = main.getByRole('region', { name: '工作流画布', exact: true });
+  for (const [width, height] of [[360, 640], [390, 844]]) {
+    await page.setViewportSize({ width, height });
+    await main.getByRole('button', { name: '适应工作流', exact: true }).click();
+    await until(() => canvas.evaluate(port => {
+      const summary = port.querySelector('[data-workflow-selected] summary');
+      const controls = port.parentElement.querySelector('[data-workflow-actions]').getBoundingClientRect();
+      return summary.getAttribute('aria-disabled') === 'true' &&
+        Math.abs(port.getBoundingClientRect().top - controls.bottom) < 1;
+    }), 'A workflow with complete labels gives all remaining height to the canvas');
+  }
+  await page.setViewportSize({ width: 588, height: 744 });
   const canvasBox = await canvas.boundingBox();
   assert.ok(canvasBox.height > page.viewportSize().height / 2);
   const transform = () => canvas.locator('[data-workflow-plane]').evaluate(el => getComputedStyle(el).transform);
@@ -281,7 +292,7 @@ test('workflows can be authored and started in place from the browser', { timeou
   assert.equal(await zoomIn.isDisabled(), true);
   await otherPreview.click({ position: { x: 30, y: 70 } });
   assert.equal(await picker.locator(':checked').innerText(), otherWorkflow);
-  for (const [width, height] of [[320, 568], [360, 640], [390, 844], [768, 1024], [640, 360]]) {
+  for (const [width, height] of [[320, 568], [360, 640], [390, 844], [768, 1024], [640, 360], [844, 390]]) {
     await page.setViewportSize({ width, height });
     await main.getByRole('button', { name: '适应工作流', exact: true }).click();
     await until(() => canvas.evaluate(viewport => {
@@ -409,6 +420,18 @@ test('workflows can be authored and started in place from the browser', { timeou
       await until(async () => (await feedback.textContent()) === '', 'The missing-message feedback clears');
       assert.ok(Math.abs((await message.boundingBox()).y - originalPosition) < 2);
       await launchPanel.getByRole('button', { name: '取消', exact: true }).click();
+    }
+    if (width === 844) {
+      const tasks = page.getByRole('button', { name: 'Open Task list', exact: true });
+      await tasks.waitFor();
+      const frame = await canvas.boundingBox();
+      assert.ok(frame.width >= 550);
+      await tasks.click();
+      const drawer = page.getByRole('dialog', { name: '对话', exact: true });
+      await drawer.waitFor();
+      await page.keyboard.press('Escape');
+      await drawer.waitFor({ state: 'hidden' });
+      assert.deepEqual(await canvas.boundingBox(), frame);
     }
     await main.getByRole('button', { name: '查看所有工作流', exact: true }).click();
     assert.ok(await canvas.evaluate(viewport => {

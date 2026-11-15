@@ -72,6 +72,8 @@ Definition reading_minimum env :=
 Definition navigation_requirement env :=
   let p := parameters env in navigation_width p + main_minimum_width p.
 Definition details_requirement env := reading_minimum env + details_width (parameters env).
+Definition short_landscape env :=
+  Nat.leb (viewport_height env) 480 && Nat.ltb (viewport_height env) (viewport_width env).
 Definition observe_capacity env : option (bool * bool) :=
   match workspace_inner_width env, main_inner_width env with
   | Some workspace, Some main =>
@@ -95,14 +97,10 @@ Definition work_overview_width env :=
       (viewport_width env - 2 * work_overview_clearance)).
 Definition work_overview_height env :=
   (viewport_height env - 2 * work_overview_clearance) * 94 / 100.
-Definition modal_navigation_width env :=
-  match observe_capacity env with
-  |Some (true,_)=>navigation_width(parameters env)
-  |_=>viewport_width env end.
 Definition modal_navigation_properties env : list(string*string) :=
   [("position","fixed");("inset-inline-start","0");("inset-inline-end","auto");
    ("inset-block-start","0");("inset-block-end","auto");("margin","0");
-   ("inline-size",Typography.px(modal_navigation_width env));
+   ("inline-size",Typography.px(viewport_width env));
    ("block-size",Typography.px(viewport_height env));
    ("max-inline-size",Typography.px(viewport_width env));
    ("max-block-size",Typography.px(viewport_height env));

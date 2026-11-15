@@ -556,10 +556,10 @@ dialog[data-semantic-key="card-details"] {
 }
 [data-workflow-workspace] {
   --workflow-toolbar-row-height: 3.375rem;
+  --workflow-name-row-height: 0px;
   display: grid !important;
   grid-template-columns: minmax(0, 1fr);
-  /* Reserve the name row before fitting so inspection never changes the chart or controls. */
-  grid-template-rows: auto repeat(2, var(--workflow-toolbar-row-height)) minmax(0, 1fr);
+  grid-template-rows: auto var(--workflow-toolbar-row-height) var(--workflow-name-row-height) minmax(0, 1fr);
   flex: 1 1 auto !important;
   min-block-size: 0 !important;
   min-inline-size: 0 !important;
@@ -569,6 +569,10 @@ dialog[data-semantic-key="card-details"] {
   border-radius: 0.625rem;
   background: var(--selvedge-surface);
   overflow: clip;
+}
+[data-workflow-frame="selected"]:has([data-workflow-selected] [data-semantic-key="workflow-node-name"] > summary[data-workflow-overflow]) {
+  /* Fit with the row already allocated whenever a title can be disclosed. */
+  --workflow-name-row-height: var(--workflow-toolbar-row-height);
 }
 [data-workflow-viewport-controls] {
   grid-column: 1 / -1;

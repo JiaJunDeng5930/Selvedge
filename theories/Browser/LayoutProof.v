@@ -29,11 +29,8 @@ Proof. unfold work_overview_width, work_overview_height.
     apply Nat.mul_le_mono_r. vm_compute. lia.
 Qed.
 
-Theorem compact_navigation_uses_the_viewport env details :
-  observe_capacity env = Some (false,details) ->
-  modal_navigation_width env = viewport_width env.
-Proof. intros Capacity. unfold modal_navigation_width. rewrite Capacity. reflexivity. Qed.
-Theorem modal_navigation_retains_its_full_height_and_leading_origin env :
+Theorem modal_navigation_retains_viewport_size_and_leading_origin env :
+  In ("inline-size",Typography.px(viewport_width env)) (modal_navigation_properties env) /\
   In ("block-size",Typography.px(viewport_height env)) (modal_navigation_properties env) /\
   In ("inset-inline-start","0") (modal_navigation_properties env) /\
   In ("inset-block-start","0") (modal_navigation_properties env).

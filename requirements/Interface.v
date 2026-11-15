@@ -308,8 +308,10 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     Inert content still occupies space; foreground interaction does not imply
     removal from layout. Workspace navigation and supporting regions receive
     separate allocations from the viewport, so a temporary dialog cannot itself
-    force an otherwise viable desktop navigation mode. Centered dialogs fit
-    the current viewport while a new layout observation is pending.
+    force an otherwise viable desktop navigation mode. Short landscape task graphs
+    can put task navigation in a drawer to leave room for the graph and its actions.
+    Centered dialogs fit the current viewport while a new layout observation is
+    pending.
     Collapsed desktop navigation keeps the new conversation and search actions
     beside the control that reopens the sidebar.
     Returning to the latest message uses the reading area's outer edge.
