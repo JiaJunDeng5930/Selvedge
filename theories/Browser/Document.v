@@ -112,6 +112,12 @@ Definition task_history_face key (face:S.task_tool_face) expanded :=
  let face_key:=NavigationIdentity.key_part (key++"/face")%string (S.task_tool_call face) in
  DOM.Element face_key "span" [("data-task-history-face","");("data-task-history-call",S.task_tool_call face)] [] [] empty
   (task_tool_header face_key face++[task_history_chevron expanded]).
+Definition task_process_heading key title expanded :=
+ DOM.Element (key++"/heading")%string "span" [("data-task-history-face","");("data-task-process-heading","")] [] [] empty
+  [task_history_icon key "brain" None;
+   DOM.Element "" "span" [("data-task-history-title","")] [] [] empty [DOM.Text title];
+   task_history_status key None;
+   task_history_chevron expanded].
 Definition task_tool_output key (face:S.task_tool_face) output (expanded:bool) :=
  let live:=S.task_tool_running face in
  DOM.Element (key++"/output")%string "pre"
@@ -122,9 +128,9 @@ Definition task_tool_output key (face:S.task_tool_face) output (expanded:bool) :
 Definition task_history_element {A} key generation attrs (card:S.task_history_card) (expanded:bool)
  (action:Model.control A) children :=
  let panel:=(key++"/details")%string in
- let button name header:=
+ let button name labels header:=
   DOM.Element (key++"/"++name)%string "button" ([(name,"");("type","button");
-    ("aria-expanded",flag expanded);("aria-controls",panel)])
+    ("aria-expanded",flag expanded);("aria-controls",panel)]++labels)
    [] [event key generation "click" "activate" Gesture.Press] empty header in
  let details body:=DOM.Element panel "div" (([("id",panel);("data-task-history-panel","")]++
     if expanded then [] else [("inert","")])) [] [] empty
@@ -132,24 +138,20 @@ Definition task_history_element {A} key generation attrs (card:S.task_history_ca
  let state:=[("data-task-history-expanded",flag expanded)] in
  match card with
  |S.TaskProcessCard running latest=>
-  let preview:=if expanded then [] else match latest with
-   |Some face=>[button "data-task-process-preview"
-      [task_history_face key face false]]
-   |None=>[]end in
+  let title:=Model.control_label action in
+  let '(face,labels):=match (if expanded then None else latest) with
+   |Some tool=>(task_history_face key tool false,[("aria-label",(title++" · "++S.task_tool_label tool)%string)])
+   |None=>(task_process_heading key title expanded,[]) end in
   DOM.Element key "section" (attrs++[("data-task-process-shell","")]) [] [] empty
    (agent_attribution key Roles.AssistantMessage++
    [DOM.Element (key++"/process")%string "section" (("data-task-process","")::("data-task-process-running",flag running)::state) [] [] empty
-     (button "data-task-process-toggle"
-      ([task_history_icon key "brain" None;
-        DOM.Element "" "span" [("data-task-history-title","")] [] [] empty [DOM.Text (Model.control_label action)]]
-       ++match preview with []=>[task_history_chevron expanded]|_=>[]end)
-     ::preview++[details children])])
+     [button "data-task-process-toggle" labels [face];details children]])
  |S.TaskToolGroupCard face=>
   DOM.Element key "section" (attrs++(("data-tool-group","")::state)) [] [] empty
-   [button "data-tool-group-toggle" [task_history_face key face expanded];details children]
+   [button "data-tool-group-toggle" [] [task_history_face key face expanded];details children]
  |S.TaskToolCallCard face output=>
   DOM.Element key "section" (attrs++(("data-tool-call","")::state)) [] [] empty
-   [button "data-tool-call-toggle" (task_tool_header key face);
+   [button "data-tool-call-toggle" [] (task_tool_header key face);
     details [task_tool_output key face output expanded]]
  end.
 

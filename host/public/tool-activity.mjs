@@ -2,8 +2,8 @@ import { naturalKey } from './json-tokens.mjs';
 import { appendDepartingSurface } from './native-dom.mjs';
 
 /** Physical observations and motion for tool cards already admitted by the browser model. */
-const collapsedDeck = ':is([data-task-process-preview], [data-tool-group-toggle])[aria-expanded="false"]';
-const face = '[data-task-history-call]:not([data-task-history-departure])';
+const collapsedDeck = ':is([data-task-process-toggle], [data-tool-group-toggle])[aria-expanded="false"]';
+const face = '[data-task-history-face]:not([data-task-history-departure])';
 const elapsed = '[data-tool-elapsed]';
 const liveOutput = '[data-tool-live-output]';
 const observationKey = (task, call) => JSON.stringify([String(task), call]);

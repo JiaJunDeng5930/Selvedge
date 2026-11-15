@@ -148,7 +148,7 @@ test('a conversation offers its fork at the end and Cancel restores the reading 
   await dialog.waitFor({ state: 'hidden' });
   await expectFocus(page, fork);
   assert.ok(Math.abs(await timeline.evaluate(node => node.scrollTop) - offset) <= 1);
-  assert.equal(await returnLatest.isVisible(), true);
+  assert.equal(await returnLatest.isVisible(), false);
   assert.deepEqual(await message.boundingBox(), messageBounds);
 
   await fork.press('Enter');

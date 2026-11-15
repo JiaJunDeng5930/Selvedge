@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { browserFixture, creationEnvironmentTrigger, openCreationEnvironment } from './fixtures/browser.mjs';
+import { taskIdle } from './fixtures/task-idle.mjs';
 
 function insideViewport(bounds, { width, height }) {
   return bounds && bounds.width > 0 && bounds.height > 0 && bounds.x >= -1 && bounds.y >= -1
@@ -164,19 +165,21 @@ test('an explicit send shows the captured new message in a temporary conversatio
     submit.resolve();
     const { reply } = await (await creation).json();
     assert.equal(reply.ok, true);
-    await reader.getByRole('status').filter({ hasText: '正在准备回复…' }).waitFor();
+    const replyPlaceholders = reader.getByText(/^正在(?:准备|生成)回复…$/u);
+    await status.waitFor({ state: 'hidden' });
+    assert.equal(await replyPlaceholders.count(), 0);
     resumeSnapshots.resolve();
     await captured.waitFor();
-    await status.waitFor({ state: 'hidden' });
-    const generation = reader.getByRole('status').filter({ hasText: '正在生成回复…' });
-    await generation.waitFor();
     const requestDeadline = Date.now() + 30_000;
     while (!fixture.requests[0] && Date.now() < requestDeadline)
       await new Promise(resolve => setTimeout(resolve, 20));
     assert.ok(fixture.requests[0]);
-    fixture.finish(0, { text: 'The submission and reply are visible.' });
+    fixture.emit(0, 'The submission and reply are visible.\n\n');
     await reader.getByText('The submission and reply are visible.', { exact: true }).waitFor();
-    await generation.waitFor({ state: 'hidden' });
+    assert.equal(await replyPlaceholders.count(), 0);
+    fixture.finish(0);
+    await taskIdle(fixture.running.service, reply.result.task_id);
+    await reader.getByText('The submission and reply are visible.', { exact: true }).waitFor();
 
     const compact = { width: 390, height: 720 };
     const message = 'Check the progress of an existing conversation.';
@@ -210,7 +213,7 @@ test('an explicit send shows the captured new message in a temporary conversatio
     }
     await reader.getByText(message, { exact: true }).waitFor();
     await status.waitFor({ state: 'hidden' });
-    await generation.waitFor();
+    assert.equal(await replyPlaceholders.count(), 0);
   } finally {
     admit.resolve();
     submit.resolve();

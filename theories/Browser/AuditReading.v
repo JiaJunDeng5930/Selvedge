@@ -115,13 +115,6 @@ Definition retained_part {A} (action:actions A) context retained interactive sta
      [control (identity++"/dismiss-unfinished") "关闭未完成回复" (action.(reading_retained) identity false)]))]
  (if visible then [S.Node identity "generated-output" "Interrupted output" R.AssistantMessage (reading source (document_source stamp) retained)
    (attachments action.(reading_interactive) context retained interactive source)] else []).
-Definition reply_pending (task:json) : option string :=
- match string_field "status" task,string_field "phase" task with
- |Some "active",Some "ready"=>Some "正在准备回复…"
- |Some "active",Some "model_pending"
- |Some "active",Some "context_pending"
- |Some "active",Some "reasoning_pending"=>Some "正在生成回复…"
- |_,_=>None end.
 Definition task_messages context task :=
  value_or [] (option_map (items "history") (DocumentState.find_task task (context_world context))).
 Definition has_history context task :=
@@ -237,23 +230,19 @@ Definition commentary_process index history operations :=
    |TaskHistory.Process occurrence _ _=>Some (history_card_address occurrence 0%N) |_=>None end).
 
 Inductive reply :=
- | AwaitingReply (status:option string)
+ | AwaitingReply
  | LiveReply (output:Streams.live_output) (first:N*string) (rest:list(N*string)).
 Definition task_reply context task :=
- let pending:=if existsb (fun operation=>TaskHistory.operation_running (Some operation)) (task_operations context task)
-   then None else bind (DocumentState.find_task task (context_world context)) reply_pending in
  match current_task_preview context task with
  |Some output=>match Streams.output_parts output with
    |first::rest=>LiveReply output first rest
-   |[]=>AwaitingReply pending
+   |[]=>AwaitingReply
    end
- |None=>AwaitingReply pending
+ |None=>AwaitingReply
  end.
 Definition reply_nodes {A} (action:actions A) context retained interactive task : list (S.node A) :=
  match task_reply context task with
- |AwaitingReply (Some status)=>[S.Node "reply-pending" "reply-pending" status R.Content
-    (S.InformationText Information.Status) []]
- |AwaitingReply None=>[]
+ |AwaitingReply=>[]
  |LiveReply output first rest=>
    map (preview action.(reading_interactive) context retained interactive output) (first::rest)
  end.
@@ -277,8 +266,7 @@ Fixpoint same_items {A} (equal:A->A->bool) (left right:list A) :=
  |_,_=>false end.
 Definition same_reply before after task :=
  match task_reply before task,task_reply after task with
- |AwaitingReply (Some previous),AwaitingReply (Some next)=>String.eqb previous next
- |AwaitingReply None,AwaitingReply None=>true
+ |AwaitingReply,AwaitingReply=>true
  |LiveReply previous first rest,LiveReply next next_first next_rest=>
    let same_part '(index,source) '(other,following):=
      N.eqb index other && String.eqb source following &&
