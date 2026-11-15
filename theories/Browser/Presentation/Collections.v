@@ -380,7 +380,9 @@ Definition workflow_section snapshot parent compact definition :=
  region parent section (workflow_field "name" definition) Roles.Section
   ([workflow_canvas snapshot key (TaskGraphCanvas.workflow_geometry compact) true definition;
     region key "workflow-preview" "" Roles.Section
-     [workflow_canvas snapshot (part key "workflow-preview") (TaskGraphCanvas.workflow_preview_geometry compact) false definition]] ++
+     [workflow_canvas snapshot (part key "workflow-preview")
+       (TaskGraphCanvas.workflow_preview_geometry (compact && (2 <? List.length (workflow_list "nodes" definition))%nat))
+       false definition]] ++
    map (fun '(index, graph) =>
      let version := ("saved/" ++ show_natural (N.of_nat index))%string in
      let name := ("运行中的历史版本 " ++ show_natural (N.of_nat index) ++ " · " ++ workflow_field "name" graph)%string in

@@ -691,9 +691,9 @@ dialog[data-semantic-key="card-details"] {
   padding: 0.75rem;
   transform: none;
 }
-@media (min-width: 1024px) {
+@media (min-width: 720px) {
   [data-workflow-frame="overview"] [data-workflow-plane] {
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--workflow-thumbnail-column, 21.5rem)), 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--workflow-thumbnail-column, 19.5rem)), 1fr));
   }
 }
 [data-workflow-frame="overview"] [data-workflow-tile] {
@@ -785,11 +785,22 @@ dialog[data-semantic-key="card-details"] {
   }
   [data-workflow-actions] button { min-block-size: 32px !important; }
 }
-@media (orientation: landscape) and (max-height: 480px) and (max-width: 760px) {
+@media (orientation: landscape) and (max-height: 480px) and (max-width: 599px) {
   [data-workflow-workspace]:not([data-workflow-frame="overview"]) {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto auto minmax(0, 1fr);
   }
+}
+@media (orientation: landscape) and (max-height: 480px) and (min-width: 600px) and (max-width: 760px) {
+  main:has(> [data-page-region="task-graph-entries"] > [data-workflow-workspace]) {
+    padding-inline: 0.75rem !important;
+  }
+  [data-workflow-actions] { align-content: center; }
+  [data-workflow-actions] button[data-semantic-key="edit-workflow"] {
+    min-inline-size: 36px !important;
+    padding-inline: 0.45rem !important;
+  }
+  [data-workflow-actions] button[data-semantic-key="edit-workflow"] > span { display: none; }
 }
 [data-semantic-key="workflow-history"] button[data-semantic-key^="run/"] {
   display: grid !important;
@@ -911,6 +922,7 @@ button[data-semantic-key^="instance/"]:hover {
   overflow: hidden;
   overflow-wrap: anywhere;
   text-overflow: ellipsis;
+  text-wrap: balance;
   line-height: 1.15;
   cursor: pointer;
 }
@@ -979,7 +991,7 @@ button[data-semantic-key^="instance/"]:hover {
   max-block-size: 2lh;
   overflow: hidden;
   overflow-wrap: anywhere;
-  text-overflow: ellipsis;
+  white-space: normal;
 }
 [data-semantic-key="workflow-preview-name"][data-workflow-overflow] {
   cursor: pointer;

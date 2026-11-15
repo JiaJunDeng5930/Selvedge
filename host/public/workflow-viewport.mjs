@@ -27,7 +27,7 @@ export function installWorkflowViewport(surface) {
   const labelObserver = new ResizeObserver(entries => {
     for (const { target } of entries) {
       const name = target.closest('[data-semantic-key="workflow-preview-name"]');
-      const overflow = target.scrollHeight > target.clientHeight + 1;
+      const overflow = target.scrollHeight > target.clientHeight || target.scrollWidth > target.clientWidth;
       if (name) {
         name.toggleAttribute('data-workflow-overflow', overflow);
         name.tabIndex = overflow ? 0 : -1;
@@ -110,7 +110,7 @@ export function installWorkflowViewport(surface) {
     const zoomRatio = current.thumbnailZoom / defaultThumbnailZoom;
     const compact = viewport.clientWidth <= 450;
     const tablet = viewport.clientWidth >= 550 && viewport.clientWidth <= 820;
-    if (all) viewport.style.setProperty('--workflow-thumbnail-column', `${21.5 * zoomRatio}rem`);
+    if (all) viewport.style.setProperty('--workflow-thumbnail-column', `${19.5 * zoomRatio}rem`);
     for (const tile of viewport.querySelectorAll('[data-workflow-tile]')) {
       const graph = tile.querySelector('[data-workflow-preview-body]').firstElementChild;
       if (all) {

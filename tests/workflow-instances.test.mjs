@@ -291,7 +291,7 @@ test('workflows can be authored and started in place from the browser', { timeou
       const node = exit.parentElement.getBoundingClientRect();
       const diagram = exit.closest('[data-semantic-key="task-graph/viewport"]').getBoundingClientRect();
       const readable = innerWidth !== 640 ||
-        parseFloat(getComputedStyle(exit.parentElement.querySelector('summary')).fontSize) * node.width / exit.parentElement.offsetWidth >= 9;
+        parseFloat(getComputedStyle(exit.parentElement.querySelector('summary')).fontSize) * node.width / exit.parentElement.offsetWidth >= 11;
       return readable && node.left >= frame.left && node.right <= Math.min(innerWidth, frame.right) &&
         node.top >= frame.top && node.bottom <= Math.min(innerHeight, frame.bottom, diagram.bottom);
     }), `Fit shows a complete, readable exit at ${width}×${height}`);
@@ -358,6 +358,17 @@ test('workflows can be authored and started in place from the browser', { timeou
       await page.keyboard.press('Escape');
       await detail.waitFor({ state: 'hidden' });
       assert.ok(await label.evaluate(node => node === document.activeElement));
+    }
+    if (width === 768) {
+      const zoomOut = main.getByRole('button', { name: '缩小画布', exact: true });
+      await zoomOut.click();
+      await zoomOut.click();
+      await zoomOut.click();
+      const titles = canvas.locator('[data-workflow-open]');
+      assert.ok(await titles.evaluateAll(buttons => {
+        const [first, second] = buttons.map(button => button.getBoundingClientRect());
+        return first.top === second.top && first.right < second.left;
+      }));
     }
     if (width === 640) {
       const label = canvas.getByRole('button', { name: longEntrance, exact: true });
