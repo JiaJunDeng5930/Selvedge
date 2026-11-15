@@ -48,6 +48,18 @@ Import ListNotations.
     The current-format check must reject such earlier journals before replay,
     retaining their bytes rather than converting or partially applying them.
 
+    The journal may cache the extracted world at an acknowledged sequence.
+    Publication replaces one checkpoint after the journal commit; a cache
+    write never authorizes a commit or publishes its effects. Restore admits
+    only a checkpoint authenticated by the private service key, produced by
+    the exact extracted kernel bundle, and bound to the same journal namespace
+    and input prefix. These checks precede the runtime's native deserialization,
+    which assumes bytes emitted by its matching serializer. A missing or
+    unusable checkpoint leaves the authoritative replay path available.
+    Restoring the cached world uses the same replay operation on the suffix.
+    Physical restart tests exercise the cache boundary; the extracted runtime
+    codec and local key custody remain execution premises.
+
     Live configuration must carry the domain controller's maintenance
     cancellations into the actual packet decision. That boundary need not
     prescribe the controller's world-construction recipe. Successful admission

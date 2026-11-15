@@ -168,3 +168,40 @@ test('a prepared restart rejects a changed committed prefix at the same sequence
     await next.close();
   }, /committed journal prefix changed during update preparation/);
 });
+
+test('a journal reopens from its committed state and ignores a stale or damaged checkpoint', async t => {
+  const directory = await home(t);
+  const filename = path.join(directory, 'journal.sqlite');
+  const checkpoint = `${filename}.checkpoint`;
+  const card = title => ({ kind: 'command', command: { op: 'create_card', title } });
+  const expectCards = async titles => {
+    const journal = await Journal.open(filename);
+    try {
+      const listed = await journal.execute({ kind: 'command', command: { op: 'list_cards' } });
+      assert.equal(listed.reply.ok, true);
+      assert.deepEqual(new Set(listed.reply.result.cards.map(entry => entry.title)), new Set(titles));
+    } finally { await journal.close(); }
+  };
+
+  const writer = await Journal.open(filename);
+  t.after(() => writer.close());
+  const first = await writer.execute(card('检查点里的卡片 🌲'));
+  assert.equal(first.reply.ok, true);
+  assert.equal((await writer.execute(card('Checkpoint suffix'))).reply.ok, true);
+  await writer.close();
+  const saved = await readFile(checkpoint);
+  assert.ok(saved.length > 0);
+  await expectCards(['检查点里的卡片 🌲', 'Checkpoint suffix']);
+
+  const database = new DatabaseSync(filename);
+  try {
+    database.prepare('UPDATE journal SET input = ? WHERE seq = ?')
+      .run(JSON.stringify(card('Replacement prefix')), first.sequence);
+  } finally { database.close(); }
+  await expectCards(['Replacement prefix', 'Checkpoint suffix']);
+
+  const damaged = await readFile(checkpoint);
+  damaged[damaged.length - 1] ^= 1;
+  await writeFile(checkpoint, damaged);
+  await expectCards(['Replacement prefix', 'Checkpoint suffix']);
+});

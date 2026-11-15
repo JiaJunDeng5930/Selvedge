@@ -2,8 +2,19 @@ open Js_of_ocaml
 module Model = KernelModel
 module Json = Json_io.Make(Model)
 
-(* World values stay opaque inside this worker; only domain JSON crosses IO. *)
+(* World values stay opaque to the host. Checkpoint bytes can be restored only
+   after the host authenticates them as output of this exact kernel bundle. *)
 let initial () = Model.selvedge_kernel_initial
+let checkpoint world =
+  (* DEFENSE: Marshal can refuse an extracted value that contains a closure. *)
+  try Js.some (Js.bytestring (Marshal.to_string world []))
+  with Invalid_argument _ | Failure _ -> Js.null
+let restore_checkpoint source =
+  let restore_like (_ : 'world) : 'world =
+    Marshal.from_string (Js.to_bytestring source) 0 in
+  (* DEFENSE: A runtime decoder can reject an otherwise authenticated image. *)
+  try Js.Unsafe.inject (restore_like Model.selvedge_kernel_initial)
+  with Invalid_argument _ | Failure _ -> Js.Unsafe.inject Js.null
 let input_error name message =
   Js.Unsafe.obj [| "inputError", Js.Unsafe.inject (Js.Unsafe.obj [|
     "name", Js.Unsafe.inject (Js.string name);
@@ -34,6 +45,8 @@ let () = Js.Unsafe.set Js.Unsafe.global "__selvedgeKernel" (Js.Unsafe.obj [|
   "initial", Js.Unsafe.inject (Js.wrap_callback initial);
   "packet", Js.Unsafe.inject (Js.wrap_callback packet);
   "replay", Js.Unsafe.inject (Js.wrap_callback replay);
+  "checkpoint", Js.Unsafe.inject (Js.wrap_callback checkpoint);
+  "restoreCheckpoint", Js.Unsafe.inject (Js.wrap_callback restore_checkpoint);
   "observe", Js.Unsafe.inject (Js.wrap_callback observe);
   "assess", Js.Unsafe.inject (Js.wrap_callback assess)
 |])

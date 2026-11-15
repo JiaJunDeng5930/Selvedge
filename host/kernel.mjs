@@ -32,6 +32,10 @@ export class Kernel {
         pending.resolve(message);
         return;
       }
+      if (message.checkpoint) {
+        pending.resolve(message.checkpoint);
+        return;
+      }
       try {
         const { text, programText } = message;
         const response = { value: parseJson(text),
@@ -73,6 +77,14 @@ export class Kernel {
   // Replay checks admission without projecting intermediate worlds while the journal opens.
   replay(text) {
     return this.#submit(text, false, 'replay');
+  }
+
+  captureCheckpoint() {
+    return this.#submit(undefined, false, 'captureCheckpoint');
+  }
+
+  restoreCheckpoint({ identity, payload }) {
+    return this.#submit({ identity, data: payload.toString('latin1') }, false, 'restoreCheckpoint');
   }
 
   assess(candidate) {
