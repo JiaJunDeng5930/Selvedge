@@ -210,7 +210,7 @@ Definition task_history_node {A} (action:actions A) context retained interactive
    let key:="task-process/"++show_nat index in
    let '(expanded,toggle):=history_card_control action task key title index 0%N (negb ended) disclosures in
    let latest:=if running then option_map (invocation_face context task) (latest_tool (flat_map step_invocations steps)) else None in
-   S.Node key "task-process" title R.Activity (S.TaskHistoryCard (S.TaskProcessCard running latest) expanded toggle)
+   S.Node key key title R.Activity (S.TaskHistoryCard (S.TaskProcessCard running latest) expanded toggle)
     (map (process_step action context retained interactive task disclosures history) steps)
  end.
 Definition task_operations context task :=
