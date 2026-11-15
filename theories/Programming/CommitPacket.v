@@ -13,13 +13,13 @@ Record selected := Selected {
 }.
 Definition choose (durable : bool) (source : option input) (outcome : bool * decision) :=
  Selected durable (fst outcome) source (snd outcome).
+Definition finalize_world (before : world) (chosen : selected) : world :=
+ let next := decision_world (selected_decision chosen) in
+ if selected_durable chosen then with_sequence (N.succ (world_sequence before)) next else next.
 Definition finalize (before : world) (chosen : selected) : world * json :=
- let result := selected_decision chosen in
- (if selected_durable chosen
-  then with_sequence (N.succ (world_sequence before)) (decision_world result)
-  else decision_world result,
+ (finalize_world before chosen,
   Notifications.envelope (selected_durable chosen) (selected_admitted chosen)
-    (selected_source chosen) before result).
+    (selected_source chosen) before (selected_decision chosen)).
 
 (** Consumers lift a property of the selected outcome once, rather than
     reopening each transaction's delivery and journal branches. *)
@@ -28,7 +28,7 @@ Theorem finalize_preserves : forall (P : world -> Prop) before chosen,
  P (decision_world (selected_decision chosen)) -> P (fst (finalize before chosen)).
 Proof.
  intros P before [durable admitted source result] Cursor Holds.
- destruct durable; cbn [finalize selected_durable selected_decision fst]; auto.
+ destruct durable; cbn [finalize finalize_world selected_durable selected_decision fst]; auto.
 Qed.
 Theorem finalize_has_its_selected_receipt : forall before chosen,
  snd (finalize before chosen) =

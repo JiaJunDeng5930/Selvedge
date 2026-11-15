@@ -48,7 +48,7 @@ Theorem every_resolved_exported_creation_commits_its_planned_result :
   Notifications.envelope true true (Some (UserCommand (Commands.Cmd_create request))) before (planned_decision plan)).
 Proof.
  intros source request contents before start plan Decoded InputFits Parsed Resolved Prepared OutputFits.
- unfold Packet.packet, Packet.select.
+ unfold Packet.packet, Packet.select, Delivery.fits_json.
  fold (Delivery.fits_json source).
  rewrite InputFits,Decoded; cbn [Packet.core_input Packet.manual_fork_input CreationCommit.input].
  apply every_planned_creation_with_an_output_budget_is_delivered with contents start; assumption.

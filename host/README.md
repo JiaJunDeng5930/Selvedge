@@ -10,7 +10,8 @@ private to that worker.
 its private `kernel.mjs` connection, which retires the worker after a failed or
 timed out transition. The journal commits an admitted input before publishing
 its decision or starting an effect. On reopen it replays inputs through the current
-extracted kernel without executing effects.
+extracted kernel and receives a durability marker per input. Admission and scheduling
+are shared with ordinary execution. The journal reads the restored snapshot after replay.
 `journal.mjs` migrates known SQLite storage versions while holding the single
 writer lock. It validates the separate input replay format and replays the
 candidate records before committing the migration.

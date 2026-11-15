@@ -28,6 +28,10 @@ export class Kernel {
         pending.reject(new ErrorType(message.inputError.message));
         return;
       }
+      if (typeof message === 'boolean') {
+        pending.resolve(message);
+        return;
+      }
       try {
         const { text, programText } = message;
         const response = { value: parseJson(text),
@@ -68,7 +72,7 @@ export class Kernel {
 
   // Replay checks admission without projecting intermediate worlds while the journal opens.
   replay(text) {
-    return this.#submit(text, false);
+    return this.#submit(text, false, 'replay');
   }
 
   assess(candidate) {

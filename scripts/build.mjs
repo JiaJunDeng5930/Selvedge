@@ -355,7 +355,7 @@ export async function build(options = {}) {
         : name === 'browser' ? 'export const publishBrowserDocument = runtime.publishNativeDocument;\n'
         : name === 'interaction' ? 'export const prepareInteraction = runtime.prepare;\nexport const rebaseInteraction = runtime.rebase;\nexport const preparedInteractionCall = runtime.preparedCall;\nexport const publishNativeDocument = runtime.publishNativeDocument;\nexport const publishNativeRegion = runtime.publishNativeRegion;\nexport const publishNativeStream = runtime.publishNativeStream;\n' : '';
       const exports = name === 'kernel'
-        ? 'export const initial = runtime.initial;\nexport const packet = runtime.packet;\nexport const observe = runtime.observe;\nexport const assess = runtime.assess;\n'
+        ? 'export const initial = runtime.initial;\nexport const packet = runtime.packet;\nexport const replay = runtime.replay;\nexport const observe = runtime.observe;\nexport const assess = runtime.assess;\n'
         : `export const ${target.exported} = runtime.call;\n${extraExports}`;
       // Keep each runtime and its exports in one atomically replaceable module.
       const bundle = `${await readFile(stagedRuntime, 'utf8')}\nconst runtime = globalThis.${target.global};\ndelete globalThis.${target.global};\n${exports}`;

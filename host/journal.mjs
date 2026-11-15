@@ -121,9 +121,9 @@ export class Journal extends EventEmitter {
     this.description = initial.description;
     this.program = initial.program;
     for (const row of this.#database.prepare('SELECT seq, input FROM journal ORDER BY seq').iterate()) {
-      const replayed = await this.#kernel.replay(row.input);
+      const durable = await this.#kernel.replay(row.input);
       // DEFENSE: A stored input that the current kernel no longer admits cannot restore committed work.
-      if (!replayed.value.durable) {
+      if (!durable) {
         throw new Error(`Committed input incompatibility at sequence ${row.seq}: current kernel rejected replay`);
       }
       this.sequence = row.seq;
