@@ -924,10 +924,12 @@ button[data-semantic-key^="instance/"]:hover {
   overflow: hidden;
   overflow-wrap: anywhere;
   text-overflow: ellipsis;
+  word-break: keep-all;
   text-wrap: balance;
   line-height: 1.15;
-  cursor: pointer;
 }
+[data-semantic-key="workflow-node-name"] > summary[data-workflow-overflow],
+[data-semantic-key="workflow-node-name"][open] > summary { cursor: pointer; }
 @media (min-width: 1024px) {
   [data-semantic-key="workflow-node-name"]:not([open]) > summary {
     -webkit-line-clamp: 3;
@@ -936,7 +938,22 @@ button[data-semantic-key^="instance/"]:hover {
 }
 @media (max-width: 440px), (orientation: landscape) and (max-height: 480px) {
   [data-workflow-plane] [data-semantic-key="workflow-node-name"] > summary {
-    font-size: clamp(0.8125rem, calc(0.75rem / var(--workflow-scale, 1)), 1.25rem);
+    font-size: clamp(0.8125rem, calc(0.75rem / var(--workflow-scale, 1)), 1.5rem);
+  }
+  [data-workflow-plane] [data-semantic-key="workflow-node"]:has(> details) [data-semantic-key^="workflow-node-kind/"] {
+    font-size: clamp(0.6875rem, calc(0.5625rem / var(--workflow-scale, 1)), 1.125rem) !important;
+  }
+}
+@media (min-width: 341px) and (max-width: 375px) {
+  [data-semantic-key="workflow-node-name"]:not([open]) > summary {
+    -webkit-line-clamp: 3;
+    max-block-size: 3lh;
+  }
+}
+@media (max-width: 340px) {
+  [data-semantic-key="workflow-node-name"]:not([open]) > summary {
+    -webkit-line-clamp: 2;
+    max-block-size: 2lh;
   }
 }
 @media (orientation: landscape) and (max-height: 480px) {
@@ -1002,6 +1019,7 @@ button[data-semantic-key^="instance/"]:hover {
   max-block-size: 2lh;
   overflow: hidden;
   overflow-wrap: anywhere;
+  word-break: keep-all;
   white-space: normal;
 }
 [data-semantic-key="workflow-preview-name"][data-workflow-overflow] {

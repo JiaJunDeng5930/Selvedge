@@ -1,6 +1,22 @@
 const dateFormat = new Intl.DateTimeFormat('zh-CN', {
   month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
 });
+const chineseWords = new Intl.Segmenter('zh', { granularity: 'word' });
+
+function wrapWorkflowName(target) {
+  const text = target.textContent;
+  if (target.childElementCount || !/\p{Script=Han}/u.test(text)) return;
+  // Preserve the product term and parenthetical phrases when ICU separates them.
+  const words = text.split(/(工作流|（[^（）]+）|\([^()]+\))/u).flatMap((part, index) =>
+    index % 2 ? [part] : Array.from(chineseWords.segment(part), entry => entry.segment));
+  if (words.length < 2) return;
+  const content = target.ownerDocument.createDocumentFragment();
+  for (const word of words) {
+    if (content.firstChild) content.append(target.ownerDocument.createElement('wbr'));
+    content.append(word);
+  }
+  target.replaceChildren(content);
+}
 
 export function showWorkflowTimes(surface) {
   for (const time of surface.querySelectorAll('time[data-epoch-seconds]:not([datetime])')) {
@@ -27,7 +43,9 @@ export function installWorkflowViewport(surface) {
   const labelObserver = new ResizeObserver(entries => {
     for (const { target } of entries) {
       const name = target.closest('[data-semantic-key="workflow-preview-name"]');
-      const overflow = target.scrollHeight > target.clientHeight || target.scrollWidth > target.clientWidth;
+      const tolerance = name ? 0 : 1;
+      const overflow = target.scrollHeight - target.clientHeight > tolerance ||
+        target.scrollWidth - target.clientWidth > tolerance;
       if (name) {
         name.toggleAttribute('data-workflow-overflow', overflow);
         name.tabIndex = overflow ? 0 : -1;
@@ -36,7 +54,12 @@ export function installWorkflowViewport(surface) {
           if (expandedPreview?.source === name) closePreview();
           name.removeAttribute('aria-expanded');
         }
-      } else if (!target.parentElement.open) target.toggleAttribute('data-workflow-overflow', overflow);
+      } else if (!target.parentElement.open) {
+        target.toggleAttribute('data-workflow-overflow', overflow);
+        target.tabIndex = overflow ? 0 : -1;
+        if (overflow) target.removeAttribute('aria-disabled');
+        else target.setAttribute('aria-disabled', 'true');
+      }
     }
   });
   function closePreview(returnFocus = false) {
@@ -212,6 +235,11 @@ export function installWorkflowViewport(surface) {
   surface.addEventListener('click', event => {
     const workspace = event.target.closest('[data-workflow-workspace]');
     if (!workspace) return;
+    const summary = event.target.closest('[data-semantic-key="workflow-node-name"] > summary');
+    if (summary && !summary.parentElement.open && !summary.hasAttribute('data-workflow-overflow')) {
+      event.preventDefault();
+      return;
+    }
     if (workspace.dataset.workflowFrame === 'overview') {
       if (event.target.closest('[data-workflow-close-name]')) {
         closePreview(true);
@@ -292,10 +320,14 @@ export function installWorkflowViewport(surface) {
     viewport.removeAttribute('data-panning');
   });
   surface.addEventListener('keydown', event => {
-    if (event.key === 'Escape' && expandedPreview) {
-      closePreview(true);
-      event.preventDefault();
-      return;
+    if (event.key === 'Escape') {
+      const node = event.target.closest('[data-semantic-key="workflow-node-name"][open]');
+      if (expandedPreview || node) {
+        if (node) node.open = false;
+        else closePreview(true);
+        event.preventDefault();
+        return;
+      }
     }
     const viewport = event.target;
     if (!viewport.matches(viewportSelector)) return;
@@ -347,7 +379,10 @@ export function installWorkflowViewport(surface) {
     const nextLabels = new Set(workspace?.querySelectorAll(
       '[data-semantic-key="workflow-node-name"] > summary, [data-workflow-preview-text]') ?? []);
     for (const label of labels) if (!nextLabels.has(label)) labelObserver.unobserve(label);
-    for (const label of nextLabels) if (!labels.has(label)) labelObserver.observe(label);
+    for (const label of nextLabels) {
+      wrapWorkflowName(label);
+      if (!labels.has(label)) labelObserver.observe(label);
+    }
     labels = nextLabels;
     if (!workspace) return;
     const picker = workspace.querySelector('[data-workflow-target]');

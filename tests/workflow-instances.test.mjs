@@ -244,7 +244,7 @@ test('workflows can be authored and started in place from the browser', { timeou
   await canvas.press('0');
 
   const otherWorkflow = 'UI 走查 · 入口直达出口（测试）';
-  const longEntrance = '复查一个足够长而必须展开查看的入口名称包括末尾';
+  const longEntrance = '完成并返回工作流检查结果，需要复查足够长的名称直到末尾';
   const shortExit = '复查出口（第四轮）';
   await command({ op: 'create_workflow', name: otherWorkflow,
     nodes: [{ key: 'entry', kind: 'entrance' }, { key: longEntrance, kind: 'entrance' }, { key: shortExit, kind: 'exit' },
@@ -281,7 +281,7 @@ test('workflows can be authored and started in place from the browser', { timeou
   assert.equal(await zoomIn.isDisabled(), true);
   await otherPreview.click({ position: { x: 30, y: 70 } });
   assert.equal(await picker.locator(':checked').innerText(), otherWorkflow);
-  for (const [width, height] of [[360, 640], [390, 844], [768, 1024], [640, 360]]) {
+  for (const [width, height] of [[320, 568], [360, 640], [390, 844], [768, 1024], [640, 360]]) {
     await page.setViewportSize({ width, height });
     await main.getByRole('button', { name: '适应工作流', exact: true }).click();
     await until(() => canvas.evaluate(viewport => {
@@ -290,7 +290,7 @@ test('workflows can be authored and started in place from the browser', { timeou
       if (!exit) return false;
       const node = exit.parentElement.getBoundingClientRect();
       const diagram = exit.closest('[data-semantic-key="task-graph/viewport"]').getBoundingClientRect();
-      const readable = ![360, 640].includes(innerWidth) ||
+      const readable = ![320, 360, 640].includes(innerWidth) ||
         parseFloat(getComputedStyle(exit.parentElement.querySelector('summary')).fontSize) * node.width / exit.parentElement.offsetWidth >= 11.95;
       return readable && node.left >= frame.left && node.right <= Math.min(innerWidth, frame.right) &&
         node.top >= frame.top && node.bottom <= Math.min(innerHeight, frame.bottom, diagram.bottom);
@@ -299,11 +299,28 @@ test('workflows can be authored and started in place from the browser', { timeou
       const exit = canvas.locator('summary:visible').filter({ hasText: shortExit });
       assert.ok(await exit.evaluate(label => {
         const text = document.createRange();
-        const contents = label.firstChild;
+        const contents = Array.from(label.childNodes).find(node => node.textContent.startsWith('（'));
+        if (!contents) return false;
         text.setStart(contents, contents.textContent.indexOf('（'));
         text.setEnd(contents, contents.textContent.length);
         return text.getClientRects().length === 1;
       }), `The exit's parenthetical phrase stays together at ${width} pixels`);
+    }
+    if (width === 360) {
+      const shortName = canvas.locator('summary:visible').filter({ hasText: /^entry$/ });
+      await until(() => shortName.getAttribute('aria-disabled'), 'A complete short title has no disclosure');
+      await shortName.click({ force: true });
+      assert.ok(await shortName.evaluate(el => !el.parentElement.open));
+    }
+    if (width === 390 || width === 640) {
+      const entrance = canvas.locator('summary:visible').filter({ hasText: longEntrance });
+      assert.ok(await entrance.evaluate(label => {
+        const phrase = Array.from(label.childNodes).find(node => node.textContent === '工作流');
+        if (!phrase) return false;
+        const range = document.createRange();
+        range.selectNode(phrase);
+        return range.getClientRects().length === 1;
+      }));
     }
     if (width === 640) {
       const name = main.locator('[data-workflow-selected-name]');
@@ -533,7 +550,7 @@ test('workflows can be authored and started in place from the browser', { timeou
   await exitName.fill('start');
   await exit.getByText('此名称已被其他节点使用。请选择不同的名称。', { exact: true }).waitFor();
   assert.equal(await save.isEnabled(), false);
-  const longExit = 'finish-renamed-with-a-long-label-that-wraps-on-a-narrow-screen';
+  const longExit = 'finish-renamed-with-a-long-label-that-wraps-across-several-lines-even-on-a-tablet-screen';
   await exitName.fill(longExit);
   await editor.getByRole('button', { name: '添加任务', exact: true }).click();
   const node = editor.getByRole('region', { name: '任务 3', exact: true });
@@ -575,7 +592,8 @@ test('workflows can be authored and started in place from the browser', { timeou
     await longNode.getByText(longExit, { exact: true }).click();
     const expanded = longNode.locator('details[open] > summary');
     assert.ok(await expanded.evaluate(el => el.scrollHeight <= el.clientHeight + 1));
-    await longNode.getByText(longExit, { exact: true }).click();
+    await page.keyboard.press('Escape');
+    await expanded.waitFor({ state: 'hidden' });
   }
   const { workflow: renamed, instance: modelRun } = await start('Renamed workflow', 'Run with the selected model');
   assert.equal(await renamed.locator('[data-semantic-key="task-graph/viewport"]:visible').count(), 1);
