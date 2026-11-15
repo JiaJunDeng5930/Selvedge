@@ -1261,8 +1261,13 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
    [DOM.Element (key++"/summary")%string "summary" (if required then [("inert","")]else[]) [] [] empty [DOM.Text label];
     DOM.Element (key++"/body")%string "div" [("data-editor-options-body","")]
       [] [] empty children]
- |S.ContentDisclosure=>DOM.Element key "details" attrs styles [] empty
-   (DOM.Element (key++"/summary")%string "summary" [] [] [] empty [DOM.Text label]::children)
+ |S.ContentDisclosure=>
+   let '(summary, body) :=
+     if String.eqb (S.semantic_key value) "workflow-exit-result" then
+       (firstn 2 children, skipn 2 children)
+     else ([DOM.Text label], children) in
+   DOM.Element key "details" attrs styles [] empty
+     (DOM.Element (key++"/summary")%string "summary" [] [] [] empty summary::body)
  |S.WorkflowWorkspace targets=>
    let canvas:=(key++"/viewport")%string in
    let '(toolbars, graphs):=match children with first::rest=>([first],rest)|[]=>([],[]) end in
@@ -1292,10 +1297,12 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
               DOM.Element (canvas++"/close-name/"++target)%string "button" [("type","button");("data-workflow-close-name","");
                 ("aria-label","关闭完整节点名称")] [] [] empty (glyph "close-cross")]])
           (combine targets graphs))]]
- |S.WorkflowEditorJump targets=>element "select" [("data-workflow-editor-jump","")] [] empty
-    (DOM.Element (key++"/placeholder")%string "option" [("value","")] [] [] empty [DOM.Text label] ::
-     map (fun '(target,name)=>DOM.Element (key++"/"++target)%string "option"
-       [("value",target)] [] [] empty [DOM.Text name]) targets)
+ |S.WorkflowEditorJump targets=>
+   DOM.Element (key++"/anchor")%string "div" [("data-workflow-editor-anchor","")] [] [] empty
+     [element "select" [("data-workflow-editor-jump","")] [] empty
+       (DOM.Element (key++"/placeholder")%string "option" [("value","")] [] [] empty [DOM.Text label] ::
+        map (fun '(target,name)=>DOM.Element (key++"/"++target)%string "option"
+          [("value",target)] [] [] empty [DOM.Text name]) targets)]
  |S.Region=>if voice_disclosure then
    let live:=existsb(fun child=>match S.node_meaning child with
     |S.InformationText Information.Status=>true

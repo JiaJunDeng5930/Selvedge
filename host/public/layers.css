@@ -280,6 +280,13 @@ dialog[data-semantic-key="workflow-instance-details"] {
     overflow: hidden auto !important;
     overscroll-behavior: contain;
     &:has(> [data-semantic-key="card-options"]) { padding-block: .25lh .5lh !important; }
+    &:has(> [data-workflow-editor-anchor]) {
+      padding-block-start: 0 !important;
+    }
+    &[data-workflow-editor-jump-space]::after {
+      content: "";
+      flex: 0 0 var(--workflow-editor-jump-space);
+    }
   }
   :is(&, & > form[data-semantic-key="editor"]) > [data-surface-role="dialog-actions"] {
     display: flex !important;

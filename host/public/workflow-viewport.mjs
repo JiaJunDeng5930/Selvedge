@@ -116,8 +116,9 @@ export function installWorkflowViewport(surface) {
       if (all) {
         // Use the contents' extent: a positioned chart can be wider than the section's layout box.
         const widthLimit = (tile.clientWidth - inset) / graph.scrollWidth;
-        const height = (compact ? 144 : 200) * zoomRatio;
-        let scale = Math.min(current.thumbnailZoom, widthLimit, height / graph.scrollHeight);
+        const height = (compact ? 270 : 200) * zoomRatio;
+        const thumbnailScale = compact ? 1.05 * zoomRatio : current.thumbnailZoom;
+        let scale = Math.min(thumbnailScale, widthLimit, height / graph.scrollHeight);
         if (tablet) {
           const limit = Math.min(1.95, widthLimit, 360 / graph.scrollHeight);
           const base = Math.min(1.23, limit);
@@ -143,9 +144,11 @@ export function installWorkflowViewport(surface) {
     const contentWidth = group.scrollWidth;
     const contentHeight = group.scrollHeight;
     const clearance = shortLandscape.matches ? inset / 2 : inset;
-    current.scale = clamp(Math.min(1, (width - 2 * clearance) / contentWidth, (height - 2 * clearance) / contentHeight));
+    const normalScale = width >= 900 ? 1.4 : 1;
+    current.scale = clamp(Math.min(normalScale,
+      (width - 2 * clearance) / contentWidth, (height - 2 * clearance) / contentHeight));
     current.x = Math.max(clearance, (width - contentWidth * current.scale) / 2) - group.offsetLeft * current.scale;
-    current.y = clearance - group.offsetTop * current.scale;
+    current.y = Math.max(clearance, (height - contentHeight * current.scale) / 2) - group.offsetTop * current.scale;
     place(viewport, current);
     showZoomLimits(workspace, current);
   }
@@ -182,12 +185,24 @@ export function installWorkflowViewport(surface) {
       const form = event.target.closest('form');
       const destination = form.querySelectorAll(`[data-semantic-key="${section}"]`)[Number(index)];
       const field = destination?.querySelector('input,select,textarea');
+      // A long selected option can increase the toolbar height until the prompt returns.
+      event.target.value = '';
       // DEFENSE: A draft edit can remove the selected row before the native change arrives.
       if (field) {
-        destination.scrollIntoView({ block: 'start', inline: 'nearest', behavior: 'instant' });
+        const anchor = event.target.closest('[data-workflow-editor-anchor]');
+        const port = anchor.closest('[data-surface-role="dialog-body"]');
+        port.removeAttribute('data-workflow-editor-jump-space');
+        const position = port.scrollTop + destination.getBoundingClientRect().top -
+          port.getBoundingClientRect().top - anchor.offsetHeight - 8;
+        // The last row also needs enough space below it to reach the toolbar.
+        const extra = Math.ceil(position - (port.scrollHeight - port.clientHeight));
+        if (extra > 0) {
+          port.style.setProperty('--workflow-editor-jump-space', `${extra}px`);
+          port.setAttribute('data-workflow-editor-jump-space', '');
+        }
+        port.scrollTo({ top: position, behavior: 'instant' });
         field.focus({ preventScroll: true });
       }
-      event.target.value = '';
       return;
     }
     if (!event.target.matches('[data-workflow-target]')) return;

@@ -21,10 +21,11 @@ Record flow_geometry := FlowGeometry {
 Definition conversation_geometry :=
  FlowGeometry false node_width node_height column_gap row_gap inset.
 Definition workflow_geometry (compact : bool) :=
- if compact then FlowGeometry true 98 136 56 16 18
+ if compact then FlowGeometry true 98 156 56 14 18
  else FlowGeometry false 168 76 84 28 20.
-Definition workflow_preview_geometry :=
- FlowGeometry false 91 53 23 13 8.
+Definition workflow_preview_geometry (compact : bool) :=
+ if compact then FlowGeometry true 56 128 24 12 8
+ else FlowGeometry false 112 58 28 14 8.
 Definition card_width geometry := if vertical geometry then across geometry else along geometry.
 Definition card_height geometry := if vertical geometry then along geometry else across geometry.
 

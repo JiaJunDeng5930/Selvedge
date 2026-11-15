@@ -346,8 +346,10 @@ Definition workflow_instance_details snapshot parent value :=
    match string_field "result" path, string_field "reason" path with
    | Some output, _ =>
      let result := part parent ("exit/" ++ suffix) in
-     [Node result "workflow-exit-result" ("出口结果 · " ++ label) Roles.Section
-       ContentDisclosure [read_only result "workflow-exit-output" "出口结果" output]]
+     [Node result "workflow-exit-result" ("出口结果 · " ++ label) Roles.Section ContentDisclosure
+       [information result "workflow-exit-route" Information.OptionLabel route;
+        information result "workflow-exit-path" Information.Description ("出口结果 · 路径 #" ++ suffix);
+        read_only result "workflow-exit-output" "出口结果" output]]
    | _, Some reason => [read_only parent ("failure/" ++ suffix) ("阻塞原因 · " ++ label) reason]
    | _, _ => [] end) (workflow_list "paths" value) in
  ([read_only parent "workflow-name" "工作流" workflow;
@@ -376,10 +378,9 @@ Definition workflow_section snapshot parent compact definition :=
      then collected else graph :: collected
    | None => collected end) [] active_runs in
  region parent section (workflow_field "name" definition) Roles.Section
-  ([group_title key (workflow_field "name" definition);
-    workflow_canvas snapshot key (TaskGraphCanvas.workflow_geometry compact) true definition;
+  ([workflow_canvas snapshot key (TaskGraphCanvas.workflow_geometry compact) true definition;
     region key "workflow-preview" "" Roles.Section
-     [workflow_canvas snapshot (part key "workflow-preview") TaskGraphCanvas.workflow_preview_geometry false definition]] ++
+     [workflow_canvas snapshot (part key "workflow-preview") (TaskGraphCanvas.workflow_preview_geometry compact) false definition]] ++
    map (fun '(index, graph) =>
      let version := ("saved/" ++ show_natural (N.of_nat index))%string in
      let name := ("运行中的历史版本 " ++ show_natural (N.of_nat index) ++ " · " ++ workflow_field "name" graph)%string in

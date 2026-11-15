@@ -172,9 +172,9 @@ Definition definition_fields snapshot parent owner work feedback value (save : j
    ("edge/" ++ show_natural (N.of_nat index),
     "连线 " ++ row_number index ++ " · " ++ value_or "未选来源" (string_field "source" edge) ++
     " → " ++ value_or "未选目标" (string_field "target" edge))) (indexed edges)) in
- [text_field parent "name" "工作流名称" false value save;
-  Node (part parent "workflow-editor-jump") "workflow-editor-jump" "定位节点或连线" Roles.Field
+ [Node (part parent "workflow-editor-jump") "workflow-editor-jump" "定位节点或连线" Roles.Field
    (WorkflowEditorJump targets) [];
+  text_field parent "name" "工作流名称" false value save;
   region parent "workflow-nodes" "节点" Roles.Section
     (group_title node_panel "节点" :: map (node_fields snapshot work node_panel owner feedback nodes edges set_graph) (indexed nodes) ++
      flat_map add_node ["entrance";"task";"exit"])%list;

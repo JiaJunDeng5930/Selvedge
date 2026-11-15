@@ -628,6 +628,9 @@ dialog[data-semantic-key="card-details"] {
   cursor: pointer;
   flex: none;
 }
+[data-workflow-zoom]:is([data-workflow-zoom="in"], [data-workflow-zoom="out"]) {
+  min-inline-size: 36px;
+}
 [data-workflow-viewport-controls] > button:hover {
   background: var(--selvedge-hover);
 }
@@ -773,20 +776,6 @@ dialog[data-semantic-key="card-details"] {
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-rows: auto minmax(0, 1fr);
   }
-  [data-workflow-frame="selected"] [data-workflow-preview-body] > section {
-    gap: 0.125rem !important;
-  }
-  [data-workflow-frame="selected"] [data-workflow-preview-body] > section > :first-child {
-    min-block-size: 0 !important;
-    block-size: auto !important;
-    max-block-size: none !important;
-    padding: 0 !important;
-    font-size: 0.875rem !important;
-    line-height: 1.25 !important;
-    white-space: normal !important;
-    overflow-wrap: anywhere;
-    overflow: visible !important;
-  }
   [data-workflow-canvas] { grid-column: 1 / -1; }
   [data-workflow-viewport-controls] { gap: 0.25rem; padding: 0.25rem; }
   [data-workflow-viewport-controls] > :is([data-workflow-selection], button) { padding-inline: 0.375rem; }
@@ -795,6 +784,12 @@ dialog[data-semantic-key="card-details"] {
     padding: 0.25rem;
   }
   [data-workflow-actions] button { min-block-size: 32px !important; }
+}
+@media (orientation: landscape) and (max-height: 480px) and (max-width: 760px) {
+  [data-workflow-workspace]:not([data-workflow-frame="overview"]) {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr);
+  }
 }
 [data-semantic-key="workflow-history"] button[data-semantic-key^="run/"] {
   display: grid !important;
@@ -836,15 +831,14 @@ button[data-semantic-key^="instance/"]:hover {
   border-radius: 0.5rem;
   justify-content: start !important;
 }
-[data-workflow-editor-jump] {
+[data-workflow-editor-anchor] {
   position: sticky;
   inset-block-start: 0;
-  z-index: 1;
+  z-index: 2;
+  padding-block: var(--panel-related-space) 0.5rem;
   background: var(--selvedge-surface);
 }
-:is([data-semantic-key="workflow-node-editor"], [data-semantic-key="workflow-connection-editor"]) {
-  scroll-margin-block-start: 3.5rem;
-}
+[data-workflow-editor-jump] { inline-size: 100%; }
 
 [data-semantic-key="task-graph/group"] + [data-semantic-key="task-graph/group"] {
   padding-block-start: 1rem !important;
@@ -855,6 +849,9 @@ button[data-semantic-key^="instance/"]:hover {
 [data-workflow-plane] [data-semantic-key="task-graph/viewport"] {
   max-block-size: none;
   overflow: visible !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
 }
 [data-semantic-key="task-graph/canvas"] {
   max-inline-size: none !important;
@@ -869,6 +866,10 @@ button[data-semantic-key^="instance/"]:hover {
 [data-semantic-key="task-graph/edges"]:not([data-workflow-plane] *) line {
   stroke: var(--selvedge-connector);
 }
+[data-workflow-plane] svg[data-semantic-key="task-graph/edges"] path {
+  stroke: var(--selvedge-muted);
+  stroke-width: clamp(1.65px, 0.14em, 2.25px);
+}
 
 [data-semantic-key="workflow-node"] {
   display: grid !important;
@@ -876,9 +877,9 @@ button[data-semantic-key^="instance/"]:hover {
   align-content: center;
   gap: 0.125rem !important;
   overflow: visible !important;
-  background: var(--selvedge-surface, Canvas);
-  border: 1px solid var(--selvedge-border, GrayText);
-  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--workflow-node-tone) 8%, var(--selvedge-surface)) !important;
+  border: 1px solid color-mix(in srgb, var(--selvedge-text) 42%, var(--selvedge-border)) !important;
+  border-radius: 0.5rem !important;
   padding: 0.25rem 0.625rem !important;
 }
 [data-semantic-key="workflow-node-name"] {
@@ -894,21 +895,12 @@ button[data-semantic-key^="instance/"]:hover {
 }
 [data-semantic-key="workflow-node"]:has(> [data-semantic-key="workflow-node-kind/entrance"]) {
   --workflow-node-tone: var(--selvedge-success);
-  border: 2px solid var(--workflow-node-tone) !important;
-  border-radius: 1.5rem;
 }
 [data-semantic-key="workflow-node"]:has(> [data-semantic-key="workflow-node-kind/task"]) {
   --workflow-node-tone: var(--selvedge-text);
-  border-color: color-mix(in srgb, var(--selvedge-text) 38%, var(--selvedge-border)) !important;
-  background: color-mix(in srgb, var(--selvedge-text) 5%, var(--selvedge-surface)) !important;
 }
 [data-semantic-key="workflow-node"]:has(> [data-semantic-key="workflow-node-kind/exit"]) {
   --workflow-node-tone: var(--selvedge-accent);
-  border-block-end: 3px solid var(--workflow-node-tone) !important;
-  border-radius: 0.5rem;
-}
-[data-semantic-key="workflow-node"]:has(> :is([data-semantic-key="workflow-node-kind/entrance"], [data-semantic-key="workflow-node-kind/exit"])) {
-  background: color-mix(in srgb, var(--workflow-node-tone) 17%, var(--selvedge-surface)) !important;
 }
 [data-semantic-key="workflow-node-name"] > summary {
   position: relative;
@@ -916,7 +908,6 @@ button[data-semantic-key^="instance/"]:hover {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 4;
   max-block-size: 4lh;
-  padding-inline-end: 0.9rem;
   overflow: hidden;
   overflow-wrap: anywhere;
   text-overflow: ellipsis;
@@ -928,6 +919,9 @@ button[data-semantic-key^="instance/"]:hover {
     -webkit-line-clamp: 3;
     max-block-size: 3lh;
   }
+}
+@media (orientation: landscape) and (max-height: 480px) {
+  [data-semantic-key="workflow-node-name"] > summary { font-size: 0.875rem; }
 }
 [data-semantic-key="workflow-node-name"] > summary::after {
   content: "";
@@ -942,6 +936,10 @@ button[data-semantic-key^="instance/"]:hover {
 }
 [data-semantic-key="workflow-node-name"]:not([open]) > summary:not([data-workflow-overflow])::after {
   display: none;
+}
+[data-semantic-key="workflow-node-name"] > summary[data-workflow-overflow],
+[data-semantic-key="workflow-node-name"][open] > summary {
+  padding-inline-end: 0.75rem;
 }
 [data-semantic-key="workflow-node-name"][open] {
   overflow: auto;
@@ -1029,7 +1027,7 @@ button[data-semantic-key^="instance/"]:hover {
   cursor: pointer;
 }
 [data-semantic-key="workflow-preview"] [data-semantic-key^="workflow-node-kind/"] {
-  font-size: 0.625rem !important;
+  font-size: 0.6875rem !important;
 }
 [data-semantic-key="workflow-instance-markers"] {
   position: absolute;
@@ -1065,6 +1063,33 @@ button[data-semantic-key^="instance/"]:hover {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-[data-semantic-key="workflow-exit-result"] summary {
+[data-semantic-key="workflow-exit-result"] > summary {
+  position: relative;
+  display: grid;
+  gap: 0.125rem;
+  min-block-size: 44px;
+  padding: 0.375rem 0 0.375rem 1.125rem;
   cursor: pointer;
 }
+[data-semantic-key="workflow-exit-result"] > summary::before {
+  content: "";
+  position: absolute;
+  inset-block-start: 0.7rem;
+  inset-inline-start: 0.125rem;
+  inline-size: 0.375rem;
+  block-size: 0.375rem;
+  border: solid currentColor;
+  border-width: 0 1px 1px 0;
+  transform: rotate(-45deg);
+}
+[data-semantic-key="workflow-exit-result"][open] > summary::before {
+  transform: rotate(45deg);
+}
+[data-semantic-key="workflow-exit-route"] {
+  block-size: auto !important;
+  min-block-size: 0 !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+  font-weight: 600 !important;
+}
+[data-semantic-key="workflow-exit-path"] { color: var(--selvedge-muted) !important; }
