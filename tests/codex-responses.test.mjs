@@ -27,6 +27,7 @@ test('a discovered Codex model completes multiple turns, independent title gener
   const ordinary = [], titleRequests = [], compactions = [];
   const checkpoint = { type: 'compaction', id: 'cmp_fixture', encrypted_content: 'sealed checkpoint' };
   const reasoning = { type: 'reasoning', id: 'rs_fixture', summary: [], encrypted_content: 'sealed reasoning' };
+  const commentary = { ...assistant('progress', 'Reviewing the request.'), phase: 'commentary' };
   upstream.options.respond = (entry, response) => {
     const url = new URL(entry.url, upstream.address);
     if (url.pathname === '/v1/models') {
@@ -69,7 +70,7 @@ test('a discovered Codex model completes multiple turns, independent title gener
     ordinary.push(body);
     const turn = ordinary.length;
     return complete(response, `resp_${turn}`, [
-      ...(turn === 1 ? [reasoning] : []), assistant(turn, `Codex reply ${turn} 😀`),
+      ...(turn === 1 ? [reasoning, commentary] : []), assistant(turn, `Codex reply ${turn} 😀`),
     ]);
   };
   await login(upstream.profile, upstream.directory, { onAuthorize: upstream.authorize });
@@ -90,10 +91,22 @@ test('a discovered Codex model completes multiple turns, independent title gener
   const { task_id } = await command({ op: 'create', profile: profile.key, reasoning: 'ultra', message: 'First request 😀.' });
   const first = await taskIdle(running.service, task_id);
   assert.match(JSON.stringify(first.messages), /Codex reply 1 😀/);
+  assert.ok(first.messages.filter(message => message.role === 'model_context').every(message => !Object.hasOwn(message, 'phase')));
+  const snapshot = await fetch(`${running.address}/api/browser/state`, {
+    headers: { authorization: `Bearer ${running.token}` },
+  });
+  assert.equal(snapshot.status, 200);
+  const history = (await snapshot.json()).program.tasks.find(task => task.id === task_id).history;
+  const observed = id => history.find(message => message.role === 'model_context' && message.content.item.id === id);
+  assert.equal(observed(commentary.id)?.phase, 'commentary');
+  assert.equal(observed('msg_1')?.phase, 'final_answer');
+  assert.ok(observed(reasoning.id) && !Object.hasOwn(observed(reasoning.id), 'phase'));
   await command({ op: 'send', task_id, message: 'Continue from the first answer.' });
   const second = await taskIdle(running.service, task_id);
   assert.match(JSON.stringify(second.messages), /Codex reply 2 😀/);
   assert.ok(ordinary[1].input.some(item => item.encrypted_content === reasoning.encrypted_content));
+  assert.deepEqual(ordinary[1].input.find(item => item.id === commentary.id), commentary);
+  assert.ok(ordinary[1].input.some(item => item.id === 'msg_1' && !Object.hasOwn(item, 'phase')));
   assert.ok(ordinary[0].input.some(item => item.type === 'message' && item.role === 'user'
     && item.content[0].type === 'input_text' && item.content[0].text === 'First request 😀.'));
   await command({ op: 'compact', task_id });

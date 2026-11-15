@@ -18,7 +18,7 @@ Definition clearance_css (height viewport : extent) :=
 Record anchor := Anchor { anchor_key : string; offset : extent }.
 Inductive intent := FollowLatest | ReadHistory.
 Record state := State { reading_intent : intent; bookmark : option anchor }.
-Inductive event := BeginUserScroll | ReadHistoryAt (point : anchor) | Follow
+Inductive event := BeginUserScroll | ReachLatest | ReadHistoryAt (point : anchor) | Follow
   | LayoutChanged (dock viewport : extent) | AnchorObserved (point : anchor)
   | JumpToMessage (index : N) | NavigationKey (key : string) (editable : bool).
 Inductive effect := LeaveViewport | CancelAnchorObservation
@@ -34,6 +34,7 @@ Definition navigation_key key :=
 Definition step input reduced_motion current : state * list effect :=
   match input with
   | BeginUserScroll => (State ReadHistory None, [LeaveViewport])
+  | ReachLatest => (State FollowLatest None, [CancelAnchorObservation])
   | ReadHistoryAt point => (State ReadHistory (Some point), [LeaveViewport])
   | Follow => (State FollowLatest None,
       [CancelAnchorObservation; AlignLatest (negb reduced_motion)])

@@ -200,7 +200,7 @@ Definition reading_call source := match field "state" source,string_field "event
  |Some encoded,Some name=>match reading_state encoded,binary_field "scope_generation" encoded with
  |Some state,Some scope_generation=>
  let event:=match name with
- |"scroll"=>Some Reading.BeginUserScroll|"follow"=>Some Reading.Follow
+ |"scroll"=>Some Reading.BeginUserScroll|"reached_latest"=>Some Reading.ReachLatest|"follow"=>Some Reading.Follow
  |"layout"=>match extent_field "dock_height" source,extent_field "viewport_height" source with
  Some h,Some v=>Some(Reading.LayoutChanged h v)|_,_=>None end
  |"read_at"=>match field "anchor" source with Some point=>option_map Reading.ReadHistoryAt(anchor_state point)|None=>None end

@@ -291,7 +291,8 @@ export class RemoteConnector {
   #snapshot() {
     const snapshot = this.#service.browserSnapshot();
     return { namespace: snapshot.namespace, sequence: snapshot.sequence, program: snapshot.program,
-      streams: this.#service.browserStreams(), notice_sequence: this.#control.notice_sequence };
+      streams: this.#service.browserStreams(), tool_activity: this.#service.browserToolActivity(),
+      notice_sequence: this.#control.notice_sequence };
   }
 
   async #request(session, id, connection, request) {

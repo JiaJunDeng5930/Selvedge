@@ -29,6 +29,23 @@ Inductive task_notice := NoticeRunning | NoticeWaiting | NoticeFailure
  | NoticePaused | NoticeStopped | NoticeArchived.
 
 
+Record task_tool_face := TaskToolFace {
+  task_tool_task : N;
+  task_tool_call : string;
+  task_tool_name : string;
+  task_tool_argument : string;
+  task_tool_symbol : string;
+  task_tool_icon : option string;
+  task_tool_running : bool;
+  task_tool_failed : bool
+}.
+Inductive task_history_card :=
+| TaskProcessCard (running : bool) (latest : option task_tool_face)
+| TaskToolGroupCard (latest : task_tool_face)
+| TaskToolCallCard (invocation : task_tool_face) (output : string).
+Definition task_tool_label face :=
+ if String.eqb (task_tool_argument face) "" then task_tool_name face else task_tool_argument face.
+
 Record placement (Action : Type) := Placement {
   placement_target : string;
   placement_control : control Action
@@ -40,6 +57,7 @@ Arguments placement_control {Action}.
 Inductive meaning (Action : Type) :=
 | SettingEntry (owner : editor) (property : UX.property owner) (action : control Action)
 | ActivityContent (expanded : bool) (audit : list Audit.face)
+| TaskHistoryCard (card : task_history_card) (expanded : bool) (action : control Action)
 | ActivityRow (row : activity_row_role)
 | ActivityGroup (owner : editor) (activity : Activities.activity owner) (view : Activities.view owner) (behavior : layer_behavior Action)
 | DecisionGroup (owner : editor) (decision : UX.decision owner)
@@ -112,6 +130,7 @@ Inductive meaning (Action : Type) :=
 
 Arguments SettingEntry {Action}.
 Arguments ActivityContent {Action}.
+Arguments TaskHistoryCard {Action}.
 Arguments ActivityRow {Action}.
 Arguments ActivityGroup {Action}.
 Arguments DecisionGroup {Action}.
@@ -254,6 +273,7 @@ Definition resolve_meaning {A} (content : meaning A) gesture value : option A :=
   | Gesture.Press, SupportingControl _ _ _ action
   | Gesture.Press, WorkChoice _ _ action
   | Gesture.Press, PanelToggle _ action
+  | Gesture.Press, TaskHistoryCard _ _ action
   | Gesture.Press, SkillSuggestion _ action
   | Gesture.Press, Choice _ _ _ action
   | Gesture.Press, Activate action => press_control action
@@ -334,6 +354,7 @@ Definition map_meaning {A B} (f : A -> B) (value : meaning A) : meaning B :=
   match value with
   | SettingEntry owner property action => SettingEntry owner property (map_control f action)
   | ActivityContent expanded audit => ActivityContent expanded audit
+  | TaskHistoryCard card expanded action => TaskHistoryCard card expanded (map_control f action)
   | ActivityRow row => ActivityRow row
   | ActivityGroup owner activity view behavior => ActivityGroup owner activity view (map_layer_behavior f behavior)
   | DecisionGroup owner decision => DecisionGroup owner decision
@@ -430,7 +451,7 @@ Definition edit_actions {A e}(subject:UX.subject e)(value:edit_control A):list A
 
 Definition meaning_actions {A}(content:meaning A):list A:=match content with
 |SettingEntry _ _ action|ActionCommit _ _ action|SupportingControl _ _ _ action
-|PanelToggle _ action|WorkChoice _ _ action|SkillSuggestion _ action|Choice _ _ _ action|Activate action=>[control_input action]
+|TaskHistoryCard _ _ action|PanelToggle _ action|WorkChoice _ _ action|SkillSuggestion _ action|Choice _ _ _ action|Activate action=>[control_input action]
 |EffortRange options=>map(fun entry=>control_input(snd entry))options
 |ActivityGroup _ _ _ behavior|LayerRegion behavior|NavigationRegion _ behavior=>[layer_dismissal behavior]
 |MovableCard _ destinations=>map(fun placement=>control_input(placement_control placement))destinations

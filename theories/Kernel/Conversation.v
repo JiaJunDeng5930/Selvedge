@@ -1,4 +1,4 @@
-From Stdlib Require Import String List Bool.
+From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Domain Codec.
 Import ListNotations.
@@ -10,8 +10,15 @@ Definition provider_assistant (value : json) :=
  match string_field "role" (provider_value value) with Some "assistant" => true | _ => false end.
 Definition provider_assistant_message (value : json) :=
  String.eqb (text_default "type" (provider_value value) "") "message" && provider_assistant value.
-Definition context_output_mode (value : json) (mode : output_mode) :=
-  if provider_assistant_message value then mode else PlainOutput.
+Definition provider_assistant_phase (value : json) (fallback : assistant_phase) :=
+ match assistant_phase_from_json (provider_value value) with
+ | Some phase => phase
+ | None => fallback end.
+Definition context_origin (owner operation part : N) (mode : output_mode)
+ (fallback : assistant_phase) (value : json) :=
+ if provider_assistant_message value then
+   OutputOrigin owner operation part mode (Some (provider_assistant_phase value fallback))
+ else OutputOrigin owner operation part PlainOutput None.
 Definition provider_part_text (value : json) :=
  match string_field "type" value with
  | Some "output_text" | Some "summary_text" => text_default "text" value ""

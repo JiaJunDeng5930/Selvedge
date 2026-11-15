@@ -11,6 +11,11 @@ Record symbol := Symbol { symbol_name : string; symbol_path : string; symbol_pai
 
 (* Preserve the established control artwork independently of layout and domain state. *)
 Definition symbols : list symbol := [
+  Symbol "task-process" "M2 7l8-4 8 4-8 4ZM2 10.5l8 4 8-4M2 14l8 4 8-4" Outline;
+  Symbol "task-terminal" "m4 5 4 4-4 4m6 0h6" Outline;
+  Symbol "task-file" "M5 2h6l4 4v12H5ZM11 2v5h4M7.5 10h5m-5 3h5" Outline;
+  Symbol "task-tool" "M8 3h4v3l2 2h3v4h-3l-2 2v3H8v-3l-2-2H3V8h3l2-2Z" Outline;
+  Symbol "task-alert" "M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0ZM10 6v5m0 2.5h.01" Outline;
   Symbol "tag" "M3 3h7l7 7-7 7-7-7ZM7 7h.01" Outline;
   Symbol "user" "M13 6a3 3 0 1 1-6 0a3 3 0 1 1 6 0M4 17v-2a6 6 0 0 1 12 0v2" Outline;
   Symbol "search" "M14 8a6 6 0 1 1-12 0 6 6 0 0 1 12 0Zm-1.5 4.5L18 18" Outline;

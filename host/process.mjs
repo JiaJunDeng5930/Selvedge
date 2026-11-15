@@ -90,13 +90,18 @@ class UnicodeTail {
     const { prefix, offset, ...snapshot } = boundary('control.process.tail_read', { tail: this.#tail, cursor });
     return { ...snapshot, output: prefix + this.#points.slice(offset).join('') };
   }
+  recent(limit) { return this.#points.slice(-limit).join(''); }
 }
 
-function processOutput(limit, combined) {
+function processOutput(limit, combined, outputChanged) {
   const tail = new UnicodeTail(limit);
   const decoder = new StringDecoder('utf8');
   let bytes = 0;
-  function retain(text) { tail.add(text, combined); }
+  function retain(text) {
+    if (!text) return;
+    tail.add(text, combined);
+    outputChanged?.();
+  }
   return {
     add(chunk) { bytes += chunk.length; retain(decoder.write(chunk)); },
     end() { retain(decoder.end()); },
@@ -150,7 +155,7 @@ function outputArtifact(file, filename, limit) {
 function processInputError(code, message) { return Object.assign(new Error(message), { code }); }
 
 /** Start a bounded-output Bash process; reads use absolute Unicode code-point cursors. */
-export function startBash(arguments_, limits, { signal, artifactDirectory, execution, readOnlyPaths, managedWorktreeRoot, environment } = {}) {
+export function startBash(arguments_, limits, { signal, artifactDirectory, execution, readOnlyPaths, managedWorktreeRoot, environment, onOutput } = {}) {
   signal?.throwIfAborted();
   // DEFENSE: A caller can supply malformed UTF-16; preserve its units so native admission can reject it.
   const observedArguments = typeof arguments_?.command === 'string' && !arguments_.command.isWellFormed()
@@ -159,8 +164,10 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
     : arguments_;
   const { command: commandText, timeout, maximum, mode, cols, rows } = boundary('effect.bash_arguments', { arguments: observedArguments, limits });
   const combined = new UnicodeTail(maximum);
-  const stdout = processOutput(maximum, combined);
-  const stderr = processOutput(maximum, combined);
+  const readRecentOutput = limit => combined.recent(limit);
+  const outputChanged = onOutput && (() => onOutput(readRecentOutput));
+  const stdout = processOutput(maximum, combined, outputChanged);
+  const stderr = processOutput(maximum, combined, outputChanged);
   const artifacts = [];
   let artifactBatch;
   const readers = new Map();
