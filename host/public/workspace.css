@@ -758,6 +758,7 @@ dialog[data-semantic-key="card-details"] {
 [data-workflow-actions] button {
   min-block-size: max(36px, 2.25rem) !important;
 }
+[data-workflow-compact-edit-label] { display: none; }
 @media (max-width: 440px) {
   [data-workflow-viewport-controls] { flex-wrap: wrap; }
   [data-workflow-selection] { flex-basis: 100%; }
@@ -800,7 +801,8 @@ dialog[data-semantic-key="card-details"] {
     min-inline-size: 36px !important;
     padding-inline: 0.45rem !important;
   }
-  [data-workflow-actions] button[data-semantic-key="edit-workflow"] > span { display: none; }
+  [data-workflow-actions] button[data-semantic-key="edit-workflow"] > :not([data-workflow-compact-edit-label]) { display: none; }
+  [data-workflow-compact-edit-label] { display: inline; }
 }
 [data-semantic-key="workflow-history"] button[data-semantic-key^="run/"] {
   display: grid !important;
@@ -932,8 +934,17 @@ button[data-semantic-key^="instance/"]:hover {
     max-block-size: 3lh;
   }
 }
+@media (max-width: 440px), (orientation: landscape) and (max-height: 480px) {
+  [data-workflow-plane] [data-semantic-key="workflow-node-name"] > summary {
+    font-size: clamp(0.8125rem, calc(0.75rem / var(--workflow-scale, 1)), 1.25rem);
+  }
+}
 @media (orientation: landscape) and (max-height: 480px) {
-  [data-semantic-key="workflow-node-name"] > summary { font-size: 0.875rem; }
+  [data-workflow-plane] [data-semantic-key="workflow-node"] { padding-block: 0.125rem !important; }
+  [data-semantic-key="workflow-node-name"]:not([open]) > summary {
+    -webkit-line-clamp: 3;
+    max-block-size: 3lh;
+  }
 }
 [data-semantic-key="workflow-node-name"] > summary::after {
   content: "";

@@ -290,8 +290,8 @@ test('workflows can be authored and started in place from the browser', { timeou
       if (!exit) return false;
       const node = exit.parentElement.getBoundingClientRect();
       const diagram = exit.closest('[data-semantic-key="task-graph/viewport"]').getBoundingClientRect();
-      const readable = innerWidth !== 640 ||
-        parseFloat(getComputedStyle(exit.parentElement.querySelector('summary')).fontSize) * node.width / exit.parentElement.offsetWidth >= 11;
+      const readable = ![360, 640].includes(innerWidth) ||
+        parseFloat(getComputedStyle(exit.parentElement.querySelector('summary')).fontSize) * node.width / exit.parentElement.offsetWidth >= 11.95;
       return readable && node.left >= frame.left && node.right <= Math.min(innerWidth, frame.right) &&
         node.top >= frame.top && node.bottom <= Math.min(innerHeight, frame.bottom, diagram.bottom);
     }), `Fit shows a complete, readable exit at ${width}×${height}`);
@@ -299,15 +299,18 @@ test('workflows can be authored and started in place from the browser', { timeou
       const exit = canvas.locator('summary:visible').filter({ hasText: shortExit });
       assert.ok(await exit.evaluate(label => {
         const text = document.createRange();
-        text.selectNodeContents(label);
+        const contents = label.firstChild;
+        text.setStart(contents, contents.textContent.indexOf('（'));
+        text.setEnd(contents, contents.textContent.length);
         return text.getClientRects().length === 1;
-      }), `Short exit name stays on one line at ${width} pixels`);
+      }), `The exit's parenthetical phrase stays together at ${width} pixels`);
     }
     if (width === 640) {
       const name = main.locator('[data-workflow-selected-name]');
       assert.equal(await name.innerText(), otherWorkflow);
       assert.ok(await name.evaluate(title => title.scrollWidth <= title.clientWidth + 1));
       assert.ok((await zoomIn.boundingBox()).width >= 36);
+      assert.equal(await main.getByRole('button', { name: '编辑工作流', exact: true }).innerText(), '编辑');
       await main.getByRole('button', { name: '启动工作流', exact: true }).click();
       const launchPanel = page.getByRole('dialog', { name: '启动工作流', exact: true });
       await launchPanel.getByRole('combobox', { name: '入口', exact: true }).selectOption({ label: 'entry' });
@@ -483,9 +486,14 @@ test('workflows can be authored and started in place from the browser', { timeou
   const workflow_id = (await command({ op: 'list_workflows' })).definitions.find(entry => entry.name === 'Browser workflow').workflow_id;
   const later = 'Second run with a different input';
   await command({ op: 'start_workflow', workflow_id, entrance: 'start', message: later });
+  await page.setViewportSize({ width: 390, height: 844 });
   const beforeHistory = await transform();
   await main.getByRole('button', { name: '运行记录', exact: true }).click();
   const history = page.getByRole('dialog', { name: '运行记录', exact: true });
+  const laterRow = history.getByRole('button', { name: /^实例 #\d+ · 已完成$/ }).filter({ hasText: later });
+  await laterRow.click();
+  await page.getByRole('dialog', { name: /^实例 #\d+$/ })
+    .getByRole('button', { name: 'Close panel', exact: true }).click();
   const row = history.getByRole('button', { name: /^实例 #\d+ · 已完成$/ }).filter({ hasText: first.replace('\n', ' ') });
   assert.match(await row.locator('time').getAttribute('datetime'), /^\d{4}-\d{2}-\d{2}T/);
   await row.getByText(first, { exact: true }).waitFor();
@@ -497,6 +505,7 @@ test('workflows can be authored and started in place from the browser', { timeou
   await firstRun.getByRole('button', { name: 'Close panel', exact: true }).click();
   await history.getByRole('button', { name: 'Close panel', exact: true }).click();
   assert.equal(await transform(), beforeHistory);
+  await page.setViewportSize({ width: 1440, height: 900 });
 
   await main.getByRole('button', { name: '编辑工作流', exact: true }).click();
   const editor = page.getByRole('dialog', { name: '编辑工作流', exact: true });
