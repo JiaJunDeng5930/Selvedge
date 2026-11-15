@@ -84,9 +84,9 @@ export function installWorkflowViewport(surface) {
   function closeNodeName(returnFocus = false) {
     if (!expandedNode) return;
     const { source, disclosure } = expandedNode;
+    if (returnFocus) source.focus({ preventScroll: true });
     expandedNode = undefined;
     disclosure.open = false;
-    if (returnFocus) source.focus({ preventScroll: true });
   }
   const viewportObserver = new ResizeObserver(entries => {
     for (const { target } of entries) {
@@ -178,7 +178,7 @@ export function installWorkflowViewport(surface) {
     const height = Math.min(viewport.clientHeight, innerHeight - viewport.getBoundingClientRect().top);
     const contentWidth = group.scrollWidth;
     const contentHeight = group.scrollHeight;
-    const clearance = shortLandscape.matches || expandedNode ? inset / 2 : inset;
+    const clearance = shortLandscape.matches ? inset / 2 : inset;
     const normalScale = width >= 900 ? 1.4 : 1;
     current.scale = clamp(Math.min(normalScale,
       (width - 2 * clearance) / contentWidth, (height - 2 * clearance) / contentHeight));
@@ -375,7 +375,8 @@ export function installWorkflowViewport(surface) {
   surface.addEventListener('focusin', event => {
     const viewport = event.target.closest(viewportSelector);
     if (!viewport || viewport.closest('[data-workflow-frame="overview"]') ||
-      event.target === viewport || !event.target.matches(':focus-visible')) return;
+      event.target === viewport || event.target === expandedNode?.source ||
+      !event.target.matches(':focus-visible')) return;
     const bounds = viewport.getBoundingClientRect();
     const target = event.target.getBoundingClientRect();
     const adjustment = (start, end, first, last) =>

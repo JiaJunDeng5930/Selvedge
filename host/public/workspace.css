@@ -555,9 +555,11 @@ dialog[data-semantic-key="card-details"] {
   min-block-size: 0 !important;
 }
 [data-workflow-workspace] {
+  /* The name panel shares the action row so opening it preserves the canvas bounds. */
+  --workflow-action-height: 3.375rem;
   display: grid !important;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto var(--workflow-action-height) minmax(0, 1fr);
   flex: 1 1 auto !important;
   min-block-size: 0 !important;
   min-inline-size: 0 !important;
@@ -569,6 +571,7 @@ dialog[data-semantic-key="card-details"] {
   overflow: clip;
 }
 [data-workflow-viewport-controls] {
+  grid-row: 1;
   display: flex;
   align-items: center;
   gap: 0.35rem;
@@ -639,6 +642,8 @@ dialog[data-semantic-key="card-details"] {
   cursor: default;
 }
 [data-workflow-canvas] {
+  grid-column: 1 / -1;
+  grid-row: 3;
   position: relative;
   min-block-size: 0;
   min-inline-size: 0;
@@ -725,6 +730,7 @@ dialog[data-semantic-key="card-details"] {
 }
 [data-workflow-frame="overview"] { grid-template-rows: auto minmax(0, 1fr); }
 [data-workflow-frame="overview"] [data-workflow-actions] { display: none !important; }
+[data-workflow-frame="overview"] [data-workflow-canvas] { grid-row: 2; }
 [data-workflow-frame="overview"] [data-workflow-open] {
   display: block;
   min-inline-size: 0;
@@ -743,7 +749,14 @@ dialog[data-semantic-key="card-details"] {
 }
 [data-workflow-tile]:hover > [data-workflow-open] { background: var(--selvedge-hover); }
 [data-workflow-actions] {
+  display: grid;
+  align-content: center;
+  grid-row: 2;
+  grid-column: 1 / -1;
   border-block-end: 1px solid var(--selvedge-border);
+}
+[data-workflow-frame="selected"]:has([data-semantic-key="workflow-node-name"][open]) [data-workflow-actions] {
+  visibility: hidden;
 }
 [data-workflow-actions] [data-semantic-key^="workflow/"]:not([hidden]) {
   display: flex !important;
@@ -773,11 +786,6 @@ dialog[data-semantic-key="card-details"] {
     > [data-semantic-key="workspace-browse-heading"] {
     padding-block-end: 0.25rem !important;
   }
-  [data-workflow-workspace]:not([data-workflow-frame="overview"]) {
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-rows: auto minmax(0, 1fr);
-  }
-  [data-workflow-canvas] { grid-column: 1 / -1; }
   [data-workflow-viewport-controls] { gap: 0.25rem; padding: 0.25rem; }
   [data-workflow-viewport-controls] > :is([data-workflow-selection], button) { padding-inline: 0.375rem; }
   [data-workflow-actions] [data-semantic-key^="workflow/"]:not([hidden]) {
@@ -786,25 +794,21 @@ dialog[data-semantic-key="card-details"] {
   }
   [data-workflow-actions] button { min-block-size: 32px !important; }
 }
-@media (orientation: landscape) and (max-height: 480px) and (max-width: 599px) {
-  [data-workflow-workspace]:not([data-workflow-frame="overview"]) {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto auto minmax(0, 1fr);
-  }
-}
-[data-workflow-frame="selected"]:has([data-semantic-key="workflow-node-name"][open]) {
-  grid-template-rows: auto auto auto minmax(0, 1fr);
-}
 @media (orientation: landscape) and (max-height: 480px) and (min-width: 600px) {
-  [data-workflow-frame="selected"]:has([data-semantic-key="workflow-node-name"][open]) {
-    grid-template-rows: auto auto minmax(0, 1fr);
+  [data-workflow-frame="selected"] {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: var(--workflow-action-height) minmax(0, 1fr);
+    [data-workflow-viewport-controls] { grid-column: 1; }
+    [data-workflow-actions] { grid-area: 1 / 2; }
+    [data-workflow-node-detail] { grid-row: 1; }
+    [data-workflow-canvas] { grid-row: 2; }
+    &:has([data-semantic-key="workflow-node-name"][open]) [data-workflow-viewport-controls] { visibility: hidden; }
   }
 }
 @media (orientation: landscape) and (max-height: 480px) and (min-width: 600px) and (max-width: 760px) {
   main:has(> [data-page-region="task-graph-entries"] > [data-workflow-workspace]) {
     padding-inline: 0.75rem !important;
   }
-  [data-workflow-actions] { align-content: center; }
   [data-workflow-actions] button[data-semantic-key="edit-workflow"] {
     min-inline-size: 36px !important;
     padding-inline: 0.45rem !important;
@@ -959,19 +963,13 @@ button[data-semantic-key^="instance/"]:hover {
   }
 }
 @media (max-width: 340px) {
-  [data-semantic-key="workflow-node-name"] > summary {
+  [data-workflow-plane] [data-semantic-key="workflow-node-name"] > summary {
     -webkit-line-clamp: 2;
     max-block-size: 2lh;
+    font-size: clamp(0.8125rem, calc(0.75rem / var(--workflow-scale, 1)), 1.5625rem);
   }
-  [data-workflow-frame="selected"]:has([data-semantic-key="workflow-node-name"][open]) {
-    [data-semantic-key="workflow-node"] { padding-block: 0.125rem !important; }
-    [data-semantic-key="workflow-node-name"] > summary {
-      font-size: clamp(0.8125rem, calc(0.75rem / var(--workflow-scale, 1)), 1.8125rem);
-      line-height: 1.1;
-    }
-    [data-semantic-key="workflow-node"]:has(> details) [data-semantic-key^="workflow-node-kind/"] {
-      font-size: clamp(0.6875rem, calc(0.5625rem / var(--workflow-scale, 1)), 1.3125rem) !important;
-    }
+  [data-workflow-plane] [data-semantic-key="workflow-node"]:has(> details) [data-semantic-key^="workflow-node-kind/"] {
+    font-size: clamp(0.6875rem, calc(0.5625rem / var(--workflow-scale, 1)), 1.25rem) !important;
   }
 }
 @media (orientation: landscape) and (max-height: 480px) {
@@ -1070,15 +1068,13 @@ button[data-semantic-key^="instance/"]:hover {
 }
 [data-workflow-node-detail] {
   grid-column: 1 / -1;
+  grid-row: 2;
   border-block-end: 1px solid var(--selvedge-border);
 }
 [data-workflow-node-detail] > [data-workflow-full-name] {
-  max-block-size: clamp(36px, 14dvb, 5rem);
+  max-block-size: calc(var(--workflow-action-height) - 0.75rem - 2px);
   overflow: auto;
   overscroll-behavior: contain;
-}
-@media (max-width: 340px) {
-  [data-workflow-node-detail] > [data-workflow-full-name] { max-block-size: 2lh; }
 }
 [data-workflow-close-name] {
   display: grid;

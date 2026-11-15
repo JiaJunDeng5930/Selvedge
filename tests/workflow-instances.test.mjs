@@ -325,6 +325,11 @@ test('workflows can be authored and started in place from the browser', { timeou
     if (width === 320) {
       const label = canvas.locator('summary:visible').filter({ hasText: longEntrance });
       const detail = main.getByRole('region', { name: '完整节点名称', exact: true });
+      const graphPosition = () => canvas.evaluate(port => {
+        const graph = port.querySelector('[data-workflow-selected] [data-semantic-key="task-graph/canvas"]');
+        return [port.getBoundingClientRect().toJSON(), graph.getBoundingClientRect().toJSON()];
+      });
+      const beforeDisclosure = await graphPosition();
       await label.click();
       const content = detail.getByText(longEntrance, { exact: true });
       await content.waitFor();
@@ -343,6 +348,7 @@ test('workflows can be authored and started in place from the browser', { timeou
           text.scrollHeight <= text.clientHeight + 1 && size >= 11.95 &&
           graph.top >= canvas.top && graph.bottom <= Math.min(canvas.bottom, innerHeight);
       }), 'The full name and close control stay above the complete, readable graph');
+      assert.deepEqual(await graphPosition(), beforeDisclosure);
       await detail.getByRole('button', { name: '关闭完整节点名称', exact: true }).click();
       await detail.waitFor({ state: 'hidden' });
       assert.ok(await label.evaluate(node => !node.parentElement.open && node === document.activeElement));
@@ -351,6 +357,15 @@ test('workflows can be authored and started in place from the browser', { timeou
       await main.getByRole('button', { name: '适应工作流', exact: true }).click();
       await detail.waitFor({ state: 'hidden' });
       await until(() => label.evaluate(node => !node.parentElement.open), 'Outside click also closes the node name');
+      await zoomIn.click();
+      const zoomed = await graphPosition();
+      assert.notDeepEqual(zoomed, beforeDisclosure);
+      await label.click();
+      await detail.waitFor();
+      assert.deepEqual(await graphPosition(), zoomed);
+      await page.keyboard.press('Escape');
+      await detail.waitFor({ state: 'hidden' });
+      assert.deepEqual(await graphPosition(), zoomed);
     }
     if (width === 640) {
       const name = main.locator('[data-workflow-selected-name]');
