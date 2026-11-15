@@ -338,7 +338,8 @@ export async function startServer(options) {
           response.once('close', () => clients.delete(response));
           if (release) sendUpdate(response);
           // Capture active streams before this synchronous subscription yields to notices.
-          sendEvent(response, { type: 'stream-state', namespace: service.journal.namespace, streams: service.browserStreams() });
+          sendEvent(response, { type: 'stream-state', namespace: service.journal.namespace, streams: service.browserStreams(),
+            tool_activity: service.browserToolActivity() });
           // Reconnection needs the current durable revision, not historical invalidations.
           sendEvent(response, { type: 'commit', namespace: service.journal.namespace, sequence: service.journal.sequence });
           return;

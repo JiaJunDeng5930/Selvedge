@@ -157,8 +157,7 @@ Definition view_side_actions snapshot state capacity task : option (node Input.i
 Definition view_timeline snapshot state view : option (node Input.input) :=
  let task:=task_view_task view in
  task_record<-Read.find_task task snapshot;;
- Some(Pages.task_timeline snapshot state view (task_parent view) task_record
-   (value_or [] (Read.task_operations task snapshot))).
+ Some(Pages.task_timeline snapshot state view (task_parent view) task_record).
 Definition view_approvals snapshot state view : list (node Input.input) :=
  let task:=task_view_task view in
  Pages.approvals snapshot state task (task_parent view)

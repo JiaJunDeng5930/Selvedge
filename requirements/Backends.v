@@ -325,6 +325,21 @@ Export ProviderCompactionProofs(public_account_requests_use_the_complete_request
  public_image_requests_never_use_textual_fallback,
  public_encrypted_requests_never_use_textual_fallback).
 
+(** * Assistant history preserves the model's phase
+
+    The accepted batch owns the public phase of assistant text that lacks a
+    provider observation. Text in a batch with a tool call is commentary; text
+    in a batch without a tool call is a final answer. A provider's explicit
+    assistant phase takes precedence. The native item is stored unchanged for
+    same-scope Responses replay, including that observed phase. The public
+    conversation snapshot supplies a display phase without altering provider
+    history or retained [read_task] results. Internal context and realtime
+    transcripts do not acquire a model assistant phase. *)
+Export ConversationProofs(accepted_text_in_a_tool_batch_is_published_as_commentary,
+ actual_text_completion_retains_its_content_and_request_identity,
+ actual_assistant_context_retains_its_native_data_and_frozen_mode,
+ nonmessage_provider_data_has_no_interactive_output_authority).
+
 Import ListNotations.
 Open Scope string_scope.
 

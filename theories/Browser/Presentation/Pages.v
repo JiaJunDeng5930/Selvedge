@@ -105,23 +105,6 @@ Definition approvals snapshot s task parent operations :=
   [region parent "approval-queue" "Approvals"Roles.ApprovalQueue(map(approval_node snapshot s task parent)pending)]]end.
 Definition reader_disclosures task s :=State.disclosures(SessionNavigation.reader_for s task).
 Definition reading_actions := AuditReading.ReadingActions Input.SetDisclosure Input.Interactive Input.RetainedOutput.
-Definition operation_caption operation := match Read.operation_status operation with
- |"running"=>"Running"
- |"awaiting_approval"=>"Waiting for approval"
- |"approved_waiting_to_run"=>"Approved, waiting to run"
- |"result_pending"=>"Processing the result"
- |other=>other end.
-Definition operation_node snapshot s task parent operation :=
- let id:=Read.operation_id operation in
- let key:=part parent("operation/"++show_natural id)in
- region key "operation"(Read.operation_tool operation)Roles.Activity
-    ([information key "tool" Information.FieldLabel(Read.operation_tool operation);
-      information key "status" Information.Description(operation_caption operation)]++
-     operation_cancel_control snapshot s task key id).
-Definition operation_controls snapshot s task parent operations :=
- let running:=filter (fun op=>negb(String.eqb "approval_pending"(Read.operation_stage op))) operations in
- match running with []=>[]|_=>[region parent "active-operations" "Tool activity"Roles.Activity
-  (map(operation_node snapshot s task parent)running)]end.
 Definition worktree_feedback {A} snapshot task parent:list(node A):=match Read.task_workspace task snapshot with
 |None=>[]|Some value=>match Read.worktree_status value with
  |"creating"|"creating_archived"|"archiving"=>[information parent "worktree/status" Information.Status(Read.worktree_caption value)]
@@ -240,31 +223,30 @@ Definition task_header snapshot s view parent task hide_details :=
  page_region parent Composition.ConversationHeader Composition.HeadingPosition
    (search_return_controls s view parent ++
     [task_title_region snapshot task parent;task_actions_with_details snapshot s task parent hide_details]).
-Definition timeline_tail snapshot s view parent task operations has_history :=
- let id:=task_id task in
+Definition timeline_tail snapshot s view parent task has_history :=
  let reply:=AuditReading.task_reading_tail reading_actions (document_context snapshot s)
    (State.document_retention s) (State.interactive_state s) view in
  let has_reading:=has_history || negb (Nat.eqb (List.length reply) 0) in
  let fork:=if has_reading && negb (Read.task_working task) then fork_history_control view else [] in
- let contents:=List.app reply (List.app (operation_controls snapshot s id parent operations) fork) in
+ let contents:=List.app reply fork in
  let contents:=match has_history,contents with false,[]=>
    [information parent "conversation-empty" Information.Description "Messages and task activity will appear here."]
   |_,_=>contents end in
  Node (NavigationIdentity.task_view_key view "timeline-tail") "timeline-tail" "" Roles.Content Region contents.
-Definition task_timeline_tail snapshot s view parent task operations :=
- timeline_tail snapshot s view parent task operations
+Definition task_timeline_tail snapshot s view parent task :=
+ timeline_tail snapshot s view parent task
    (AuditReading.has_history (document_context snapshot s) (task_id task)).
 Definition task_latest_action s task parent : list (node Input.input) :=
  if SessionNavigation.return_latest s task then
  [page_region parent Composition.LatestAction Composition.BodyPosition
    [declared parent Roles.Button(secondary "latest" "Return to latest"(Input.FollowLatest task))]]
  else [].
-Definition task_timeline snapshot s view parent task operations :=
+Definition task_timeline snapshot s view parent task :=
  let id:=task_id task in
  let history:=AuditReading.history reading_actions (document_context snapshot s)
    (State.document_retention s) (State.interactive_state s) view (reader_disclosures id s) in
  let has_history:=match history with []=>false|_=>true end in
- let tail:=timeline_tail snapshot s view parent task operations has_history in
+ let tail:=timeline_tail snapshot s view parent task has_history in
  page_region parent Composition.TimelineContent Composition.BodyPosition
    ([task_discarded_notice s id parent;
      Node(NavigationIdentity.task_view_key view "timeline")"timeline" "Conversation"Roles.Timeline
@@ -275,7 +257,7 @@ Definition task_contents snapshot s view parent task hide_details :=
  let id:=task_id task in
  let operations:=value_or[](Read.task_operations id snapshot)in
  ((match view with PrimaryTask _=>[task_header snapshot s view parent task hide_details]|SideTask _=>[]end) ++
- [task_timeline snapshot s view parent task operations] ++
+ [task_timeline snapshot s view parent task] ++
  approvals snapshot s id parent operations ++
  match task_composer snapshot s view parent task with Some composer=>[composer]|None=>[]end)%list.
 Definition conversation_page_with_details snapshot s view parent hide_details :=

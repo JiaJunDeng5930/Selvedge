@@ -238,15 +238,15 @@ Theorem observed_provider_text_retains_its_requested_mode_and_is_routed :
  K.find_task source before=Some task -> String.eqb text ""=false ->
  TaskGraph.new_outputs before source
    (append_history
-     (Callbacks.item_messages source ticket InteractiveOutput
+     (Callbacks.item_messages source ticket InteractiveOutput FinalAnswer
        [ContextItem part (observed_provider_reply text)]) task)=[text].
 Proof.
  intros before source task ticket part text Found Nonempty.
- assert (Message : Callbacks.item_messages source ticket InteractiveOutput
+ assert (Message : Callbacks.item_messages source ticket InteractiveOutput FinalAnswer
    [ContextItem part (observed_provider_reply text)] =
-   [ModelContext (OutputOrigin source ticket part InteractiveOutput) (observed_provider_reply text)]).
+   [ModelContext (OutputOrigin source ticket part InteractiveOutput (Some FinalAnswer)) (observed_provider_reply text)]).
  { unfold Callbacks.item_messages; cbn [List.map].
-   unfold Conversation.context_output_mode.
+   unfold Conversation.context_origin.
    assert (Assistant : Conversation.provider_assistant_message (observed_provider_reply text)=true)
      by (cbn [Conversation.provider_assistant_message Conversation.provider_value Conversation.provider_assistant]; reflexivity).
    rewrite Assistant. reflexivity.

@@ -1,8 +1,10 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers.
+From Selvedge.Foundation Require TextJson.
 From Selvedge.Kernel Require Import Conversation Streams.
 From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Codec Identity Origin CodeSource Audit.
+From Selvedge.Interaction Require TaskHistory.
 From Selvedge.Browser Require Import DocumentPublication DocumentState Documents.
 From Selvedge.Programming Require Import Graphics.
 From Selvedge.Interaction.Interactive Require Import Types State.
@@ -75,14 +77,15 @@ Definition group {A} (action:actions A) context retained interactive task disclo
  |Audit.Spoken (occurrence,message)=>speech action.(reading_interactive) context retained interactive task (N.of_nat occurrence) message
  |Audit.Activity first rest=>let entries:=first::rest in
    let identity:=N.of_nat (fst first) in let attention:=Audit.attention entries in
-   let expanded:=Audit.disclosed identity disclosures attention in
+   let disclosure:=(4 * identity + 3)%N in
+   let expanded:=Audit.disclosed disclosure disclosures attention in
    let key:="task/"++show_natural task++"/activity/"++show_natural identity in
    let summary:=Audit.summary history entries in
    S.Node key ("activity/"++show_natural identity) summary R.Activity
     (S.ActivityContent expanded (Audit.faces history entries))
     [S.Node (key++"/disclosure") "activity-disclosure" summary R.Button
       (S.Activate (M.Control "disclosure" summary M.Secondary
-        (action.(reading_disclosure) task identity attention (negb expanded)) M.Available)) []]
+        (action.(reading_disclosure) task disclosure attention (negb expanded)) M.Available)) []]
  end.
 Definition preview_source context output part :=
  let task:=Streams.output_task output in
@@ -123,22 +126,117 @@ Definition task_messages context task :=
  value_or [] (option_map (items "history") (DocumentState.find_task task (context_world context))).
 Definition has_history context task :=
  Audit.has_reading (task_messages context task).
+Definition history_card_address index level := (4 * N.of_nat index + level)%N.
+Definition history_card_control {A} (action:actions A) task key label index level (default:bool) disclosures :=
+ let address:=history_card_address index level in
+ let open_card:=Audit.disclosed address disclosures (if default then 1%N else 0%N) in
+ (open_card,M.Control key label M.Secondary (action.(reading_disclosure) task address 0%N (negb open_card)) M.Available).
+
+Definition execution_symbol name :=
+ if String.eqb name "bash" then "task-terminal"
+ else if String.prefix "read" name then "task-file" else "task-tool".
+Definition invocation_face task (invocation:TaskHistory.invocation) :=
+ let source:=snd (TaskHistory.invocation_entry invocation) in
+ let name:=Audit.call_name source in
+ let argument:=if String.eqb name "bash"
+   then text "command" (value_or JNull (field "arguments" (value_or JNull (field "content" source))))
+   else "" in
+ S.TaskToolFace task (TaskHistory.invocation_id invocation)
+   (if String.eqb name "bash" then "运行命令" else name) argument (execution_symbol name)
+   (TaskHistory.invocation_running invocation)
+   (match TaskHistory.invocation_result invocation with Some result=>Audit.failed(snd result)|None=>false end).
+
+Definition result_text (entry:TaskHistory.entry) :=
+ let source:=snd entry in
+ let contents:=value_or JNull (field "content" source) in
+ match string_field "stdout" contents,string_field "stderr" contents with
+ |Some stdout,Some stderr=>
+   let failure:=text "message" (value_or JNull (field "error" contents)) in
+   String.concat "
+" (filter (fun line=>negb(String.eqb line "")) [stdout;stderr;failure])
+ |_,_=>match contents with JString output=>output | value=>TextJson.render_json value end end.
+Definition invocation_details (invocation:TaskHistory.invocation) :=
+ match TaskHistory.invocation_result invocation with
+ |Some result=>match TaskHistory.invocation_receipt invocation with
+   |Some receipt=>result_text result++"
+
+执行回执
+"++result_text receipt
+   |None=>result_text result end
+ |None=>"" end.
+
+Definition tool_card {A} (action:actions A) task disclosures invocation : S.node A :=
+ let index:=fst(TaskHistory.invocation_entry invocation) in
+ let face:=invocation_face task invocation in
+ let key:="tool-call/"++show_nat index in
+ let '(expanded,toggle):=history_card_control action task key (S.task_tool_name face) index 2%N false disclosures in
+ S.Node key "tool-call" (S.task_tool_name face) R.Content
+   (S.TaskHistoryCard (S.TaskToolCallCard face (if expanded then invocation_details invocation else "")) expanded toggle) [].
+
+Definition latest_tool calls :=
+ let ordered:=rev calls in
+ match find TaskHistory.invocation_running ordered with
+ |Some current=>Some current
+ |None=>match find (fun invocation=>match TaskHistory.invocation_result invocation with Some _=>true|None=>false end) ordered with
+  |Some settled=>Some settled |None=>hd_error calls end end.
+
+Definition process_step {A} (action:actions A) context retained interactive task disclosures history step : S.node A :=
+ match step with
+ |TaskHistory.Commentary entry=>
+   let spoken:=speech action.(reading_interactive) context retained interactive task (N.of_nat(fst entry)) (snd entry) in
+   S.Node (S.node_key spoken) "task-commentary" (S.node_label spoken) (S.node_role spoken)
+     (S.node_meaning spoken) (S.node_children spoken)
+ |TaskHistory.Tools first []=>tool_card action task disclosures first
+ |TaskHistory.Tools first (next::rest)=>
+   let calls:=first::next::rest in
+   let index:=fst(TaskHistory.invocation_entry first) in
+   let key:="tool-group/"++show_nat index in
+   let '(expanded,toggle):=history_card_control action task key "命令" index 1%N false disclosures in
+   let face:=invocation_face task (value_or first (latest_tool calls)) in
+   S.Node key "tool-group" "命令" R.Content (S.TaskHistoryCard (S.TaskToolGroupCard face) expanded toggle)
+    (map (tool_card action task disclosures) calls)
+ |TaskHistory.Supporting first rest=>group action context retained interactive task disclosures history (Audit.Activity first rest)
+ end.
+Definition step_invocations step :=
+ match step with TaskHistory.Tools first rest=>first::rest | _=>[] end.
+Definition task_history_node {A} (action:actions A) context retained interactive task disclosures history entry : S.node A :=
+ match entry with
+ |TaskHistory.Speech (index,message)=>speech action.(reading_interactive) context retained interactive task (N.of_nat index) message
+ |TaskHistory.Process index steps ended=>
+   let title:="处理过程" in let key:="task-process/"++show_nat index in
+   let '(expanded,toggle):=history_card_control action task key title index 0%N (negb ended) disclosures in
+   let latest:=option_map (invocation_face task) (latest_tool (flat_map step_invocations steps)) in
+   S.Node key "task-process" title R.Activity (S.TaskHistoryCard (S.TaskProcessCard latest) expanded toggle)
+    (map (process_step action context retained interactive task disclosures history) steps)
+ end.
+Definition task_operations context task :=
+ value_or [] (option_map (items "operations") (DocumentState.find_task task (context_world context))).
 Definition history {A} (action:actions A) context retained interactive view disclosures : list (S.node A) :=
  let task:=NavigationIdentity.task_view_task view in
  let messages:=task_messages context task in
- map (fun entry=>in_view view (group action context retained interactive task disclosures messages entry))
-   (Audit.reading_groups 0 messages).
+ map (fun entry=>in_view view (task_history_node action context retained interactive task disclosures messages entry))
+   (TaskHistory.project messages (task_operations context task)).
+
+Definition commentary_process index history operations :=
+ bind (find (fun section=>match section with
+  |TaskHistory.Process _ steps _=>existsb (fun step=>match step with
+    |TaskHistory.Commentary entry=>Nat.eqb index(fst entry) |_=>false end) steps
+  |_=>false end) (TaskHistory.project history operations))
+  (fun section=>match section with
+   |TaskHistory.Process occurrence _ _=>Some (history_card_address occurrence 0%N) |_=>None end).
 
 Inductive reply :=
  | AwaitingReply (status:option string)
  | LiveReply (output:Streams.live_output) (first:N*string) (rest:list(N*string)).
 Definition task_reply context task :=
+ let pending:=if existsb (fun operation=>TaskHistory.operation_running (Some operation)) (task_operations context task)
+   then None else bind (DocumentState.find_task task (context_world context)) reply_pending in
  match current_task_preview context task with
  |Some output=>match Streams.output_parts output with
    |first::rest=>LiveReply output first rest
-   |[]=>AwaitingReply (bind (DocumentState.find_task task (context_world context)) reply_pending)
+   |[]=>AwaitingReply pending
    end
- |None=>AwaitingReply (bind (DocumentState.find_task task (context_world context)) reply_pending)
+ |None=>AwaitingReply pending
  end.
 Definition reply_nodes {A} (action:actions A) context retained interactive task : list (S.node A) :=
  match task_reply context task with

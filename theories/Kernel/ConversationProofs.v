@@ -9,27 +9,27 @@ Open Scope string_scope.
 Open Scope list_scope.
 
 Theorem nonmessage_provider_data_has_no_interactive_output_authority :
- forall owner ticket part mode value,
+ forall owner ticket part mode phase value,
  text_default "type" (Conversation.provider_value value) "" <> "message" ->
- Callbacks.item_messages owner ticket mode [ContextItem part value] =
- [ModelContext (OutputOrigin owner ticket part PlainOutput) value].
+ Callbacks.item_messages owner ticket mode phase [ContextItem part value] =
+ [ModelContext (OutputOrigin owner ticket part PlainOutput None) value].
 Proof.
- intros owner ticket part mode value NotMessage.
- unfold Callbacks.item_messages; cbn [List.map]. unfold Conversation.context_output_mode, Conversation.provider_assistant_message.
+ intros owner ticket part mode phase value NotMessage.
+ unfold Callbacks.item_messages; cbn [List.map]. unfold Conversation.context_origin, Conversation.provider_assistant_message.
  destruct (String.eqb (text_default "type" (provider_value value) "") "message") eqn:Kind.
  - apply String.eqb_eq in Kind; contradiction.
  - reflexivity.
 Qed.
 Theorem assistant_messages_inherit_the_frozen_output_mode :
- forall owner ticket part mode value,
+ forall owner ticket part mode phase value,
  string_field "role" (Conversation.provider_value value) = Some "assistant" ->
  text_default "type" (Conversation.provider_value value) "" = "message" ->
- Callbacks.item_messages owner ticket mode [ContextItem part value] =
- [ModelContext (OutputOrigin owner ticket part mode) value].
+ Callbacks.item_messages owner ticket mode phase [ContextItem part value] =
+ [ModelContext (OutputOrigin owner ticket part mode (Some (Conversation.provider_assistant_phase value phase))) value].
 Proof.
- intros owner ticket part mode value Assistant Message.
+ intros owner ticket part mode phase value Assistant Message.
  unfold Callbacks.item_messages; cbn [List.map].
- unfold Conversation.context_output_mode, Conversation.provider_assistant_message, Conversation.provider_assistant.
+ unfold Conversation.context_origin, Conversation.provider_assistant_message, Conversation.provider_assistant.
  rewrite Assistant, Message, String.eqb_refl. reflexivity.
 Qed.
 
@@ -87,7 +87,9 @@ Theorem accepted_model_completion_appends_each_accepted_item :
  exists updated,
  decision_world (Callbacks.model_completed id ticket (ModelSuccess batch) value) = put_task id updated value /\
  exists suffix,
- task_history updated = task_history task ++ Callbacks.item_messages id ticket mode (Codec.model_items batch) ++ suffix.
+ task_history updated = task_history task ++
+   Callbacks.item_messages id ticket mode (Callbacks.phase_for_calls (Callbacks.item_calls (Codec.model_items batch)))
+     (Codec.model_items batch) ++ suffix.
 Proof.
  intros id ticket allowed mode batch task value operations Found Pending Admitted.
  rewrite !model_completed_expression; rewrite Found.
@@ -95,24 +97,59 @@ Proof.
  cbn beta iota; fold (TaskChange.apply (Callbacks.model_result_changes id ticket allowed mode (ModelSuccess batch) task) task).
  eexists; split; [reflexivity|].
  unfold Callbacks.model_result_changes; rewrite Admitted.
- destruct (Callbacks.item_calls (Codec.model_items batch)) as [|invocation remaining].
+ remember (Callbacks.item_calls (Codec.model_items batch)) as calls.
+ set (messages := Callbacks.item_messages id ticket mode (Callbacks.phase_for_calls calls) (Codec.model_items batch)).
+ destruct calls as [|invocation remaining].
  - change (exists suffix, task_history (TaskChange.apply
-     (Callbacks.settle_model_changes
-       (append_history (Callbacks.item_messages id ticket mode (Codec.model_items batch)) task))
-     (append_history (Callbacks.item_messages id ticket mode (Codec.model_items batch)) task)) =
-     task_history task ++ Callbacks.item_messages id ticket mode (Codec.model_items batch) ++ suffix).
+     (Callbacks.settle_model_changes (append_history messages task))
+     (append_history messages task)) = task_history task ++ messages ++ suffix).
    rewrite !settle_model_expression.
    destruct (promotion_retains_history
      (with_activity
-       (if unseen_model_input (append_history (Callbacks.item_messages id ticket mode (Codec.model_items batch)) task)
-        then WantsModel else Idle)
-       (append_history (Callbacks.item_messages id ticket mode (Codec.model_items batch)) task))) as [suffix Promoted].
+       (if unseen_model_input (append_history messages task) then WantsModel else Idle)
+       (append_history messages task))) as [suffix Promoted].
    exists suffix; rewrite Promoted, changing_activity_preserves_history.
-   change ((task_history task ++ Callbacks.item_messages id ticket mode (Codec.model_items batch)) ++ suffix =
-     task_history task ++ Callbacks.item_messages id ticket mode (Codec.model_items batch) ++ suffix).
+   change ((task_history task ++ messages) ++ suffix = task_history task ++ messages ++ suffix).
    symmetry; apply app_assoc.
  - cbn [TaskChange.apply TaskChange.apply_edit fold_left].
    exists []; rewrite app_nil_r; reflexivity.
+Qed.
+
+Local Lemma model_call_is_collected : forall items invocation,
+ In (CallItem invocation) items -> In invocation (Callbacks.item_calls items).
+Proof.
+ induction items as [|item rest IH]; intros invocation Present; [contradiction|].
+ destruct Present as [Here|Later].
+ - subst item; now left.
+ - destruct item.
+   + exact (IH invocation Later).
+   + right; exact (IH invocation Later).
+   + exact (IH invocation Later).
+Qed.
+
+Theorem accepted_text_in_a_tool_batch_is_published_as_commentary :
+ forall id ticket allowed mode batch task value operations part text invocation,
+ find_task id value = Some task ->
+ task_lifecycle task = Running (AskingModel ticket allowed mode) operations ->
+ Callbacks.permitted_items (Codec.model_items batch) allowed task = true ->
+ In (TextItem part text) (Codec.model_items batch) ->
+ In (CallItem invocation) (Codec.model_items batch) ->
+ exists updated entry,
+ decision_world (Callbacks.model_completed id ticket (ModelSuccess batch) value) = put_task id updated value /\
+ In entry (task_history updated) /\
+ entry = AssistantMessage (OutputOrigin id ticket part mode (Some Commentary)) text /\
+ field "phase" (Codec.conversation_message_json id entry) = Some (JString "commentary").
+Proof.
+ intros id ticket allowed mode batch task value operations part text invocation Found Pending Admitted Text Call.
+ destruct (accepted_model_completion_appends_each_accepted_item id ticket allowed mode batch task value
+   operations Found Pending Admitted) as [updated [Committed [suffix History]]].
+ pose proof (model_call_is_collected _ _ Call) as Collected.
+ assert (Phase : Callbacks.phase_for_calls (Callbacks.item_calls (Codec.model_items batch)) = Commentary).
+ { destruct (Callbacks.item_calls (Codec.model_items batch)); [contradiction|reflexivity]. }
+ eexists updated, (AssistantMessage (OutputOrigin id ticket part mode (Some Commentary)) text).
+ split; [exact Committed|]. split; [|split; reflexivity].
+ rewrite History, Phase. apply in_or_app; right. apply in_or_app; left.
+ apply in_map_iff. exists (TextItem part text); split; [reflexivity|exact Text].
 Qed.
 
 Theorem actual_text_completion_retains_its_content_and_request_identity :
@@ -124,7 +161,7 @@ Theorem actual_text_completion_retains_its_content_and_request_identity :
    (ModelSuccess (ModelWire.singleton (ModelWire.text part text))) value) = put_task id updated value /\
  exists suffix,
  task_history updated = task_history task ++
-   AssistantMessage (OutputOrigin id ticket part mode) (proj1_sig text) :: suffix.
+   AssistantMessage (OutputOrigin id ticket part mode (Some FinalAnswer)) (proj1_sig text) :: suffix.
 Proof.
  intros id ticket allowed mode part text task value operations Found Pending.
  destruct (accepted_model_completion_appends_each_accepted_item
@@ -144,7 +181,8 @@ Theorem actual_assistant_context_retains_its_native_data_and_frozen_mode :
    (ModelSuccess (ModelWire.singleton (ModelWire.context part members))) value) = put_task id updated value /\
  exists suffix,
  task_history updated = task_history task ++
-   ModelContext (OutputOrigin id ticket part mode) (JObject members) :: suffix.
+   ModelContext (OutputOrigin id ticket part mode
+     (Some (Conversation.provider_assistant_phase (JObject members) FinalAnswer))) (JObject members) :: suffix.
 Proof.
  intros id ticket allowed mode part members task value operations Found Pending Assistant Message.
  destruct (accepted_model_completion_appends_each_accepted_item
@@ -152,10 +190,11 @@ Proof.
    as [updated [Committed [suffix History]]].
  exists updated; split; [exact Committed|]. exists suffix.
  rewrite History. change (task_history task ++
-   Callbacks.item_messages id ticket mode [ContextItem part (JObject members)] ++ suffix =
-   task_history task ++ ModelContext (OutputOrigin id ticket part mode) (JObject members) :: suffix).
+   Callbacks.item_messages id ticket mode FinalAnswer [ContextItem part (JObject members)] ++ suffix =
+   task_history task ++ ModelContext (OutputOrigin id ticket part mode
+     (Some (Conversation.provider_assistant_phase (JObject members) FinalAnswer))) (JObject members) :: suffix).
  rewrite (assistant_messages_inherit_the_frozen_output_mode
-   id ticket part mode (JObject members) Assistant Message); reflexivity.
+   id ticket part mode FinalAnswer (JObject members) Assistant Message); reflexivity.
 Qed.
 
 (** Role metadata on provider reasoning or compaction does not turn diagnostic

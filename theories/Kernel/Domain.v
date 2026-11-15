@@ -197,7 +197,9 @@ Inductive model_item := TextItem (part : N) (text : string)
 Inductive speaker := UserSpeaker | AssistantSpeaker.
 Inductive speech_completion := SpeechCompleted | SpeechInterrupted.
 Inductive output_mode := PlainOutput | InteractiveOutput.
-Record output_origin := OutputOrigin { origin_producer : N; origin_operation : N; origin_part : N; origin_mode : output_mode }.
+Inductive assistant_phase := Commentary | FinalAnswer.
+Record output_origin := OutputOrigin { origin_producer : N; origin_operation : N; origin_part : N;
+ origin_mode : output_mode; origin_assistant_phase : option assistant_phase }.
 Inductive reviewer := HumanReviewer | ModelReviewer (profile : profile).
 Inductive hook_outcome := HookAllow | HookRewrite (arguments : list (string * json))
  | HookDeny (reason : string) | HookFailure (reason : string).

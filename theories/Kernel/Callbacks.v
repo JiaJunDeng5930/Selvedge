@@ -29,13 +29,16 @@ Definition permitted_items (items : list model_item) (allowed : list string) (ta
    negb (call_known (call_id invocation) (task_history task)) &&
    existsb (String.eqb (call_name invocation)) allowed
  | _ => true end) items.
-Definition item_messages (owner ticket : N) (mode : output_mode) (items : list model_item) :=
- map (fun item => match item with
- | TextItem part text => AssistantMessage (OutputOrigin owner ticket part mode) text
- | ContextItem part value => ModelContext (OutputOrigin owner ticket part (Conversation.context_output_mode value mode)) value
- | CallItem invocation => FunctionCall invocation end) items.
 Definition item_calls (items : list model_item) := fold_right (fun item rest =>
  match item with CallItem invocation => invocation :: rest | _ => rest end) [] items.
+Definition phase_for_calls (calls : list call) :=
+ match calls with [] => FinalAnswer | _ :: _ => Commentary end.
+Definition item_messages (owner ticket : N) (mode : output_mode)
+ (phase : assistant_phase) (items : list model_item) :=
+ map (fun item => match item with
+ | TextItem part text => AssistantMessage (OutputOrigin owner ticket part mode (Some phase)) text
+ | ContextItem part value => ModelContext (Conversation.context_origin owner ticket part mode phase value) value
+ | CallItem invocation => FunctionCall invocation end) items.
 Definition settle_model_changes (task : task) :=
  let phase := if unseen_model_input task then WantsModel else Idle in
  TaskChange.ChangePhase phase :: TaskWake.promote_changes (with_activity phase task).
@@ -49,9 +52,10 @@ Definition model_result_changes (owner ticket : N) (allowed : list string) (mode
  | ModelSuccess batch =>
    let items := Codec.model_items batch in
    if permitted_items items allowed task then
-   let messages := item_messages owner ticket mode items in
+   let calls := item_calls items in
+   let messages := item_messages owner ticket mode (phase_for_calls calls) items in
    TaskChange.AppendHistory messages ::
-   match item_calls items with
+   match calls with
    | [] => settle_model_changes (append_history messages task)
    | calls => [TaskChange.ChangePhase (PendingCalls calls)] end
    else settle [FailureMessage "Invalid model reply: previously used call identity or unavailable tool"]

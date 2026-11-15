@@ -66,6 +66,73 @@ Definition artwork name := match NativeAppearance.find_symbol name with None=>[]
 Definition glyph name := if String.eqb name "spinner" then
  [DOM.Element "" "span" [("data-interactive-motion-glyph","");("aria-hidden","true")]
  [("inline-size","16px");("block-size","16px");("flex","none")] [] empty (artwork name)] else artwork name.
+Definition task_tool_observation (face:S.task_tool_face) :=
+ [("data-tool-task",text_number(S.task_tool_task face));("data-tool-identity",S.task_tool_call face)].
+Definition task_history_status key (face:option S.task_tool_face) :=
+ DOM.Element (key++"/status")%string "span" [("data-tool-status","")] [] [] empty
+ (match face with
+ |Some value=>
+   if S.task_tool_running value then
+    [DOM.Element (key++"/running")%string "span" [("data-tool-running","");("role","status");("aria-label","正在运行")] [] [] empty
+     [DOM.Element "" "span" [("data-tool-spinner","");("aria-hidden","true")] [] [] empty [];
+      DOM.Element (key++"/time")%string "time" ([("data-tool-elapsed","");("aria-hidden","true")]++task_tool_observation value)
+       [] [] empty []]]
+   else if S.task_tool_failed value then
+    [DOM.Element "" "span" [("data-tool-failed","");("role","img");("aria-label","调用失败")] [] [] empty (glyph "task-alert")]
+   else []
+ |None=>[]end).
+Definition task_history_icon key symbol :=
+ DOM.Element (key++"/icon")%string "span" [("data-task-history-icon","");("aria-hidden","true")] [] [] empty (glyph symbol).
+Definition task_history_face key title symbol (face:option S.task_tool_face) (expanded:bool) :=
+ let face_key:=match face with None=>(key++"/heading")%string
+   |Some value=>NavigationIdentity.key_part (key++"/heading")%string (S.task_tool_call value) end in
+ DOM.Element face_key "span" ([("data-task-history-face","")]++
+  match face with Some value=>[("data-task-history-call",S.task_tool_call value)]|None=>[]end) [] [] empty
+ [task_history_icon face_key symbol;
+  DOM.Element "" "span" [("data-task-history-title","")] [] [] empty [DOM.Text title];
+  task_history_status face_key face;
+  DOM.Element "" "span" [("data-task-history-chevron","");("aria-hidden","true")] [] [] empty
+   (glyph (if expanded then "chevron-down" else "chevron-right"))].
+Definition task_tool_header key (face:S.task_tool_face) :=
+ [task_history_icon key (S.task_tool_symbol face);
+  DOM.Element "" "span" [("data-tool-label","")] [] [] empty
+   ([DOM.Element "" "span" [("data-task-history-title","")] [] [] empty [DOM.Text (S.task_tool_name face)]]++
+    if String.eqb (S.task_tool_argument face) "" then [] else
+     [DOM.Element "" "code" [("data-tool-argument","")] [] [] empty [DOM.Text (S.task_tool_argument face)]]);
+  task_history_status key (Some face)].
+Definition task_tool_output key (face:S.task_tool_face) output (expanded:bool) :=
+ let live:=S.task_tool_running face in
+ DOM.Element (key++"/output")%string "pre"
+  [("data-tool-output","");("tabindex","0");("role","region");("aria-label",(S.task_tool_name face++"的输出")%string)] [] [] empty
+  (if live then [DOM.Element (key++"/live-output")%string "code"
+    (("data-tool-live-output","")::task_tool_observation face) [] [] empty []]
+   else [DOM.Element (key++"/result")%string "code" [] [] [] empty (if expanded then [DOM.Text output] else [])]).
+Definition task_history_element {A} key generation attrs (card:S.task_history_card) (expanded:bool)
+ (action:Model.control A) children :=
+ let '(kind,toggle,header,body):=match card with
+ |S.TaskProcessCard latest=>
+  let face:=if expanded then None else latest in
+  ("data-task-process","data-task-process-toggle",
+    [task_history_face key "处理过程" (match face with Some value=>S.task_tool_symbol value|None=>"task-process" end) face expanded],
+    children)
+ |S.TaskToolGroupCard latest=>
+  let face:=if expanded then None else Some latest in
+  ("data-tool-group","data-tool-group-toggle",
+    [task_history_face key "命令" (match face with Some value=>S.task_tool_symbol value|None=>"task-terminal" end) face expanded],
+    children)
+ |S.TaskToolCallCard face output=>
+  ("data-tool-call","data-tool-call-toggle",task_tool_header key face,[task_tool_output key face output expanded])
+ end in
+ let panel:=(key++"/details")%string in
+ DOM.Element key "section" (attrs++[(kind,"");("data-task-history-expanded",flag expanded)]) [] [] empty
+ [DOM.Element (key++"/toggle")%string "button" ([(toggle,"");("type","button");
+   ("aria-expanded",flag expanded);("aria-controls",panel)]++
+   match card with S.TaskToolCallCard _ _=>[]|_=>[("aria-label",Model.control_label action)]end)
+  [] [event key generation "click" "activate" Gesture.Press] empty header;
+  DOM.Element panel "div" (([("id",panel);("data-task-history-panel","")]++
+    if expanded then [] else [("inert","")])) [] [] empty
+   [DOM.Element (panel++"/body")%string "div" [("data-task-history-body","")] [] [] empty body]].
+
 Definition checkbox_hit_extent :=
  let target:=Typography.px Layout.base_motor_minimum in
  [("inline-size",target);("min-inline-size",target);("block-size",target);("min-block-size",target)].
@@ -778,6 +845,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
   |S.WorkChoice _ _ _,S.InformationText _=>ControlContent.single_line_attributes label
   |_,S.InformationText Information.NavigationCaption=>ControlContent.single_line_attributes label
   |_,_=>[]end) ++
+ (if String.eqb (S.semantic_key value) "task-commentary" then [("data-task-commentary","")] else []) ++
  NativeAppearance.overflow_attributes (NativeAppearance.style_overflow (NativeAppearance.role_style role)) label ++
  (match meaning with S.ActionUnit _ _=>[("data-focus-owner","aggregate")]|_=>[]end) ++
  (match role with Roles.Timeline=>[("tabindex","0")]|Roles.UserMessage|Roles.AssistantMessage|Roles.Activity=>[("data-reading-anchor","true");("data-reading-identity",reading_identity value)]|Roles.Composer=>[("data-composer-dock","true");("data-focus-owner","aggregate")]|_=>[] end) ++
@@ -1174,6 +1242,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
      (if IP.cell_numeric cell then [("data-numeric-cell","")] else [])
      table_cell_properties [] empty [DOM.Text(IP.cell_text cell)])
     (combine(IP.table_columns table)(IP.row_values row))))(IP.table_rows table))]
+ |S.TaskHistoryCard card expanded action=>task_history_element key generation attrs card expanded action children
  |S.ActivityContent expanded audit=>element "section" [("data-expanded",flag expanded)] [] empty
  (children ++ if expanded then map(fun face=>
  let face_key:=String.append key (String.append "/audit/" (text_number(Audit.face_occurrence face))) in

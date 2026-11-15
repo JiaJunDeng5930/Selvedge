@@ -462,8 +462,7 @@ Definition approvals_project context view :=
 Definition tail_project context view :=
  let snapshot:=prepared_world context in let task:=task_view_task view in
  match Read.find_task task snapshot with
- |Some entry=>[Pages.task_timeline_tail snapshot (prepared_state context) view (V.task_parent view)
-     entry (value_or [] (Read.task_operations task snapshot))]
+ |Some entry=>[Pages.task_timeline_tail snapshot (prepared_state context) view (V.task_parent view) entry]
  |None=>[] end.
 Definition discarded_project context view :=
  [Pages.task_discarded_notice (prepared_state context) (task_view_task view) (V.task_parent view)].
@@ -639,11 +638,12 @@ Definition planned_regions (context : prepared) : option region_plan :=
  let per_task view :=
    let task:=task_view_task view in
    let parent:=V.task_parent view in
-   let local_reading:=match incoming with
-     |Some (Input.SetDisclosure id _ _ _)=>N.eqb task id|_=>false end in
-   (* The published cursor counts the append-only task history. Replacing a
-      connection or route is already handled by the containing region. *)
-   let history:=local_reading || (snapshot && task_field_changed ["cursor"] task before context) in
+   let same_disclosure '(group,occurrence,expanded) '(other,next,open_card):=
+     N.eqb group other && N.eqb occurrence next && Bool.eqb expanded open_card in
+   let local_reading:=negb (AuditReading.same_items same_disclosure
+     (Pages.reader_disclosures task (prepared_state before)) (Pages.reader_disclosures task (prepared_state context))) in
+   (* Tool execution can begin or settle between two history appends. *)
+   let history:=local_reading || (snapshot && task_field_changed ["cursor";"operations"] task before context) in
    let operations:=(snapshot && operation_projection_changed task before context) ||
      ((assessment_changed || admission_pending) &&
        match Read.task_operations task world with Some (_::_)=>true|_=>false end) in

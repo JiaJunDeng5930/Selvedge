@@ -76,7 +76,7 @@ Definition task_snapshot (id : N) (value : task) (features : Selvedge.Features.D
  ("lineage", JArray (map number (task_lineage value)));
  ("queued_messages", JArray (map content_json (task_queued value)));
  ("guidance",Guidance.json (settings_guidance (task_current_settings value)));
- ("history", JArray (map (public_message_json id) history));
+ ("history", JArray (map (conversation_message_json id) history));
  ("context", JArray (map Context.snapshot_json context));
  ("execution_failed", JBool failed);
  ("card_link_stage", JString (Selvedge.Features.Domain.stage_name

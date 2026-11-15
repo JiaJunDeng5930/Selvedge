@@ -9,6 +9,7 @@ import { ChatGPTLogin } from './chatgpt-login.mjs';
 import { InteractiveSnapshotStorage } from './interactive-storage.mjs';
 import { createEditorRepairPlacement, createLayoutRevealer, revealAndFocus, revealInScrollport } from './layout-reveal.mjs';
 import { PresentationMotion } from './presentation-motion.mjs';
+import { ToolActivity } from './tool-activity.mjs';
 import { safeHref, scheduleDisplay, cancelDisplay } from './markdown.mjs';
 import { findHistoryRange, firstRangeRect } from './history-location.mjs';
 import { createPhysicalMeasurer } from './physical-measurement.mjs';
@@ -45,6 +46,7 @@ const historyResultsSelector = 'main > [data-page-region="history-results"]';
 const reveal = createLayoutRevealer(surface, activeModal);
 const editorRepair = createEditorRepairPlacement(activeModal);
 const motion = new PresentationMotion(surface, activeModal);
+const toolActivity = new ToolActivity(surface);
 let state = interaction('initial');
 let world = null;
 let publication = { generation: 0, phase: 'awaiting', namespace: '', sequence: 0,
@@ -1129,6 +1131,7 @@ async function authenticate(effect) {
   connection?.abort();
   const controller = new AbortController();
   connection = controller;
+  toolActivity.replace([]);
   let ready = false;
   let streamNotices = [];
   try {
@@ -1148,6 +1151,12 @@ async function authenticate(effect) {
         ready = true; dispatch({ type: 'authenticated', ticket: effect.ticket, ok: true, value: null });
       },
       notice(value) {
+        if (value.type === 'tool_activity') {
+          if (value.namespace === publication.namespace) toolActivity.observe(value);
+          return false;
+        }
+        if (value.type === 'stream-state' && value.namespace === publication.namespace)
+          toolActivity.replace(Array.isArray(value.tool_activity) ? value.tool_activity : []);
         if (value.type === 'selvedge-update') {
           showUpdateStatus(value);
           return false;
@@ -1567,7 +1576,7 @@ function selectionChanged() {
 document.addEventListener('selectionchange', selectionChanged);
 
 window.addEventListener('pagehide', () => {
-  disposed = true; document.removeEventListener('selectionchange', selectionChanged); document.removeEventListener('keydown', dismiss); document.removeEventListener('pointerdown', dismiss); connection?.abort(); chatgptLogin.dispose(); audio.dispose(); motion.dispose(); editorRepair.dispose(); physical.dispose(); renderer.dispose(); storage.flush();
+  disposed = true; document.removeEventListener('selectionchange', selectionChanged); document.removeEventListener('keydown', dismiss); document.removeEventListener('pointerdown', dismiss); connection?.abort(); chatgptLogin.dispose(); audio.dispose(); toolActivity.dispose(); motion.dispose(); editorRepair.dispose(); physical.dispose(); renderer.dispose(); storage.flush();
   clearInterval(clockRefresh); document.removeEventListener('visibilitychange', refreshClock);
   boardTrackResize.disconnect();
   for (const timer of timers) clearTimeout(timer);
