@@ -295,12 +295,14 @@ Definition workflow_canvas snapshot parent geometry (markers : bool) definition 
      let kind := value_or "" (option_map (workflow_field "kind")
        (find (fun n => String.eqb name (workflow_field "key" n)) (workflow_list "nodes" definition))) in
      let caption := match kind with "entrance"=>"入口"|"exit"=>"出口"|_=>"任务"end in
+     let title := if markers then
+       Node (part key "workflow-node-name") "workflow-node-name" name Roles.Content ContentDisclosure []
+       else Node (part key "workflow-preview-name") "workflow-preview-name" name Roles.Content (ReadOnly name) [] in
      Node key "workflow-node" name Roles.Section
       (InteractivePlacement (Presentation.GraphNode Presentation.RootFontScale
         (TaskGraphCanvas.left placed) (TaskGraphCanvas.top placed)
         (Z.to_N (TaskGraphCanvas.card_width geometry)) (Z.to_N (TaskGraphCanvas.card_height geometry)) false))
-      ([Node (part key "workflow-node-name") "workflow-node-name" name Roles.Content ContentDisclosure [];
-       information key ("workflow-node-kind/" ++ kind) Information.Description caption] ++
+      ([title; information key ("workflow-node-kind/" ++ kind) Information.Description caption] ++
       if markers then [workflow_markers snapshot definition name key] else [])%list)
    (TaskGraphCanvas.nodes layout))].
 Definition workflow_instance_summary parent value :=

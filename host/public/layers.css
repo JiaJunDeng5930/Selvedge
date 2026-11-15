@@ -79,10 +79,10 @@ dialog[data-semantic-key="project-editor"] {
   border-radius: 8px;
 }
 [data-semantic-key="workflow-start-feedback"] {
+  block-size: 2lh;
   min-block-size: 2lh;
-}
-[data-semantic-key="workflow-start-feedback"]:empty {
-  display: none !important;
+  flex: none !important;
+  overflow: auto;
 }
 @media (orientation: landscape) and (max-height: 480px) {
   dialog:has([data-semantic-key="workflow-start-feedback"]) {

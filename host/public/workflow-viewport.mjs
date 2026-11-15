@@ -85,7 +85,6 @@ export function installWorkflowViewport(surface) {
     if (all) viewport.style.setProperty('--workflow-thumbnail-column', `${21.5 * zoomRatio}rem`);
     for (const tile of viewport.querySelectorAll('[data-workflow-tile]')) {
       const graph = tile.lastElementChild;
-      graph.inert = all;
       if (all) {
         // Use the contents' extent: a positioned chart can be wider than the section's layout box.
         const height = (viewport.clientWidth <= 450 ? 144 : 200) * zoomRatio;
@@ -117,6 +116,10 @@ export function installWorkflowViewport(surface) {
   function select(workspace, target) {
     const viewport = workspace.querySelector(viewportSelector);
     view(viewport).target = target;
+    const picker = workspace.querySelector('[data-workflow-target]');
+    const selection = picker.closest('[data-workflow-selection]');
+    selection.querySelector('[data-workflow-selected-name]').textContent = picker.selectedOptions[0].textContent;
+    selection.title = picker.selectedOptions[0].textContent;
     for (const group of workspace.querySelectorAll('[data-workflow-actions] [data-semantic-key^="workflow/"]')) {
       const hidden = group.dataset.semanticKey !== target;
       if (group.hidden !== hidden) group.hidden = hidden;

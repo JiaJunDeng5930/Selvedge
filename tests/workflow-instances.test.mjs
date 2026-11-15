@@ -299,12 +299,18 @@ test('workflows can be authored and started in place from the browser', { timeou
       assert.ok(await heading.evaluate(title => title.scrollWidth <= title.clientWidth + 1));
       await main.getByRole('button', { name: '启动工作流', exact: true }).click();
       const launchPanel = page.getByRole('dialog', { name: '启动工作流', exact: true });
+      await launchPanel.getByRole('combobox', { name: '入口', exact: true }).selectOption({ label: 'entry' });
       const message = launchPanel.getByRole('textbox', { name: '消息', exact: true });
       assert.ok(await message.evaluate(input => {
         const port = input.closest('[data-surface-role="dialog-body"]').getBoundingClientRect();
         const field = input.getBoundingClientRect();
         return field.top >= port.top && field.bottom <= port.bottom + 1;
       }));
+      const originalPosition = (await message.boundingBox()).y;
+      await message.fill('x');
+      const feedback = launchPanel.locator('[data-semantic-key="workflow-start-feedback"]');
+      await until(async () => (await feedback.textContent()) === '', 'The missing-message feedback clears');
+      assert.ok(Math.abs((await message.boundingBox()).y - originalPosition) < 2);
       await launchPanel.getByRole('button', { name: '取消', exact: true }).click();
     }
     await main.getByRole('button', { name: '查看所有工作流', exact: true }).click();
@@ -315,9 +321,9 @@ test('workflows can be authored and started in place from the browser', { timeou
     if (width === 390) {
       await until(() => canvas.evaluate(viewport => {
         const preview = viewport.querySelector('[data-workflow-selected] [data-semantic-key="workflow-preview"]');
-        const name = preview.querySelector('summary');
+        const name = preview.querySelector('[data-semantic-key="workflow-preview-name"]');
         const actual = name.getBoundingClientRect().width / name.offsetWidth;
-        return actual * parseFloat(getComputedStyle(name).fontSize) >= 9;
+        return actual * parseFloat(getComputedStyle(name).fontSize) >= 9 && name.title === name.textContent;
       }), 'Mobile overview preserves readable node labels');
     }
   }

@@ -904,7 +904,8 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  |S.ReadOnly text=>if String.eqb (S.semantic_key value) "workflow-instance-dot" then
    DOM.Element key "span" (attrs++[("aria-hidden","true")])
      (styles++[("display","block");("background-color",text)]) [] empty []
-   else element "span" [] [] empty [DOM.Text text]
+   else element "span" (if String.eqb (S.semantic_key value) "workflow-preview-name" then [("title",text)] else [])
+     [] empty [DOM.Text text]
  |S.HistoryMatch before matched after=>element "span" [] [] empty
  [DOM.Text before;DOM.Element "" "mark" [] [] [] empty [DOM.Text matched];DOM.Text after]
  |S.Fact text=>element "span"
@@ -1266,9 +1267,12 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
       [("type","button");("data-workflow-zoom",action);("aria-label",title);("title",title)] [] [] empty [DOM.Text caption] in
    element "div" [("data-workflow-workspace","")] [] empty
     [DOM.Element (key++"/controls")%string "div" [("data-workflow-viewport-controls","")] [] [] empty
-       [DOM.Element (key++"/target")%string "select" [("data-workflow-target","");("aria-label","定位工作流")] [] [] empty
-         (map (fun '(target,name)=>DOM.Element (key++"/target/"++target)%string "option"
-            [("value",target)] [] [] empty [DOM.Text name]) targets);
+       [DOM.Element (key++"/selector")%string "div" [("data-workflow-selection","")] [] [] empty
+         [DOM.Element (key++"/selected-name")%string "span" [("data-workflow-selected-name","");("aria-hidden","true")]
+           [] [] empty [];
+          DOM.Element (key++"/target")%string "select" [("data-workflow-target","");("aria-label","定位工作流")] [] [] empty
+           (map (fun '(target,name)=>DOM.Element (key++"/target/"++target)%string "option"
+              [("value",target)] [] [] empty [DOM.Text name]) targets)];
         control "out" "−" "缩小画布"; control "in" "+" "放大画布"; control "fit" "适应" "适应工作流";
         control "all" "总览" "查看所有工作流"];
      DOM.Element (key++"/actions")%string "div" [("data-workflow-actions","")] [] [] empty toolbars;
