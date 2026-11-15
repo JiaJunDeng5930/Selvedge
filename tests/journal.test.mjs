@@ -5,6 +5,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
 import { gunzipSync } from 'node:zlib';
 import { Service } from '../host/service.mjs';
+import { Journal } from '../host/journal.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
 import { home, responsesServer } from './support.mjs';
 
@@ -122,4 +123,48 @@ test('the previous durable journal format is rejected without replay or conversi
     return true;
   });
   assert.deepEqual(await readFile(filename), original);
+});
+
+test('a prepared restart includes commits made while the current service still owns the journal', async t => {
+  const directory = await home(t);
+  const options = { home: directory, cwd: directory,
+    config: validateConfig({ ...defaultConfig, chatgpt: false }) };
+  const previous = await Service.open(options);
+  t.after(() => previous.close());
+  assert.equal((await previous.command({ op: 'create_card', title: 'Before preparation' })).reply.ok, true);
+
+  const journal = await Journal.open(path.join(directory, 'journal.sqlite'), { waitForOwnership: async () => {
+    const committed = await previous.command({ op: 'create_card', title: 'During handoff' });
+    assert.equal(committed.reply.ok, true);
+    await previous.close();
+  } });
+  t.after(() => journal.close());
+  const next = await Service.open({ ...options, journal });
+  t.after(() => next.close());
+  const listed = await next.command({ op: 'list_cards' });
+  assert.equal(listed.reply.ok, true);
+  assert.deepEqual(new Set(listed.reply.result.cards.map(card => card.title)),
+    new Set(['Before preparation', 'During handoff']));
+});
+
+test('a prepared restart rejects a changed committed prefix at the same sequence', async t => {
+  const directory = await home(t);
+  const options = { home: directory, cwd: directory,
+    config: validateConfig({ ...defaultConfig, chatgpt: false }) };
+  const previous = await Service.open(options);
+  t.after(() => previous.close());
+  const committed = await previous.command({ op: 'create_card', title: 'Original title' });
+  assert.equal(committed.reply.ok, true);
+
+  await assert.rejects(async () => {
+    const next = await Journal.open(path.join(directory, 'journal.sqlite'), { waitForOwnership: async () => {
+      await previous.close();
+      const database = new DatabaseSync(path.join(directory, 'journal.sqlite'));
+      try {
+        const replace = database.prepare('UPDATE journal SET input = ? WHERE seq = ?');
+        replace.run(JSON.stringify({ kind: 'command', command: { op: 'create_card', title: 'Replaced title' } }), committed.sequence);
+      } finally { database.close(); }
+    } });
+    await next.close();
+  }, /committed journal prefix changed during update preparation/);
 });

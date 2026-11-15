@@ -81,14 +81,14 @@ export class Service extends EventEmitter {
   #audioSessions = new Map();
 
   static async open({ home, config, cwd = process.cwd(), remoteOptions, audioOptions,
-    audioFactory = createChatGPTAudio, holdEffects = false } = {}) {
+    audioFactory = createChatGPTAudio, holdEffects = false, journal } = {}) {
     // DEFENSE: The process sandbox supports only the Linux and macOS implementations; refuse other OS launches.
     if (!['linux', 'darwin'].includes(process.platform)) throw new Error('Selvedge supports Linux and macOS only');
     const service = new Service();
     if (holdEffects) service.#heldStartup = { decisions: [], worktrees: [] };
     Object.assign(service, { home, config, declaredConfig: config, cwd: await realpath(cwd) });
     try {
-      service.journal = await Journal.open(path.join(home, 'journal.sqlite'));
+      service.journal = journal ?? await Journal.open(path.join(home, 'journal.sqlite'));
       service.description = service.journal.description;
       service.limits = service.description.limits;
       service.project = await snapshotProject(service.cwd, service.limits);

@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { EventEmitter } from 'node:events';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { chmod } from 'node:fs/promises';
 import path from 'node:path';
 import { Kernel, isKernelInputRejection } from './kernel.mjs';
@@ -22,6 +22,10 @@ const schema = {
   meta: 'CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT',
   journal: 'CREATE TABLE journal (seq INTEGER PRIMARY KEY CHECK (seq > 0), input TEXT NOT NULL, observed_at INTEGER NOT NULL) STRICT',
 };
+
+function hashReplayRow(hash, row) {
+  hash.update(`${row.seq}:${Buffer.byteLength(row.input)}:`).update(row.input);
+}
 
 function closeJournalDatabase(database) {
   // DEFENSE: Failed startup can reach cleanup before either SQLite handle was opened.
@@ -61,16 +65,27 @@ export class Journal extends EventEmitter {
   #failure;
   #closing = false;
 
-  static async open(filename) {
+  static async open(filename, { waitForOwnership } = {}) {
     const journal = new Journal();
     journal.sequence = 0;
     try {
+      let prepared;
+      if (waitForOwnership) {
+        prepared = await journal.#preload(filename);
+        await waitForOwnership();
+      }
       journal.#lock = await acquireJournalOwnership(filename);
       journal.#database = new DatabaseSync(filename, { timeout: 1000 });
       journal.#database.exec('PRAGMA synchronous=FULL');
       const upgrading = journal.#prepareReplay();
       await chmod(filename, 0o600);
+      if (prepared) journal.#verifyPrefix(prepared);
+      else await journal.#initializeReplay();
       await journal.#replay();
+      if (journal.sequence > 0) {
+        const snapshot = await journal.#kernel.request({ kind: 'command', command: { op: 'describe' } }).result;
+        journal.program = snapshot.program;
+      }
       if (upgrading) {
         journal.#database.exec(`PRAGMA user_version = ${journalSchemaVersion}; COMMIT`);
       }
@@ -83,10 +98,10 @@ export class Journal extends EventEmitter {
     }
   }
 
-  #prepareReplay() {
+  #prepareReplay(readOnly = false) {
     const version = this.#database.prepare('PRAGMA user_version').get().user_version;
     // DEFENSE: A different release or an external SQLite writer can set an unsupported storage version.
-    if (version !== 0 && version !== journalSchemaVersion) {
+    if (version !== journalSchemaVersion && (readOnly || version !== 0)) {
       throw new Error(`Unsupported Selvedge SQLite journal schema version ${version}`);
     }
     if (version === 0) {
@@ -115,22 +130,48 @@ export class Journal extends EventEmitter {
     return version === 0;
   }
 
-  async #replay() {
+  async #preload(filename) {
+    this.#database = new DatabaseSync(filename, { readOnly: true, timeout: 1000 });
+    try {
+      this.#database.exec('BEGIN');
+      this.#prepareReplay(true);
+      await this.#initializeReplay();
+      const hash = createHash('sha256');
+      await this.#replay(hash);
+      return { namespace: this.namespace, digest: hash.digest('hex') };
+    } finally {
+      closeJournalDatabase(this.#database);
+      this.#database = undefined;
+    }
+  }
+
+  #verifyPrefix(prepared) {
+    const hash = createHash('sha256');
+    for (const row of this.#database.prepare('SELECT seq, input FROM journal WHERE seq <= ? ORDER BY seq').iterate(this.sequence)) {
+      hashReplayRow(hash, row);
+    }
+    // DEFENSE: A journal replaced during the handoff can have a different history at the same cursor.
+    if (this.namespace !== prepared.namespace || hash.digest('hex') !== prepared.digest) {
+      throw new Error('The committed journal prefix changed during update preparation');
+    }
+  }
+
+  async #initializeReplay() {
     this.#kernel = new Kernel();
     const initial = await this.#kernel.initialize();
     this.description = initial.description;
     this.program = initial.program;
-    for (const row of this.#database.prepare('SELECT seq, input FROM journal ORDER BY seq').iterate()) {
+  }
+
+  async #replay(hash) {
+    for (const row of this.#database.prepare('SELECT seq, input FROM journal WHERE seq > ? ORDER BY seq').iterate(this.sequence)) {
+      if (hash) hashReplayRow(hash, row);
       const durable = await this.#kernel.replay(row.input);
       // DEFENSE: A stored input that the current kernel no longer admits cannot restore committed work.
       if (!durable) {
         throw new Error(`Committed input incompatibility at sequence ${row.seq}: current kernel rejected replay`);
       }
       this.sequence = row.seq;
-    }
-    if (this.sequence > 0) {
-      const snapshot = await this.#kernel.request({ kind: 'command', command: { op: 'describe' } }).result;
-      this.program = snapshot.program;
     }
   }
 
