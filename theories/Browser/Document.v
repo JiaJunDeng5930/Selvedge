@@ -1277,6 +1277,11 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
    let '(toolbars, graphs):=match children with first::rest=>([first],rest)|[]=>([],[]) end in
    let control action caption title := DOM.Element (key++"/zoom/"++action)%string "button"
       [("type","button");("data-workflow-zoom",action);("aria-label",title);("title",title)] [] [] empty [DOM.Text caption] in
+   let node_name_panel panel attributes := DOM.Element panel "div"
+     (attributes++[("role","region");("aria-label","完整节点名称");("tabindex","-1")]) [] [] empty
+     [DOM.Element (panel++"/name")%string "span" [("data-workflow-full-name","")] [] [] empty [];
+      DOM.Element (panel++"/close")%string "button" [("type","button");("data-workflow-close-name","");
+        ("aria-label","关闭完整节点名称")] [] [] empty (glyph "close-cross")] in
    element "div" [("data-workflow-workspace","")] [] empty
     [DOM.Element (key++"/controls")%string "div" [("data-workflow-viewport-controls","")] [] [] empty
        [DOM.Element (key++"/selector")%string "div" [("data-workflow-selection","")] [] [] empty
@@ -1295,12 +1300,9 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
            [DOM.Element (canvas++"/overview/"++target)%string "button" [("type","button");("data-workflow-open",target)]
              [] [] empty [DOM.Text name];
             DOM.Element (canvas++"/preview-body/"++target)%string "div" [("data-workflow-preview-body","")] [] [] empty [graph];
-            DOM.Element (canvas++"/node-name/"++target)%string "div" [("data-workflow-preview-detail","");
-              ("role","region");("aria-label","完整节点名称");("tabindex","-1")] [] [] empty
-             [DOM.Element (canvas++"/full-name/"++target)%string "span" [("data-workflow-full-name","")] [] [] empty [];
-              DOM.Element (canvas++"/close-name/"++target)%string "button" [("type","button");("data-workflow-close-name","");
-                ("aria-label","关闭完整节点名称")] [] [] empty (glyph "close-cross")]])
-          (combine targets graphs))]]
+            node_name_panel (canvas++"/node-name/"++target)%string [("data-workflow-preview-detail","")]])
+          (combine targets graphs));
+         node_name_panel (canvas++"/node-popover")%string [("data-workflow-node-popover","");("popover","auto")]]]
  |S.WorkflowEditorJump targets=>
    DOM.Element (key++"/anchor")%string "div" [("data-workflow-editor-anchor","")] [] [] empty
      [element "select" [("data-workflow-editor-jump","")] [] empty

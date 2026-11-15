@@ -931,7 +931,7 @@ button[data-semantic-key^="instance/"]:hover {
 [data-semantic-key="workflow-node-name"] > summary[data-workflow-overflow],
 [data-semantic-key="workflow-node-name"][open] > summary { cursor: pointer; }
 @media (min-width: 1024px) {
-  [data-semantic-key="workflow-node-name"]:not([open]) > summary {
+  [data-semantic-key="workflow-node-name"] > summary {
     -webkit-line-clamp: 3;
     max-block-size: 3lh;
   }
@@ -945,20 +945,20 @@ button[data-semantic-key^="instance/"]:hover {
   }
 }
 @media (min-width: 341px) and (max-width: 375px) {
-  [data-semantic-key="workflow-node-name"]:not([open]) > summary {
+  [data-semantic-key="workflow-node-name"] > summary {
     -webkit-line-clamp: 3;
     max-block-size: 3lh;
   }
 }
 @media (max-width: 340px) {
-  [data-semantic-key="workflow-node-name"]:not([open]) > summary {
+  [data-semantic-key="workflow-node-name"] > summary {
     -webkit-line-clamp: 2;
     max-block-size: 2lh;
   }
 }
 @media (orientation: landscape) and (max-height: 480px) {
   [data-workflow-plane] [data-semantic-key="workflow-node"] { padding-block: 0.125rem !important; }
-  [data-semantic-key="workflow-node-name"]:not([open]) > summary {
+  [data-semantic-key="workflow-node-name"] > summary {
     -webkit-line-clamp: 3;
     max-block-size: 3lh;
   }
@@ -981,14 +981,8 @@ button[data-semantic-key^="instance/"]:hover {
 [data-semantic-key="workflow-node-name"][open] > summary {
   padding-inline-end: 0.75rem;
 }
-[data-semantic-key="workflow-node-name"][open] {
-  overflow: auto;
-  overscroll-behavior: contain;
-}
-[data-semantic-key="workflow-node-name"][open] > summary {
-  display: block !important;
-  max-block-size: none;
-  overflow: visible;
+[data-semantic-key="workflow-node"]:has(> [data-semantic-key="workflow-node-name"][open]) {
+  anchor-name: --workflow-name-source;
 }
 [data-semantic-key="workflow-node-name"][open] > summary::after {
   transform: rotate(225deg);
@@ -1043,7 +1037,7 @@ button[data-semantic-key^="instance/"]:hover {
 [data-workflow-preview-detail] {
   display: none;
 }
-[data-workflow-frame="overview"] [data-workflow-tile]:has([data-semantic-key="workflow-preview-name"][aria-expanded="true"]) > [data-workflow-preview-detail] {
+:is([data-workflow-frame="overview"] [data-workflow-tile]:has([data-semantic-key="workflow-preview-name"][aria-expanded="true"]) > [data-workflow-preview-detail], [data-workflow-node-popover]:popover-open) {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -1054,6 +1048,31 @@ button[data-semantic-key^="instance/"]:hover {
   color: var(--selvedge-text);
   overflow-wrap: anywhere;
   cursor: text;
+}
+@position-try --workflow-name-below {
+  position-area: bottom span-all;
+  justify-self: center;
+}
+@position-try --workflow-name-above {
+  position-area: top span-all;
+  justify-self: center;
+}
+[data-workflow-node-popover]:popover-open {
+  position: fixed;
+  position-anchor: --workflow-name-source;
+  position-area: bottom;
+  position-try-fallbacks: flip-block, --workflow-name-below, --workflow-name-above;
+  inset: auto;
+  margin: 6px 8px;
+  inline-size: max-content;
+  max-inline-size: min(22rem, calc(100dvi - 1.5rem));
+  max-block-size: min(45dvb, calc(100% - 12px));
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--selvedge-border);
+  border-radius: 0.5rem;
+  background: var(--selvedge-surface);
+  box-shadow: var(--selvedge-shadow);
 }
 [data-workflow-close-name] {
   display: grid;
