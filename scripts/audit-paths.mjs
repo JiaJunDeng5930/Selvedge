@@ -1,9 +1,10 @@
-import { copyFile, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { changedGallina, declarations, touches } from './audit-paths/changes.mjs';
 import { build } from './build.mjs';
 import { root, run } from './build-tools.mjs';
 import { dependencyFlags, moduleName, sourceFiles } from './rocq-sources.mjs';
-import { scanJavaScript } from './audit-paths/javascript.mjs';
 
 const validatedRules = new Map([
   ['filter → length', 'Count matching elements directly. Selvedge.Foundation.ListCountProofs.count_selected.'],
@@ -11,6 +12,15 @@ const validatedRules = new Map([
   ['filter → hd_error', 'Find the first element satisfying the filter.'],
   ['filter → find', 'Find using the conjunction of both predicates.'],
 ]);
+
+function auditable(file) {
+  return !file.startsWith('theories/Derive/') && !file.startsWith('theories/ThirdParty/');
+}
+
+async function auditDirectory() {
+  await mkdir(path.join(root, '.workpad'), { recursive: true });
+  return mkdtemp(path.join(root, '.workpad', 'path-audit-'));
+}
 
 async function scanRocq(directory, filenames) {
   const flags = [...dependencyFlags, '-Q', path.relative(root, directory), 'SelvedgePathAudit'];
@@ -83,31 +93,54 @@ async function scanRocq(directory, filenames) {
     while (current < batches.length) await scanBatch(batches[current++]);
   }));
 
-  const sources = new Map();
-  for (const hit of findings) {
-    if (!sources.has(hit.file)) sources.set(hit.file, (await readFile(path.join(root, hit.file), 'utf8')).split('\n'));
-    const short = hit.function.split('.').at(-1);
-    const declaration = sources.get(hit.file).findIndex(line =>
-      /^\s*(?:(?:Local|Global)\s+)?(?:Definition|Fixpoint|CoFixpoint|Let)\s+([\w']+)/.exec(line)?.[1] === short);
-    if (declaration >= 0) hit.line = declaration + 1;
-  }
   return { modules: scanned, unavailable, findings };
 }
 
+async function* locate(findings) {
+  const locations = new Map();
+  for (const hit of findings) {
+    if (!locations.has(hit.file)) locations.set(hit.file, await declarations(hit.file));
+    const span = locations.get(hit.file).get(hit.function.split('.').at(-1));
+    if (span) yield { hit, span };
+  }
+}
+
+export async function checkChangedPaths() {
+  const changes = await changedGallina(process.env.SELVEDGE_AUDIT_BASE ?? 'HEAD');
+  if (changes.size === 0) return;
+  const files = (await sourceFiles()).filter(file => changes.has(file) && auditable(file));
+  if (files.length === 0) return;
+  const directory = await auditDirectory();
+  try {
+    const { findings, unavailable } = await scanRocq(directory, files);
+    const reported = new Set();
+    for await (const { hit, span } of locate(findings.filter(hit => hit.classification === 'known rewrite'))) {
+      if (!touches(changes.get(hit.file), span)) continue;
+      const label = `${hit.file}:${span.nameLine}: ${hit.function.split('.').at(-1)}: ${hit.producer} → ${hit.consumer}`;
+      if (reported.has(label)) continue;
+      reported.add(label);
+      console.warn(`Implementation path: ${label}. ${hit.rule}`);
+    }
+    for (const { file, reason } of unavailable) console.warn(`Implementation path audit skipped ${file}. ${reason}`);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
 async function main() {
-  await mkdir(path.join(root, '.workpad'), { recursive: true });
-  const directory = await mkdtemp(path.join(root, '.workpad', 'path-audit-'));
-  const rocqFiles = (await sourceFiles()).filter(file =>
-    !file.startsWith('theories/Derive/') && !file.startsWith('theories/ThirdParty/'));
+  const directory = await auditDirectory();
+  const rocqFiles = (await sourceFiles()).filter(auditable);
   const listed = await run('git', ['ls-files', '-z', 'host', 'remote', 'relay/src', 'plugins']);
   const javascriptFiles = listed.split('\0').filter(file =>
     /\.(?:mjs|cjs|js|ts)$/.test(file) && !/\/(?:generated|vendor)\//.test(file));
+  const { scanJavaScript } = await import('./audit-paths/javascript.mjs');
   const javascript = scanJavaScript(javascriptFiles.map(file => path.join(root, file)));
   for (const hit of javascript.findings) hit.file = path.relative(root, hit.file);
 
   // Reuse the proof-only build to check source/object fingerprints before quotation.
   await build({ selected: [], check: true });
   const rocq = await scanRocq(directory, rocqFiles);
+  for await (const { hit, span } of locate(rocq.findings)) hit.line = span.nameLine;
   rocq.findings.sort((a, b) => a.function.localeCompare(b.function));
   rocq.unavailable.sort((a, b) => a.file.localeCompare(b.file));
   const filename = path.join(directory, 'report.json');
@@ -118,4 +151,4 @@ async function main() {
   console.log(path.relative(root, filename));
 }
 
-await main();
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();

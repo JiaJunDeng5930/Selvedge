@@ -110,3 +110,7 @@ cannot quote.
 A known rewrite describes an equivalence for the matched expression. Inspect
 other uses of the intermediate value before removing its producer. Candidates
 need review of order, validation, and effects. The audit is run on demand.
+
+`bun run check` also warns about known rewrites in new or modified Gallina
+definitions. It compares the worktree to `HEAD` by default. In a checkout with
+committed changes, set `SELVEDGE_AUDIT_BASE` to the commit to compare against.

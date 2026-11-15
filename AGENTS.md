@@ -34,6 +34,12 @@ Use a focused branch; do not commit directly to main. Protect other work.
 Use Conventional Commits: type(scope): description, with type feat, fix, docs,
 refactor, test or chore and an English lowercase imperative description.
 
+`bun run check` reports known implementation-path simplifications in new or
+modified Gallina definitions. Review any uses of the intermediate value. When
+its only purpose is to feed the next operation, use the direct equivalent.
+Keep an intermediate value that has a separate use. Run `bun run audit:paths`
+for the full project report.
+
 Choose the earliest sufficient assurance owner for each property: domain
 construction and language design, then types and proofs, then public end-to-end
 tests for the remaining observable behavior. Permanent tests use complete public
