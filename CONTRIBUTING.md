@@ -96,3 +96,21 @@ Keep the current reasons here and earlier designs in version control.
 Use Conventional Commits: `type(scope): description`, with an English imperative
 description starting in lowercase. Allowed types are feat, fix, docs, refactor,
 test and chore. Mark breaking changes with `!` and a BREAKING CHANGE footer.
+
+## Audit implementation paths
+
+Run `bun run audit:paths` with the project's Rocq toolchain active. The command
+refreshes the Rocq objects without extracting JavaScript. It follows local data
+flow in checked Gallina declarations and in the host, remote worker, relay, and plugin
+JavaScript and TypeScript sources. Each run writes a report under
+`.workpad/path-audit-*/report.json`. The report records the producer, consumer,
+function, and known uses of a local binding. It lists modules that MetaRocq
+cannot quote.
+
+A known rewrite describes an equivalence for the matched expression. Inspect
+other uses of the intermediate value before removing its producer. Candidates
+need review of order, validation, and effects. The audit is run on demand.
+
+`bun run check` also warns about known rewrites in new or modified Gallina
+definitions. It compares the worktree to `HEAD` by default. In a checkout with
+committed changes, set `SELVEDGE_AUDIT_BASE` to the commit to compare against.

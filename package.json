@@ -13,6 +13,7 @@
     "test": "bun scripts/test.mjs",
     "screenshots": "bun scripts/browser-screenshots/run.mjs",
     "bench": "bun scripts/benchmark.mjs",
+    "audit:paths": "bun scripts/audit-paths.mjs",
     "verify": "bun scripts/verify.mjs"
   },
   "dependencies": {

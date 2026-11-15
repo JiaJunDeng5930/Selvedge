@@ -2,6 +2,7 @@ import { readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { parse } from 'acorn';
+import { checkChangedPaths } from './audit-paths.mjs';
 import { build, root, run } from './build.mjs';
 
 async function sources(directory) {
@@ -32,6 +33,12 @@ export async function check(buildResult) {
     }
   }));
   console.log(`JavaScript: ${scripts.length} syntax checks`);
+  try {
+    await checkChangedPaths();
+  } catch (error) {
+    // DEFENSE: The advisory audit can fail when a CI checkout lacks the requested Git base.
+    console.warn(`Implementation path audit unavailable: ${error.message}`);
+  }
   return completed;
 }
 
