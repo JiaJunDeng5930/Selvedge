@@ -21,8 +21,8 @@ Record flow_geometry := FlowGeometry {
 Definition conversation_geometry :=
  FlowGeometry false node_width node_height column_gap row_gap inset.
 Definition workflow_geometry (compact : bool) :=
- if compact then FlowGeometry true 70 126 48 12 16
- else FlowGeometry false 195 70 86 26 24.
+ if compact then FlowGeometry true 66 126 54 14 16
+ else FlowGeometry false 148 62 94 28 24.
 Definition card_width geometry := if vertical geometry then across geometry else along geometry.
 Definition card_height geometry := if vertical geometry then along geometry else across geometry.
 
@@ -88,32 +88,34 @@ Definition center_y geometry node := top node + across geometry / 2.
 
 (* Route in the flow's own coordinates. Convert endpoints and arrowheads
    together so both orientations enter the destination's near edge. *)
-Definition flow_curve {A} geometry x1 y1 a b c d x2 y2 (arrow : bool) : Graphics.primitive A :=
+Definition flow_curve {A} geometry x1 y1 a b c d x2 y2 (arrow : bool) tone : Graphics.primitive A :=
  if vertical geometry then
    Graphics.StrokePath
      (String.append (Graphics.curve_path y1 x1 b a d c y2 x2 false)
-       (if arrow then " l -4 -8 m 4 8 l 4 -8"%string else ""%string)) Graphics.Neutral
- else Graphics.CubicCurve x1 y1 a b c d x2 y2 arrow Graphics.Neutral.
-Definition flow_line {A} geometry x1 y1 x2 y2 : Graphics.primitive A :=
- if vertical geometry then Graphics.Line y1 x1 y2 x2 Graphics.Neutral
- else Graphics.Line x1 y1 x2 y2 Graphics.Neutral.
+       (if arrow then " l -4 -8 m 4 8 l 4 -8"%string else ""%string)) tone
+ else Graphics.CubicCurve x1 y1 a b c d x2 y2 arrow tone.
+Definition flow_line {A} geometry x1 y1 x2 y2 tone : Graphics.primitive A :=
+ if vertical geometry then Graphics.Line y1 x1 y2 x2 tone
+ else Graphics.Line x1 y1 x2 y2 tone.
 
 Definition adjacent_curve {A} geometry (edge : positioned_node * positioned_node) y1 y2 : Graphics.primitive A :=
   let '(source, target) := edge in
   let x1 := left source + along geometry in
   let x2 := left target in
   let middle := (x1 + x2) / 2 in
-  flow_curve geometry x1 y1 middle y1 middle y2 x2 y2 true.
+  flow_curve geometry x1 y1 middle y1 middle y2 x2 y2 true Graphics.Neutral.
 
-Definition outside_curve {A} geometry lane (edge : positioned_node * positioned_node) y1 y2 : list (Graphics.primitive A) :=
+Definition outside_curve {A} geometry lane index (spread : bool) (edge : positioned_node * positioned_node) y1 y2 : list (Graphics.primitive A) :=
   let '(source, target) := edge in
   let x1 := left source + along geometry in
   let x2 := left target in
-  let exit := x1 + margin geometry / 2 in
-  let enter := x2 - margin geometry / 2 in
-  [flow_curve geometry x1 y1 exit y1 exit y1 exit lane false;
-   flow_line geometry exit lane enter lane;
-   flow_curve geometry enter lane enter y2 enter y2 x2 y2 true].
+  let offset := margin geometry / 2 + (if spread then 6 * Z.of_nat (index mod 4)%nat else 0) in
+  let exit := x1 + offset in
+  let enter := x2 - offset in
+  let tone := if spread then if Nat.even index then Graphics.Accent else Graphics.Success else Graphics.Neutral in
+  [flow_curve geometry x1 y1 exit y1 exit y1 exit lane false tone;
+   flow_line geometry exit lane enter lane tone;
+   flow_curve geometry enter lane enter y2 enter y2 x2 y2 true tone].
 
 Record layout (A : Type) := Layout {
   nodes : list positioned_node;
@@ -146,7 +148,8 @@ Definition arrange_flow {A} geometry spread entries routes : layout A :=
   let lane_spacing := if spread then 16 else 8 in
   let lanes := List.length outside in
   let curves := map (fun '(edge,(y1,y2))=>adjacent_curve geometry edge y1 y2) forward ++
-    flat_map (fun '(index, (edge,(y1,y2))) => outside_curve geometry (height + Z.of_nat index * lane_spacing) edge y1 y2)
+    flat_map (fun '(index, (edge,(y1,y2))) =>
+      outside_curve geometry (height + Z.of_nat index * lane_spacing) index spread edge y1 y2)
       (combine (seq 0 lanes) outside) in
   let height := height + Z.of_nat lanes * lane_spacing in
   if vertical geometry then

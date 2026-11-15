@@ -1271,7 +1271,11 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
         control "all" "总览" "查看所有工作流"];
      DOM.Element (key++"/actions")%string "div" [("data-workflow-actions","")] [] [] empty toolbars;
      DOM.Element canvas "div" [("data-workflow-canvas","");("role","region");("aria-label",label);("tabindex","0")]
-       [] [] empty [DOM.Element (canvas++"/plane")%string "div" [("data-workflow-plane","")] [] [] empty graphs]]
+       [] [] empty [DOM.Element (canvas++"/plane")%string "div" [("data-workflow-plane","")] [] [] empty graphs;
+        DOM.Element (canvas++"/overview")%string "div" [("data-workflow-overview","");("role","group");
+          ("aria-label","选择工作流")] [] [] empty
+         (map (fun '(target,name)=>DOM.Element (canvas++"/overview/"++target)%string "button"
+           [("type","button");("data-workflow-open",target)] [] [] empty [DOM.Text name]) targets)]]
  |S.WorkflowEditorJump targets=>element "select" [("data-workflow-editor-jump","")] [] empty
     (DOM.Element (key++"/placeholder")%string "option" [("value","")] [] [] empty [DOM.Text label] ::
      map (fun '(target,name)=>DOM.Element (key++"/"++target)%string "option"

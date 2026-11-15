@@ -355,7 +355,7 @@ Definition workflow_controls parent definition :=
  Node key section "" Roles.Toolbar Region
   [declared key Roles.Button (secondary "edit-workflow" "编辑工作流"
      (Input.OpenEditor (Identity.WorkflowDefinition (Some id) None) (part key "edit-workflow")));
-   declared key Roles.Button (secondary "start-workflow" "启动工作流"
+   declared key Roles.PrimaryButton (primary "start-workflow" "启动工作流"
      (Input.OpenEditor (Identity.WorkflowStart id) (part key "start-workflow")));
    declared key Roles.Button (secondary "workflow-history" "运行记录"
      (Input.OpenInformation (State.WorkflowHistory id) (part key "workflow-history")))].
@@ -442,9 +442,11 @@ Definition relay_contents snapshot s parent :=
 Definition graphs_page snapshot s parent compact :=
  let work:=State.active_work(State.navigation_state s) in
  let definitions:=rev (filter (workflow_scope work) (workflow_list "workflows" snapshot)) in
- let create_workflow:=declared parent Roles.PrimaryButton
-   (primary "workflow/new" "创建工作流"
-     (Input.OpenEditor (Identity.WorkflowDefinition None work) (part parent "workflow/new"))) in
+ let create := Input.OpenEditor (Identity.WorkflowDefinition None work) (part parent "workflow/new") in
+ let create_workflow:=match definitions with
+   |[]=>declared parent Roles.PrimaryButton (primary "workflow/new" "创建工作流" create)
+   |_=>declared parent Roles.Button (secondary "workflow/new" "创建工作流" create)
+   end in
  let relay:=declared parent Roles.Button
    (secondary "conversation-relays" "对话转发" (Input.OpenInformation State.ConversationRelays (part parent "conversation-relays"))) in
  [browse_heading parent

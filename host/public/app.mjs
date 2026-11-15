@@ -24,6 +24,7 @@ const documentRelease = document.querySelector('meta[name="selvedge-release"]')?
 const updateSessionKey = 'selvedge-update-session';
 const files = new Map();
 const transfers = new Map();
+const workflowReceipts = new Map();
 const assessments = new Map();
 const interactiveAssessments = new Map();
 const candidateAssessments = new Map();
@@ -219,6 +220,17 @@ function snapshot(body, expected = publication.namespace, authenticating = false
   publication = publicationEvent('observe', { observed_namespace: body.namespace, observed_sequence: body.sequence });
   if (firstSnapshot && documentRelease) restoreUpdateSession();
   dispatch({ type: 'snapshot' });
+  // A committed launch can arrive through the live snapshot before its HTTP
+  // reply, or after that connection was interrupted.
+  if (workflowReceipts.size) {
+    for (const instance of world.workflow_instances) {
+      const receipt = instance.browser_launch_receipt;
+      const pending = workflowReceipts.get(receipt?.key);
+      if (pending?.namespace !== publication.namespace) continue;
+      workflowReceipts.delete(receipt.key);
+      dispatch({ type: 'completed', ticket: pending.ticket, ok: true, value: receipt.reply });
+    }
+  }
   return true;
 }
 function retireDocumentViews() {
@@ -233,6 +245,7 @@ function retireDocumentViews() {
   assessments.clear();
   interactiveAssessments.clear();
   candidateAssessments.clear();
+  workflowReceipts.clear();
   for (const resource of resources) URL.revokeObjectURL(resource);
   resources.clear();
 }
@@ -1282,24 +1295,30 @@ surface.addEventListener('dragend', () => {
 async function completeCommand(effect) {
   const namespace = publication.namespace;
   const startingWorkflow = effect.command.op === 'start_workflow' || effect.command.op === 'start_ticket_workflow';
+  const launch = startingWorkflow ? randomBrowserIdentifier() : null;
+  const command = launch === null ? effect.command : { ...effect.command, browser_launch_id: launch };
+  if (launch !== null) workflowReceipts.set(launch, { namespace, ticket: effect.ticket });
   // DEFENSE: A launch can lose its reply after submission. Report uncertainty
   // while keeping the transport open for a late receipt and retaining its ticket.
   const receiptTimer = startingWorkflow ? setTimeout(() => {
-    if (publication.namespace === namespace)
+    if (publication.namespace === namespace && workflowReceipts.has(launch))
       dispatch({ type: 'completion_unknown', ticket: effect.ticket, error: '未收到启动回执，结果待确认。' });
   }, 35_000) : null;
   if (receiptTimer !== null) timers.add(receiptTimer);
   try {
-    const value = await requestCommand(effect.command, effect.read_only ? readDeadline() : undefined);
-    if (publication.namespace === namespace && value !== undefined)
+    const value = await requestCommand(command, effect.read_only ? readDeadline() : undefined);
+    if (publication.namespace === namespace && value !== undefined &&
+        (launch === null || workflowReceipts.delete(launch)))
       dispatch({ type: 'completed', ticket: effect.ticket, ok: true, value });
   } catch (error) {
     // DEFENSE: A lost reply ends a read observation. The server may have
     // committed a mutation, so preserve its ticket and duplicate protection.
-    if (publication.namespace === namespace) {
+    if (publication.namespace === namespace && (launch === null || workflowReceipts.has(launch))) {
       dispatch(effect.read_only
         ? { type: 'completed', ticket: effect.ticket, ok: false, error: error.message }
         : { type: 'completion_failed', ticket: effect.ticket, error: error.message, body: error.body ?? null });
+      if (launch !== null && error.body?.error?.code === 'command_not_submitted')
+        workflowReceipts.delete(launch);
     }
   } finally {
     if (receiptTimer !== null) {

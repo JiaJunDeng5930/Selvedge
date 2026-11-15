@@ -202,13 +202,15 @@ Definition card_details snapshot s id parent :=match Read.find_card id snapshot 
  workflow++launch++choices++
  (match Read.ticket_instance snapshot id with
  |Some instance=>[Collections.workflow_instance_summary parent instance]|None=>[] end)++
- [read_only parent "description" "描述"(Model.card_description face);read_only parent "stage" "状态"(Selvedge.Features.Domain.stage_label(Read.card_stage card));
-  read_only parent "activity" "执行"(Model.card_status face);
-  read_only parent "priority" "优先级"(Selvedge.Features.Domain.priority_label(Model.card_priority face));read_only parent "owner" "负责人"(Model.card_owner face);
+ [read_only parent "description" "描述"(Model.card_description face);read_only parent "stage" "看板列"(Selvedge.Features.Domain.stage_label(Read.card_stage card))]++
+ (match Read.ticket_instance snapshot id with None=>[read_only parent "activity" "执行"(Model.card_status face)]|Some _=>[]end)++
+ [read_only parent "priority" "优先级"(Selvedge.Features.Domain.priority_label(Model.card_priority face));
+  read_only parent "owner" "负责人"(Model.card_owner face);
   read_only parent "project" "项目"(Model.card_project face);read_only parent "labels" "标签"(String.concat "
 "(Model.card_labels face));
-  read_only parent "start-error" "启动错误"(Read.card_start_error card);
   read_only parent "enrichment" "生成"(Read.generation_caption(Read.card_generation card))]++
+ (if String.eqb (Read.card_start_error card) "" then [] else
+  [read_only parent "start-error" "启动错误"(Read.card_start_error card)])++
  map(fun file=>declared parent Roles.Button(secondary("preview/"++asset_id file)("Preview "++asset_name file)
    (Input.ServiceInput(Services.OpenPreview file(part parent("preview/"++asset_id file))))))(Read.card_attachments card)++
  (match bind(Read.card_task card)(fun task=>find_task task snapshot)with

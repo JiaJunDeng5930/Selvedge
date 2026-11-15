@@ -19,6 +19,7 @@ Definition route_symbol route:=match route with
 Definition editor_purpose owner:=match owner with
 |Identity.Project None|Identity.Card None|Identity.CardForConversation _|Identity.TaskGraph None _|Identity.WorkName None=>P.CreateItem
 |Identity.NewTask _|Identity.Message _=>P.MessageSubmission
+|Identity.WorkflowStart _=>P.NavigateTo "play-triangle"
 |Identity.Fork _=>P.ForkTask|Identity.Compact _=>P.CompactTask|_=>P.EditItem end.
 Definition command_purpose (command:SS.public_command):=let source:=Schema.encode_command command in
  match string_field "op" source with

@@ -13,11 +13,22 @@ Import ListNotations.
 Open Scope string_scope.
 
 Definition pending_notices (state : State.state) : list (node Input.input) :=
- flat_map (fun pending => match State.outcome_unknown pending with
+ let notices:=flat_map (fun pending => match State.outcome_unknown pending with
  |None => []
- |Some reason => [information "/workspace" ("request/" ++ show_natural(State.ticket pending))
-   Information.Status ("Connection interrupted. Submission status is unknown. " ++ reason)] end)
- (State.awaiting(State.authoring_state state)).
+ |Some reason =>
+   let key:="request/" ++ show_natural(State.ticket pending) in
+   match State.purpose pending with
+   |State.DraftSubmission draft _ _ _=>
+     match Selvedge.Interaction.Submission.Draft.owner draft with
+     |Selvedge.Interaction.Identity.WorkflowStart workflow=>
+       [information "/workspace/status" key Information.Status "启动结果待确认。";
+        declared "/workspace/status" Roles.Button
+          (secondary (key++"/history") "查看运行记录"
+            (Input.OpenInformation (State.WorkflowHistory workflow) (part "/workspace/status" (key++"/history"))))]
+     |_=>[information "/workspace/status" key Information.Status ("未收到提交回执。 " ++ reason)] end
+   |_=>[information "/workspace/status" key Information.Status ("未收到提交回执。 " ++ reason)] end
+   end) (State.awaiting(State.authoring_state state)) in
+ match notices with []=>[]|_=>[region "/workspace" "status" "提交状态" Roles.Section notices] end.
 
 Definition occurrence_matches occurrence (value:node Input.input):=match layer_region(node_meaning value)with
  |Some behavior=>N.eqb occurrence(layer_occurrence behavior)|None=>false end.

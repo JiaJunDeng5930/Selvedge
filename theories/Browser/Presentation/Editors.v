@@ -427,7 +427,15 @@ Definition editor_view snapshot (s:Session.state) e parent :=
  |WorkflowStart _=>if busy then Busy progress else unit_availability unit assessment
  |_=>unit_availability unit assessment end in
  let status:=match e with
- |WorkflowStart _=>if busy then [information parent "editor-commit-status" Information.Status progress] else []
+ |WorkflowStart workflow=>if busy then
+   ([information parent "editor-commit-status" Information.Status progress] ++
+   (match find (Authoring.pending_for_editor e) (Session.awaiting(Session.authoring_state s)) with
+   |Some entry=>match Session.outcome_unknown entry with
+      |Some _=>[declared parent Roles.Button(secondary "check-workflow-run" "查看运行记录"
+        (Input.OpenInformation (Session.WorkflowHistory workflow) (part parent "check-workflow-run")))]
+      |None=>[] end
+   |None=>[] end))%list
+   else []
  |_=>commit_status parent unit end in
  let submit:=Control "submit"(submit_label snapshot draft e)Primary(Input.Submit e(part parent "submit"))
   availability in

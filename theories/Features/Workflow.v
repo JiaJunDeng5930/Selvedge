@@ -314,14 +314,16 @@ Definition after_transition before :=
  DecisionComposition.and_then (for_paths (settle_path before))
   (DecisionComposition.and_then (for_paths service_path) synchronize).
 
-Definition start id key contents ticket project v :=
+Definition launch_result id := JObject [("instance_id", number id)].
+Definition start id key contents ticket project browser_launch v :=
  match lookup_graph id v with
  | Some g => if entrance g key && Tasks.content_nonempty contents then
    let instance_id := N.of_nat (List.length (instances v)) in
    let preview := match Utf8.take 96 (text_content contents) with Some text => text | None => "" end in
-   let i := Instance id g ticket project key preview [Path 0 (Pending (WorkflowTypes.Delivery key contents None))] [] [] 1 in
+   let i := Instance id g ticket project key preview browser_launch
+     [Path 0 (Pending (WorkflowTypes.Delivery key contents None))] [] [] 1 in
    let started := store_instances (instances v ++ [i]) v in
-   accept (JObject [("instance_id", number instance_id)]) started []
+   accept (launch_result instance_id) started []
    else reject "invalid_workflow_start" "Select an entrance of the workflow and supply a nonempty message." v
  | None => reject "workflow_not_found" "The workflow does not exist." v end.
 Definition choose context key v :=
@@ -353,13 +355,13 @@ Definition ticket_configure id revision workflow key v :=
      Board.save id (Board.revised (F.card_contents card) (F.card_updated_at card) card) updated
      else reject "workflow_ticket_unavailable" "Choose a workflow entrance on an available ticket." v
    | None => reject "workflow_not_found" "The workflow does not exist." v end).
-Definition ticket_start id revision clock v :=
+Definition ticket_start id revision clock browser_launch v :=
  CardScope.with_card id revision v (fun card =>
   match ticket_setting id v with
   | Some selected =>
     if ticket_available card && negb (ticket_running id v) then
       let launched := start (invocation_graph selected) (invocation_entrance selected)
-        (Board.task_contents id (F.card_contents card)) (Some id) (F.draft_project (F.card_contents card)) v in
+        (Board.task_contents id (F.card_contents card)) (Some id) (F.draft_project (F.card_contents card)) browser_launch v in
       match field "result" (decision_reply launched) with
       | Some result => match natural_field "instance_id" result with
         | Some key =>
@@ -408,6 +410,9 @@ Definition instance_json v id (i : execution) := JObject [("instance_id", number
  ("workflow_id", number (instance_graph i)); ("definition", graph_json (instance_graph i) (instance_definition i));
  ("ticket_id", match instance_card i with Some ticket => number ticket | None => JNull end);
  ("entrance", JString (instance_entrance i)); ("message_preview", JString (instance_message_preview i));
+ ("browser_launch_receipt", match instance_browser_launch i with
+  | Some launch => JObject [("key", JString launch); ("reply", success (launch_result id))]
+  | None => JNull end);
  ("state", JString (status i)); ("paths", JArray (map (path_json v) (instance_paths i)));
  ("tasks", JArray (map (fun '(path, node, task) =>
   JObject [("path_id", number path); ("node", JString node); ("task_id", number task)]) (instance_history i)))].

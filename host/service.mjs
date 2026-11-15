@@ -65,6 +65,7 @@ export class Service extends EventEmitter {
   #plugins = new Map();
   #pluginCatalog = new Map();
   #continuation;
+  #continuationInFlight = false;
   #continuationPending = false;
   #compactionTimer;
   #compactionClock;
@@ -255,15 +256,22 @@ export class Service extends EventEmitter {
 
   #scheduleContinuation() {
     this.#continuationPending = true;
-    if (this.draining) return;
+    if (this.draining || this.#continuationInFlight) return;
     this.#continuation ??= setImmediate(() => {
       this.#continuation = undefined;
       this.#continuationPending = false;
       // DEFENSE: Shutdown can retire this scheduled observation before it runs.
-      if (!this.#closing && !this.#failure) this.#trackSubmission(this.journal.execute({ kind: 'continue' }).then(result => {
+      if (this.#closing || this.#failure) return;
+      // A commit can request more scheduling while this one is still queued.
+      // Keep one follow-up so scheduling cannot fill the journal ahead of a command.
+      this.#continuationInFlight = true;
+      this.#trackSubmission(this.journal.execute({ kind: 'continue' }).then(result => {
         // DEFENSE: A full resulting decision can exceed the kernel output budget.
         if (!result.reply.ok) throw new Error(`Scheduling could not advance: ${result.reply.error.message}`);
-      }).catch(error => this.#fatal(error)));
+      }).catch(error => this.#fatal(error)).finally(() => {
+        this.#continuationInFlight = false;
+        if (this.#continuationPending && !this.#closing && !this.#failure) this.#scheduleContinuation();
+      }));
     });
   }
 

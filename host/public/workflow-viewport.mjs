@@ -1,5 +1,3 @@
-import { revealAndFocus } from './layout-reveal.mjs';
-
 // The scene supplies workflow groups and target identities. All coordinates
 // here belong to the browser viewport and never change a workflow definition.
 export function installWorkflowViewport(surface) {
@@ -17,7 +15,7 @@ export function installWorkflowViewport(surface) {
   function view(viewport) {
     let current = views.get(viewport);
     if (!current) {
-      current = { x: inset, y: inset, scale: 1, target: '', drag: null };
+      current = { x: inset, y: inset, scale: 1, target: '', drag: null, frame: null, fitted: false };
       views.set(viewport, current);
     }
     return current;
@@ -35,6 +33,7 @@ export function installWorkflowViewport(surface) {
     current.x = x - (x - current.x) * ratio;
     current.y = y - (y - current.y) * ratio;
     current.scale = next;
+    current.fitted = false;
     place(viewport, current);
   }
 
@@ -50,7 +49,10 @@ export function installWorkflowViewport(surface) {
     const height = viewport.clientHeight;
     current.scale = clamp(Math.min(1, (width - 2 * inset) / group.offsetWidth, (height - 2 * inset) / group.offsetHeight));
     current.x = Math.max(inset, (width - group.offsetWidth * current.scale) / 2) - group.offsetLeft * current.scale;
-    current.y = Math.max(inset, (height - group.offsetHeight * current.scale) / 2) - group.offsetTop * current.scale;
+    current.y = inset - group.offsetTop * current.scale;
+    current.frame = all ? 'overview' : 'selected';
+    current.fitted = true;
+    workspace.dataset.workflowFrame = current.frame;
     place(viewport, current);
   }
   function select(workspace, target) {
@@ -60,6 +62,14 @@ export function installWorkflowViewport(surface) {
       const hidden = group.dataset.semanticKey !== target;
       if (group.hidden !== hidden) group.hidden = hidden;
     }
+    for (const graph of viewport.querySelector('[data-workflow-plane]').children)
+      graph.toggleAttribute('data-workflow-selected', graph.dataset.semanticKey === target);
+  }
+
+  function open(workspace, target) {
+    workspace.querySelector('[data-workflow-target]').value = target;
+    select(workspace, target);
+    fit(workspace);
   }
 
   function zoomFromCenter(viewport, direction) {
@@ -75,19 +85,32 @@ export function installWorkflowViewport(surface) {
       const destination = form.querySelectorAll(`[data-semantic-key="${section}"]`)[Number(index)];
       const field = destination?.querySelector('input,select,textarea');
       // DEFENSE: A draft edit can remove the selected row before the native change arrives.
-      if (field) revealAndFocus(field);
+      if (field) {
+        destination.scrollIntoView({ block: 'start', inline: 'nearest', behavior: 'instant' });
+        field.focus({ preventScroll: true });
+      }
       event.target.value = '';
       return;
     }
     if (!event.target.matches('[data-workflow-target]')) return;
     const workspace = event.target.closest('[data-workflow-workspace]');
-    select(workspace, event.target.value);
-    fit(workspace);
+    open(workspace, event.target.value);
   });
   surface.addEventListener('click', event => {
+    const workspace = event.target.closest('[data-workflow-workspace]');
+    if (!workspace) return;
+    if (workspace.dataset.workflowFrame === 'overview') {
+      const target = event.target.closest('[data-workflow-open]');
+      const preview = event.target.closest('[data-workflow-plane] > [data-semantic-key^="workflow/"]');
+      if (target || preview) {
+        event.preventDefault();
+        open(workspace, target?.dataset.workflowOpen ?? preview.dataset.semanticKey);
+        workspace.querySelector('[data-workflow-target]').focus({ preventScroll: true });
+        return;
+      }
+    }
     const button = event.target.closest('[data-workflow-zoom]');
     if (!button) return;
-    const workspace = button.closest('[data-workflow-workspace]');
     const direction = button.dataset.workflowZoom;
     if (direction === 'fit' || direction === 'all') fit(workspace, direction === 'all');
     else zoomFromCenter(workspace.querySelector(viewportSelector), direction);
@@ -115,6 +138,7 @@ export function installWorkflowViewport(surface) {
     if (current?.drag?.id !== event.pointerId) return;
     current.x = event.clientX - current.drag.x;
     current.y = event.clientY - current.drag.y;
+    current.fitted = false;
     place(viewport, current);
   });
   surface.addEventListener('lostpointercapture', event => {
@@ -132,6 +156,7 @@ export function installWorkflowViewport(surface) {
       const current = view(viewport);
       current.x += direction[0];
       current.y += direction[1];
+      current.fitted = false;
       place(viewport, current);
     } else if (event.key === '+' || event.key === '=') zoomFromCenter(viewport, 'in');
     else if (event.key === '-') zoomFromCenter(viewport, 'out');
@@ -152,6 +177,7 @@ export function installWorkflowViewport(surface) {
     const current = view(viewport);
     current.x += x;
     current.y += y;
+    current.fitted = false;
     place(viewport, current);
   });
 
@@ -167,6 +193,8 @@ export function installWorkflowViewport(surface) {
     if (Array.from(picker.options).some(option => option.value === current.target)) {
       if (picker.value !== current.target) picker.value = current.target;
       select(workspace, current.target);
+      workspace.dataset.workflowFrame = current.frame;
+      if (current.fitted) fit(workspace, current.frame === 'overview');
     } else {
       select(workspace, picker.value);
       fit(workspace);

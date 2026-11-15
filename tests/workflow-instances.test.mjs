@@ -118,7 +118,7 @@ test('a ticket waits for every exit, with a fresh reviewer and a reused implemen
     return Number.isInteger(ticket.workflow_instance_id) ? ticket.workflow_instance_id : null;
   }, 'Starting from the board attaches a workflow instance');
   await details.getByRole('button', { name: `实例 #${instance_id} · 进行中`, exact: true }).waitFor();
-  assert.equal(await waitingForReceipt.isEnabled(), false);
+  await waitingForReceipt.waitFor({ state: 'hidden' });
   allowStart();
   const read = () => command({ op: 'read_workflow_instance', instance_id });
   const card = () => command({ op: 'read_card', card_id });
@@ -126,7 +126,7 @@ test('a ticket waits for every exit, with a fresh reviewer and a reused implemen
   const first = await requestFor(fixture, 'Workflow acceptance ticket');
   const parallel = await requestFor(fixture, 'Parallel acceptance work');
   await details.getByRole('button', { name: `实例 #${instance_id} · 进行中`, exact: true }).waitFor();
-  await details.locator('[data-semantic-key="activity"]').getByText('进行中', { exact: true }).waitFor();
+  assert.equal(await details.locator('[data-semantic-key="activity"]').count(), 0);
   await page.setViewportSize({ width: 1280, height: 900 });
   const initial = await read();
   const implementer = active(initial, 'implement').task_id;
@@ -246,13 +246,18 @@ test('workflows can be authored and started in place from the browser', { timeou
     connections: [{ key: 'route', source: 'entry', target: 'exit' }] });
   const picker = main.getByRole('combobox', { name: '定位工作流', exact: true });
   await picker.selectOption({ label: 'Other workflow' });
-  await picker.selectOption({ label: 'Browser workflow' });
+  await main.getByRole('button', { name: '查看所有工作流', exact: true }).click();
+  await canvas.getByRole('button', { name: 'Browser workflow', exact: true }).click();
+  assert.match(await picker.inputValue(), /^workflow\//);
+  assert.equal(await picker.locator(':checked').innerText(), 'Browser workflow');
+  assert.equal(await main.getByRole('region', { name: 'Other workflow', exact: true }).isVisible(), false);
   const launchControl = main.getByRole('button', { name: '启动工作流', exact: true });
   const buttonLocation = await launchControl.boundingBox();
   await main.getByRole('button', { name: '适应工作流', exact: true }).click();
   await launchControl.hover();
   assert.deepEqual(await launchControl.boundingBox(), buttonLocation);
   assert.ok(buttonLocation.height >= 36);
+  await page.setViewportSize({ width: 1440, height: 900 });
 
   const start = async (name, message, awaitingStart) => {
     const workflow = main.getByRole('region', { name, exact: true });
@@ -271,10 +276,10 @@ test('workflows can be authored and started in place from the browser', { timeou
   };
   const first = 'First line\nSecond line';
   const failedCheck = Promise.withResolvers();
-  const workflowCheck = Promise.withResolvers();
-  t.after(() => { failedCheck.resolve(); workflowCheck.resolve(); });
+  t.after(() => failedCheck.resolve());
   let startAttempts = 0;
   let launchChecks = 0;
+  let queuedStart;
   await page.route('**/api/assess', async route => {
     if (route.request().postDataJSON()?.command?.op === 'start_workflow') launchChecks++;
     await route.continue();
@@ -288,7 +293,8 @@ test('workflows can be authored and started in place from the browser', { timeou
           error: { code: 'command_not_submitted', message: '启动请求未提交。' } } });
         return;
       }
-      await workflowCheck.promise;
+      queuedStart = { url: route.request().url(), body: route.request().postDataJSON() };
+      return route.abort();
     }
     await route.continue();
   });
@@ -297,10 +303,15 @@ test('workflows can be authored and started in place from the browser', { timeou
     const checkFeedback = dialog.getByRole('alert').filter({ hasText: '启动请求未提交。' });
     failedCheck.resolve();
     await checkFeedback.waitFor();
+    const beforeLoss = (await canvas.boundingBox()).width;
     await dialog.getByRole('button', { name: '启动工作流', exact: true }).click();
-    await dialog.getByRole('status').getByText('正在等待启动回执…', { exact: true }).waitFor();
+    await dialog.getByRole('status').getByText('启动结果待确认。可在运行记录中查看。', { exact: true }).waitFor();
+    await dialog.getByRole('button', { name: '查看运行记录', exact: true }).waitFor();
     assert.equal(await checkFeedback.isVisible(), false);
-    workflowCheck.resolve();
+    const afterLoss = (await canvas.boundingBox()).width;
+    assert.ok(Math.abs(afterLoss - beforeLoss) < 2, `Canvas width changed from ${beforeLoss} to ${afterLoss}`);
+    const accepted = await page.request.post(queuedStart.url, { data: queuedStart.body });
+    assert.equal(accepted.ok(), true);
   });
   assert.equal(launchChecks, 0);
   const receipt = firstRun.getByText(/出口结果 · 路径 #\d+ · start → finish/);
@@ -386,7 +397,8 @@ test('workflows can be authored and started in place from the browser', { timeou
     assert.ok(await longNode.locator('summary').evaluate(el =>
       el.offsetHeight <= 2 * parseFloat(getComputedStyle(el).lineHeight) + 1));
     await longNode.getByText(longExit, { exact: true }).click();
-    await verifyNodeBounds(width);
+    const expanded = longNode.locator('details[open] > summary');
+    assert.ok(await expanded.evaluate(el => el.scrollHeight <= el.clientHeight + 1));
     await longNode.getByText(longExit, { exact: true }).click();
   }
   const { workflow: renamed, instance: modelRun } = await start('Renamed workflow', 'Run with the selected model');
