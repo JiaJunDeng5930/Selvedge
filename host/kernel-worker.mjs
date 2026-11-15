@@ -7,11 +7,11 @@ let projection;
 parentPort.on('message', ({ text: input, snapshot, operation }) => {
   try {
     if (operation === 'captureCheckpoint') {
-      parentPort.postMessage({ checkpoint: { identity: model.checkpointIdentity, data: model.checkpoint(world) } });
+      parentPort.postMessage({ checkpoint: { schema: model.checkpointSchema, data: model.checkpoint(world) } });
       return;
     }
     if (operation === 'restoreCheckpoint') {
-      const restored = input.identity === model.checkpointIdentity ? model.restoreCheckpoint(input.data) : null;
+      const restored = input.schema === model.checkpointSchema ? model.restoreCheckpoint(input.data) : null;
       if (restored !== null) world = restored;
       parentPort.postMessage(restored !== null);
       return;

@@ -12,6 +12,15 @@ const buildDirectory = path.join(root, '.build');
 const digest = value => createHash('sha256').update(value).digest('hex');
 const stateFile = path.join(buildDirectory, 'build-state.json');
 const productionTargets = ['schema', 'kernel', 'host', 'browser', 'interaction'];
+const checkpointModule = 'theories/Kernel/Checkpoint.v';
+const checkpointGenerator = 'scripts/generate-checkpoint-codec.ml';
+const checkpointEntries = [
+  ...['encode_context_key', 'decode_context_key', 'encode_context_snapshot', 'decode_context_snapshot',
+    'encode_board_clock', 'decode_board_clock', 'encode_connection_grants', 'decode_connection_grants',
+    'decode_chatgpt_arguments', 'encode_title_instruction', 'decode_title_instruction',
+    'encode_settings_request', 'decode_settings_request'].map(entry => `Kernel.Checkpoint.${entry}`),
+  'Kernel.ChatgptArguments.encode', 'Kernel.Guidance.json', 'Kernel.Guidance.parse',
+];
 const exists = filename => stat(path.join(root, filename)).then(() => true, error => {
   // DEFENSE: A missing build artifact requires compilation; other filesystem errors are real failures.
   if (error.code === 'ENOENT') return false;
@@ -101,7 +110,8 @@ export async function build(options = {}) {
   const roots = [...selected.map(name => {
     if (!targets[name]) throw new Error(`Unknown build target: ${name}`);
     return `theories/${targets[name].module.replaceAll('.', '/')}.v`;
-  }), ...moduleFiles, ...(selected.length ? ['theories/Foundation/TextJson.v'] : [])];
+  }), ...moduleFiles, ...(selected.length ? ['theories/Foundation/TextJson.v'] : []),
+  ...(selected.includes('kernel') ? [checkpointModule] : [])];
   await mkdir(buildDirectory, { recursive: true });
   for (const filename of moduleFiles) if (!await exists(filename)) throw new Error(`Requested Rocq module is missing: ${filename}`);
   for (const name of selected) {
@@ -285,7 +295,8 @@ export async function build(options = {}) {
       await auditAssumptions({ sources: [...graph.keys()], entries: [
         ...(allModules ? Object.values(targets) : selected.map(name => targets[name]))
           .flatMap(target => target.entry.map(entry => `${target.module}.${entry}`)),
-        ...(selected.length ? Object.values(jsonEntries) : [])
+        ...(selected.length ? Object.values(jsonEntries) : []),
+        ...(selected.includes('kernel') ? checkpointEntries : [])
       ] });
     }
     await assertInputsUnchanged();
@@ -308,7 +319,12 @@ export async function build(options = {}) {
         .replaceAll('@MODEL@', target.model).replaceAll('@GLOBAL@', target.global)
         .replaceAll('@ENTRY@', `selvedge_${name}_call`).replaceAll('@MATERIALIZE@', `selvedge_${name}_materialize_native_roots`);
       const jsonIo = (await readInput('runtime/json_io.ml')).toString('utf8');
-      const key = digest(JSON.stringify([extractionIdentity, next[filename], next['theories/Foundation/TextJson.v'], runtime, jsonIo, preparedExtraction]));
+      const checkpoint = name === 'kernel' ? {
+        source: (await readInput('runtime/checkpoint_wire.ml')).toString('utf8'),
+        generator: digest(await readInput(checkpointGenerator)),
+        domain: next[checkpointModule],
+      } : null;
+      const key = digest(JSON.stringify([extractionIdentity, next[filename], next['theories/Foundation/TextJson.v'], runtime, jsonIo, preparedExtraction, checkpoint]));
       const output = `.build/${name}-model.mjs`;
       const actual = [await fingerprint(output)];
       const expected = state[`target:${name}:artifacts`];
@@ -330,13 +346,15 @@ export async function build(options = {}) {
       const jsonAliases = Object.entries(jsonEntries).map(([alias, entry]) => `Definition ${alias} := Selvedge.${entry}.`).join('\n');
       // Separate extraction preserves module aliases used by typed domain surfaces.
       // Each target owns its OCaml units; ocamldep supplies their compilation order.
-      const extraction = `From Selvedge.${target.module.split('.')[0]} Require Import ${target.module.split('.')[1]}.\nFrom Selvedge.Foundation Require Import TextJson.\nLoad "runtime/Extraction.v".\n${preparedExtraction}\n${aliases}\n${jsonAliases}\nSet Extraction Output Directory "${directory}".\nSeparate Extraction ${target.entry.map(entry => `selvedge_${name}_${entry}`).join(' ')} ${Object.keys(jsonEntries).join(' ')}.\n`;
+      const checkpointImport = checkpoint ? 'From Selvedge.Kernel Require Import Checkpoint.' : '';
+      const checkpoints = checkpoint ? checkpointEntries.map(entry => `Selvedge.${entry}`).join(' ') : '';
+      const extraction = `From Selvedge.${target.module.split('.')[0]} Require Import ${target.module.split('.')[1]}.\nFrom Selvedge.Foundation Require Import TextJson.\n${checkpointImport}\nLoad "runtime/Extraction.v".\n${preparedExtraction}\n${aliases}\n${jsonAliases}\nSet Extraction Output Directory "${directory}".\nSeparate Extraction ${target.entry.map(entry => `selvedge_${name}_${entry}`).join(' ')} ${Object.keys(jsonEntries).join(' ')} ${checkpoints}.\n`;
       const extractionFile = path.relative(root, path.join(publicationDirectory, `Extract${target.model}.v`));
       await writeChanged(extractionFile, extraction);
       await run('rocq', ['c', ...flags, extractionFile]);
       await writeChanged(`${directory}/${target.model}.ml`, `include Json\ninclude Extract${target.model}\n`);
       await writeChanged(`${directory}/json_io.ml`, jsonIo);
-      await writeChanged(`${directory}/entry.ml`, runtime);
+      if (!checkpoint) await writeChanged(`${directory}/entry.ml`, runtime);
       // Extraction and its runtime wrappers share one dependency-ordered unit
       // list. A wrapper is compiled and linked exactly once, like every unit.
       const extracted = (await readdir(path.join(root, directory)))
@@ -347,6 +365,19 @@ export async function build(options = {}) {
         const signature = source.replace(/\.ml$/, '.mli');
         if (await exists(signature)) await run('ocamlfind', [...ocaml, '-c', signature]);
         await run('ocamlfind', [...ocaml, '-c', source]);
+      }
+      let checkpointSchema;
+      if (checkpoint) {
+        const zarith = (await run('ocamlfind', ['query', 'zarith'])).trim();
+        await run('ocaml', ['-I', '+compiler-libs', 'ocamlcommon.cma', checkpointGenerator, directory, zarith, `Extract${target.model}`]);
+        checkpointSchema = digest(await readFile(path.join(root, directory, 'checkpoint-shape.txt')));
+        await writeChanged(`${directory}/checkpoint_wire.ml`, checkpoint.source);
+        await writeChanged(`${directory}/entry.ml`, runtime);
+        for (const source of ['checkpoint_wire.ml', 'checkpoint_state.ml', 'entry.ml']) {
+          const filename = `${directory}/${source}`;
+          await run('ocamlfind', [...ocaml, '-c', filename]);
+          ordered.push(filename);
+        }
       }
       await run('ocamlfind', [...ocaml, '-linkpkg', '-o', `${directory}/runtime.bc`, ...ordered.map(source => source.replace(/\.ml$/, '.cmo'))]);
       const stagedRuntime = path.join(publicationDirectory, `${name}-runtime.js`);
@@ -359,8 +390,8 @@ export async function build(options = {}) {
         : `export const ${target.exported} = runtime.call;\n${extraExports}`;
       // Keep each runtime and its exports in one atomically replaceable module.
       const runtimeBundle = `${await readFile(stagedRuntime, 'utf8')}\nconst runtime = globalThis.${target.global};\ndelete globalThis.${target.global};\n${exports}`;
-      const bundle = name === 'kernel'
-        ? `${runtimeBundle}export const checkpointIdentity = ${JSON.stringify(digest(runtimeBundle))};\n`
+      const bundle = checkpoint
+        ? `${runtimeBundle}export const checkpointSchema = ${JSON.stringify(checkpointSchema)};\n`
         : runtimeBundle;
       publications.set(output, bundle);
       if (['host','browser','interaction'].includes(name)) {

@@ -485,10 +485,10 @@ Back up the service home, including its journal, attachments and retained provid
 receipts. The journal commits admitted inputs before dispatching external effects.
 Restart can load the latest verified checkpoint and replay the later inputs
 with the current kernel without executing their effects. The journal remains
-the recovery authority. A missing, damaged, or incompatible checkpoint falls
-back to replay. Compatibility currently requires an identical extracted kernel
-bundle, so a changed kernel rebuilds the checkpoint from the journal. The
-journal upgrades known SQLite schema versions during startup, and
+the recovery authority. A checkpoint can be reused across kernel builds when
+its versioned state format and the journal semantics match. A missing, damaged,
+or incompatible checkpoint falls back to replay and is rebuilt from the journal.
+The journal upgrades known SQLite schema versions during startup and
 validates replay before committing a migration. An update that changes the
 meaning of stored inputs requires a new replay format and an explicit conversion
 for each supported previous format. Unknown formats are rejected.

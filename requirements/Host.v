@@ -51,11 +51,16 @@ Import ListNotations.
     The journal may cache the extracted world at an acknowledged sequence.
     Publication replaces one checkpoint after the journal commit; a cache
     write never authorizes a commit or publishes its effects. Restore admits
-    only a checkpoint authenticated by the private service key, produced by
-    the exact extracted kernel bundle, and bound to the same journal namespace
-    and input prefix. These checks precede the runtime's native deserialization,
-    which assumes bytes emitted by its matching serializer. A missing or
-    unusable checkpoint leaves the authoritative replay path available.
+    only a checkpoint authenticated by the private service key and bound to
+    the same journal namespace, input prefix and journal semantics version.
+    The persisted world has a versioned wire shape derived from extracted
+    data declarations. Records and variants use canonical declaration names
+    and order independently of the OCaml layout. For dependent values whose
+    indices extraction erases, a versioned projection retains the parameters
+    needed for admission by the owning Gallina declaration. Changes to a
+    projection's wire contract require a new adapter version. A matching
+    wire shape and semantic version permit restore across kernel bundles.
+    A missing or unusable checkpoint leaves authoritative replay available.
     Restoring the cached world uses the same replay operation on the suffix.
     Physical restart tests exercise the cache boundary; the extracted runtime
     codec and local key custody remain execution premises.

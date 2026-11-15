@@ -1,7 +1,8 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { gzipSync, gunzipSync } from 'node:zlib';
 import { publishBytes, readBoundedRegularSnapshot } from './file-io.mjs';
 
-const format = 'selvedge-journal-checkpoint-1';
+const format = 'selvedge-journal-checkpoint-2';
 const macBytes = 32;
 const maximumBytes = 64 * 1024 * 1024;
 
@@ -16,9 +17,10 @@ async function readCacheFile(filename, maximumBytes, admitMetadata) {
 }
 
 export class JournalCheckpoint {
-  constructor(journalFilename) {
+  constructor(journalFilename, journalFormat) {
     this.filename = `${journalFilename}.checkpoint`;
     this.keyFilename = `${this.filename}.key`;
+    this.journalFormat = journalFormat;
   }
 
   async #readKey() {
@@ -42,13 +44,14 @@ export class JournalCheckpoint {
     if (!timingSafeEqual(mac, bytes.subarray(0, macBytes))) return;
     const separator = signed.indexOf(10);
     const header = JSON.parse(signed.subarray(0, separator).toString('utf8'));
-    if (header.format !== format || header.namespace !== namespace) return;
-    return { ...header, payload: signed.subarray(separator + 1) };
+    if (header.format !== format || header.namespace !== namespace || header.journalFormat !== this.journalFormat) return;
+    const payload = gunzipSync(signed.subarray(separator + 1), { maxOutputLength: maximumBytes });
+    return { ...header, payload };
   }
 
   // Only the owner of the committed journal can publish an authenticated checkpoint.
-  async write(namespace, sequence, prefix, { identity, data }) {
-    const header = `${JSON.stringify({ format, namespace, sequence, prefix, identity })}\n`;
+  async write(namespace, sequence, prefix, { schema, data }) {
+    const header = `${JSON.stringify({ format, namespace, sequence, prefix, schema, journalFormat: this.journalFormat })}\n`;
     // KNOWN LIMITATION: A world whose encoded checkpoint exceeds the cache budget requires replay.
     if (macBytes + Buffer.byteLength(header) + data.length > maximumBytes) return;
     let key = await this.#readKey();
@@ -56,7 +59,11 @@ export class JournalCheckpoint {
       key = randomBytes(macBytes);
       await publishBytes(this.keyFilename, key);
     }
-    const payload = Buffer.from(data, 'latin1');
+    // Forked tasks can retain the same conversation. The portable encoding
+    // has no heap aliases, so compress its repeated bytes before publication.
+    const payload = gzipSync(Buffer.from(data, 'latin1'));
+    // KNOWN LIMITATION: Compression can expand an incompressible image near the bound.
+    if (macBytes + Buffer.byteLength(header) + payload.length > maximumBytes) return;
     const mac = createHmac('sha256', key).update(header).update(payload).digest();
     await publishBytes(this.filename, Buffer.concat([mac, Buffer.from(header), payload]));
   }

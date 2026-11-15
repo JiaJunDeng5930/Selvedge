@@ -2,19 +2,14 @@ open Js_of_ocaml
 module Model = KernelModel
 module Json = Json_io.Make(Model)
 
-(* World values stay opaque to the host. Checkpoint bytes can be restored only
-   after the host authenticates them as output of this exact kernel bundle. *)
+(* The host authenticates a checkpoint and admits its wire schema before the
+   generated decoder constructs a world. No runtime object representation crosses IO. *)
 let initial () = Model.selvedge_kernel_initial
-let checkpoint world =
-  (* DEFENSE: Marshal can refuse an extracted value that contains a closure. *)
-  try Js.some (Js.bytestring (Marshal.to_string world []))
-  with Invalid_argument _ | Failure _ -> Js.null
+let checkpoint world = Js.bytestring (Checkpoint_state.encode world)
 let restore_checkpoint source =
-  let restore_like (_ : 'world) : 'world =
-    Marshal.from_string (Js.to_bytestring source) 0 in
-  (* DEFENSE: A runtime decoder can reject an otherwise authenticated image. *)
-  try Js.Unsafe.inject (restore_like Model.selvedge_kernel_initial)
-  with Invalid_argument _ | Failure _ -> Js.Unsafe.inject Js.null
+  match Checkpoint_state.decode (Js.to_bytestring source) with
+  | Some world -> Js.Unsafe.inject world
+  | None -> Js.Unsafe.inject Js.null
 let input_error name message =
   Js.Unsafe.obj [| "inputError", Js.Unsafe.inject (Js.Unsafe.obj [|
     "name", Js.Unsafe.inject (Js.string name);

@@ -83,8 +83,8 @@ export class Kernel {
     return this.#submit(undefined, false, 'captureCheckpoint');
   }
 
-  restoreCheckpoint({ identity, payload }) {
-    return this.#submit({ identity, data: payload.toString('latin1') }, false, 'restoreCheckpoint');
+  restoreCheckpoint({ schema, payload }) {
+    return this.#submit({ schema, data: payload.toString('latin1') }, false, 'restoreCheckpoint');
   }
 
   assess(candidate) {

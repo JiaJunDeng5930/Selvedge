@@ -73,7 +73,7 @@ export class Journal extends EventEmitter {
   static async open(filename, { waitForOwnership } = {}) {
     const journal = new Journal();
     journal.sequence = 0;
-    journal.#checkpoint = new JournalCheckpoint(filename);
+    journal.#checkpoint = new JournalCheckpoint(filename, journalFormat);
     try {
       let prepared;
       if (waitForOwnership) {
@@ -198,7 +198,6 @@ export class Journal extends EventEmitter {
     this.#checkpointAttemptSequence = this.sequence;
     // The journal queue still owns the Worker at the acknowledged sequence.
     const image = await this.#kernel.captureCheckpoint();
-    if (image.data === null) return;
     try {
       await this.#checkpoint.write(this.namespace, this.sequence, this.#prefix.copy().digest('hex'), image);
     } catch (error) {
