@@ -407,7 +407,9 @@ Definition editor_view snapshot (s:Session.state) e parent :=
  let assessment:=Observe.observe_assessment snapshot s e in
  let unit:=Observe.action_unit_for s e in
  let submit:=Control "submit"(submit_label snapshot draft e)Primary(Input.Submit e(part parent "submit"))(unit_availability unit assessment)in
- let reason:=match e with WorkflowStart _=>[]|_=>commit_reason parent assessment end in
+ let reason:=match e,Draft.draft_feedback draft with
+ |WorkflowStart _,_|_,Draft.DuplicateWorkflowNodeName _ _=>[]
+ |_,_=>commit_reason parent assessment end in
  let consequence:=if UX.action_pending unit then [] else match e with
  |Card _=>match Observe.card_save_consequence snapshot s draft with
   |Some BoardFacts.SaveLinked|None=>[]

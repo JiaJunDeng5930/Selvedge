@@ -152,8 +152,10 @@ Definition card_details snapshot s id parent :=match Read.find_card id snapshot 
 |None=>[information parent "missing" Information.Description "这张卡片已不存在。"]
 |Some card=>
  let face:=Collections.card_face snapshot s card in
- ([read_only parent "identifier" "卡片编号"(Read.card_identifier card);read_only parent "title" "标题"(Model.card_title face);
-  read_only parent "description" "描述"(Model.card_description face);read_only parent "stage" "状态"(Selvedge.Features.Domain.stage_label(Read.card_stage card));
+ let '(workflow,entrances):=Collections.ticket_workflow_controls snapshot s parent card in
+ ([read_only parent "identifier" "卡片编号"(Read.card_identifier card);read_only parent "title" "标题"(Model.card_title face)]++
+ workflow++
+ [read_only parent "description" "描述"(Model.card_description face);read_only parent "stage" "状态"(Selvedge.Features.Domain.stage_label(Read.card_stage card));
   read_only parent "activity" "执行"(Model.card_status face);
   read_only parent "priority" "优先级"(Selvedge.Features.Domain.priority_label(Model.card_priority face));read_only parent "owner" "负责人"(Model.card_owner face);
   read_only parent "project" "项目"(Model.card_project face);read_only parent "labels" "标签"(String.concat "
@@ -166,7 +168,7 @@ Definition card_details snapshot s id parent :=match Read.find_card id snapshot 
   |Some entry=>[group_title (part parent "conversation") "关联对话";
     Navigation.task_entry_tree(State.location(State.navigation_state s))[] parent(TaskTree entry [])]
   |None=>Collections.card_conversation snapshot parent card "" end)++
- Collections.ticket_workflow_controls snapshot s parent card ++
+ entrances ++
  [region parent "card-detail-actions" "卡片操作" Roles.Toolbar
    (detail_action_nodes snapshot s(CardActions id)parent
      (match Read.ticket_workflow snapshot id with Some _=>["run"]|None=>[]end))])%list end.

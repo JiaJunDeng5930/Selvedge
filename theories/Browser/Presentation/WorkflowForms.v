@@ -90,20 +90,27 @@ Definition endpoint_uses key value :=
  match string_field key value with Some name => String.eqb name | None => fun _ => false end.
 Definition rename_endpoint old next key edge :=
  if endpoint_uses key edge old then replace key (JString next) edge else edge.
-Definition node_fields snapshot work parent nodes edges save '(index, entry) :=
+Definition node_fields snapshot work parent owner feedback nodes edges save '(index, entry) :=
  let key := part parent (row_number index) in
  let name := value_or "" (string_field "key" entry) in
  let kind := value_or "task" (string_field "kind" entry) in
  let caption := node_kind_label kind ++ " " ++ row_number index in
  let same_key value := endpoint_uses "key" value in
  let other_nodes := remove_row index nodes in
+ let ordinal:=N.of_nat index in
+ let refused:=match feedback with
+ |Draft.DuplicateWorkflowNodeName row attempted=>if N.eqb ordinal row then Some attempted else None
+ |_=>None end in
  let accepts raw :=
-   if existsb (fun node => same_key node raw) other_nodes then None
+   if existsb (fun node => same_key node raw) other_nodes
+   then Some (Input.RejectDuplicateWorkflowNodeName owner ordinal raw)
    else
      let renamed := map (fun edge => rename_endpoint name raw "target" (rename_endpoint name raw "source" edge)) edges in
      save (replace_row index (replace "key" (JString raw) entry) nodes) renamed in
  Node key "workflow-node-editor" caption Roles.Section Region
-   ([group_title key caption; form_input key "key" "节点名称" false name None accepts] ++
+   ([group_title key caption; form_input key "key" "节点名称" false (value_or name refused) None accepts] ++
+    (match refused with Some _=>[information key "duplicate-workflow-node-name" Information.Status
+       Draft.duplicate_workflow_node_name]|None=>[]end) ++
     (if String.eqb kind "task" then task_node_fields snapshot work key entry
       (fun updated => save (replace_row index updated nodes) edges) else []) ++
     form_action key "remove-node" ("移除" ++ caption)
@@ -140,7 +147,7 @@ Definition connection_fields parent nodes edges save '(index, entry) :=
      text_field key "description" "连线说明" false entry assign] ++ message_fields ++
     form_action key "remove-connection" ("移除" ++ caption) (save (remove_row index edges)))%list.
 
-Definition definition_fields snapshot parent work value (save : json -> option Input.input) :=
+Definition definition_fields snapshot parent owner work feedback value (save : json -> option Input.input) :=
  let nodes := items "nodes" value in
  let edges := items "connections" value in
  let node_panel := part parent "workflow-nodes" in
@@ -155,7 +162,7 @@ Definition definition_fields snapshot parent work value (save : json -> option I
    form_action node_panel ("add-" ++ kind) ("添加" ++ node_kind_label kind) (set_graph (nodes ++ [entry])%list edges) in
  [text_field parent "name" "工作流名称" false value save;
   region parent "workflow-nodes" "节点" Roles.Section
-    (group_title node_panel "节点" :: map (node_fields snapshot work node_panel nodes edges set_graph) (indexed nodes) ++
+    (group_title node_panel "节点" :: map (node_fields snapshot work node_panel owner feedback nodes edges set_graph) (indexed nodes) ++
      flat_map add_node ["entrance";"task";"exit"])%list;
   region parent "workflow-connections" "连线" Roles.Section
     (group_title edge_panel "连线" ::
@@ -168,10 +175,11 @@ Definition definition snapshot (s : Session.state) parent e id work :=
  | None => work
  | Some workflow => bind (World.find_world "workflows" "workflow_id" workflow snapshot) (natural_field "work_id")
  end in
- match Draft.contents (Session.current_draft s e), declaration_assignment e with
+ let draft:=Session.current_draft s e in
+ match Draft.contents draft, declaration_assignment e with
  | Draft.WorkflowDefinitionBody _ _ source, Some save =>
    match parse_json source with
-   | Some (JObject _ as value) => definition_fields snapshot parent scope value save
+   | Some (JObject _ as value) => definition_fields snapshot parent e scope (Draft.draft_feedback draft) value save
    | _ => []
    end
  | _, _ => []

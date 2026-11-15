@@ -654,6 +654,10 @@ Definition skills_loaded ticket outcome state:=
  keep(SS.with_authoring(set SS.skill_catalogs(map(Resource.settle ticket admitted))(SS.authoring_state state))state).
 Definition step snapshot input state:option result:=match input with
 |Input.ApplyAssignment owner assignment=>Some(apply_field snapshot owner assignment state)
+|Input.RejectDuplicateWorkflowNodeName owner index name=>
+ let draft:=SS.current_draft state owner in
+ let edited:=Draft.with_body (Draft.contents draft) draft in
+ Some (keep (SS.save_draft (Draft.with_feedback (Draft.DuplicateWorkflowNodeName index name) edited) state))
 |Input.ActivityAssignment occurrence owner assignment=>Some(apply_activity snapshot occurrence owner assignment state)
 |Input.ActivityWorkspaceChange occurrence change=>Some(match activity_owner occurrence state with Some(owner,_)=>change_workspace snapshot owner change state|None=>keep state end)
 |Input.ActivityComplete occurrence=>Some(match activity_owner occurrence state with

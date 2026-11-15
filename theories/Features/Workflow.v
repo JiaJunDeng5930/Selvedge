@@ -111,7 +111,7 @@ Definition save_graph id owner name nodes edges v :=
    end
  | _, _ => reject "invalid_workflow" "Invalid workflow node or connection declaration." v end.
 
-Definition arrived p := match path_value p with Arrived _ _ => true | _ => false end.
+Definition arrived p := match path_value p with Arrived _ _ _ => true | _ => false end.
 Definition complete (i : execution) :=
  negb (Nat.eqb (List.length (instance_paths i)) 0) && forallb arrived (instance_paths i).
 Definition failed (i : execution) :=
@@ -135,10 +135,10 @@ Definition forwarded (g : graph) (node : string) (choice : option string) (conte
    (match connection_message e with
     | F.GraphOutput => contents
     | expression => [TextPart (TaskGraph.expand expression (text_content contents))]
-    end)) edges.
+    end) (Some (connection_source e))) edges.
 Definition route id input choice contents (i : execution) :=
  match forwarded (instance_definition i) (delivery_node input) choice contents with
- | [] => replace_path id (Blocked input "No outgoing connection reaches an exit.") i
+ | [] => replace_path id (Blocked input "此节点没有可继续通往出口的连线。") i
  | deliveries => replace_with_paths id deliveries i
  end.
 Definition instructions (g : graph) key :=
@@ -183,10 +183,13 @@ Definition save_path instance_id path_key input (i : execution) (sent : decision
  let result := decision_reply sent in
  let next := if bool_default "ok" result false then match task with
    | Some id => Executing input id None
-   | None => Blocked input "The Task launch returned no identity." end
+   | None => Blocked input "启动任务后未获得对话标识。" end
    else Blocked input (match field "error" result with
-     | Some error => match string_field "message" error with Some detail => detail | None => "Task input was refused." end
-     | None => "Task input was refused." end) in
+     | Some error => match string_field "code" error with
+       | Some "unknown_profile" | Some "invalid_profile" => "所选模型不可用。请为此节点重新选择模型。"
+       | _ => match string_field "message" error with Some detail => detail | None => "任务未能接收消息。" end
+       end
+     | None => "任务未能接收消息。" end) in
  let i := replace_path path_key next i in
  let i := match next with
   | Executing _ id _ => set instance_history (fun history => history ++ [(path_key, delivery_node input, id)]) i
@@ -208,7 +211,7 @@ Definition service_path instance_id (p : path) : DecisionComposition.step := fun
          [ContinueScheduling]
      | Some (Node exit Exit) =>
        DecisionComposition.Update (store_instance instance_id
-         (replace_path path_id (Arrived exit (delivery_content input)) i) v) []
+         (replace_path path_id (Arrived exit (delivery_source input) (delivery_content input)) i) v) []
      | Some (Node node (TaskNode creation)) =>
        let saved := match creation with
        | ExistingTask id => Some id
@@ -225,7 +228,7 @@ Definition service_path instance_id (p : path) : DecisionComposition.step := fun
             (negb each)
        | None, ExistingTask _ => unchanged end
      | None => DecisionComposition.Update
-        (store_instance instance_id (replace_path path_id (Blocked input "Workflow node missing.") i) v) []
+        (store_instance instance_id (replace_path path_id (Blocked input "该工作流节点已不可用。") i) v) []
      end
    | _ => unchanged end
  end.
@@ -306,7 +309,7 @@ Definition start id key contents ticket project v :=
  match lookup_graph id v with
  | Some g => if entrance g key && Tasks.content_nonempty contents then
    let instance_id := N.of_nat (List.length (instances v)) in
-   let i := Instance id g ticket project [Path 0 (Pending (WorkflowTypes.Delivery key contents))] [] [] 1 in
+   let i := Instance id g ticket project [Path 0 (Pending (WorkflowTypes.Delivery key contents None))] [] [] 1 in
    let started := store_instances (instances v ++ [i]) v in
    accept (JObject [("instance_id", number instance_id)]) started []
    else reject "invalid_workflow_start" "Select an entrance of the workflow and supply a nonempty message." v
@@ -386,8 +389,9 @@ Definition path_json v p :=
  | Forwarding input id _ _ =>
     [("node", JString (delivery_node input)); ("state", JString "settling"); ("task_id", number id);
      ("active", JBool (task_active id v))]
- | Arrived node result => [("node", JString node); ("state", JString "exit"); ("result", JString (text_content result));
-     ("content", Codec.content_json result)]
+ | Arrived node source result => [("node", JString node); ("state", JString "exit"); ("result", JString (text_content result));
+     ("content", Codec.content_json result)] ++
+     match source with Some name => [("source", JString name)] | None => [] end
  | Blocked input reason => [("node", JString (delivery_node input)); ("state", JString "blocked"); ("reason", JString reason)] end in
  JObject (("path_id", number (path_id p)) :: fields).
 Definition instance_json v id (i : execution) := JObject [("instance_id", number id);

@@ -392,7 +392,8 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     and empty state. The current workflow and entrance remain visible on the
     ticket. An instance can be opened from the ticket, the workflow or one
     of its active node markers. Each exit result is separately expandable
-    and identifies the path and exit. Its text preserves line breaks.
+    and identifies the path and the final connection's source and exit.
+    Its text preserves line breaks.
     Opening a conversation from an instance keeps the instance available
     at the same position when the conversation panel closes.
     The ticket launch surface lets the user select the definition and entrance

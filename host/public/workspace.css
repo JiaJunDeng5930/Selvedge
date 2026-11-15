@@ -563,12 +563,26 @@ dialog[data-semantic-key="card-details"] {
   border-radius: 0.5rem;
   padding: 0.35rem 0.65rem;
 }
-[data-semantic-key="workflow-node-name"] {
+[data-semantic-key="workflow-node-name"] > summary {
   display: -webkit-box !important;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
   overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+[data-semantic-key="workflow-node-name"][open] {
+  position: absolute;
+  inset: 0.25rem;
+  z-index: 1;
+  overflow: auto;
+  padding: 0.125rem;
+  background: var(--selvedge-surface, Canvas);
+}
+[data-semantic-key="workflow-node-name"][open] > summary {
+  display: block !important;
+  overflow: visible;
 }
 [data-semantic-key="task-graph/viewport"]:has(> [data-semantic-key="workflow-pan-hint"]) {
   container: workflow-viewport / scroll-state;

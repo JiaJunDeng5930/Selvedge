@@ -301,7 +301,7 @@ Definition workflow_canvas snapshot parent compact definition :=
       (InteractivePlacement (Presentation.GraphNode Presentation.RootFontScale
         (TaskGraphCanvas.left placed) (TaskGraphCanvas.top placed)
         (Z.to_N (TaskGraphCanvas.card_width geometry)) (Z.to_N (TaskGraphCanvas.card_height geometry)) false))
-      [information key "workflow-node-name" Information.OptionLabel name;
+      [Node (part key "workflow-node-name") "workflow-node-name" name Roles.Content ContentDisclosure [];
        information key "kind" Information.Description caption;
        workflow_markers snapshot definition name key])
    (TaskGraphCanvas.nodes layout))].
@@ -320,7 +320,10 @@ Definition workflow_instance_details snapshot parent value :=
    declared parent Roles.Button (secondary key text (Input.InspectWorkflowTask task (part parent key)))) task_ids in
  let results := flat_map (fun path =>
    let suffix := show_natural (value_or 0%N (natural_field "path_id" path)) in
-   let label := String.concat "" ["路径 #"; suffix; " · "; workflow_field "node" path] in
+   let node := workflow_field "node" path in
+   let route := match string_field "source" path with
+     | Some source => String.concat "" [source; " → "; node] | None => node end in
+   let label := String.concat "" ["路径 #"; suffix; " · "; route] in
    match string_field "result" path, string_field "reason" path with
    | Some output, _ =>
      let result := part parent ("exit/" ++ suffix) in
@@ -374,8 +377,8 @@ Definition ticket_workflow_controls snapshot s parent (card : Read.card) :=
         (fun workflow => World.find_world "workflows" "workflow_id" workflow snapshot) in
       let selection := String.concat "" [value_or "" (bind workflow (string_field "name")); " · "; workflow_field "entrance" value] in
       ([read_only parent "workflow-entrance" "当前工作流入口" selection] ++
-       (match Read.ticket_instance snapshot id with Some instance=>[workflow_instance_summary parent instance]|None=>[]end) ++
-       command "workflow-start-ticket" "启动工作流实例" "start_ticket_workflow" card_args)%list end in
+       command "workflow-start-ticket" "启动工作流实例" "start_ticket_workflow" card_args ++
+       (match Read.ticket_instance snapshot id with Some instance=>[workflow_instance_summary parent instance]|None=>[]end))%list end in
  let options := flat_map (fun graph =>
    let workflow := value_or 0%N (natural_field "workflow_id" graph) in
    flat_map (fun node =>
@@ -391,8 +394,8 @@ Definition ticket_workflow_controls snapshot s parent (card : Read.card) :=
          "configure_ticket_workflow" ([("workflow_id",number workflow);("entrance",JString entrance)] ++ card_args)%list
      else []) (workflow_list "nodes" graph)) (workflow_list "workflows" snapshot) in
  match Read.card_task card, Read.card_archived card with
- | None, false => (configured ++ options)%list
- | _, _ => configured end.
+ | None, false => (configured, options)
+ | _, _ => (configured, []) end.
 Definition graphs_page snapshot s parent compact :=
  let work:=State.active_work(State.navigation_state s) in
  let graphs:=scoped_graphs work snapshot in

@@ -28,7 +28,9 @@ Inductive body :=
 | TitlePromptsBody (scope : title_prompt_scope) (revision : N)
     (task_prompt agent_prompt : string) (agent_profile : option string).
 Inductive feedback := Editing | Accepted (revision : N) (reply : json)
-| Rejected (revision : N) (diagnostic : json) | WorkspaceRejected (revision : N) (reason : string).
+| Rejected (revision : N) (diagnostic : json) | WorkspaceRejected (revision : N) (reason : string)
+| DuplicateWorkflowNodeName (index : N) (attempted_name : string).
+Definition duplicate_workflow_node_name := "此名称已被其他节点使用。请选择不同的名称。".
 Inductive selection_direction := DirectionNone | DirectionForward | DirectionBackward.
 Record selection := Selection { selection_start : N; selection_end : N;
   selection_orientation : selection_direction }.
