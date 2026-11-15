@@ -8,19 +8,24 @@
 From Stdlib Require Import List NArith.
 From Selvedge.Kernel Require PacketProofs.
 Export PacketProofs(actual_query_preserves_world_and_emits_no_effect,
-  live_configuration_preserves_maintenance_cancellations).
+  live_configuration_preserves_maintenance_cancellations,
+  replay_recovers_the_packet_world_and_durability).
 Import ListNotations.
 
 (** ** Acknowledgement controls publication
 
-    A journal stores admitted inputs and restores the world by replaying the
-    same entry; replay does not publish physical effects. Queries preserve the
+    A journal stores admitted inputs and restores the world using the same
+    admission, scheduling and cursor rules as ordinary execution. Replay does
+    not publish physical effects. Queries preserve the
     world, emit no effects and require no journal row. A committed row must
     retain the input evaluated by the Worker so recovery reconstructs that
     execution. The submitted frame is also the retained replay input: one
     serialization owner avoids a second representation whose interpretation
     could differ from the committed execution. Replay submits that retained
-    frame to the same admission entry. Commit observers consume the outcome and
+    frame and receives the durability marker for each input. The kernel retains
+    the restored world and publishes a snapshot after replay, so constructing
+    intermediate replies and notifications supplies no recovery evidence.
+    Commit observers consume the outcome and
     its effects; publishing another copy of the submitted input adds no restart
     authority. Lost remote replies are exercised at the public transport boundary.
     Recovery and new commands use the kernel

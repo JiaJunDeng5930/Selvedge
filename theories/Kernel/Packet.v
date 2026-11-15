@@ -164,6 +164,12 @@ Definition select (source : json) (value : world) : CommitPacket.selected :=
  | _ => select_change (core_input received) value (fun _ => transition_decoded received source value)
  end.
 Definition packet (source : json) (value : world) : world * json :=
- if N.leb (N.of_nat (String.length (TextJson.render_json source))) Limits.frame_bytes then
+ if Delivery.fits_json source then
  CommitPacket.finalize value (select source value)
  else (value,Observation.envelope false (reject "invalid_input" "The complete input exceeds the native frame bound" value)).
+
+Definition replay (source : json) (value : world) : world * bool :=
+ if Delivery.fits_json source then
+   let chosen := select source value in
+   (CommitPacket.finalize_world value chosen, CommitPacket.selected_durable chosen)
+ else (value, false).

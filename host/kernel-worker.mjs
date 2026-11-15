@@ -6,7 +6,8 @@ let projectedWorld;
 let projection;
 parentPort.on('message', ({ text: input, snapshot, operation }) => {
   try {
-    const output = operation === 'assess' ? model.assess(input, world) : model.packet(input, world);
+    const run = operation === 'assess' ? model.assess : operation === 'replay' ? model.replay : model.packet;
+    const output = run(input, world);
     if (output.inputError) {
       parentPort.postMessage({ inputError: output.inputError });
       return;
@@ -16,6 +17,10 @@ parentPort.on('message', ({ text: input, snapshot, operation }) => {
       return;
     }
     world = output.world;
+    if (operation === 'replay') {
+      parentPort.postMessage(output.durable);
+      return;
+    }
     const text = output.envelope;
     if (snapshot) {
       // Extracted worlds are immutable; the same opaque handle has the same projection.

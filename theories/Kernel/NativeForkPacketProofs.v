@@ -20,7 +20,7 @@ Theorem a_selected_native_fork_commits_within_its_delivery_budget :
   Notifications.envelope true true (Some Continue) before (NativeForkCommit.candidate accepted)).
 Proof.
  intros raw before accepted Decoded InputFits Selected OutputFits.
- unfold Packet.packet, Packet.select; fold (Delivery.fits_json raw).
+ unfold Packet.packet, Packet.select.
  rewrite InputFits, Decoded.
  cbn [Packet.select_change Packet.core_input Packet.manual_fork_input CreationCommit.input Packet.deferred_candidate
    BoardCommit.input ConnectionCommit.input Packet.native_fork_input].

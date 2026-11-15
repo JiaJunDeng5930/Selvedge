@@ -48,7 +48,7 @@ Theorem actual_query_preserves_world_and_emits_no_effect : forall source command
  field "durable" (snd (Packet.packet source value)) = Some (JBool false).
 Proof.
  intros source command reply value Decoded Query.
- unfold Packet.packet; destruct (N.leb _ _).
+ unfold Packet.packet; destruct (Delivery.fits_json source).
  - unfold Packet.select; rewrite Decoded.
    unfold Packet.query,CommandHandlers.query in Query.
    cbn [CommandHandlers.task_origin] in Query.
@@ -65,7 +65,6 @@ Theorem actual_admitted_query_delivers_its_observation source command reply valu
  field "reply" (snd (Packet.packet source value)) = Some reply.
 Proof.
  intros FitsInput Decoded Query FitsReply.
- unfold Delivery.fits_json in FitsInput.
  unfold Packet.packet, Packet.select. rewrite FitsInput, Decoded.
  unfold Packet.query, CommandHandlers.query in Query.
  cbn [CommandHandlers.task_origin] in Query.
@@ -88,8 +87,25 @@ Theorem packet_keeps_an_ignored_nondurable_result : forall source value result,
  field "durable" (snd (Packet.packet source value))=Some (JBool false).
 Proof.
  intros source value result Transition Unchanged Empty.
- unfold Packet.packet; destruct (N.leb _ _).
+ unfold Packet.packet; destruct (Delivery.fits_json source).
  - rewrite (a_nondurable_transition_selects_its_ordinary_commit source value result Transition).
    apply DeferredCommitProofs.a_noncommitting_unchanged_candidate_has_no_effect; assumption.
  - repeat split; reflexivity.
+Qed.
+
+Theorem replay_recovers_the_packet_world_and_durability source value :
+ fst (Packet.replay source value) = fst (Packet.packet source value) /\
+ field "durable" (snd (Packet.packet source value)) =
+ Some (JBool (snd (Packet.replay source value))).
+Proof.
+ unfold Packet.replay, Packet.packet.
+ destruct (Delivery.fits_json source); [|split; reflexivity].
+ destruct (Packet.select source value) as [durable admitted input result].
+ split; [reflexivity|].
+ cbn [CommitPacket.finalize CommitPacket.selected_durable CommitPacket.selected_admitted
+   CommitPacket.selected_source CommitPacket.selected_decision fst snd].
+ unfold Notifications.envelope.
+ destruct (durable && admitted); [|reflexivity].
+ destruct (Notifications.batch input value result) as [|notice rest]; [reflexivity|].
+ destruct (Delivery.fits_json _); reflexivity.
 Qed.

@@ -20,6 +20,12 @@ let packet source world = with_input source (fun input ->
     "world", Js.Unsafe.inject world;
     "envelope", Js.Unsafe.inject (Js.string (Json.stringify envelope))
   |])
+let replay source world = with_input source (fun input ->
+  let world, durable = Model.selvedge_kernel_replay input world in
+  Js.Unsafe.obj [|
+    "world", Js.Unsafe.inject world;
+    "durable", Js.Unsafe.inject (Js.bool durable)
+  |])
 let observe world = Js.string (Json.stringify (Model.selvedge_kernel_world_json world))
 let assess source world = with_input source (fun input ->
   Js.Unsafe.obj [| "envelope", Js.Unsafe.inject
@@ -27,6 +33,7 @@ let assess source world = with_input source (fun input ->
 let () = Js.Unsafe.set Js.Unsafe.global "__selvedgeKernel" (Js.Unsafe.obj [|
   "initial", Js.Unsafe.inject (Js.wrap_callback initial);
   "packet", Js.Unsafe.inject (Js.wrap_callback packet);
+  "replay", Js.Unsafe.inject (Js.wrap_callback replay);
   "observe", Js.Unsafe.inject (Js.wrap_callback observe);
   "assess", Js.Unsafe.inject (Js.wrap_callback assess)
 |])
