@@ -643,7 +643,9 @@ Definition planned_regions (context : prepared) : option region_plan :=
    let local_reading:=negb (AuditReading.same_items same_disclosure
      (Pages.reader_disclosures task (prepared_state before)) (Pages.reader_disclosures task (prepared_state context))) in
    (* Tool execution can begin or settle between two history appends. *)
-   let history:=local_reading || (snapshot && task_field_changed ["cursor";"operations"] task before context) in
+   let history:=local_reading ||
+     (snapshot && (task_field_changed ["cursor";"operations";"working"] task before context ||
+       world_fields_changed ["tools"] before context)) in
    let operations:=(snapshot && operation_projection_changed task before context) ||
      ((assessment_changed || admission_pending) &&
        match Read.task_operations task world with Some (_::_)=>true|_=>false end) in

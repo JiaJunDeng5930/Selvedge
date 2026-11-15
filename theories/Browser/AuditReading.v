@@ -5,7 +5,7 @@ From Selvedge.Kernel Require Import Conversation Streams.
 From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Codec Identity Origin CodeSource Audit.
 From Selvedge.Interaction Require TaskHistory.
-From Selvedge.Browser Require Import DocumentPublication DocumentState Documents.
+From Selvedge.Browser Require Import DocumentPublication DocumentState Documents ToolAppearance.
 From Selvedge.Programming Require Import Graphics.
 From Selvedge.Interaction.Interactive Require Import Types State.
 From Selvedge.Browser.Interactive Require Render.
@@ -132,17 +132,29 @@ Definition history_card_control {A} (action:actions A) task key label index leve
  let open_card:=Audit.disclosed address disclosures (if default then 1%N else 0%N) in
  (open_card,M.Control key label M.Secondary (action.(reading_disclosure) task address 0%N (negb open_card)) M.Available).
 
-Definition execution_symbol name :=
- if String.eqb name "bash" then "task-terminal"
- else if String.prefix "read" name then "task-file" else "task-tool".
-Definition invocation_face task (invocation:TaskHistory.invocation) :=
+Definition tool_definition context task (name:string) :=
+ let named:=fun tool=>String.eqb name (text "name" tool) in
+ match find named (items "tools" (context_world context)) with
+ |Some tool=>Some tool
+ |None=>bind (DocumentState.find_task task (context_world context))
+    (fun task_record=>find named (items "tools" task_record)) end.
+Definition invocation_face context task (invocation:TaskHistory.invocation) :=
  let source:=snd (TaskHistory.invocation_entry invocation) in
  let name:=Audit.call_name source in
- let argument:=if String.eqb name "bash"
-   then text "command" (value_or JNull (field "arguments" (value_or JNull (field "content" source))))
-   else "" in
+ let '(label,argument,symbol,icon):=
+   if String.eqb name "bash" then
+     let command:=text "command" (value_or JNull (field "arguments" (value_or JNull (field "content" source)))) in
+     (name,command,ToolAppearance.shell_symbol command,None)
+   else match ToolAppearance.native_symbol name with
+   |Some symbol=>(name,"",symbol,None)
+   |None=>match tool_definition context task name with
+     |Some tool=>match bind (field "source" tool) (string_field "name"),
+                       bind (field "source" tool) (string_field "server") with
+       |Some remote,Some _=>(remote,"","plug",string_field "icon" tool)
+       |_,_=>(name,"","task-tool",None) end
+     |None=>(name,"","task-tool",None) end end in
  S.TaskToolFace task (TaskHistory.invocation_id invocation)
-   (if String.eqb name "bash" then "运行命令" else name) argument (execution_symbol name)
+   label argument symbol icon
    (TaskHistory.invocation_running invocation)
    (match TaskHistory.invocation_result invocation with Some result=>Audit.failed(snd result)|None=>false end).
 
@@ -165,20 +177,15 @@ Definition invocation_details (invocation:TaskHistory.invocation) :=
    |None=>result_text result end
  |None=>"" end.
 
-Definition tool_card {A} (action:actions A) task disclosures invocation : S.node A :=
+Definition tool_card {A} (action:actions A) context task disclosures invocation : S.node A :=
  let index:=fst(TaskHistory.invocation_entry invocation) in
- let face:=invocation_face task invocation in
+ let face:=invocation_face context task invocation in
  let key:="tool-call/"++show_nat index in
- let '(expanded,toggle):=history_card_control action task key (S.task_tool_name face) index 2%N false disclosures in
- S.Node key "tool-call" (S.task_tool_name face) R.Content
+ let '(expanded,toggle):=history_card_control action task key (S.task_tool_label face) index 2%N false disclosures in
+ S.Node key "tool-call" (S.task_tool_label face) R.Content
    (S.TaskHistoryCard (S.TaskToolCallCard face (if expanded then invocation_details invocation else "")) expanded toggle) [].
 
-Definition latest_tool calls :=
- let ordered:=rev calls in
- match find TaskHistory.invocation_running ordered with
- |Some current=>Some current
- |None=>match find (fun invocation=>match TaskHistory.invocation_result invocation with Some _=>true|None=>false end) ordered with
-  |Some settled=>Some settled |None=>hd_error calls end end.
+Definition latest_tool (calls:list TaskHistory.invocation) := hd_error (rev calls).
 
 Definition process_step {A} (action:actions A) context retained interactive task disclosures history step : S.node A :=
  match step with
@@ -186,15 +193,16 @@ Definition process_step {A} (action:actions A) context retained interactive task
    let spoken:=speech action.(reading_interactive) context retained interactive task (N.of_nat(fst entry)) (snd entry) in
    S.Node (S.node_key spoken) "task-commentary" (S.node_label spoken) (S.node_role spoken)
      (S.node_meaning spoken) (S.node_children spoken)
- |TaskHistory.Tools first []=>tool_card action task disclosures first
+ |TaskHistory.Tools first []=>tool_card action context task disclosures first
  |TaskHistory.Tools first (next::rest)=>
    let calls:=first::next::rest in
    let index:=fst(TaskHistory.invocation_entry first) in
    let key:="tool-group/"++show_nat index in
-   let '(expanded,toggle):=history_card_control action task key "命令" index 1%N false disclosures in
-   let face:=invocation_face task (value_or first (latest_tool calls)) in
-   S.Node key "tool-group" "命令" R.Content (S.TaskHistoryCard (S.TaskToolGroupCard face) expanded toggle)
-    (map (tool_card action task disclosures) calls)
+   let face:=invocation_face context task (value_or first (latest_tool calls)) in
+   let label:=S.task_tool_label face in
+   let '(expanded,toggle):=history_card_control action task key label index 1%N false disclosures in
+   S.Node key "tool-group" label R.Content (S.TaskHistoryCard (S.TaskToolGroupCard face) expanded toggle)
+    (map (tool_card action context task disclosures) calls)
  |TaskHistory.Supporting first rest=>group action context retained interactive task disclosures history (Audit.Activity first rest)
  end.
 Definition step_invocations step :=
@@ -203,10 +211,13 @@ Definition task_history_node {A} (action:actions A) context retained interactive
  match entry with
  |TaskHistory.Speech (index,message)=>speech action.(reading_interactive) context retained interactive task (N.of_nat index) message
  |TaskHistory.Process index steps ended=>
-   let title:="处理过程" in let key:="task-process/"++show_nat index in
+   let running:=negb ended && value_or false
+     (option_map (flag "working") (DocumentState.find_task task (context_world context))) in
+   let title:=if running then "处理中…" else "处理完成" in
+   let key:="task-process/"++show_nat index in
    let '(expanded,toggle):=history_card_control action task key title index 0%N (negb ended) disclosures in
-   let latest:=option_map (invocation_face task) (latest_tool (flat_map step_invocations steps)) in
-   S.Node key "task-process" title R.Activity (S.TaskHistoryCard (S.TaskProcessCard latest) expanded toggle)
+   let latest:=if running then option_map (invocation_face context task) (latest_tool (flat_map step_invocations steps)) else None in
+   S.Node key "task-process" title R.Activity (S.TaskHistoryCard (S.TaskProcessCard running latest) expanded toggle)
     (map (process_step action context retained interactive task disclosures history) steps)
  end.
 Definition task_operations context task :=

@@ -3,7 +3,7 @@ From Stdlib Require Import Ascii String List Bool Arith NArith ZArith.
 From Selvedge.Foundation Require Import Json TextJson Numbers.
 From Selvedge.Browser Require Import DOM Focus Layout Appearance ControlPurpose ControlContent SemanticAppearance InteractiveAppearance Observation.
 From Selvedge.Interaction Require Import CodeSource.
-From Selvedge.Browser Require Import CodeBlock DocumentPublication.
+From Selvedge.Browser Require Import CodeBlock DocumentPublication ToolAppearance.
 From Selvedge.Programming Require Import Graphics.
 From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Audit Identity.
@@ -57,12 +57,15 @@ Definition control_attributes {A} (focusable help:bool) (action:Model.control A)
  (if available then [] else if focusable then [("aria-disabled","true");("tabindex","-1")] else disabled false) ++
  (if help then let description:=control_help action in
    [("data-help",description)] else []).
-Definition artwork name := match NativeAppearance.find_symbol name with None=>[]|Some symbol=>
- [DOM.Element "" "svg" [("viewBox","0 0 20 20");("width","16");("height","16");("aria-hidden","true")]
+Definition svg_artwork box path paint width :=
+ [DOM.Element "" "svg" [("viewBox",box);("width","16");("height","16");("aria-hidden","true")]
  [("flex","none");("inline-size","var(--control-icon-size,16px)");("block-size","var(--control-icon-size,16px)")] [] empty [DOM.Element "" "path"
- ([("d",NativeAppearance.symbol_path symbol);("stroke-linecap","round");("stroke-linejoin","round")] ++
- match NativeAppearance.symbol_paint symbol with NativeAppearance.Filled=>[("fill","currentColor")]
- |NativeAppearance.Outline=>[("fill","none");("stroke","currentColor");("stroke-width","1.4")]end) [] [] empty []]] end.
+ ([("d",path);("stroke-linecap","round");("stroke-linejoin","round")] ++
+ match paint with NativeAppearance.Filled=>[("fill","currentColor")]
+ |NativeAppearance.Outline=>[("fill","none");("stroke","currentColor");("stroke-width",width)]end) [] [] empty []]].
+Definition artwork name := match NativeAppearance.find_symbol name with None=>[]|Some symbol=>
+ svg_artwork "0 0 20 20" (NativeAppearance.symbol_path symbol) (NativeAppearance.symbol_paint symbol) "1.4"
+ end.
 Definition glyph name := if String.eqb name "spinner" then
  [DOM.Element "" "span" [("data-interactive-motion-glyph","");("aria-hidden","true")]
  [("inline-size","16px");("block-size","16px");("flex","none")] [] empty (artwork name)] else artwork name.
@@ -81,25 +84,34 @@ Definition task_history_status key (face:option S.task_tool_face) :=
     [DOM.Element "" "span" [("data-tool-failed","");("role","img");("aria-label","调用失败")] [] [] empty (glyph "task-alert")]
    else []
  |None=>[]end).
-Definition task_history_icon key symbol :=
- DOM.Element (key++"/icon")%string "span" [("data-task-history-icon","");("aria-hidden","true")] [] [] empty (glyph symbol).
-Definition task_history_face key title symbol (face:option S.task_tool_face) (expanded:bool) :=
- let face_key:=match face with None=>(key++"/heading")%string
-   |Some value=>NavigationIdentity.key_part (key++"/heading")%string (S.task_tool_call value) end in
- DOM.Element face_key "span" ([("data-task-history-face","")]++
-  match face with Some value=>[("data-task-history-call",S.task_tool_call value)]|None=>[]end) [] [] empty
- [task_history_icon face_key symbol;
-  DOM.Element "" "span" [("data-task-history-title","")] [] [] empty [DOM.Text title];
-  task_history_status face_key face;
-  DOM.Element "" "span" [("data-task-history-chevron","");("aria-hidden","true")] [] [] empty
-   (glyph (if expanded then "chevron-down" else "chevron-right"))].
+Definition agent_attribution key role : list DOM.node :=
+ match role with
+ |Roles.AssistantMessage=>
+  [DOM.Element (key++"/agent")%string "div" [("data-agent-attribution","");("aria-hidden","true")] [] [] empty
+    [DOM.Element (key++"/agent/mark")%string "span" [("data-selvedge-mark","")] [] [] empty [DOM.Text "S"];
+     DOM.Text "Selvedge"]]
+ |_=>[]end.
+Definition task_history_icon key symbol image :=
+ let drawing:=match ToolAppearance.path symbol with
+  |Some path=>svg_artwork "0 0 24 24" path NativeAppearance.Outline "2"
+  |None=>glyph symbol end in
+ DOM.Element (key++"/icon")%string "span"
+  [("data-task-history-icon","");("data-task-icon-name",symbol);("aria-hidden","true")] [] [] empty
+  (drawing++match image with
+   |Some src=>[DOM.Element (key++"/icon/image")%string "img" [("src",src);("alt","");("data-task-tool-image","")]
+      [] [] empty []]
+   |None=>[]end).
+Definition task_history_chevron (expanded:bool) :=
+ DOM.Element "" "span" [("data-task-history-chevron","");("aria-hidden","true")] [] [] empty
+  (glyph (if expanded then "chevron-down" else "chevron-right")).
 Definition task_tool_header key (face:S.task_tool_face) :=
- [task_history_icon key (S.task_tool_symbol face);
-  DOM.Element "" "span" [("data-tool-label","")] [] [] empty
-   ([DOM.Element "" "span" [("data-task-history-title","")] [] [] empty [DOM.Text (S.task_tool_name face)]]++
-    if String.eqb (S.task_tool_argument face) "" then [] else
-     [DOM.Element "" "code" [("data-tool-argument","")] [] [] empty [DOM.Text (S.task_tool_argument face)]]);
+ [task_history_icon key (S.task_tool_symbol face) (S.task_tool_icon face);
+  DOM.Element "" "code" [("data-tool-argument","")] [] [] empty [DOM.Text (S.task_tool_label face)];
   task_history_status key (Some face)].
+Definition task_history_face key (face:S.task_tool_face) expanded :=
+ let face_key:=NavigationIdentity.key_part (key++"/face")%string (S.task_tool_call face) in
+ DOM.Element face_key "span" [("data-task-history-face","");("data-task-history-call",S.task_tool_call face)] [] [] empty
+  (task_tool_header face_key face++[task_history_chevron expanded]).
 Definition task_tool_output key (face:S.task_tool_face) output (expanded:bool) :=
  let live:=S.task_tool_running face in
  DOM.Element (key++"/output")%string "pre"
@@ -109,29 +121,37 @@ Definition task_tool_output key (face:S.task_tool_face) output (expanded:bool) :
    else [DOM.Element (key++"/result")%string "code" [] [] [] empty (if expanded then [DOM.Text output] else [])]).
 Definition task_history_element {A} key generation attrs (card:S.task_history_card) (expanded:bool)
  (action:Model.control A) children :=
- let '(kind,toggle,header,body):=match card with
- |S.TaskProcessCard latest=>
-  let face:=if expanded then None else latest in
-  ("data-task-process","data-task-process-toggle",
-    [task_history_face key "处理过程" (match face with Some value=>S.task_tool_symbol value|None=>"task-process" end) face expanded],
-    children)
- |S.TaskToolGroupCard latest=>
-  let face:=if expanded then None else Some latest in
-  ("data-tool-group","data-tool-group-toggle",
-    [task_history_face key "命令" (match face with Some value=>S.task_tool_symbol value|None=>"task-terminal" end) face expanded],
-    children)
- |S.TaskToolCallCard face output=>
-  ("data-tool-call","data-tool-call-toggle",task_tool_header key face,[task_tool_output key face output expanded])
- end in
  let panel:=(key++"/details")%string in
- DOM.Element key "section" (attrs++[(kind,"");("data-task-history-expanded",flag expanded)]) [] [] empty
- [DOM.Element (key++"/toggle")%string "button" ([(toggle,"");("type","button");
-   ("aria-expanded",flag expanded);("aria-controls",panel)]++
-   match card with S.TaskToolCallCard _ _=>[]|_=>[("aria-label",Model.control_label action)]end)
-  [] [event key generation "click" "activate" Gesture.Press] empty header;
-  DOM.Element panel "div" (([("id",panel);("data-task-history-panel","")]++
+ let button name header:=
+  DOM.Element (key++"/"++name)%string "button" ([(name,"");("type","button");
+    ("aria-expanded",flag expanded);("aria-controls",panel)])
+   [] [event key generation "click" "activate" Gesture.Press] empty header in
+ let details body:=DOM.Element panel "div" (([("id",panel);("data-task-history-panel","")]++
     if expanded then [] else [("inert","")])) [] [] empty
-   [DOM.Element (panel++"/body")%string "div" [("data-task-history-body","")] [] [] empty body]].
+   [DOM.Element (panel++"/body")%string "div" [("data-task-history-body","")] [] [] empty body] in
+ let state:=[("data-task-history-expanded",flag expanded)] in
+ match card with
+ |S.TaskProcessCard running latest=>
+  let preview:=if expanded then [] else match latest with
+   |Some face=>[button "data-task-process-preview"
+      [task_history_face key face false]]
+   |None=>[]end in
+  DOM.Element key "section" (attrs++[("data-task-process-shell","")]) [] [] empty
+   (agent_attribution key Roles.AssistantMessage++
+   [DOM.Element (key++"/process")%string "section" (("data-task-process","")::("data-task-process-running",flag running)::state) [] [] empty
+     (button "data-task-process-toggle"
+      ([task_history_icon key "brain" None;
+        DOM.Element "" "span" [("data-task-history-title","")] [] [] empty [DOM.Text (Model.control_label action)]]
+       ++match preview with []=>[task_history_chevron expanded]|_=>[]end)
+     ::preview++[details children])])
+ |S.TaskToolGroupCard face=>
+  DOM.Element key "section" (attrs++(("data-tool-group","")::state)) [] [] empty
+   [button "data-tool-group-toggle" [task_history_face key face expanded];details children]
+ |S.TaskToolCallCard face output=>
+  DOM.Element key "section" (attrs++(("data-tool-call","")::state)) [] [] empty
+   [button "data-tool-call-toggle" (task_tool_header key face);
+    details [task_tool_output key face output expanded]]
+ end.
 
 Definition checkbox_hit_extent :=
  let target:=Typography.px Layout.base_motor_minimum in
@@ -781,13 +801,6 @@ Definition reading_identity {A}(value:S.node A) := match S.node_meaning value wi
  |S.RichText source _=>CodeSource.source_key source
  |_=>S.semantic_key value end.
 
-Definition agent_attribution key role : list DOM.node :=
- match role with
- |Roles.AssistantMessage=>
-  [DOM.Element (key++"/agent")%string "div" [("data-agent-attribution","");("aria-hidden","true")] [] [] empty
-    [DOM.Element (key++"/agent/mark")%string "span" [("data-selvedge-mark","")] [] [] empty [DOM.Text "S"];
-     DOM.Text "Selvedge"]]
- |_=>[]end.
 (** Group headings and their indented members are separate enclosures. *)
 Definition is_group_heading {A} (value:S.node A) := match S.node_meaning value with
  |S.InformationText Information.GroupTitle|S.ActivityRow S.ObjectHeading=>true|_=>false end.

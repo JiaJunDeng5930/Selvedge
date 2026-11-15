@@ -23,6 +23,7 @@ test('MCP preserves its server schema through discovery and actual decimal/neste
   const seen = new Map();
   let completed = 0;
   const upstream = await responsesServer(t, body => {
+    assert.equal(body.tools.find(tool => tool.name === 'mcp__schema__measure')?.icon, undefined);
     for (const item of body.input) {
       if (item.type === 'function_call_output') seen.set(item.call_id, JSON.parse(item.output));
       const output = asyncToolResult(item);
@@ -47,6 +48,14 @@ test('MCP preserves its server schema through discovery and actual decimal/neste
   });
   const running = await startServer({ home: path.join(directory, 'state'), cwd: directory, config });
   t.after(() => running.close());
+  const snapshot = await fetch(`${running.address}/api/browser/state`, {
+    headers: { authorization: `Bearer ${running.token}` },
+  });
+  assert.equal(snapshot.status, 200);
+  const { program } = await snapshot.json();
+  const icon = name => program.tools.find(tool => tool.name === `mcp__schema__${name}`)?.icon;
+  assert.match(icon('measure'), /^data:image\/png;base64,.*HeARzzmXZx/);
+  assert.match(icon('inherited_icon'), /^data:image\/png;base64,.*JxAQyY1rRI/);
   async function post(command) {
     const response = await fetch(`${running.address}/api/commands`, { method: 'POST',
       headers: { authorization: `Bearer ${running.token}`, 'content-type': 'application/json' },

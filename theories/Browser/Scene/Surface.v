@@ -35,13 +35,16 @@ Record task_tool_face := TaskToolFace {
   task_tool_name : string;
   task_tool_argument : string;
   task_tool_symbol : string;
+  task_tool_icon : option string;
   task_tool_running : bool;
   task_tool_failed : bool
 }.
 Inductive task_history_card :=
-| TaskProcessCard (latest : option task_tool_face)
+| TaskProcessCard (running : bool) (latest : option task_tool_face)
 | TaskToolGroupCard (latest : task_tool_face)
 | TaskToolCallCard (invocation : task_tool_face) (output : string).
+Definition task_tool_label face :=
+ if String.eqb (task_tool_argument face) "" then task_tool_name face else task_tool_argument face.
 
 Record placement (Action : Type) := Placement {
   placement_target : string;

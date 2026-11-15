@@ -7,9 +7,9 @@ Open Scope string_scope.
 
 (* MCP's advertised schema is opaque to the extension interpreter. The server
    is responsible for validating its own dialect before executing the request. *)
-Theorem mcp_object_arguments_reach_the_server_contract : forall name description schema server remote id fields attempt,
+Theorem mcp_object_arguments_reach_the_server_contract : forall name description schema server remote icon id fields attempt,
  Callbacks.model_call_arguments_valid
-   (Tool name description (McpToolSource schema server remote))
+   (Tool name description (McpToolSource schema server remote icon))
    (Call id name (JObject fields) attempt) = true.
 Proof. reflexivity. Qed.
 
@@ -21,8 +21,8 @@ Proof. intros; apply JsonSchema.registered_arguments_use_the_compiled_declaratio
 
 (* The normal admission premises do not assume an emitted effect. This positive
    obligation rules out an implementation that accepts MCP calls but drops them. *)
-Theorem admitted_mcp_calls_dispatch : forall execute id name description schema server remote invocation remaining task value,
- let advertised := Tool name description (McpToolSource schema server remote) in
+Theorem admitted_mcp_calls_dispatch : forall execute id name description schema server remote icon invocation remaining task value,
+ let advertised := Tool name description (McpToolSource schema server remote icon) in
  find_task id value = Some task ->
  TicketedRequest.Scoped.can_execute task = true ->
  task_activity task = ReadyForHooks invocation [] remaining ->
@@ -39,7 +39,7 @@ Theorem admitted_mcp_calls_dispatch : forall execute id name description schema 
    (match settings_approval (task_current_settings task) with
     | FullAccess => ElevatedAccess | _ => DefaultAccess end)].
 Proof.
- intros execute id name description schema server remote invocation remaining task value advertised
+ intros execute id name description schema server remote icon invocation remaining task value advertised
    Found ExecuteAllowed Ready Known Available [fields Arguments] NoNative NoDiscover NoBash Room.
  unfold Scheduler.execute_checked_call, Scheduler.finish_call, Scheduler.call_admission. rewrite Available.
  unfold Callbacks.model_call_arguments_valid; cbn [advertised tool_origin].

@@ -45,7 +45,7 @@ Definition start_external (id : N) (value : world) :=
    else call_error id invocation "operation_limit" "This task has reached its in-flight operation limit; wait for results or cancel an operation" remaining value
  end.
 Definition external_tool (tool : tool) :=
- match tool_origin tool with NativeToolSource _ _ => false | ExtensionToolSource _ _ _ | McpToolSource _ _ _ => true end.
+ match tool_origin tool with NativeToolSource _ _ => false | ExtensionToolSource _ _ _ | McpToolSource _ _ _ _ => true end.
 Fixpoint keyword_parts (text : string) (current : string) (terms : list string) :=
  match text with EmptyString => rev (current :: terms)
  | String character rest => if Ascii.eqb character " "%char then keyword_parts rest "" (current :: terms)

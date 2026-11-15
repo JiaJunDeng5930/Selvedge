@@ -205,7 +205,11 @@ Definition parse_tool (value : json) : option tool :=
        (* MCP requires an object schema; validating its full dialect belongs to
           the server. In particular, number/$ref/anyOf are not extension rules. *)
        match string_field "server" value, schema with
-       | Some server, JObject _ => Some (Tool name description (McpToolSource schema server remote))
+       | Some server, JObject _ =>
+         let icon := match string_field "icon" value with
+           | Some src => option_map (fun _ => src) (mcp_icon_mime src)
+           | None => None end in
+         Some (Tool name description (McpToolSource schema server remote icon))
        | _,_ => None end
      | _ => None end
    else None

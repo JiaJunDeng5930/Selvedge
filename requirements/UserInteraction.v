@@ -32,8 +32,11 @@ Export UserInteractionProofs(public_browser_command_delivers_unwrapped_payload,
     The disclosure levels let readers follow live work and revisit its evidence
     without interrupting the answer. One invocation has its own disclosure;
     a group of invocations has a separate disclosure. Output is closed until
-    explicitly requested. The browser measures motion, time and scrollports
-    against the corresponding DOM and service observations. *)
+    explicitly requested. The assistant attribution introduces its process
+    and answer once. A collapsed tool stack previews the latest invocation
+    itself, so its icon and command remain distinguishable during motion.
+    The browser measures motion, time and scrollports against the
+    corresponding DOM and service observations. *)
 From Selvedge.Interaction Require TaskHistoryProofs.
 Export TaskHistoryProofs(grouping_preserves_visible_history_positions,
   an_execution_receipt_is_disclosed_only_if_distinct_from_the_result).

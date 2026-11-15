@@ -107,6 +107,12 @@ Definition fork_observation (id:N)(task:task)(value:world):json:=JObject[
 Definition task_snapshot_in_world id task value:=
  match task_snapshot id task(world_features value)with
  |JObject fields=>JObject(fields++[("fork",fork_observation id task value)])|result=>result end.
+(* Keep image bytes on the shared display catalog. Task contracts and provider
+   requests carry the ordinary tool metadata. *)
+Definition display_tool_json tool :=
+ match tool_icon tool, tool_json tool with
+ | Some source, JObject fields => JObject (fields ++ [("icon",JString source)])
+ | _, value => value end.
 Definition world_json (value : world) :=
  let features := world_features value in JObject [
  ("sequence", number (world_sequence value));
@@ -115,7 +121,7 @@ Definition world_json (value : world) :=
  ("defaults", JObject [("settings",experience_settings_json (Tasks.creation_defaults (world_environment value)))]);
  ("tasks", JArray (indexed (fun id task => task_snapshot_in_world id task value) 0 (world_tasks value)));
  ("profiles", JArray (map profile_json (environment_profiles (world_environment value))));
- ("tools", JArray (map tool_json (environment_tools (world_environment value))));
+ ("tools", JArray (map display_tool_json (environment_tools (world_environment value))));
  ("projects", JArray (projects_json (world_projects value) (world_tasks value)));
  ("works", JArray (indexed Features.work_json 0 (Selvedge.Features.Domain.feature_works features)));
  ("graphs", JArray (Features.present_values graph_snapshot (Selvedge.Features.Domain.feature_graphs features)));

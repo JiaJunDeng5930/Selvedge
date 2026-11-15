@@ -1,7 +1,8 @@
 import { naturalKey } from './json-tokens.mjs';
+import { appendDepartingSurface } from './native-dom.mjs';
 
 /** Physical observations and motion for tool cards already admitted by the browser model. */
-const collapsedDeck = ':is([data-task-process-toggle], [data-tool-group-toggle])[aria-expanded="false"]';
+const collapsedDeck = ':is([data-task-process-preview], [data-tool-group-toggle])[aria-expanded="false"]';
 const face = '[data-task-history-call]:not([data-task-history-departure])';
 const elapsed = '[data-tool-elapsed]';
 const liveOutput = '[data-tool-live-output]';
@@ -15,11 +16,19 @@ export class ToolActivity {
   #observer;
   #clock;
   #motion;
+  #surface;
+
+  #imageError = ({ target }) => {
+    // DEFENSE: A connector-supplied image can have a valid header and still fail to decode.
+    if (target.matches?.('[data-task-tool-image]')) target.hidden = true;
+  };
 
   constructor(surface) {
+    this.#surface = surface;
     this.#motion = matchMedia('(prefers-reduced-motion: reduce)');
     this.#observer = new MutationObserver(records => this.#changed(records));
     this.#observer.observe(surface, { childList: true, subtree: true });
+    surface.addEventListener('error', this.#imageError, true);
   }
 
   replace(values) {
@@ -131,7 +140,8 @@ export class ToolActivity {
     leaving.dataset.taskHistoryDeparture = '';
     leaving.inert = true;
     leaving.setAttribute('aria-hidden', 'true');
-    deck.prepend(leaving);
+    deck.querySelector(':scope > [data-task-history-departure]')?.remove();
+    appendDepartingSurface(deck, leaving);
     const motion = { duration: 340, easing: 'cubic-bezier(.3,.1,.25,1)' };
     const exit = leaving.animate([{ transform: 'translateY(0)' }, { transform: 'translateY(-105%)' }],
       { ...motion, fill: 'forwards' });
@@ -141,6 +151,7 @@ export class ToolActivity {
 
   dispose() {
     this.#observer.disconnect();
+    this.#surface.removeEventListener('error', this.#imageError, true);
     clearInterval(this.#clock);
     this.#observations.clear();
     this.#times.clear();

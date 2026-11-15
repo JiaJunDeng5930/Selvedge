@@ -19,11 +19,17 @@ const inputSchema = {
   } },
 };
 const tool = { name: 'measure', description: 'Add metre readings to a signed offset.', inputSchema };
+const measureIcon = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNQK24CAAHeARzzmXZxAAAAAElFTkSuQmCC';
+const serverIcon = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGPoCDIEAAJxAQyY1rRIAAAAAElFTkSuQmCC';
 
 if (mode === 'mcp') {
-  const server = new Server({ name: 'schema-contract-fixture', version: '1' }, { capabilities: { tools: {} } });
+  const server = new Server({ name: 'schema-contract-fixture', version: '1', icons: [{ src: serverIcon }] },
+    { capabilities: { tools: {} } });
   const validate = new AjvJsonSchemaValidator().getValidator(inputSchema);
-  server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [tool] }));
+  server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [
+    { ...tool, icons: [{ src: 'https://example.invalid/remote.png' }, { src: measureIcon }] },
+    { ...tool, name: 'inherited_icon', icons: [{ src: measureIcon, mimeType: 'image/jpeg' }] },
+  ] }));
   server.setRequestHandler(CallToolRequestSchema, request => {
     appendFileSync(log, JSON.stringify(request.params) + '\n');
     const result = validate(request.params.arguments);

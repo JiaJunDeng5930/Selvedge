@@ -124,7 +124,7 @@ Record task_settings := Settings {
 Inductive tool_source :=
 | NativeToolSource (parameters : list argument_spec) (program : json)
 | ExtensionToolSource (parameters : JsonSchema.registered) (reference : json) (remote : string)
-| McpToolSource (parameters : json) (server remote : string).
+| McpToolSource (parameters : json) (server remote : string) (icon : option string).
 Record tool := Tool {
   tool_name : string;
   tool_description : string;
@@ -139,19 +139,28 @@ Definition same_tool (same_json : json -> json -> bool) (left right : tool) :=
  | ExtensionToolSource schema reference remote, ExtensionToolSource schema' reference' remote' =>
    same_json (JsonSchema.registered_source schema) (JsonSchema.registered_source schema') &&
    same_json reference reference' && String.eqb remote remote'
- | McpToolSource schema server remote, McpToolSource schema' server' remote' =>
+ | McpToolSource schema server remote _, McpToolSource schema' server' remote' _ =>
    same_json schema schema' && String.eqb server server' && String.eqb remote remote'
  | _, _ => false end.
 Definition tool_schema (value : tool) := match tool_origin value with
 | NativeToolSource parameters _ => Arguments.json_schema parameters
 | ExtensionToolSource parameters _ _ => JsonSchema.registered_source parameters
-| McpToolSource parameters _ _ => parameters
+| McpToolSource parameters _ _ _ => parameters
 end.
 Definition tool_metadata (value : tool) := match tool_origin value with
 | NativeToolSource _ program => JObject [("kind",JString "native");("program",program)]
 | ExtensionToolSource _ reference remote => JObject [("plugin",reference);("name",JString remote)]
-| McpToolSource _ server remote => JObject [("server",JString server);("name",JString remote)]
+| McpToolSource _ server remote _ => JObject [("server",JString server);("name",JString remote)]
 end.
+Definition tool_icon (value : tool) := match tool_origin value with
+| McpToolSource _ _ _ icon => icon
+| _ => None end.
+Definition mcp_icon_prefix mime := "data:" ++ mime ++ ";base64,".
+Definition mcp_icon_mime source :=
+ if Nat.leb (String.length source) 16384 then
+  find (fun mime => String.prefix (mcp_icon_prefix mime) source)
+    ["image/png";"image/jpeg";"image/jpg"]
+ else None.
 Record environment := Environment {
   environment_profiles : list profile;
   environment_tools : list tool;
