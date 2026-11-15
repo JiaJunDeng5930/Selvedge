@@ -141,12 +141,13 @@ Definition overlay_region_with render_layer section snapshot state capacity : li
  |LoginOverlay=>ServiceControls.account_login_view state end.
 Definition view_overlay_region section snapshot state capacity compact :=
  overlay_region_with (view_workspace_overlay snapshot state capacity compact) section snapshot state capacity.
-Definition view_region section snapshot state capacity : list (node Input.input) :=
+Definition view_region section snapshot state capacity (short_landscape : bool) : list (node Input.input) :=
  if Json.equal snapshot JNull then match section with MainRegionPart=>[connection_main state]|_=>[]end
  else match section with
  |NavigationRegionPart=>Navigation.navigation_base snapshot state capacity
  |MainRegionPart=>[Pages.main_with_details snapshot state
-  (relocate_primary (details_owner snapshot state capacity)) (negb (details_beside_timeline capacity))]
+  (relocate_primary (details_owner snapshot state capacity))
+  (negb (details_beside_timeline capacity || short_landscape))]
  |NoticesRegionPart=>pending_notices state
  end.
 

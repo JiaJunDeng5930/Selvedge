@@ -45,6 +45,10 @@ Definition compact_picker environment :=
  let width:=Layout.viewport_width environment in
  Nat.leb width 600 && Nat.ltb width (Layout.viewport_height environment).
 
+Definition short_landscape environment :=
+ let height:=Layout.viewport_height environment in
+ Nat.leb height 480 && Nat.ltb height (Layout.viewport_width environment).
+
 Definition native_resolver := string -> Gesture.gesture -> json -> option Input.input.
 Record control_binding := ControlBinding {
   binding_modal : option string;
@@ -561,7 +565,7 @@ Definition planned_regions (context : prepared) : option region_plan :=
    negb(Json.equal(navigation_without_layers before)(navigation_without_layers context)) ||
    state_changed ["collapsed_projects";"collapsed_tasks"] before context in
  let notices:=invalidate || section_changed "authoring" ["pending"] before context in
- let project part:=V.view_region part world current size in
+ let project part:=V.view_region part world current size (short_landscape env) in
  let base name nodes:=broad_change name (base_roots nodes) (cached_region controls name) in
  let nav_nodes:=if nav then project V.NavigationRegionPart else [] in
  let headers:=filter Document.is_header nav_nodes in

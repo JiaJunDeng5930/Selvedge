@@ -16,6 +16,10 @@ export function installWorkflowViewport(surface) {
   const views = new WeakMap();
   const viewportSelector = '[data-workflow-canvas]';
   const inset = 16;
+  const shortLandscape = matchMedia('(orientation: landscape) and (max-height: 480px)');
+  const defaultThumbnailZoom = 0.85;
+  const minThumbnailZoom = 0.5;
+  const maxThumbnailZoom = 1.45;
   const clamp = scale => Math.max(0.06, Math.min(2.5, scale));
   let labels = new Set();
   let observedViewport;
@@ -34,7 +38,8 @@ export function installWorkflowViewport(surface) {
   function view(viewport) {
     let current = views.get(viewport);
     if (!current) {
-      current = { x: inset, y: inset, scale: 1, target: '', drag: null, frame: null, fitted: false, thumbnailZoom: 0.85 };
+      current = { x: inset, y: inset, scale: 1, target: '', drag: null, frame: null, fitted: false,
+        thumbnailZoom: defaultThumbnailZoom };
       views.set(viewport, current);
     }
     return current;
@@ -46,6 +51,18 @@ export function installWorkflowViewport(surface) {
     viewport.style.setProperty('--workflow-scale', current.scale);
   }
 
+  function showZoomLimits(workspace, current) {
+    const overview = current.frame === 'overview';
+    const limits = overview
+      ? { in: current.thumbnailZoom >= maxThumbnailZoom, out: current.thumbnailZoom <= minThumbnailZoom }
+      : { in: current.scale >= 2.5, out: current.scale <= 0.06 };
+    for (const [direction, limit] of Object.entries(limits)) {
+      const button = workspace.querySelector(`[data-workflow-zoom="${direction}"]`);
+      button.disabled = limit;
+      button.title = limit ? (direction === 'in' ? '已达放大上限' : '已达缩小下限') : button.getAttribute('aria-label');
+    }
+  }
+
   function zoom(viewport, current, multiplier, x, y) {
     const next = clamp(current.scale * multiplier);
     const ratio = next / current.scale;
@@ -54,6 +71,7 @@ export function installWorkflowViewport(surface) {
     current.scale = next;
     current.fitted = false;
     place(viewport, current);
+    showZoomLimits(viewport.closest('[data-workflow-workspace]'), current);
   }
 
   function fit(workspace, all = false) {
@@ -63,18 +81,24 @@ export function installWorkflowViewport(surface) {
     current.frame = all ? 'overview' : 'selected';
     current.fitted = true;
     workspace.dataset.workflowFrame = current.frame;
+    const zoomRatio = current.thumbnailZoom / defaultThumbnailZoom;
+    if (all) viewport.style.setProperty('--workflow-thumbnail-column', `${21.5 * zoomRatio}rem`);
     for (const tile of viewport.querySelectorAll('[data-workflow-tile]')) {
       const graph = tile.lastElementChild;
       graph.inert = all;
       if (all) {
         // Use the contents' extent: a positioned chart can be wider than the section's layout box.
-        const scale = current.thumbnailZoom * Math.min(1.5, (tile.clientWidth - inset) / graph.scrollWidth);
+        const height = (viewport.clientWidth <= 450 ? 144 : 200) * zoomRatio;
+        const scale = Math.min(current.thumbnailZoom, (tile.clientWidth - inset) / graph.scrollWidth, height / graph.scrollHeight);
         tile.style.setProperty('--workflow-thumbnail-scale', scale);
         tile.style.setProperty('--workflow-thumbnail-left', `${(tile.clientWidth - scale * graph.scrollWidth) / 2}px`);
         tile.style.setProperty('--workflow-thumbnail-height', `${Math.ceil(scale * graph.scrollHeight) + 8}px`);
       }
     }
-    if (all) return;
+    if (all) {
+      showZoomLimits(workspace, current);
+      return;
+    }
     viewport.scrollTo({ top: 0, left: 0 });
     const group = viewport.querySelector(`[data-semantic-key="${CSS.escape(picker.value)}"]`);
     // DEFENSE: A world update can remove the selected workflow before its native change event is handled.
@@ -83,10 +107,12 @@ export function installWorkflowViewport(surface) {
     const height = Math.min(viewport.clientHeight, innerHeight - viewport.getBoundingClientRect().top);
     const contentWidth = group.scrollWidth;
     const contentHeight = group.scrollHeight;
-    current.scale = clamp(Math.min(1, (width - 2 * inset) / contentWidth, (height - 2 * inset) / contentHeight));
-    current.x = Math.max(inset, (width - contentWidth * current.scale) / 2) - group.offsetLeft * current.scale;
-    current.y = inset - group.offsetTop * current.scale;
+    const clearance = shortLandscape.matches ? inset / 2 : inset;
+    current.scale = clamp(Math.min(1, (width - 2 * clearance) / contentWidth, (height - 2 * clearance) / contentHeight));
+    current.x = Math.max(clearance, (width - contentWidth * current.scale) / 2) - group.offsetLeft * current.scale;
+    current.y = clearance - group.offsetTop * current.scale;
     place(viewport, current);
+    showZoomLimits(workspace, current);
   }
   function select(workspace, target) {
     const viewport = workspace.querySelector(viewportSelector);
@@ -150,7 +176,8 @@ export function installWorkflowViewport(surface) {
       const viewport = workspace.querySelector(viewportSelector);
       if (workspace.dataset.workflowFrame === 'overview') {
         const current = view(viewport);
-        current.thumbnailZoom = Math.min(1, Math.max(0.5, current.thumbnailZoom * (direction === 'in' ? 1.18 : 0.85)));
+        current.thumbnailZoom = Math.min(maxThumbnailZoom, Math.max(minThumbnailZoom,
+          current.thumbnailZoom * (direction === 'in' ? 1.25 : 0.8)));
         fit(workspace, true);
       } else zoomFromCenter(viewport, direction);
     }

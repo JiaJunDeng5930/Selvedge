@@ -244,12 +244,15 @@ test('workflows can be authored and started in place from the browser', { timeou
   await canvas.press('0');
 
   await command({ op: 'create_workflow', name: 'Other workflow',
-    nodes: [{ key: 'entry', kind: 'entrance' }, { key: 'exit', kind: 'exit' },
+    nodes: [{ key: 'entry', kind: 'entrance' }, { key: 'alternate', kind: 'entrance' }, { key: 'exit', kind: 'exit' },
       { key: 'one', kind: 'task', profile, creation: 'once' }, { key: 'two', kind: 'task', profile, creation: 'once' }],
     connections: [
       { key: 'first', source: 'entry', target: 'one' },
-      { key: 'second', source: 'one', target: 'two' },
+      { key: 'second', source: 'alternate', target: 'two' },
       { key: 'third', source: 'two', target: 'exit' },
+      { key: 'fourth', source: 'one', target: 'exit' },
+      { key: 'direct-first', source: 'entry', target: 'exit' },
+      { key: 'direct-second', source: 'alternate', target: 'exit' },
     ] });
   const picker = main.getByRole('combobox', { name: '定位工作流', exact: true });
   await picker.selectOption({ label: 'Browser workflow' });
@@ -257,7 +260,8 @@ test('workflows can be authored and started in place from the browser', { timeou
   const otherPreview = canvas.locator('[data-workflow-tile]').filter({
     has: page.getByRole('button', { name: 'Other workflow', exact: true }),
   });
-  await main.getByRole('button', { name: '放大画布', exact: true }).click();
+  const zoomIn = main.getByRole('button', { name: '放大画布', exact: true });
+  await zoomIn.click();
   assert.equal(await main.getByRole('button', { name: '启动工作流', exact: true }).isVisible(), false);
   assert.ok(await otherPreview.evaluate(tile => {
     const frame = tile.getBoundingClientRect();
@@ -266,6 +270,9 @@ test('workflows can be authored and started in place from the browser', { timeou
       return box.left >= frame.left && box.right <= frame.right && box.bottom <= frame.bottom;
     });
   }), 'The overview renders the whole workflow');
+  await zoomIn.click();
+  await zoomIn.click();
+  assert.equal(await zoomIn.isDisabled(), true);
   await otherPreview.click({ position: { x: 30, y: 70 } });
   assert.equal(await picker.locator(':checked').innerText(), 'Other workflow');
   for (const [width, height] of [[360, 640], [390, 844], [640, 360]]) {
@@ -277,9 +284,11 @@ test('workflows can be authored and started in place from the browser', { timeou
       if (!exit) return false;
       const node = exit.parentElement.getBoundingClientRect();
       const diagram = exit.closest('[data-semantic-key="task-graph/viewport"]').getBoundingClientRect();
-      return node.left >= frame.left && node.right <= Math.min(innerWidth, frame.right) &&
+      const readable = innerWidth !== 640 ||
+        parseFloat(getComputedStyle(exit.parentElement.querySelector('summary')).fontSize) * node.width / exit.parentElement.offsetWidth >= 9;
+      return readable && node.left >= frame.left && node.right <= Math.min(innerWidth, frame.right) &&
         node.top >= frame.top && node.bottom <= Math.min(innerHeight, frame.bottom, diagram.bottom);
-    }), `Fit shows the complete exit at ${width}×${height}`);
+    }), `Fit shows a complete, readable exit at ${width}×${height}`);
     await main.getByRole('button', { name: '查看所有工作流', exact: true }).click();
     assert.ok(await canvas.evaluate(viewport => {
       const picker = viewport.closest('[data-workflow-workspace]').querySelector('[data-workflow-target]');

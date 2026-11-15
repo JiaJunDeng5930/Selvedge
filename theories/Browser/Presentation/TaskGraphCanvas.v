@@ -22,7 +22,7 @@ Definition conversation_geometry :=
  FlowGeometry false node_width node_height column_gap row_gap inset.
 Definition workflow_geometry (compact : bool) :=
  if compact then FlowGeometry true 98 136 56 16 18
- else FlowGeometry false 224 86 106 32 24.
+ else FlowGeometry false 168 76 84 28 20.
 Definition card_width geometry := if vertical geometry then across geometry else along geometry.
 Definition card_height geometry := if vertical geometry then along geometry else across geometry.
 
