@@ -295,7 +295,7 @@ test('workflows can be authored and started in place from the browser', { timeou
         node.top >= frame.top && node.bottom <= Math.min(innerHeight, frame.bottom, diagram.bottom);
     }), `Fit shows a complete, readable exit at ${width}×${height}`);
     if (width === 640) {
-      const heading = canvas.locator('[data-workflow-selected] > section > [data-semantic-key="heading"]');
+      const heading = canvas.locator('[data-workflow-selected] [data-workflow-preview-body] > section > [data-semantic-key="heading"]');
       assert.equal(await heading.innerText(), otherWorkflow);
       assert.ok(await heading.evaluate(title => title.scrollWidth <= title.clientWidth + 1));
       await main.getByRole('button', { name: '启动工作流', exact: true }).click();
@@ -326,12 +326,21 @@ test('workflows can be authored and started in place from the browser', { timeou
         const actual = name.getBoundingClientRect().width / name.offsetWidth;
         return actual * parseFloat(getComputedStyle(name).fontSize) >= 9 && name.title === name.textContent;
       }), 'Mobile overview preserves readable node labels');
-      await canvas.getByRole('button', { name: longEntrance, exact: true }).click();
+      const label = canvas.getByRole('button', { name: longEntrance, exact: true });
+      await label.click();
       const detail = canvas.getByRole('region', { name: '完整节点名称', exact: true });
       await detail.getByText(longEntrance, { exact: true }).waitFor();
+      assert.ok(await detail.evaluate(node => {
+        const tile = node.closest('[data-workflow-tile]').getBoundingClientRect();
+        const port = node.closest('[data-workflow-canvas]').getBoundingClientRect();
+        const detail = node.getBoundingClientRect();
+        return detail.top >= Math.max(tile.top, port.top) &&
+          detail.bottom <= Math.min(tile.bottom, port.bottom, innerHeight) + 1;
+      }));
       assert.equal(await main.getByRole('button', { name: '启动工作流', exact: true }).isVisible(), false);
       await page.keyboard.press('Escape');
       await detail.waitFor({ state: 'hidden' });
+      assert.ok(await label.evaluate(node => node === document.activeElement));
     }
   }
   await page.setViewportSize({ width: 588, height: 744 });

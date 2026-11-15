@@ -23,11 +23,26 @@ export function installWorkflowViewport(surface) {
   const clamp = scale => Math.max(0.06, Math.min(2.5, scale));
   let labels = new Set();
   let observedViewport;
+  let expandedPreview;
   const labelObserver = new ResizeObserver(entries => {
     for (const { target } of entries) {
-      if (!target.parentElement.open) target.toggleAttribute('data-workflow-overflow', target.scrollHeight > target.clientHeight + 1);
+      const name = target.closest('[data-semantic-key="workflow-preview-name"]');
+      const overflow = target.scrollHeight > target.clientHeight + 1;
+      if (name) {
+        name.toggleAttribute('data-workflow-overflow', overflow);
+        if (overflow) name.setAttribute('aria-expanded', String(expandedPreview?.source === name));
+        else name.removeAttribute('aria-expanded');
+      } else if (!target.parentElement.open) target.toggleAttribute('data-workflow-overflow', overflow);
     }
   });
+  function closePreview(returnFocus = false) {
+    if (!expandedPreview) return;
+    const { detail, source } = expandedPreview;
+    expandedPreview = undefined;
+    detail.hidden = true;
+    source.setAttribute('aria-expanded', 'false');
+    if (returnFocus) source.focus();
+  }
   const viewportObserver = new ResizeObserver(entries => {
     for (const { target } of entries) {
       const workspace = target.closest('[data-workflow-workspace]');
@@ -86,7 +101,7 @@ export function installWorkflowViewport(surface) {
     const tablet = viewport.clientWidth >= 550 && viewport.clientWidth <= 820;
     if (all) viewport.style.setProperty('--workflow-thumbnail-column', `${21.5 * zoomRatio}rem`);
     for (const tile of viewport.querySelectorAll('[data-workflow-tile]')) {
-      const graph = tile.lastElementChild;
+      const graph = tile.querySelector('[data-workflow-preview-body]').firstElementChild;
       if (all) {
         // Use the contents' extent: a positioned chart can be wider than the section's layout box.
         const widthLimit = (tile.clientWidth - inset) / graph.scrollWidth;
@@ -107,8 +122,7 @@ export function installWorkflowViewport(surface) {
       showZoomLimits(workspace, current);
       return;
     }
-    const previewDetail = viewport.querySelector('[data-workflow-preview-detail]');
-    if (previewDetail.matches(':popover-open')) previewDetail.hidePopover();
+    closePreview();
     viewport.scrollTo({ top: 0, left: 0 });
     const group = viewport.querySelector(`[data-semantic-key="${CSS.escape(picker.value)}"]`);
     // DEFENSE: A world update can remove the selected workflow before its native change event is handled.
@@ -173,11 +187,24 @@ export function installWorkflowViewport(surface) {
     const workspace = event.target.closest('[data-workflow-workspace]');
     if (!workspace) return;
     if (workspace.dataset.workflowFrame === 'overview') {
+      if (event.target.closest('[data-workflow-close-name]')) {
+        closePreview(true);
+        return;
+      }
+      if (event.target.closest('[data-workflow-preview-detail]')) return;
       const nodeName = event.target.closest('[data-semantic-key="workflow-preview-name"][data-workflow-overflow]');
       if (nodeName) {
-        const detail = workspace.querySelector('[data-workflow-preview-detail]');
-        detail.textContent = nodeName.title;
-        detail.showPopover();
+        if (expandedPreview?.source === nodeName) {
+          closePreview(true);
+          return;
+        }
+        closePreview();
+        const detail = nodeName.closest('[data-workflow-tile]').querySelector('[data-workflow-preview-detail]');
+        detail.querySelector('[data-workflow-full-name]').textContent = nodeName.title;
+        expandedPreview = { detail, source: nodeName };
+        nodeName.setAttribute('aria-expanded', 'true');
+        detail.hidden = false;
+        detail.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
         detail.focus({ preventScroll: true });
         return;
       }
@@ -239,6 +266,11 @@ export function installWorkflowViewport(surface) {
     viewport.removeAttribute('data-panning');
   });
   surface.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && expandedPreview) {
+      closePreview(true);
+      event.preventDefault();
+      return;
+    }
     const viewport = event.target;
     if (!viewport.matches(viewportSelector)) return;
     if (viewport.closest('[data-workflow-frame="overview"]') && event.key !== '0') return;
@@ -275,6 +307,7 @@ export function installWorkflowViewport(surface) {
 
   return () => {
     const workspace = surface.querySelector('[data-workflow-workspace]');
+    if (expandedPreview && !expandedPreview.detail.isConnected) expandedPreview = undefined;
     const viewport = workspace?.querySelector(viewportSelector);
     if (viewport !== observedViewport) {
       if (observedViewport) viewportObserver.unobserve(observedViewport);
@@ -282,7 +315,7 @@ export function installWorkflowViewport(surface) {
       observedViewport = viewport;
     }
     const nextLabels = new Set(workspace?.querySelectorAll(
-      '[data-semantic-key="workflow-node-name"] > summary, [data-semantic-key="workflow-preview-name"]') ?? []);
+      '[data-semantic-key="workflow-node-name"] > summary, [data-workflow-preview-text]') ?? []);
     for (const label of labels) if (!nextLabels.has(label)) labelObserver.unobserve(label);
     for (const label of nextLabels) if (!labels.has(label)) labelObserver.observe(label);
     labels = nextLabels;

@@ -905,7 +905,9 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
    DOM.Element key "span" (attrs++[("aria-hidden","true")])
      (styles++[("display","block");("background-color",text)]) [] empty []
    else if String.eqb (S.semantic_key value) "workflow-preview-name" then
-     element "button" [("type","button");("title",text)] [] empty [DOM.Text text]
+     element "button" [("type","button");("title",text)] [] empty
+       [DOM.Element (key++"/text")%string "span" [("data-workflow-preview-text","")] [] [] empty [DOM.Text text];
+        DOM.Element (key++"/chevron")%string "span" [("data-workflow-preview-chevron","");("aria-hidden","true")] [] [] empty []]
    else element "span" [] [] empty [DOM.Text text]
  |S.HistoryMatch before matched after=>element "span" [] [] empty
  [DOM.Text before;DOM.Element "" "mark" [] [] [] empty [DOM.Text matched];DOM.Text after]
@@ -1282,9 +1284,14 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
          (map (fun '((target,name), graph)=>
           DOM.Element (canvas++"/tile/"++target)%string "div" [("data-workflow-tile",target)] [] [] empty
            [DOM.Element (canvas++"/overview/"++target)%string "button" [("type","button");("data-workflow-open",target)]
-             [] [] empty [DOM.Text name]; graph]) (combine targets graphs));
-        DOM.Element (canvas++"/node-name")%string "div" [("data-workflow-preview-detail","");("popover","auto");
-          ("role","region");("aria-label","完整节点名称");("tabindex","-1")] [] [] empty []]]
+             [] [] empty [DOM.Text name];
+            DOM.Element (canvas++"/preview-body/"++target)%string "div" [("data-workflow-preview-body","")] [] [] empty [graph];
+            DOM.Element (canvas++"/node-name/"++target)%string "div" [("data-workflow-preview-detail","");("hidden","");
+              ("role","region");("aria-label","完整节点名称");("tabindex","-1")] [] [] empty
+             [DOM.Element (canvas++"/full-name/"++target)%string "span" [("data-workflow-full-name","")] [] [] empty [];
+              DOM.Element (canvas++"/close-name/"++target)%string "button" [("type","button");("data-workflow-close-name","");
+                ("aria-label","关闭完整节点名称")] [] [] empty (glyph "close-cross")]])
+          (combine targets graphs))]]
  |S.WorkflowEditorJump targets=>element "select" [("data-workflow-editor-jump","")] [] empty
     (DOM.Element (key++"/placeholder")%string "option" [("value","")] [] [] empty [DOM.Text label] ::
      map (fun '(target,name)=>DOM.Element (key++"/"++target)%string "option"
