@@ -83,10 +83,9 @@ export function installWorkflowViewport(surface) {
   }
   function closeNodeName(returnFocus = false) {
     if (!expandedNode) return;
-    const { source, disclosure, panel } = expandedNode;
+    const { source, disclosure } = expandedNode;
     expandedNode = undefined;
     disclosure.open = false;
-    if (panel.matches(':popover-open')) panel.hidePopover();
     if (returnFocus) source.focus({ preventScroll: true });
   }
   const viewportObserver = new ResizeObserver(entries => {
@@ -179,7 +178,7 @@ export function installWorkflowViewport(surface) {
     const height = Math.min(viewport.clientHeight, innerHeight - viewport.getBoundingClientRect().top);
     const contentWidth = group.scrollWidth;
     const contentHeight = group.scrollHeight;
-    const clearance = shortLandscape.matches ? inset / 2 : inset;
+    const clearance = shortLandscape.matches || expandedNode ? inset / 2 : inset;
     const normalScale = width >= 900 ? 1.4 : 1;
     current.scale = clamp(Math.min(normalScale,
       (width - 2 * clearance) / contentWidth, (height - 2 * clearance) / contentHeight));
@@ -248,7 +247,10 @@ export function installWorkflowViewport(surface) {
   });
   surface.addEventListener('click', event => {
     const workspace = event.target.closest('[data-workflow-workspace]');
-    if (!workspace) return;
+    if (!workspace) {
+      closeNodeName();
+      return;
+    }
     if (event.target.closest('[data-workflow-close-name]')) {
       if (expandedNode) closeNodeName(true);
       else closePreview(true);
@@ -260,15 +262,16 @@ export function installWorkflowViewport(surface) {
       if (expandedNode?.source === summary) closeNodeName(true);
       else if (summary.hasAttribute('data-workflow-overflow')) {
         closeNodeName();
-        const panel = showName(workspace.querySelector('[data-workflow-node-popover]'), summary.textContent);
+        const panel = showName(workspace.querySelector('[data-workflow-node-detail]'), summary.textContent);
         const disclosure = summary.parentElement;
         expandedNode = { source: summary, disclosure, panel };
         disclosure.open = true;
-        panel.showPopover({ source: summary });
         panel.focus({ preventScroll: true });
       }
       return;
     }
+    if (event.target.closest('[data-workflow-node-detail]')) return;
+    closeNodeName();
     if (workspace.dataset.workflowFrame === 'overview') {
       if (event.target.closest('[data-workflow-preview-detail]')) return;
       const nodeName = event.target.closest('[data-semantic-key="workflow-preview-name"][data-workflow-overflow]');
@@ -310,13 +313,9 @@ export function installWorkflowViewport(surface) {
       } else zoomFromCenter(viewport, direction);
     }
   });
-  surface.addEventListener('toggle', event => {
-    if (event.target === expandedNode?.panel && event.newState === 'closed') closeNodeName();
-  }, true);
   surface.addEventListener('wheel', event => {
     const viewport = event.target.closest(viewportSelector);
-    if (!viewport || viewport.closest('[data-workflow-frame="overview"]') ||
-      event.target.closest('[data-workflow-node-popover]')) return;
+    if (!viewport || viewport.closest('[data-workflow-frame="overview"]')) return;
     event.preventDefault();
     const box = viewport.getBoundingClientRect();
     const units = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? viewport.clientHeight : 1;
@@ -325,7 +324,7 @@ export function installWorkflowViewport(surface) {
   surface.addEventListener('pointerdown', event => {
     const viewport = event.target.closest(viewportSelector);
     if (!viewport || viewport.closest('[data-workflow-frame="overview"]') ||
-      event.button !== 0 || event.target.closest('button,a,input,select,textarea,details,[data-workflow-node-popover]')) return;
+      event.button !== 0 || event.target.closest('button,a,input,select,textarea,details')) return;
     const current = view(viewport);
     if (current.drag) return;
     current.drag = { id: event.pointerId, x: event.clientX - current.x, y: event.clientY - current.y };
@@ -376,8 +375,7 @@ export function installWorkflowViewport(surface) {
   surface.addEventListener('focusin', event => {
     const viewport = event.target.closest(viewportSelector);
     if (!viewport || viewport.closest('[data-workflow-frame="overview"]') ||
-      event.target === viewport || event.target.closest('[data-workflow-node-popover]') ||
-      !event.target.matches(':focus-visible')) return;
+      event.target === viewport || !event.target.matches(':focus-visible')) return;
     const bounds = viewport.getBoundingClientRect();
     const target = event.target.getBoundingClientRect();
     const adjustment = (start, end, first, last) =>

@@ -324,18 +324,25 @@ test('workflows can be authored and started in place from the browser', { timeou
     }
     if (width === 320) {
       const label = canvas.locator('summary:visible').filter({ hasText: longEntrance });
-      const detail = canvas.getByRole('region', { name: '完整节点名称', exact: true });
+      const detail = main.getByRole('region', { name: '完整节点名称', exact: true });
       await label.click();
       const content = detail.getByText(longEntrance, { exact: true });
       await content.waitFor();
-      assert.ok(await content.evaluate(text => {
+      await until(() => content.evaluate(text => {
         const region = text.parentElement;
-        const box = region.getBoundingClientRect();
-        const anchor = document.querySelector('[data-semantic-key="workflow-node-name"][open]').parentElement.getBoundingClientRect();
-        const gap = Math.min(Math.abs(box.top - anchor.bottom), Math.abs(anchor.top - box.bottom));
-        return box.left >= 0 && box.right <= innerWidth && box.top >= 0 && box.bottom <= innerHeight &&
-          region.scrollHeight <= region.clientHeight + 1 && gap < 20;
-      }));
+        const panel = region.getBoundingClientRect();
+        const port = region.parentElement.querySelector('[data-workflow-canvas]');
+        const canvas = port.getBoundingClientRect();
+        const close = region.querySelector('button').getBoundingClientRect();
+        const contents = port.querySelector('[data-workflow-selected] [data-semantic-key="task-graph/canvas"]');
+        const graph = contents.getBoundingClientRect();
+        const label = contents.querySelector('summary');
+        const size = parseFloat(getComputedStyle(label).fontSize) * graph.width / contents.offsetWidth;
+        return panel.left >= 0 && panel.right <= innerWidth && panel.bottom <= canvas.top + 1 &&
+          close.top >= panel.top && close.bottom <= panel.bottom &&
+          text.scrollHeight <= text.clientHeight + 1 && size >= 11.95 &&
+          graph.top >= canvas.top && graph.bottom <= Math.min(canvas.bottom, innerHeight);
+      }), 'The full name and close control stay above the complete, readable graph');
       await detail.getByRole('button', { name: '关闭完整节点名称', exact: true }).click();
       await detail.waitFor({ state: 'hidden' });
       assert.ok(await label.evaluate(node => !node.parentElement.open && node === document.activeElement));
@@ -613,7 +620,7 @@ test('workflows can be authored and started in place from the browser', { timeou
     assert.ok(await longNode.locator('summary').evaluate(el =>
       el.offsetHeight <= 4 * parseFloat(getComputedStyle(el).lineHeight) + 1));
     await longNode.getByText(longExit, { exact: true }).click();
-    const expanded = canvas.getByRole('region', { name: '完整节点名称', exact: true });
+    const expanded = main.getByRole('region', { name: '完整节点名称', exact: true });
     await expanded.getByText(longExit, { exact: true }).waitFor();
     await verifyNodeBounds(width);
     await page.keyboard.press('Escape');

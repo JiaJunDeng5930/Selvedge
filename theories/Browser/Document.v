@@ -1293,6 +1293,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
         control "out" "−" "缩小画布"; control "in" "+" "放大画布"; control "fit" "适应" "适应工作流";
         control "all" "总览" "查看所有工作流"];
      DOM.Element (key++"/actions")%string "div" [("data-workflow-actions","")] [] [] empty toolbars;
+     node_name_panel (key++"/node-name")%string [("data-workflow-node-detail","")];
      DOM.Element canvas "div" [("data-workflow-canvas","");("role","region");("aria-label",label);("tabindex","0")]
        [] [] empty [DOM.Element (canvas++"/plane")%string "div" [("data-workflow-plane","")] [] [] empty
          (map (fun '((target,name), graph)=>
@@ -1301,8 +1302,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
              [] [] empty [DOM.Text name];
             DOM.Element (canvas++"/preview-body/"++target)%string "div" [("data-workflow-preview-body","")] [] [] empty [graph];
             node_name_panel (canvas++"/node-name/"++target)%string [("data-workflow-preview-detail","")]])
-          (combine targets graphs));
-         node_name_panel (canvas++"/node-popover")%string [("data-workflow-node-popover","");("popover","auto")]]]
+          (combine targets graphs))]]
  |S.WorkflowEditorJump targets=>
    DOM.Element (key++"/anchor")%string "div" [("data-workflow-editor-anchor","")] [] [] empty
      [element "select" [("data-workflow-editor-jump","")] [] empty
