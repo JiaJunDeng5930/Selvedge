@@ -1,0 +1,171 @@
+(** Derive the checkpoint wire shape and typed OCaml codec from the public
+    extracted types loaded by the compiler. Erased dependent values require
+    an adapter that preserves and re-admits their declaration-dependent data. *)
+open Types
+
+type shape =
+  | Primitive of string
+  | List of shape
+  | Option of shape
+  | Tuple of shape list
+  | Ref of int
+
+type fields = (string * shape) list
+
+type node =
+  | Record of string * fields
+  | Variant of string * (string * shape list) list
+  | Adapter of string * shape
+
+let adapters = [
+  "Guidance.t", ("guidance-json-1", "Guidance.json", "Guidance.parse");
+  "ContextTypes.context_key", ("context-key-1", "Checkpoint.encode_context_key", "Checkpoint.decode_context_key");
+  "ContextTypes.snapshot", ("context-snapshot-1", "Checkpoint.encode_context_snapshot", "Checkpoint.decode_context_snapshot");
+  "BoardClock.t", ("board-clock-1", "Checkpoint.encode_board_clock", "Checkpoint.decode_board_clock");
+  "ChatgptArguments.arguments", ("chatgpt-arguments-1", "ChatgptArguments.encode", "Checkpoint.decode_chatgpt_arguments");
+  "Titles.instruction", ("title-instruction-1", "Checkpoint.encode_title_instruction", "Checkpoint.decode_title_instruction");
+  "Codec.settings_request", ("settings-request-1", "Checkpoint.encode_settings_request", "Checkpoint.decode_settings_request");
+  "ConnectionGrants.Grants.t", ("connection-grants-1", "Checkpoint.encode_connection_grants", "Checkpoint.decode_connection_grants");
+]
+
+let fail reason = failwith ("Cannot derive journal checkpoint: " ^ reason)
+let lookup env name =
+  let longident = Longident.unflatten (String.split_on_char '.' name) |> Option.get in
+  let _, value = Env.lookup_value ~use:false ~loc:Location.none longident env in
+  value.val_type
+
+let rec shape_text = function
+  | Primitive name -> name
+  | List item -> "list(" ^ shape_text item ^ ")"
+  | Option item -> "option(" ^ shape_text item ^ ")"
+  | Tuple items -> "(" ^ String.concat "," (List.map shape_text items) ^ ")"
+  | Ref index -> "#" ^ string_of_int index
+
+let order_named name values = List.sort (fun left right -> String.compare (name left) (name right)) values
+let label field = Ident.name field.ld_id
+let constructor case = Ident.name case.cd_id
+let module_name path = match path with
+  | Path.Pdot (owner, _) -> Path.name owner
+  | _ -> fail ("unnamed module for " ^ Path.name path)
+
+let derive env root =
+  let indices = Hashtbl.create 128 and nodes = Hashtbl.create 128 in
+  let register key build = match Hashtbl.find_opt indices key with
+    | Some id -> Ref id
+    | None ->
+        let id = Hashtbl.length indices in
+        Hashtbl.add indices key id;
+        Hashtbl.add nodes id (build ());
+        Ref id in
+  let rec visit parameters ty = match get_desc ty with
+    | Tvar _ -> (match List.assoc_opt (get_id ty) parameters with
+        | Some shape -> shape
+        | None -> fail "unbound type parameter")
+    | Ttuple items -> Tuple (List.map (visit parameters) items)
+    | Tconstr (path, arguments, _) ->
+        let name = Path.name path in
+        (try match List.assoc_opt name adapters, name, arguments with
+         | Some (version, encode, _), _, [] -> register name (fun () ->
+             match get_desc (lookup env encode) with
+             | Tarrow (_, _, wire_type, _) -> Adapter (version, visit [] wire_type)
+             | _ -> fail ("invalid adapter " ^ encode))
+         | _, ("bool" | "char" | "string" | "unit"), [] -> Primitive name
+         | _, ("Big_int_Z.big_int" | "Z.t"), [] -> Primitive "big_int"
+         | _, "list", [item] -> List (visit parameters item)
+         | _, "option", [item] -> Option (visit parameters item)
+         | _ ->
+             let arguments = List.map (visit parameters) arguments in
+             let declaration = Env.find_type path env in
+             let parameters = List.combine (List.map get_id declaration.type_params) arguments in
+             let visit = visit parameters in
+             let key = name ^ "[" ^ String.concat ";" (List.map shape_text arguments) ^ "]" in
+             match declaration.type_kind, declaration.type_manifest with
+             | Type_abstract, Some manifest -> visit manifest
+             | Type_record (fields, _), _ -> register key (fun () ->
+                 Record (module_name path, List.map (fun field -> label field, visit field.ld_type) (order_named label fields)))
+             | Type_variant (cases, _), _ -> register key (fun () ->
+                 Variant (module_name path, List.map (fun case ->
+                   let items = match case.cd_args, case.cd_res with
+                     | Cstr_tuple items, None -> items
+                     | _ -> fail ("unsupported constructor " ^ name ^ "." ^ constructor case) in
+                   constructor case, List.map visit items) (order_named constructor cases)))
+             | _ -> fail ("opaque or non-data type " ^ name)
+         with Failure message -> failwith (message ^ "\n  in " ^ name))
+    | _ -> fail ("unsupported type " ^ Format.asprintf "%a" Printtyp.type_expr ty)
+  in
+  let root = visit [] root in
+  root, Array.init (Hashtbl.length nodes) (Hashtbl.find nodes)
+
+let variables items = List.mapi (fun index item -> "value" ^ string_of_int index, item) items
+let tuple names = match names with [] -> "()" | [name] -> name | _ -> "(" ^ String.concat ", " names ^ ")"
+let sequence = function [] -> "()" | values -> String.concat "; " values
+let ctor owner name args = owner ^ "." ^ name ^ (if args = [] then "" else " " ^ tuple args)
+let qualified owner name = owner ^ "." ^ name
+
+let rec codec_name direction = function
+  | Primitive name -> "Wire." ^ direction ^ "_" ^ name
+  | List item -> "(Wire." ^ direction ^ "_list " ^ codec_name direction item ^ ")"
+  | Option item -> "(Wire." ^ direction ^ "_option " ^ codec_name direction item ^ ")"
+  | Ref index -> direction ^ "_" ^ string_of_int index
+  | Tuple items ->
+      let items = variables items in
+      let pattern = tuple (List.map fst items) in
+      if direction = "write" then
+        "(fun output " ^ pattern ^ " -> " ^ sequence (List.map (fun (name, item) -> codec_name "write" item ^ " output " ^ name) items) ^ ")"
+      else
+        "(fun reader -> " ^ String.concat "" (List.map (fun (name, item) -> "let " ^ name ^ " = " ^ codec_name "read" item ^ " reader in ") items) ^ pattern ^ ")"
+
+let adapter_functions version =
+  let _, (_, encode, decode) = List.find (fun (_, (candidate, _, _)) -> candidate = version) adapters in
+  encode, decode
+
+let write_body = function
+  | Record (owner, fields) -> sequence (List.map (fun (name, item) -> codec_name "write" item ^ " output value." ^ qualified owner name) fields)
+  | Variant (owner, cases) -> "match value with\n" ^ String.concat "\n" (List.mapi (fun index (name, items) ->
+      let items = variables items in
+      "  | " ^ ctor owner name (List.map fst items) ^ " -> " ^
+      sequence (("Wire.write_length output " ^ string_of_int index) ::
+        List.map (fun (name, item) -> codec_name "write" item ^ " output " ^ name) items)) cases)
+  | Adapter (version, shape) -> let encode, _ = adapter_functions version in
+      codec_name "write" shape ^ " output (" ^ encode ^ " value)"
+
+let read_values items tail =
+  String.concat "" (List.map (fun (name, item) -> "let " ^ name ^ " = " ^ codec_name "read" item ^ " reader in ") items) ^ tail
+let read_body = function
+  | Record (owner, fields) ->
+      let items = variables (List.map snd fields) in
+      let assignments = List.map2 (fun (field, _) (value, _) -> qualified owner field ^ " = " ^ value) fields items in
+      read_values items ("{ " ^ String.concat "; " assignments ^ " }")
+  | Variant (owner, cases) -> "match Wire.read_length reader with\n" ^ String.concat "\n" (List.mapi (fun index (name, items) ->
+      let items = variables items in
+      "  | " ^ string_of_int index ^ " -> " ^ read_values items (ctor owner name (List.map fst items))) cases)
+      ^ "\n  (* DEFENSE: An unknown tag cannot select a constructor in this version. *)\n  | _ -> raise Wire.Invalid_checkpoint"
+  | Adapter (version, shape) -> let _, decode = adapter_functions version in
+      "match " ^ decode ^ " (" ^ codec_name "read" shape ^ " reader) with Some value -> value | None -> raise Wire.Invalid_checkpoint"
+
+let schema_text = function
+  | Record (_, fields) -> "record " ^ String.concat "," (List.map (fun (name, item) -> name ^ ":" ^ shape_text item) fields)
+  | Variant (_, cases) -> "variant " ^ String.concat "," (List.map (fun (name, items) -> name ^ shape_text (Tuple items)) cases)
+  | Adapter (version, shape) -> "adapter " ^ version ^ " " ^ shape_text shape
+
+let write_file filename write =
+  let output = open_out filename in
+  Fun.protect ~finally:(fun () -> close_out output) (fun () -> write output)
+
+let () =
+  let directory = Sys.argv.(1) and zarith = Sys.argv.(2) in
+  Clflags.include_dirs := [directory; zarith];
+  Compmisc.init_path ();
+  let env = Compmisc.initial_env () in
+  let root, nodes = derive env (lookup env (Sys.argv.(3) ^ ".selvedge_kernel_initial")) in
+  write_file (Filename.concat directory "checkpoint-shape.txt") (fun output ->
+    Printf.fprintf output "selvedge-kernel-world-wire-1 %s\n" (shape_text root);
+    Array.iteri (fun index node -> Printf.fprintf output "%d %s\n" index (schema_text node)) nodes);
+  write_file (Filename.concat directory "checkpoint_state.ml") (fun output ->
+    Printf.fprintf output "(* Generated from the extracted kernel world. *)\nmodule Wire = Checkpoint_wire\n";
+    let emit direction arguments body = Array.iteri (fun index node ->
+      Printf.fprintf output "%s %s_%d %s = %s\n" (if index = 0 then "let rec" else "and") direction index arguments (body node)) nodes in
+    emit "write" "output value" write_body;
+    emit "read" "reader" read_body;
+    Printf.fprintf output "let encode value = let output = Buffer.create 4096 in %s output value; Buffer.contents output\n" (codec_name "write" root);
+    Printf.fprintf output "let decode bytes = let reader = Wire.start bytes in\n  try let value = %s reader in\n  (* DEFENSE: Additional bytes cannot belong to this world image. *)\n  if Wire.remaining reader = 0 then Some value else None\n  with Wire.Invalid_checkpoint -> None\n" (codec_name "read" root))
