@@ -383,9 +383,13 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     The permissions menu describes what happens when an operation needs more
     access and presents shared filesystem and network limits on a separate line.
     Users can save a workflow definition in the current Work before any of its
-    Tasks exist. Its editor identifies entrance, exit and Task nodes, the Task
-    creation policy and the descriptions on alternative outgoing connections.
-    Start presents the selected definition and entrance and accepts a message.
+    Tasks exist. Its editor lets users enter the name, configure entrance,
+    exit and Task nodes, select a configured model by its display name,
+    and describe alternative outgoing connections. Start shows the definition
+    name, offers its entrance nodes and accepts a multiline message.
+    The task-graph page shows each accepted definition change and new instance
+    without requiring a reload. Conversation forwarding has its own controls
+    and empty state. Exit results preserve line breaks.
     The ticket launch surface lets the user select the definition and entrance
     for the ticket's message and open the resulting instance after acceptance.
 

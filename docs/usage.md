@@ -36,8 +36,9 @@ Projects through Secure MCP Tunnel, with grants separate from ordinary Tasks.
 
 ## Workflow instances
 
-Open **任务图** and choose **创建工作流** in the desired Work. A definition
-lists `nodes` and `connections`. Each node has a `key` and a `kind` of
+Open **任务图** and choose **创建工作流** in the desired Work. Use the
+form to add nodes and connect them, or open **高级选项** to edit the JSON
+definition. A definition lists `nodes` and `connections`. Each node has a `key` and a `kind` of
 `entrance`, `exit`, or `task`. A Task node names either `task_id` or a
 configured `profile` and `creation` policy. Use `once` to keep one Task
 conversation per instance, or `each` for a fresh conversation per delivery.
@@ -50,7 +51,7 @@ receives each connection's `description` and calls
 the same message down multiple paths. Every path must reach an exit before
 the instance completes.
 
-Use **启动工作流** and supply the entrance key and message, or choose a
+Use **启动工作流** to choose an entrance and enter the message, or choose a
 workflow and entrance in a ticket's details and then start its instance.
 The active nodes show one dot per instance, with the same color on each of
 its active nodes. Instance details link to its Tasks and show exit results

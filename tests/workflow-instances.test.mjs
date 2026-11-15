@@ -41,6 +41,7 @@ test('a ticket waits for every exit, with a fresh reviewer and a reused implemen
       edge('parallel-done', 'parallel', 'finish'),
     ],
   };
+  await editor.getByText('高级选项', { exact: true }).click();
   await editor.getByRole('textbox', { name: 'JSON 定义', exact: true }).fill(JSON.stringify(definition, null, 2));
   await editor.getByRole('button', { name: '创建工作流', exact: true }).click();
   await editor.waitFor({ state: 'hidden' });
@@ -115,4 +116,57 @@ test('a ticket waits for every exit, with a fresh reviewer and a reused implemen
   assert.equal((await read()).state, 'completed');
   assert.deepEqual((await read()).paths.map(path => path.result).sort(), ['Approved version two', 'Parallel work complete']);
   await dots.first().waitFor({ state: 'detached' });
+});
+
+test('workflows can be authored and started in place from the browser', { timeout: 60000 }, async t => {
+  const fixture = await browserFixture(t);
+  const { page } = fixture;
+  await page.getByRole('button', { name: '任务图', exact: true }).click();
+  await page.setViewportSize({ width: 588, height: 744 });
+  const main = page.getByRole('main');
+  await main.getByRole('button', { name: '创建工作流', exact: true }).click();
+  const create = page.getByRole('dialog', { name: '创建工作流', exact: true });
+  await create.getByRole('textbox', { name: '工作流名称' }).fill('Browser workflow');
+  await create.getByRole('button', { name: '创建工作流', exact: true }).click();
+  const graph = main.getByRole('region', { name: 'Browser workflow', exact: true });
+  await graph.waitFor();
+
+  const start = async (name, message) => {
+    const workflow = main.getByRole('region', { name, exact: true });
+    await workflow.getByRole('button', { name: '启动工作流', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: '启动工作流', exact: true });
+    await dialog.getByText(name, { exact: true }).waitFor();
+    await dialog.getByRole('combobox', { name: '入口', exact: true }).selectOption({ label: 'start' });
+    await dialog.getByRole('textbox', { name: '消息', exact: true }).fill(message);
+    await dialog.getByRole('button', { name: '启动工作流', exact: true }).click();
+    await dialog.waitFor({ state: 'hidden' });
+    return workflow;
+  };
+  const first = 'First line\nSecond line';
+  const firstRun = await start('Browser workflow', first);
+  const output = firstRun.getByRole('region', { name: '出口结果', exact: true });
+  await output.waitFor();
+  assert.equal(await output.getByText(first, { exact: true }).innerText(), first);
+
+  await graph.getByRole('button', { name: '编辑工作流', exact: true }).click();
+  const editor = page.getByRole('dialog', { name: '编辑工作流', exact: true });
+  await editor.getByRole('textbox', { name: '工作流名称' }).fill('Renamed workflow');
+  await editor.getByRole('button', { name: '添加任务', exact: true }).click();
+  const node = editor.getByRole('region', { name: '任务 3', exact: true });
+  const model = node.getByRole('combobox', { name: '模型', exact: true });
+  const modelLabel = await model.getByRole('option', { name: /interactive-fixture/ }).innerText();
+  await model.selectOption({ label: modelLabel });
+  await editor.getByRole('region', { name: '连线 1', exact: true })
+    .getByRole('combobox', { name: '接收节点', exact: true }).selectOption({ label: 'task-1' });
+  await editor.getByRole('button', { name: '添加连线', exact: true }).click();
+  const route = editor.getByRole('region', { name: '连线 2', exact: true });
+  await route.getByRole('combobox', { name: '来源节点', exact: true }).selectOption({ label: 'task-1' });
+  await route.getByRole('combobox', { name: '接收节点', exact: true }).selectOption({ label: 'finish' });
+  await editor.getByRole('button', { name: '保存', exact: true }).click();
+  const renamed = await start('Renamed workflow', 'Run with the selected model');
+  assert.equal(await renamed.locator('[data-semantic-key="task-graph/viewport"]').count(), 1);
+  const request = await requestFor(fixture, 'Run with the selected model');
+  const answer = 'Model output\nSecond line';
+  fixture.finish(request.index, { text: answer });
+  assert.equal(await renamed.getByText(answer, { exact: true }).innerText(), answer);
 });

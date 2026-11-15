@@ -573,3 +573,8 @@ dialog[data-semantic-key="card-details"] {
   border-radius: 50%;
   box-shadow: 0 0 0 2px var(--selvedge-surface, Canvas);
 }
+
+[data-semantic-key="workflow-exit-output"] {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

@@ -13,7 +13,7 @@ From Selvedge.Browser.Session Require State Observation Authoring ObjectActions.
 From Selvedge.Interaction.Submission Require Fields Parameters.
 From Selvedge.Browser.Scene Require Import Surface Model Construction Composer.
 From Selvedge.Browser.Presentation Require Import ServiceControls Projection.
-From Selvedge.Browser.Presentation Require Roles Information Settings.
+From Selvedge.Browser.Presentation Require Roles Information Settings WorkflowForms.
 From Selvedge.Browser.Session Require Import EditorContext.
 Import ListNotations.
 Open Scope string_scope.
@@ -21,14 +21,15 @@ Module UX := Selvedge.Interaction.Experience.Model.
 Module Session := Selvedge.Browser.Session.State.
 Module Observe := Selvedge.Interaction.Experience.Observation.
 
-Definition graph_creation_label := "创建任务图".
+Definition graph_creation_label := "创建对话转发".
+Definition graph_edit_label := "编辑对话转发".
 Definition editor_title e := match e with
 |NewTask _=>"New conversation"|Message _=>"Message"
 |Identity.Project None=>"新建项目"|Identity.Project(Some _)=>"编辑项目"|Card None=>"新建卡片"|Card(Some _)=>"编辑卡片"
 |CardForConversation _=>"添加到看板"
 |Fork _=>ObjectActions.fork_label|Compact _=>"压缩上下文"
 |WorkflowDefinition None _=>"创建工作流"|WorkflowDefinition (Some _) _=>"编辑工作流"|WorkflowStart _=>"启动工作流"
-|TaskGraph None _=>graph_creation_label|TaskGraph(Some _) _=>"编辑任务图"
+|TaskGraph None _=>graph_creation_label|TaskGraph(Some _) _=>graph_edit_label
 |WorkName None=>"新建工作组"|WorkName(Some _) =>"重命名工作组"
 |TitlePrompts ConversationTitles=>Settings.conversation_titles_label
 |TitlePrompts BoardTitles=>"卡片提示词" end.
@@ -238,7 +239,8 @@ Definition editor_sections e :=match e with
  |None=>[("Creation options",[Fields.ContinueCapture;Fields.AssistedCapture;Fields.AssistanceProfile])]|Some _=>[]end)%list
 |Fork _=>[("Fork",[Fields.ForkCount;Fields.ForkMessages]);execution_section]
 |Compact _=>[("Compaction",[Fields.CompactionSummary])]
-|TaskGraph _ _|WorkflowDefinition _ _|WorkflowStart _=>[("Task graph",[Fields.TaskGraphDeclaration])]
+|TaskGraph _ _|WorkflowDefinition _ _=>[("Task graph",[Fields.TaskGraphDeclaration])]
+|WorkflowStart _=>[]
 |Identity.Project _|CardForConversation _|WorkName _|TitlePrompts _=>[]end.
 Definition field_section snapshot s e parent name fields:=
  Node(part parent name)name name Roles.Section(ObjectGroup(UX.group_owner e fields))
@@ -382,7 +384,11 @@ Definition section_nodes snapshot s e parent :=
  |Card id=>card_editor snapshot s e parent (Identity.BoardCard id)
  |CardForConversation task=>card_editor snapshot s e parent (Identity.ConversationCard task)
  |Fork task=>fork_editor snapshot s e parent task
- |WorkflowDefinition _ _|WorkflowStart _=>field_nodes snapshot s e parent [Fields.TaskGraphDeclaration]
+ |WorkflowDefinition id work=>
+  (WorkflowForms.definition snapshot s parent e id work ++
+   [editor_options parent "workflow-options" "高级选项"
+     (field_nodes snapshot s e parent [Fields.TaskGraphDeclaration])])%list
+ |WorkflowStart id=>WorkflowForms.start snapshot s parent e id
  |TaskGraph graph work=>graph_editor snapshot s e parent graph work
  |WorkName _=>field_nodes snapshot s e parent [Fields.WorkName]
  |TitlePrompts scope=>title_prompt_fields snapshot s scope parent

@@ -27,7 +27,12 @@ Definition materialize_body snapshot preference e :option Draft.body:=match e wi
 |Identity.Fork task=>settings<-Observation.task_settings task snapshot;;Some(Draft.ForkBody task 1 [] (Context.Configuration(Context.ParentTask task)None None None))
 |Identity.Compact task=>match World.find_task task snapshot with Some _=>Some(Draft.CompactBody task None)|None=>None end
 |Identity.WorkflowDefinition None work=>
- let definition:=JObject[("name",JString "");("nodes",JArray []);("connections",JArray [])] in
+ let definition:=JObject[
+  ("name",JString "");
+  ("nodes",JArray [JObject[("key",JString "start");("kind",JString "entrance")];
+                   JObject[("key",JString "finish");("kind",JString "exit")]]);
+  ("connections",JArray [JObject[("key",JString "route-1");
+    ("source",JString "start");("target",JString "finish")]])] in
  Some(Draft.WorkflowDefinitionBody None work (GraphAuthoring.render_declaration definition))
 |Identity.WorkflowDefinition (Some id) work=>
  definition<-World.find_world "workflows" "workflow_id" id snapshot;;

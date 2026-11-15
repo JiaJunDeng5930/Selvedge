@@ -176,7 +176,9 @@ Definition save_path instance_id path_key input (i : execution) (sent : decision
  let next := if bool_default "ok" result false then match task with
    | Some id => Executing input id None
    | None => Blocked input "The Task launch returned no identity." end
-   else Blocked input (match string_field "message" result with Some detail => detail | None => "Task input was refused." end) in
+   else Blocked input (match field "error" result with
+     | Some error => match string_field "message" error with Some detail => detail | None => "Task input was refused." end
+     | None => "Task input was refused." end) in
  let i := replace_path path_key next i in
  let i := match next with
   | Executing _ id _ => set instance_history (fun history => history ++ [(path_key, delivery_node input, id)]) i

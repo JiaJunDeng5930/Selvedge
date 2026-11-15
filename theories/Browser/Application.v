@@ -362,6 +362,10 @@ Definition main_world_changed before after :=
  |Conversation task=>task_availability_changed task before after
  |Start|GraphConversation _ _=>world_fields_changed
    ["projects";"works";"profiles";"defaults";"worktrees";"graphs"] before after
+ |Graphs=>world_fields_changed ["works";"graphs";"tasks";"workflows";"workflow_instances"] before after
+ |Board=>world_fields_changed
+   ["board";"projects";"works";"worktrees";"graphs";"tasks";"profiles";
+    "workflows";"workflow_instances";"ticket_workflows"] before after
  |_=>world_fields_changed ["board";"projects";"works";"worktrees";"graphs";"tasks";"profiles"] before after
  end.
 Definition detail_actions_changed before after (view : task_view) (size : BM.capacity) :=

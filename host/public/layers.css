@@ -33,7 +33,7 @@ dialog[data-semantic-key="project-editor"] {
   overflow-wrap: normal !important;
   overflow: auto !important;
 }
-[data-semantic-key="graph-options"] {
+:is([data-semantic-key="graph-options"], [data-semantic-key="workflow-options"]) {
   border-block-start: 1px solid var(--selvedge-border);
   padding-block-start: .375rem;
 
@@ -70,6 +70,12 @@ dialog[data-semantic-key="project-editor"] {
     min-block-size: 0 !important;
     resize: none !important;
   }
+}
+
+:is([data-semantic-key="workflow-node-editor"], [data-semantic-key="workflow-connection-editor"]) {
+  padding: 0.625rem;
+  border: 1px solid var(--selvedge-border);
+  border-radius: 8px;
 }
 @media (min-width: 600px) and (max-height: 460px) {
   dialog:has([data-semantic-key="graph-options"][open]) {
