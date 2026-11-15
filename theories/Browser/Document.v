@@ -754,7 +754,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  let voice_disclosure:=String.eqb(S.semantic_key value)"speech-controls" in
  let responsive:=negb voice_disclosure && SemanticAppearance.responsive_row activity source role meaning in
  let attrs:=common key (S.semantic_key value)
-   (match meaning with S.TaskRow _ _ _ _=>""|_=>label end) role ++
+   (match meaning with S.TaskRow _ _ _ _|S.WorkflowWorkspace _=>""|_=>label end) role ++
  (match role,meaning with
  |Roles.Navigation,_=>[("data-workspace-sidebar","")]
  |Roles.NavigationHeader,_=>[("data-workspace-navigation","header")]
@@ -1257,6 +1257,18 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
       [] [] empty children]
  |S.ContentDisclosure=>DOM.Element key "details" attrs styles [] empty
    (DOM.Element (key++"/summary")%string "summary" [] [] [] empty [DOM.Text label]::children)
+ |S.WorkflowWorkspace targets=>
+   let canvas:=(key++"/viewport")%string in
+   let control action caption title := DOM.Element (key++"/zoom/"++action)%string "button"
+      [("type","button");("data-workflow-zoom",action);("aria-label",title);("title",title)] [] [] empty [DOM.Text caption] in
+   element "div" [("data-workflow-workspace","")] [] empty
+    [DOM.Element (key++"/controls")%string "div" [("data-workflow-viewport-controls","")] [] [] empty
+       [DOM.Element (key++"/target")%string "select" [("data-workflow-target","");("aria-label","定位工作流")] [] [] empty
+         (map (fun '(target,name)=>DOM.Element (key++"/target/"++target)%string "option"
+            [("value",target)] [] [] empty [DOM.Text name]) targets);
+        control "out" "−" "缩小画布"; control "in" "+" "放大画布"; control "fit" "适应" "适应工作流"];
+     DOM.Element canvas "div" [("data-workflow-canvas","");("role","region");("aria-label",label);("tabindex","0")]
+       [] [] empty [DOM.Element (canvas++"/plane")%string "div" [("data-workflow-plane","")] [] [] empty children]]
  |S.Region=>if voice_disclosure then
    let live:=existsb(fun child=>match S.node_meaning child with
     |S.InformationText Information.Status=>true

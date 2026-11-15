@@ -408,6 +408,10 @@ Definition editor_view snapshot (s:Session.state) e parent :=
  let draft:=Session.current_draft s e in
  let assessment:=Observe.observe_assessment snapshot s e in
  let unit:=Observe.action_unit_for s e in
+ let busy:=UX.action_pending unit in
+ let failed_check:=match e with
+ |WorkflowStart _=>Authoring.draft_assessment_failure snapshot s draft
+ |_=>None end in
  let capture:=match e with WorkflowStart _=>Observe.awaits_only_admission assessment|_=>false end in
  let submit:=Control "submit"(submit_label snapshot draft e)Primary(Input.Submit e(part parent "submit"))
   (if capture && negb(UX.action_pending unit) then Available else unit_availability unit assessment)in
@@ -431,16 +435,24 @@ Definition editor_view snapshot (s:Session.state) e parent :=
  let assessment_feedback:=match e with
  |WorkflowStart _=>
    let causes:=Observe.assessment_obstructions (UX.assessment_outcome assessment) in
-   let message:=match causes with
+   let message:=if busy then "" else match causes with
    |cause::_=>if String.eqb (UX.obstruction_code cause) Observe.admission_pending_code
      then "" else UX.obstruction_message cause
    |[]=>"" end in
-   information parent "workflow-start-feedback" Information.Description message
- |_=>assessment_nodes parent assessment end in
+   information parent "workflow-start-feedback" Information.Description message ::
+   (match failed_check with
+   |Some _=>if busy then [] else [declared parent Roles.Button(secondary "retry-start-check" "重新检查"
+      (Input.ServiceInput(Services.RetryAssessment e)))]
+   |None=>[] end)
+ |_=>[assessment_nodes parent assessment] end in
+ let feedback:=match e,failed_check with
+ |WorkflowStart _,Some _=>None
+ |WorkflowStart _,None=>if busy || Observe.awaits_only_admission assessment then None else draft_feedback draft
+ |_,_=>draft_feedback draft end in
  let body := (title_prompt_help e parent ++
    section_nodes snapshot s e parent ++
-   [assessment_feedback] ++
-   Composer.action_feedback parent unit (draft_feedback draft))%list in
+   assessment_feedback ++
+   Composer.action_feedback parent unit feedback)%list in
  let context := match e with
    |TitlePrompts ConversationTitles=>[Settings.editor_context parent Services.SettingsGeneral]
    |_=>[]end in

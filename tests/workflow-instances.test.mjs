@@ -186,10 +186,13 @@ test('a ticket waits for every exit, with a fresh reviewer and a reused implemen
   assert.equal((await read()).state, 'completed');
   assert.deepEqual((await read()).paths.map(path => path.result).sort(), ['Approved version two', 'Parallel work complete']);
   await dots.first().waitFor({ state: 'detached' });
-  await graph.getByRole('button', { name: `实例 #${instance_id} · 已完成`, exact: true }).click();
+  await graph.getByRole('button', { name: '运行记录', exact: true }).click();
+  const history = page.getByRole('dialog', { name: '运行记录', exact: true });
+  await history.getByRole('button', { name: `实例 #${instance_id} · 已完成`, exact: true }).click();
   await instance.getByText(/出口结果 · 路径 #\d+ · review → finish/).waitFor();
   await instance.getByText(/出口结果 · 路径 #\d+ · parallel → finish/).waitFor();
   await instance.getByRole('button', { name: 'Close panel', exact: true }).click();
+  await history.getByRole('button', { name: 'Close panel', exact: true }).click();
 
   await page.getByRole('button', { name: '卡片看板', exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 });
@@ -205,7 +208,7 @@ test('a ticket waits for every exit, with a fresh reviewer and a reused implemen
 
 test('workflows can be authored and started in place from the browser', { timeout: 60000 }, async t => {
   const fixture = await browserFixture(t);
-  const { page } = fixture;
+  const { page, command } = fixture;
   await page.getByRole('button', { name: '任务图', exact: true }).click();
   await page.setViewportSize({ width: 588, height: 744 });
   const main = page.getByRole('main');
@@ -215,8 +218,35 @@ test('workflows can be authored and started in place from the browser', { timeou
   await create.getByRole('button', { name: '创建工作流', exact: true }).click();
   const graph = main.getByRole('region', { name: 'Browser workflow', exact: true });
   await graph.waitFor();
-  const canvas = graph.locator('[data-semantic-key="task-graph/viewport"]');
-  assert.equal(await canvas.evaluate(el => el.scrollWidth <= el.clientWidth), true);
+  const canvas = main.getByRole('region', { name: '工作流画布', exact: true });
+  const canvasBox = await canvas.boundingBox();
+  assert.ok(canvasBox.height > page.viewportSize().height / 2);
+  const transform = () => canvas.locator('[data-workflow-plane]').evaluate(el => getComputedStyle(el).transform);
+  const initialTransform = await transform();
+  const panAt = { x: canvasBox.x + canvasBox.width / 2, y: canvasBox.y + canvasBox.height - 36 };
+  await page.mouse.move(panAt.x, panAt.y);
+  await page.mouse.down();
+  await page.mouse.move(panAt.x + 70, panAt.y - 18);
+  await page.mouse.up();
+  assert.notEqual(await transform(), initialTransform);
+  const panned = await transform();
+  await page.mouse.wheel(0, -130);
+  await until(async () => await transform() !== panned, 'The wheel zooms the shared canvas');
+  await canvas.focus();
+  await canvas.press('0');
+
+  await command({ op: 'create_workflow', name: 'Other workflow',
+    nodes: [{ key: 'entry', kind: 'entrance' }, { key: 'exit', kind: 'exit' }],
+    connections: [{ key: 'route', source: 'entry', target: 'exit' }] });
+  const picker = main.getByRole('combobox', { name: '定位工作流', exact: true });
+  await picker.selectOption({ label: 'Other workflow' });
+  await picker.selectOption({ label: 'Browser workflow' });
+  const graphControls = graph.locator('[data-semantic-key="workflow-controls"]');
+  assert.ok(await graphControls.evaluate(el => {
+    const group = el.getBoundingClientRect();
+    const viewport = el.closest('[data-workflow-canvas]').getBoundingClientRect();
+    return group.left >= viewport.left && group.right <= viewport.right;
+  }));
 
   const start = async (name, message, awaitingStart) => {
     const workflow = main.getByRole('region', { name, exact: true });
@@ -233,14 +263,31 @@ test('workflows can be authored and started in place from the browser', { timeou
     return { workflow, instance };
   };
   const first = 'First line\nSecond line';
+  const failedCheck = Promise.withResolvers();
   const workflowCheck = Promise.withResolvers();
-  t.after(() => workflowCheck.resolve());
+  t.after(() => { failedCheck.resolve(); workflowCheck.resolve(); });
+  let startChecks = 0;
   await page.route('**/api/assess', async route => {
-    if (route.request().postDataJSON()?.command?.op === 'start_workflow') await workflowCheck.promise;
+    const assessed = route.request().postDataJSON()?.command;
+    if (assessed?.op === 'start_workflow' && assessed.message === first) {
+      if (++startChecks === 1) {
+        await failedCheck.promise;
+        await route.fulfill({ status: 504, json: { error: { message: '启动检查暂时超时。' } } });
+        return;
+      }
+      await workflowCheck.promise;
+    }
     await route.continue();
   });
   const { instance: firstRun } = await start('Browser workflow', first, async dialog => {
     await dialog.getByText('正在提交…', { exact: true }).waitFor();
+    const checkFeedback = dialog.locator('[data-semantic-key="workflow-start-feedback"]').getByText('启动检查暂时超时。', { exact: true });
+    failedCheck.resolve();
+    await checkFeedback.waitFor();
+    await dialog.getByRole('button', { name: '重新检查', exact: true }).click();
+    await dialog.getByRole('button', { name: '启动工作流', exact: true }).click();
+    await dialog.getByText('正在提交…', { exact: true }).waitFor();
+    assert.equal(await checkFeedback.isVisible(), false);
     workflowCheck.resolve();
   });
   const receipt = firstRun.getByText(/出口结果 · 路径 #\d+ · start → finish/);
@@ -249,6 +296,14 @@ test('workflows can be authored and started in place from the browser', { timeou
   assert.ok(Math.abs(await receipt.evaluate(el => el.getBoundingClientRect().top) - receiptTop) <= 1);
   assert.equal(await firstRun.getByText(first, { exact: true }).innerText(), first);
   await firstRun.getByRole('button', { name: 'Close panel', exact: true }).click();
+  assert.equal(await graph.getByRole('button', { name: /^实例 #/ }).count(), 0);
+  const beforeHistory = await transform();
+  await graph.getByRole('button', { name: '运行记录', exact: true }).click();
+  const history = page.getByRole('dialog', { name: '运行记录', exact: true });
+  await history.getByRole('button', { name: /^实例 #\d+ · 已完成$/ }).click();
+  await page.getByRole('dialog', { name: /^实例 #\d+$/ }).getByRole('button', { name: 'Close panel', exact: true }).click();
+  await history.getByRole('button', { name: 'Close panel', exact: true }).click();
+  assert.equal(await transform(), beforeHistory);
 
   await graph.getByRole('button', { name: '编辑工作流', exact: true }).click();
   const editor = page.getByRole('dialog', { name: '编辑工作流', exact: true });
@@ -307,9 +362,10 @@ test('workflows can be authored and started in place from the browser', { timeou
   };
   for (const width of [360, 768]) {
     await page.setViewportSize({ width, height: 900 });
+    await picker.selectOption({ label: 'Renamed workflow' });
     await verifyNodeBounds(width);
     assert.ok(await longNode.locator('summary').evaluate(el =>
-      el.getBoundingClientRect().height <= 2 * parseFloat(getComputedStyle(el).lineHeight) + 1));
+      el.offsetHeight <= 2 * parseFloat(getComputedStyle(el).lineHeight) + 1));
     await longNode.getByText(longExit, { exact: true }).click();
     await verifyNodeBounds(width);
     await longNode.getByText(longExit, { exact: true }).click();

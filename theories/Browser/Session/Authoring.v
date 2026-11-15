@@ -150,14 +150,18 @@ Definition request_command snapshot state command:=
  |Some (EM.Unavailable reason)=>fail state reason
  |None=>reserve command SS.DirectAdmission state
  end.
-Definition command_assessment_failure snapshot state command :=
- let owner:=command_owner snapshot state command in
- let revision:=ObjectActions.assessment_revision state in
+Definition assessment_failure snapshot state owner revision command :=
  match natural_field "sequence" snapshot,
        find(Services.owned_assessment owner)(Services.command_assessments(SS.service_state state)) with
  |Some sequence,Some(Resource.Failed _ request reason)=>
    if CommandAssessment.matches owner revision sequence command request then Some reason else None
  |_,_=>None end.
+Definition command_assessment_failure snapshot state command :=
+ assessment_failure snapshot state (command_owner snapshot state command)
+   (ObjectActions.assessment_revision state) command.
+Definition draft_assessment_failure snapshot state draft :=
+ bind (current_command state draft) (assessment_failure snapshot state
+   (CommandAssessment.DraftOwner(Draft.owner draft)) (Draft.revision draft)).
 Definition submission_obstruction snapshot draft state:option string:=
  if negb(Services.connected(SS.service_state state))then Some "Connect to continue."else
  match EO.project_precondition snapshot state draft with
@@ -195,7 +199,12 @@ Definition submit snapshot owner trigger state:=
  let state:=ensure_draft snapshot owner state in
  match Draft.find_draft owner(SS.drafts(SS.authoring_state state))with
  |None=>fail state "The object being edited is no longer available."
- |Some draft=>match Draft.explicit_workspace draft,current_preparation draft state with
+ |Some draft=>
+  let '(draft,state):=match owner,Draft.draft_feedback draft with
+   |Identity.WorkflowStart _,Draft.Rejected _ _=>
+     let draft:=Draft.with_feedback Draft.Editing draft in (draft,SS.save_draft draft state)
+   |_,_=>(draft,state) end in
+  match Draft.explicit_workspace draft,current_preparation draft state with
   |Some _,None|Some _,Some(Resource.Loading _ _)=>capture_workspace snapshot draft trigger state
   |Some _,Some(Resource.Failed _ _ reason)=>fail state reason
  |_,_=>match owner with
@@ -940,7 +949,11 @@ Definition refresh_input snapshot input state:=match input with
 |Input.BeginVoiceNew owner=>let draft:=SS.current_draft state owner in
  match current_voice_command state draft with Some command=>ensure_request snapshot(voice_owner command)(Draft.revision draft)command state|None=>keep state end
 |Input.Submit owner _=>let draft:=SS.current_draft state owner in
- if SS.pending_editor owner state then keep state else
+ let incomplete:=match owner with
+ |Identity.WorkflowStart _=>match EO.body_requirements snapshot owner(Draft.contents draft) with
+    |[]=>false|_=>true end
+ |_=>false end in
+ if SS.pending_editor owner state || incomplete then keep state else
  let checked:=match current_command state draft with Some command=>ensure_request snapshot(CommandAssessment.DraftOwner owner)(Draft.revision draft)command state|None=>keep state end in
  match SO.worktree_preference snapshot state draft with
  |Some update=>append checked(ensure_request snapshot(CommandAssessment.DirectOwner(CommandAssessment.command_identity update))

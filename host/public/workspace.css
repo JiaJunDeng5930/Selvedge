@@ -535,6 +535,91 @@ dialog[data-semantic-key="card-details"] {
 [data-page-region="task-graph-entries"] {
   gap: 1.5rem !important;
 }
+[data-page-region="task-graph-entries"]:has(> [data-workflow-workspace]) {
+  flex: 1 1 auto !important;
+  min-block-size: 0 !important;
+}
+[data-workflow-workspace] {
+  display: grid !important;
+  grid-template-rows: auto minmax(0, 1fr);
+  flex: 1 1 auto !important;
+  min-block-size: min(20rem, 55dvh) !important;
+  gap: 0 !important;
+  border: 1px solid var(--selvedge-border);
+  border-radius: 0.625rem;
+  background: var(--selvedge-surface);
+  overflow: clip;
+}
+[data-workflow-viewport-controls] {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-inline-size: 0;
+  padding: 0.375rem 0.5rem;
+  border-block-end: 1px solid var(--selvedge-border);
+}
+[data-workflow-viewport-controls] > :is(button, select) {
+  min-block-size: 2.125rem;
+  padding-inline: 0.5rem;
+  border: 1px solid var(--selvedge-border);
+  border-radius: 0.375rem;
+  color: var(--selvedge-text);
+  background: var(--selvedge-surface);
+  font: inherit;
+}
+[data-workflow-viewport-controls] > select {
+  max-inline-size: min(45%, 19rem);
+  margin-inline-end: auto;
+}
+[data-workflow-viewport-controls] > button {
+  cursor: pointer;
+}
+[data-workflow-viewport-controls] > button:hover {
+  background: var(--selvedge-hover);
+}
+[data-workflow-canvas] {
+  position: relative;
+  min-block-size: 0;
+  overflow: clip;
+  cursor: grab;
+  touch-action: none;
+  background-image: radial-gradient(var(--selvedge-border) 0.65px, transparent 0.65px);
+  background-size: calc(1.25rem * var(--workflow-scale, 1)) calc(1.25rem * var(--workflow-scale, 1));
+  background-position: var(--workflow-x, 16px) var(--workflow-y, 16px);
+}
+[data-workflow-canvas][data-panning] {
+  cursor: grabbing;
+  user-select: none;
+}
+[data-workflow-plane] {
+  position: absolute;
+  inset: 0 auto auto 0;
+  display: flex;
+  align-items: start;
+  gap: 4rem;
+  inline-size: max-content;
+  transform-origin: 0 0;
+  transform: translate(var(--workflow-x, 16px), var(--workflow-y, 16px)) scale(var(--workflow-scale, 1));
+}
+[data-workflow-plane] > [data-semantic-key^="workflow/"] {
+  inline-size: max-content !important;
+  min-inline-size: min(18rem, 82vw);
+}
+[data-semantic-key="workflow-controls"] {
+  display: flex !important;
+  flex-flow: row wrap !important;
+  align-items: center !important;
+  max-inline-size: min(100%, max(16rem, 86vw));
+  gap: 0.3rem !important;
+  padding-block-end: 0.25rem;
+}
+[data-semantic-key="workflow-controls"] > :first-child {
+  flex-basis: 100%;
+}
+[data-semantic-key="workflow-history"] > [data-surface-role="dialog-body"] > button {
+  inline-size: 100% !important;
+  justify-content: start !important;
+}
 
 [data-semantic-key="task-graph/group"] + [data-semantic-key="task-graph/group"] {
   padding-block-start: 1rem !important;
@@ -608,19 +693,6 @@ dialog[data-semantic-key="card-details"] {
 }
 [data-semantic-key="workflow-node-name"][open] > summary::after {
   transform: rotate(225deg);
-}
-[data-semantic-key="task-graph/viewport"]:has(> [data-semantic-key="workflow-pan-hint"]) {
-  container: workflow-viewport / scroll-state;
-}
-[data-semantic-key="workflow-pan-hint"] {
-  display: none !important;
-}
-@container workflow-viewport scroll-state(scrollable: inline) {
-  [data-semantic-key="workflow-pan-hint"] {
-    display: block !important;
-    position: sticky;
-    inset-inline-start: 0;
-  }
 }
 [data-semantic-key="workflow-instance-markers"] {
   position: absolute;

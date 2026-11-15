@@ -285,9 +285,8 @@ Definition workflow_canvas snapshot parent compact definition :=
  let viewport := part parent "task-graph/viewport" in
  let canvas := part viewport "task-graph/canvas" in
  let edges := part canvas "edges" in
- graph_placement parent "task-graph/viewport" "工作流画布" Roles.Section Presentation.GraphViewport
- [information viewport "workflow-pan-hint" Information.Description "可以横向滚动查看其余节点。";
-  graph_placement viewport "task-graph/canvas" "" Roles.Content
+ region parent "task-graph/viewport" "工作流图" Roles.Section
+ [graph_placement viewport "task-graph/canvas" "" Roles.Content
   (Presentation.GraphCanvas Presentation.RootFontScale (Npos (Graphics.width drawing)) (Npos (Graphics.height drawing)))
   (graph_placement canvas "edges" "" Roles.Content Presentation.GraphEdges
    [Node (part edges "drawing") "task-graph/edges" "" Roles.Content (Graphic drawing) []] ::
@@ -310,6 +309,14 @@ Definition workflow_instance_summary parent value :=
  let key := "instance/" ++ show_natural id in
  declared parent Roles.Button
    (inspect_instance parent key (workflow_instance_label id ++ " · " ++ Read.workflow_instance_status value) id).
+Definition workflow_instances snapshot id :=
+ filter (fun value => match natural_field "workflow_id" value with
+   | Some origin => N.eqb id origin | None => false end) (workflow_list "workflow_instances" snapshot).
+Definition workflow_history snapshot parent id :=
+ match rev (workflow_instances snapshot id) with
+ |[]=>[information parent "empty" Information.Description "还没有运行记录。"]
+ |runs=>map (workflow_instance_summary parent) runs
+ end.
 Definition workflow_instance_details snapshot parent value :=
  let workflow := value_or "" (bind (field "definition" value) (string_field "name")) in
  let task_ids := nodup N.eq_dec (flat_map (fun occurrence =>
@@ -333,30 +340,34 @@ Definition workflow_instance_details snapshot parent value :=
    | _, _ => [] end) (workflow_list "paths" value) in
  ([read_only parent "workflow-name" "工作流" workflow;
    information parent "instance-status" Information.Status (Read.workflow_instance_status value)] ++ links ++ results)%list.
+Definition workflow_section_key definition :=
+ "workflow/" ++ show_natural (value_or 0%N (natural_field "workflow_id" definition)).
 Definition workflow_section snapshot parent compact definition :=
  let id := value_or 0%N (natural_field "workflow_id" definition) in
- let key := part parent ("workflow/" ++ show_natural id) in
- let runs := filter (fun value => match natural_field "workflow_id" value with
-   | Some origin => N.eqb id origin | None => false end) (workflow_list "workflow_instances" snapshot) in
+ let section := workflow_section_key definition in
+ let key := part parent section in
+ let runs := workflow_instances snapshot id in
  let active_runs := filter (fun instance => existsb active_workflow_path (workflow_list "paths" instance)) runs in
  let archived_definitions := fold_right (fun instance collected => match field "definition" instance with
    | Some graph => if same_workflow_canvas graph definition || existsb (same_workflow_canvas graph) collected
      then collected else graph :: collected
    | None => collected end) [] active_runs in
- region parent ("workflow/" ++ show_natural id) (workflow_field "name" definition) Roles.Section
-  ([group_title key (workflow_field "name" definition);
+ region parent section (workflow_field "name" definition) Roles.Section
+  ([Node (part key "workflow-controls") "workflow-controls" "" Roles.Toolbar Region
+   [group_title key (workflow_field "name" definition);
     declared key Roles.Button (secondary "edit-workflow" "编辑工作流"
       (Input.OpenEditor (Identity.WorkflowDefinition (Some id) None) (part key "edit-workflow")));
     declared key Roles.Button (secondary "start-workflow" "启动工作流"
       (Input.OpenEditor (Identity.WorkflowStart id) (part key "start-workflow")));
+    declared key Roles.Button (secondary "workflow-history" "运行记录"
+      (Input.OpenInformation (State.WorkflowHistory id) (part key "workflow-history")))];
     workflow_canvas snapshot key compact definition] ++
    map (fun '(index, graph) =>
      let version := ("saved/" ++ show_natural (N.of_nat index))%string in
      let name := ("运行中的历史版本 " ++ show_natural (N.of_nat index) ++ " · " ++ workflow_field "name" graph)%string in
      region key version name Roles.Section
        [group_title (part key version) name; workflow_canvas snapshot (part key version) compact graph])
-     (combine (seq 1 (List.length archived_definitions)) archived_definitions) ++
-   map (workflow_instance_summary key) (rev runs))%list.
+     (combine (seq 1 (List.length archived_definitions)) archived_definitions))%list.
 Definition ticket_workflow_controls snapshot s parent (card : Read.card) :=
  let id := Read.card_id card in
  let link := Read.ticket_workflow snapshot id in
@@ -401,29 +412,40 @@ Definition ticket_workflow_controls snapshot s parent (card : Read.card) :=
  match Read.card_task card, Read.card_archived card with
  | None, false => (configured, options)
  | _, _ => (configured, []) end.
+Definition relay_creation work parent :=
+ declared parent Roles.Button (secondary "graph/new" Editors.graph_creation_label
+   (Input.OpenEditor (graph_editor None work) (part parent "graph/new"))).
+Definition relay_contents snapshot s parent :=
+ let work:=State.active_work(State.navigation_state s) in
+ let create:=relay_creation work parent in
+ match scoped_graphs work snapshot with
+ |Some []=>[region parent "task-graph/empty" "" Roles.Section
+    [group_title (part parent "empty-relay-heading") "暂无对话转发";
+     information parent "task-graph/empty-description" Information.Description "把来源对话的新回复发送到接收对话。";
+     region parent "task-graph/empty-route" "转发方向" Roles.Section
+     [Node (part parent "graph/empty-source") "task-graph/empty-endpoint" "" Roles.Content (ReadOnly GraphAuthoring.source_endpoint_label) [];
+      Node (part parent "graph/empty-direction") "task-graph/empty-direction" "" Roles.Decorative (Fact "→") [];
+      Node (part parent "graph/empty-target") "task-graph/empty-endpoint" "" Roles.Content (ReadOnly GraphAuthoring.target_endpoint_label) []];
+     create]]
+ |Some entries=>create :: map (graph_node snapshot s parent) entries
+ |None=>[read_only parent "unavailable" task_graphs_label "对话转发暂不可用。"]end.
 Definition graphs_page snapshot s parent compact :=
  let work:=State.active_work(State.navigation_state s) in
- let graphs:=scoped_graphs work snapshot in
- let definitions:=filter (workflow_scope work) (workflow_list "workflows" snapshot) in
+ let definitions:=rev (filter (workflow_scope work) (workflow_list "workflows" snapshot)) in
  let create_workflow:=declared parent Roles.PrimaryButton
    (primary "workflow/new" "创建工作流"
      (Input.OpenEditor (Identity.WorkflowDefinition None work) (part parent "workflow/new"))) in
- let create:=declared parent Roles.PrimaryButton
-   (primary "graph/new" Editors.graph_creation_label
-     (Input.OpenEditor(graph_editor None(State.active_work(State.navigation_state s)))(part parent "graph/new"))) in
+ let relay:=declared parent Roles.Button
+   (secondary "conversation-relays" "对话转发" (Input.OpenInformation State.ConversationRelays (part parent "conversation-relays"))) in
  [browse_heading parent
    (page_region parent Composition.CollectionTitle Composition.HeadingPosition[title parent task_graphs_label])
    [page_region parent Composition.CollectionActions Composition.HeadingPosition
-     (create_workflow :: match graphs with Some []=>[]|_=>[create]end)];
+     (create_workflow :: match definitions with []=>[]|_=>[relay]end)];
   page_region parent Composition.TaskGraphEntries Composition.BodyPosition
-   (map (workflow_section snapshot parent compact) (rev definitions) ++ (match graphs with
-    |Some []=>[region parent "task-graph/empty" "" Roles.Section
-      [group_title (part parent "empty-relay-heading") "暂无对话转发";
-       information parent "task-graph/empty-description" Information.Description "把来源对话的新回复发送到接收对话。";
-       region parent "task-graph/empty-route" "转发方向" Roles.Section
-       [Node (part parent "graph/empty-source") "task-graph/empty-endpoint" "" Roles.Content (ReadOnly GraphAuthoring.source_endpoint_label) [];
-        Node (part parent "graph/empty-direction") "task-graph/empty-direction" "" Roles.Decorative (Fact "→") [];
-        Node (part parent "graph/empty-target") "task-graph/empty-endpoint" "" Roles.Content (ReadOnly GraphAuthoring.target_endpoint_label) []];
-       create]]
-    |Some entries=>map(graph_node snapshot s parent)entries
-    |None=>[read_only parent "unavailable" task_graphs_label "对话转发暂不可用。"]end))%list].
+   (match definitions with
+    |[]=>relay_contents snapshot s parent
+    |_=>let key := part parent ("workflow-workspace/" ++ value_or "all" (option_map show_natural work)) in
+       [Node key "workflow-workspace" "工作流画布" Roles.Section
+         (WorkflowWorkspace (map (fun definition => (workflow_section_key definition, workflow_field "name" definition)) definitions))
+         (map (workflow_section snapshot key compact) definitions)]
+    end)].

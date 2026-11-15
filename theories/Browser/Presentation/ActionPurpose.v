@@ -67,7 +67,8 @@ Definition describe snapshot state input:P.purpose:=match input with
 |Input.BoardToggle category value=>match BoardFilter.parse_category category with
  |Some category=>P.BoardFilterChoice category value|None=>P.NamedAction end
 |Input.OpenInformation(SS.CardDetails card) trigger=>P.DialogTrigger(P.OpenCardDetails card)(panel_open trigger state)
-|Input.OpenInformation(SS.WorkflowInstanceDetails _) trigger=>P.DialogTrigger P.NamedAction (panel_open trigger state)
+|Input.OpenInformation(SS.WorkflowInstanceDetails _|SS.WorkflowHistory _|SS.ConversationRelays) trigger=>
+ P.DialogTrigger P.NamedAction (panel_open trigger state)
 |Input.OpenInformation(SS.TaskDetails task) _=>P.OpenPanel "inspector" false
  (match State.layers(State.navigation_state state)with
   |layer::_=>match State.layer_panel layer with

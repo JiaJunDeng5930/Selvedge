@@ -358,6 +358,8 @@ Definition information_panel snapshot (s:State.state) kind parent :=match kind w
  match Read.find_workflow_instance snapshot instance with
  |Some value=>Collections.workflow_instance_details snapshot parent value
  |None=>[information parent "instance-loading" Information.Status "正在读取实例…"] end
+|State.WorkflowHistory workflow=>Collections.workflow_history snapshot parent workflow
+|State.ConversationRelays=>Collections.relay_contents snapshot s parent
 |State.PropertySource e request=>
  let label (project other:string):=match e with Identity.Project _=>project|_=>other end in
  match Observation.property_for_request snapshot s e request with
@@ -403,6 +405,8 @@ Definition panel_title panel := match panel with
  |State.InformationPanel(State.TaskContext _)=>"执行环境"
  |State.InformationPanel(State.CardDetails _)=>"卡片详情"
  |State.InformationPanel(State.WorkflowInstanceDetails instance)=>Collections.workflow_instance_label instance
+ |State.InformationPanel(State.WorkflowHistory _)=>"运行记录"
+ |State.InformationPanel State.ConversationRelays=>"对话转发"
  |State.InformationPanel(State.PropertySource e _)=>Activities.configuration_source_label e
  |State.BoardSettingsPanel=>"看板设置"|State.BoardFiltersPanel=>"筛选卡片"
  |State.ArchivedCardsPanel=>"归档卡片"|State.Confirmation _ caption _=>caption
@@ -466,6 +470,7 @@ Definition layer_view snapshot s capacity compact_model_picker layer hide_side_d
      dialog_body parent content]
   |State.InformationPanel(State.TaskContext _)
   |State.InformationPanel(State.CardDetails _)|State.InformationPanel(State.WorkflowInstanceDetails _)|State.BoardSettingsPanel
+  |State.InformationPanel(State.WorkflowHistory _)|State.InformationPanel State.ConversationRelays
   |State.ArchivedCardsPanel=>[dismissible_heading parent (panel_title panel);dialog_body parent content]
   |_=>if Model.modal_layer behavior then [dialog_body parent content] else content end in
   let semantic:=match panel with
@@ -482,6 +487,8 @@ Definition layer_view snapshot s capacity compact_model_picker layer hide_side_d
     |State.InformationPanel(State.TaskContext _)=>"task-context"
     |State.InformationPanel(State.CardDetails _)=>"card-details"
     |State.InformationPanel(State.WorkflowInstanceDetails _)=>"workflow-instance-details"
+    |State.InformationPanel(State.WorkflowHistory _)=>"workflow-history"
+    |State.InformationPanel State.ConversationRelays=>"conversation-relays"
     |State.BoardSettingsPanel=>"board-settings"
     |State.BoardFiltersPanel=>"board-filters"
     |State.ArchivedCardsPanel=>"archived-cards"

@@ -13,9 +13,11 @@ import { safeHref, scheduleDisplay, cancelDisplay } from './markdown.mjs';
 import { findHistoryRange, firstRangeRect } from './history-location.mjs';
 import { createPhysicalMeasurer } from './physical-measurement.mjs';
 import { installModelPickerPreview } from './model-picker.mjs';
+import { installWorkflowViewport } from './workflow-viewport.mjs';
 
 const surface = document.getElementById('surface');
 installModelPickerPreview(surface);
+installWorkflowViewport(surface);
 const announcements = document.getElementById('announcements');
 const updateStatus = document.getElementById('selvedge-update-status');
 const documentRelease = document.querySelector('meta[name="selvedge-release"]')?.content;
@@ -1340,7 +1342,8 @@ async function performAssessment({ effect, namespace, key, controller }) {
   } catch (error) {
     // DEFENSE: A newer draft assessment or page teardown cancels this superseded request.
     if (controller.signal.aborted || publication.namespace !== namespace) return;
-    dispatch({ type: 'command_assessed', ticket: effect.ticket, ok: false, error: error.message });
+    const message = error.name === 'TimeoutError' ? '检查超时，请重试。' : error.message;
+    dispatch({ type: 'command_assessed', ticket: effect.ticket, ok: false, error: message });
   } finally {
     if (assessments.get(key) === controller) assessments.delete(key);
   }

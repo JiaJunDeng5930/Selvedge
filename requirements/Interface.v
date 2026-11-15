@@ -389,9 +389,12 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     exit and Task nodes, select a configured model by its display name,
     and describe alternative outgoing connections. Start shows the definition
     name, offers its entrance nodes and accepts a multiline message.
-    The task-graph page shows each accepted definition change and new instance
-    without requiring a reload. Conversation forwarding has its own controls
-    and empty state. The current workflow and entrance remain visible on the
+    The task-graph page puts the current Work's definitions on a shared canvas
+    with pan, zoom, and direct navigation to each definition. Instance history
+    opens separately so new receipts do not move the canvas or other definitions.
+    Accepted definition changes and new instances appear without requiring a
+    reload. Conversation forwarding has its own controls and empty state.
+    The current workflow and entrance remain visible on the
     ticket. An instance can be opened from the ticket, the workflow or one
     of its active node markers. Each exit result is separately expandable
     and identifies the path and the final connection's source and exit.

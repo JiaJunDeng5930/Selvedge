@@ -41,7 +41,7 @@ Definition recipe value :=
       NoComposer NoDecisions
   | TaskBoard => Recipe AvailableMeasure PageHeading StageColumns
       NoComposer NoDecisions
-  | TaskGraphCollection => Recipe OverviewMeasure PageHeading TaskGraphRows
+  | TaskGraphCollection => Recipe AvailableMeasure PageHeading TaskGraphRows
       NoComposer NoDecisions
   | HistorySearchCollection => Recipe OverviewMeasure PageHeading HistoryResultRows
       NoComposer NoDecisions
