@@ -381,7 +381,19 @@ test('workflows can be authored and started in place from the browser', { timeou
       assert.equal(await name.innerText(), otherWorkflow);
       assert.ok(await name.evaluate(title => title.scrollWidth <= title.clientWidth + 1));
       assert.ok((await zoomIn.boundingBox()).width >= 36);
-      assert.equal(await main.getByRole('button', { name: '编辑工作流', exact: true }).innerText(), '编辑');
+      assert.equal(await main.getByRole('button', { name: '编辑工作流', exact: true }).innerText(), '编辑工作流');
+      const landscapeName = canvas.locator('summary:visible').filter({ hasText: longEntrance });
+      await until(async () => await landscapeName.getAttribute('data-workflow-overflow') !== null,
+        'The long landscape node title offers a disclosure');
+      const frame = await canvas.boundingBox();
+      assert.ok(frame.height >= 185);
+      await landscapeName.click();
+      const fullName = main.getByRole('region', { name: '完整节点名称', exact: true });
+      await fullName.getByText(longEntrance, { exact: true }).waitFor();
+      assert.ok((await fullName.boundingBox()).x + 1 >= frame.x + frame.width);
+      assert.deepEqual(await canvas.boundingBox(), frame);
+      await page.keyboard.press('Escape');
+      await fullName.waitFor({ state: 'hidden' });
       await main.getByRole('button', { name: '启动工作流', exact: true }).click();
       const launchPanel = page.getByRole('dialog', { name: '启动工作流', exact: true });
       await launchPanel.getByRole('combobox', { name: '入口', exact: true }).selectOption({ label: 'entry' });

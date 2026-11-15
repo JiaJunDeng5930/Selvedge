@@ -842,15 +842,13 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  let extra:=match source,C.action_purpose purpose with
   |S.TaskRow _ _ (Some _) _,C.NavigateTo _=>("aria-describedby",(key++"/status-slot")%string)::extra
   |_,_=>extra end in
- let workflow_edit := String.eqb (S.semantic_key value) "edit-workflow" in
  DOM.Element key "button" (attrs++[("type",type_)] ++control_attributes (focusable || negb available) help action++
  (match property_help with Some name=>[("aria-label",name)]|None=>[]end)++
  (match role with Roles.WorkOverviewButton count=>[("title",(text_number count++" tab(s)")%string);("aria-label",("Work overview · "++text_number count++" tab(s)")%string)]
  |_=>[]end)++
  (if help then ("data-help",description)::
    (match role with Roles.GlobalNavigationEntry _ true=>[]|_=>[("title",description)]end)else[])++
- purpose_attributes purpose++navigation_attributes role++help_describedby key help
- (if workflow_edit && negb help then ("title",Model.control_label action)::extra else extra))
+ purpose_attributes purpose++navigation_attributes role++help_describedby key help extra)
  (styles++control_styles purpose role++
  (match summary_choice with Some _=>checkbox_hit_extent++[("padding","0")]|None=>[]end)++
  (match source with S.TaskRow _ _ _ _=>[("display","flex");("flex-direction","row");("align-items","center");("inline-size","100%");("min-inline-size",Typography.px(Layout.motor_minimum env));("padding","0");("gap",Typography.px(ControlContent.navigation_following env))]|_=>[]end)++match source,C.action_purpose purpose with S.CardContent _,C.OpenCardDetails _=>
@@ -886,8 +884,6 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
    |S.WorkChoice _ selected _=>choice_content env activity key selected []
       (match authored_children with []=>[DOM.Text(Model.control_label action)]|_=>authored_children end)
    |_=>face_children purpose current_area role(Model.control_label action)children end end end end end) ++
- (if workflow_edit then [DOM.Element (key++"/short-caption")%string "span"
-   [("data-workflow-compact-edit-label","");("aria-hidden","true")] [] [] empty [DOM.Text "编辑"]] else []) ++
  (match role with Roles.WorkTab false=>
   [DOM.Element(key++"/separator")%string "span" [("aria-hidden","true")]
    [("position","absolute");("inset-inline-end","0");("inset-block-start","50%");

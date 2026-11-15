@@ -18,6 +18,19 @@ function wrapWorkflowName(target) {
   target.replaceChildren(content);
 }
 
+function limitNodeNameLines(summary) {
+  const card = summary.parentElement.parentElement;
+  const role = card.querySelector('[data-semantic-key^="workflow-node-kind/"]');
+  const { paddingBlockStart, paddingBlockEnd, rowGap } = getComputedStyle(card);
+  const style = getComputedStyle(summary);
+  // Clamp to whole lines inside the node after reserving space for its role.
+  const room = card.clientHeight - role.offsetHeight - parseFloat(paddingBlockStart) -
+    parseFloat(paddingBlockEnd) - parseFloat(rowGap);
+  const limit = Number(style.getPropertyValue('--workflow-name-line-limit'));
+  const lines = Math.max(1, Math.min(limit, Math.floor(room / parseFloat(style.lineHeight))));
+  summary.style.setProperty('--workflow-name-lines', String(lines));
+}
+
 export function showWorkflowTimes(surface) {
   for (const time of surface.querySelectorAll('time[data-epoch-seconds]:not([datetime])')) {
     const date = new Date(Number(time.dataset.epochSeconds) * 1000);
@@ -44,6 +57,7 @@ export function installWorkflowViewport(surface) {
   const labelObserver = new ResizeObserver(entries => {
     for (const { target } of entries) {
       const name = target.closest('[data-semantic-key="workflow-preview-name"]');
+      if (!name && target.clientWidth > 0) limitNodeNameLines(target);
       const tolerance = name ? 0 : 1;
       const overflow = target.scrollHeight - target.clientHeight > tolerance ||
         target.scrollWidth - target.clientWidth > tolerance;
@@ -74,7 +88,10 @@ export function installWorkflowViewport(surface) {
   }
   function showName(panel, text) {
     const name = panel.querySelector('[data-workflow-full-name]');
-    if (name.textContent !== text) name.textContent = text;
+    if (name.textContent !== text) {
+      name.textContent = text;
+      wrapWorkflowName(name);
+    }
     return panel;
   }
   function showPreviewName(source) {

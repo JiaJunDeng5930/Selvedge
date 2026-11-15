@@ -769,7 +769,6 @@ dialog[data-semantic-key="card-details"] {
 [data-workflow-actions] button {
   min-block-size: max(36px, 2.25rem) !important;
 }
-[data-workflow-compact-edit-label] { display: none; }
 @media (max-width: 440px) {
   [data-workflow-viewport-controls] { flex-wrap: wrap; }
   [data-workflow-selection] { flex-basis: 100%; }
@@ -810,26 +809,38 @@ dialog[data-semantic-key="card-details"] {
     [data-workflow-canvas] { grid-row: 3; }
   }
 }
-@media (orientation: landscape) and (max-height: 480px) and (min-width: 600px) and (max-width: 899px) {
+@media (orientation: landscape) and (max-height: 480px) and (min-width: 540px) and (max-width: 899px) {
   [data-workflow-frame="selected"] {
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-rows: repeat(2, var(--workflow-toolbar-row-height)) minmax(0, 1fr);
-    [data-workflow-viewport-controls] { grid-column: 1; }
-    [data-workflow-actions] { grid-area: 1 / 2; }
-    [data-workflow-node-detail] { grid-row: 2; }
-    [data-workflow-canvas] { grid-row: 3; }
+    grid-template-columns: minmax(0, 1fr) clamp(9.25rem, 26%, 12rem);
+    grid-template-rows: auto auto minmax(0, 1fr);
+    [data-workflow-actions] {
+      grid-area: 2 / 2;
+      border-inline-start: 1px solid var(--selvedge-border);
+      [data-semantic-key^="workflow/"]:not([hidden]) {
+        flex-flow: column nowrap !important;
+        align-items: stretch !important;
+      }
+    }
+    [data-workflow-node-detail] {
+      grid-area: 3 / 2;
+      grid-template-rows: minmax(0, 1fr);
+      min-block-size: 0;
+      border-inline-start: 1px solid var(--selvedge-border);
+      > * { align-self: start; }
+      > [data-workflow-full-name] {
+        align-self: stretch;
+        min-block-size: 0;
+        max-block-size: none;
+        line-height: 1.25;
+      }
+    }
+    [data-workflow-canvas] { grid-area: 2 / 1 / 4 / 2; }
   }
 }
-@media (orientation: landscape) and (max-height: 480px) and (min-width: 600px) and (max-width: 760px) {
+@media (orientation: landscape) and (max-height: 480px) and (min-width: 540px) and (max-width: 760px) {
   main:has(> [data-page-region="task-graph-entries"] > [data-workflow-workspace]) {
     padding-inline: 0.75rem !important;
   }
-  [data-workflow-actions] button[data-semantic-key="edit-workflow"] {
-    min-inline-size: 36px !important;
-    padding-inline: 0.45rem !important;
-  }
-  [data-workflow-actions] button[data-semantic-key="edit-workflow"] > :not([data-workflow-compact-edit-label]) { display: none; }
-  [data-workflow-compact-edit-label] { display: inline; }
 }
 [data-semantic-key="workflow-history"] button[data-semantic-key^="run/"] {
   display: grid !important;
@@ -943,11 +954,12 @@ button[data-semantic-key^="instance/"]:hover {
   --workflow-node-tone: var(--selvedge-accent);
 }
 [data-semantic-key="workflow-node-name"] > summary {
+  --workflow-name-line-limit: 4;
   position: relative;
   display: -webkit-box !important;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
-  max-block-size: 4lh;
+  -webkit-line-clamp: var(--workflow-name-lines, var(--workflow-name-line-limit));
+  max-block-size: calc(var(--workflow-name-lines, var(--workflow-name-line-limit)) * 1lh);
   overflow: hidden;
   overflow-wrap: anywhere;
   text-overflow: ellipsis;
@@ -959,8 +971,7 @@ button[data-semantic-key^="instance/"]:hover {
 [data-semantic-key="workflow-node-name"][open] > summary { cursor: pointer; }
 @media (min-width: 1024px) {
   [data-semantic-key="workflow-node-name"] > summary {
-    -webkit-line-clamp: 3;
-    max-block-size: 3lh;
+    --workflow-name-line-limit: 3;
   }
 }
 @media (max-width: 440px), (orientation: landscape) and (max-height: 480px) {
@@ -973,14 +984,12 @@ button[data-semantic-key^="instance/"]:hover {
 }
 @media (min-width: 341px) and (max-width: 375px) {
   [data-semantic-key="workflow-node-name"] > summary {
-    -webkit-line-clamp: 3;
-    max-block-size: 3lh;
+    --workflow-name-line-limit: 3;
   }
 }
 @media (max-width: 340px) {
   [data-workflow-plane] [data-semantic-key="workflow-node-name"] > summary {
-    -webkit-line-clamp: 2;
-    max-block-size: 2lh;
+    --workflow-name-line-limit: 2;
     font-size: clamp(0.8125rem, calc(0.75rem / var(--workflow-scale, 1)), 1.5625rem);
   }
   [data-workflow-plane] [data-semantic-key="workflow-node"]:has(> details) [data-semantic-key^="workflow-node-kind/"] {
@@ -990,8 +999,7 @@ button[data-semantic-key^="instance/"]:hover {
 @media (orientation: landscape) and (max-height: 480px) {
   [data-workflow-plane] [data-semantic-key="workflow-node"] { padding-block: 0.125rem !important; }
   [data-semantic-key="workflow-node-name"] > summary {
-    -webkit-line-clamp: 3;
-    max-block-size: 3lh;
+    --workflow-name-line-limit: 3;
   }
 }
 [data-semantic-key="workflow-node-name"] > summary::after {
@@ -1081,6 +1089,7 @@ button[data-semantic-key^="instance/"]:hover {
   overflow-wrap: anywhere;
   cursor: text;
 }
+[data-workflow-full-name] { word-break: keep-all; }
 [data-workflow-node-detail] {
   grid-column: 1 / -1;
   grid-row: 3;
