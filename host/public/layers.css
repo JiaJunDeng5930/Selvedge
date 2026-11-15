@@ -77,6 +77,9 @@ dialog[data-semantic-key="project-editor"] {
   border: 1px solid var(--selvedge-border);
   border-radius: 8px;
 }
+[data-semantic-key="workflow-start-feedback"] {
+  min-block-size: 2lh;
+}
 @media (min-width: 600px) and (max-height: 460px) {
   dialog:has([data-semantic-key="graph-options"][open]) {
     inline-size: min(40rem, calc(100dvw - 1.5rem)) !important;

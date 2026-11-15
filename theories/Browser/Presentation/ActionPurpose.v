@@ -67,6 +67,7 @@ Definition describe snapshot state input:P.purpose:=match input with
 |Input.BoardToggle category value=>match BoardFilter.parse_category category with
  |Some category=>P.BoardFilterChoice category value|None=>P.NamedAction end
 |Input.OpenInformation(SS.CardDetails card) trigger=>P.DialogTrigger(P.OpenCardDetails card)(panel_open trigger state)
+|Input.OpenInformation(SS.WorkflowInstanceDetails _) trigger=>P.DialogTrigger P.NamedAction (panel_open trigger state)
 |Input.OpenInformation(SS.TaskDetails task) _=>P.OpenPanel "inspector" false
  (match State.layers(State.navigation_state state)with
   |layer::_=>match State.layer_panel layer with
@@ -87,7 +88,8 @@ Definition describe snapshot state input:P.purpose:=match input with
 |Input.ActivityFocus _ _ None=>P.ActivityBack
 |Input.ActivityFocus _ _ (Some _)|Input.InspectSource _ _ _|Input.TogglePropertySource _ _=>P.ActivityDestination
 |Input.ActivityComplete _=>P.ActivityBack
-|Input.BeginSide _ trigger|Input.ShowSide _ trigger=>P.DialogTrigger(P.OpenPanel "conversation"false false)(panel_open trigger state)
+|Input.BeginSide _ trigger|Input.ShowSide _ trigger|Input.InspectWorkflowTask _ trigger=>
+ P.DialogTrigger(P.OpenPanel "conversation"false false)(panel_open trigger state)
 |Input.ClosePanel=>P.Dismiss|Input.CloseSide=>P.Dismiss
 |Input.NavigationExpanded _=>P.ToggleNavigation(Navigation.expanded_for false state)
 |Input.TaskListVisible _=>P.ToggleNavigation(State.desktop_task_list_visible(State.navigation_state state))

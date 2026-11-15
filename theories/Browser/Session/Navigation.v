@@ -112,6 +112,7 @@ Definition request_key request:=match request with
 Definition information_key panel := match panel with
  |State.TaskDetails task=>"task-details/"++show_natural task
  |State.CardDetails card=>"card-details/"++show_natural card
+ |State.WorkflowInstanceDetails instance=>"workflow-instance-details/"++show_natural instance
  |State.TaskContext task=>"task-context/"++show_natural task
  |State.PropertySource owner request=>"property-source/"++editor_key owner++"/"++request_key request end.
 Definition panel_key panel:=match panel with
@@ -424,6 +425,9 @@ Definition step snapshot input state:option result:=match input with
    |State.PropertyPanel _ _|State.EditorPanel(Identity.Project _)=>Some(set State.layer_parameter_buffer(fun _=>Some text)layer)|_=>None end)state)
  |Input.BeginSide task trigger=>Some(begin_side snapshot task trigger state)
  |Input.ShowSide task trigger=>Some(show_side snapshot task trigger state)
+ |Input.InspectWorkflowTask task trigger=>Some(match DocumentState.find_task task snapshot with
+   |Some _=>open_side_window task trigger state
+   |None=>refuse "此工作流的对话已不可用。" state end)
  |Input.CloseSide=>Some(close_side state)
  |Input.NavigationExpanded expanded=>let state:=selection_intent state in
    Some(keep(State.with_navigation(set State.navigation_intent(fun _=>if expanded then State.OpenNavigation else State.ClosedNavigation)(State.navigation_state state))state))

@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers TextJson.
+From Selvedge.Features Require Workflow.
 From Selvedge.Interaction Require Import Codec Identity.
 From Selvedge.Interaction Require World.
 From Selvedge.Interaction.Experience Require Model Observation Read.
@@ -111,12 +112,16 @@ Definition connection_fields parent nodes edges save '(index, entry) :=
  let key := part parent (row_number index) in
  let caption := "连线 " ++ row_number index in
  let assign updated := save (replace_row index updated edges) in
- let endpoint_options := map (fun node =>
+ let endpoint_options options := map (fun node =>
    let name := value_or "" (string_field "key" node) in
-   Fields.ChoiceValue name name) (filter (fun node => negb (endpoint_uses "key" node "")) nodes) in
- let endpoint field label :=
+   Fields.ChoiceValue name name) (filter (fun node => negb (endpoint_uses "key" node "")) options) in
+ let sources := filter (fun node => match Workflow.parse_node node with
+   | Some parsed => Workflow.outgoing_allowed parsed | None => false end) nodes in
+ let endpoint field label entries :=
    let selected := value_or "" (string_field field entry) in
-   select_field key field label selected (Fields.ChoiceValue "" "请选择节点" :: endpoint_options)
+   select_field key field label selected
+     (select_prompt "当前节点不可用，请重新选择" selected
+       (Fields.ChoiceValue "" "请选择节点" :: endpoint_options entries))
      (fun raw => assign (if String.eqb raw "" then without_field field entry else replace field (JString raw) entry)) in
  let message := value_or JNull (Json.field "message" entry) in
  let message_kind := value_or "output" (string_field "kind" message) in
@@ -131,7 +136,7 @@ Definition connection_fields parent nodes edges save '(index, entry) :=
       else [])
    else [information key "custom-message" Information.Description "在高级选项中编辑此自定义消息。"] in
  Node key "workflow-connection-editor" caption Roles.Section Region
-   ([group_title key caption; endpoint "source" "来源节点"; endpoint "target" "接收节点";
+   ([group_title key caption; endpoint "source" "来源节点" sources; endpoint "target" "接收节点" nodes;
      text_field key "description" "连线说明" false entry assign] ++ message_fields ++
     form_action key "remove-connection" ("移除" ++ caption) (save (remove_row index edges)))%list.
 

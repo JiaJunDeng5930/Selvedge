@@ -552,6 +552,7 @@ Definition planned_regions (context : prepared) : option region_plan :=
  let layout:=shell_mode_changed before context in
  let invalidate:=first || connected || layout in
  let main:=invalidate || (snapshot && main_world_changed before context) ||
+   (resized && match current_route context with Graphs=>true|_=>false end) ||
    context_route_changed before context || creation_changed before context ||
    main_local context incoming || negb online ||
    state_changed ["board"] before context ||

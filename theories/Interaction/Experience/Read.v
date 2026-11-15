@@ -186,7 +186,19 @@ Definition observe_card value :=
 Definition board_cards snapshot := bind(board_value snapshot)(list_field observe_card "cards").
 Definition find_card id snapshot := value<-board_value snapshot;;
  bind(World.find_world "cards" "card_id" id value)observe_card.
+Definition ticket_workflow snapshot id :=
+ World.find_world "ticket_workflows" "card_id" id snapshot.
+Definition find_workflow_instance snapshot id :=
+ World.find_world "workflow_instances" "instance_id" id snapshot.
+Definition ticket_instance snapshot id :=
+ bind (bind (ticket_workflow snapshot id) (natural_field "instance_id")) (find_workflow_instance snapshot).
+Definition workflow_instance_status value :=
+ match string_field "state" value with
+ | Some "completed" => "已完成" | Some "blocked" => "已阻塞" | _ => "进行中" end.
 Definition card_activity_label snapshot card:=
+ match ticket_instance snapshot (card_id card) with
+ |Some instance=>workflow_instance_status instance
+ |None=>
  let name:=card_activity card in
  if String.eqb name "completed" then
   match bind(card_task card)(fun id=>World.find_task id snapshot)with
@@ -197,7 +209,8 @@ Definition card_activity_label snapshot card:=
  (option_map snd(find(fun entry=>String.eqb name(fst entry))
  [("generating","生成中");("draft_failed","生成失败");("queued","排队中");("working","工作中");
   ("evaluating","评估推理等级");("compacting","整理上下文");("awaiting_approval","等待授权");
-  ("failed","运行失败");("interrupted","已中断");("paused","已暂停");("archived","会话已归档")])).
+  ("failed","运行失败");("interrupted","已中断");("paused","已暂停");("archived","会话已归档")]))
+ end.
 Definition card_owner_label snapshot owner:=match owner with
 |BoardDomain.Unassigned=>"未分配"|BoardDomain.Self=>"我"
 |BoardDomain.ProfileOwner key=>match ModelSelection.observed_profile snapshot key with

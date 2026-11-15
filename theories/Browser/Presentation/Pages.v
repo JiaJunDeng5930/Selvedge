@@ -399,7 +399,7 @@ Definition shared_page snapshot s work parent :=
    page_region parent Composition.SharedContent Composition.BodyPosition
     (let contents:=AuditReading.shared_ui Input.Interactive(document_context snapshot s)(State.document_retention s)(State.interactive_state s)in
      match contents with []=>[read_only parent "shared-empty" "共享 UI 尚未创建" "请让智能体创建共享 UI。"]|_=>contents end)]end.
-Definition page_contents snapshot s pending parent hide_details :=match pending with
+Definition page_contents snapshot s pending parent hide_details compact_graphs :=match pending with
 |Some message=>creating_conversation_page parent message
 |None=>match State.location(State.navigation_state s)with
 |Start|GraphConversation _ _=>creation_page snapshot s parent
@@ -407,7 +407,7 @@ Definition page_contents snapshot s pending parent hide_details :=match pending 
 |Projects=>Collections.projects_page snapshot s parent
 |ProjectHome id=>match find_project id snapshot with Some project=>Collections.project_page snapshot s parent project|None=>missing parent "This project no longer exists"end
 |Board=>Collections.board_page snapshot s parent
-|Graphs=>Collections.graphs_page snapshot s parent|HistorySearch=>history_page snapshot s parent
+|Graphs=>Collections.graphs_page snapshot s parent compact_graphs|HistorySearch=>history_page snapshot s parent
 |SharedUI work task=>shared_page snapshot s work parent end end.
 Definition page_kind_with snapshot s (pending:option Draft.text) :=match pending with
 |Some _=>Composition.Conversation false false
@@ -423,7 +423,7 @@ Definition page_kind_with snapshot s (pending:option Draft.text) :=match pending
 |HistorySearch=>Composition.HistorySearchCollection
 |SharedUI work _=>match find_work work snapshot with Some _=>Composition.SharedInterface|None=>Composition.Unavailable end end end.
 Definition page_kind snapshot s :=page_kind_with snapshot s (SessionNavigation.creating_conversation s).
-Definition main_with_details snapshot s hide_details :=
+Definition main_with_details snapshot s hide_details compact_graphs :=
  let pending:=SessionNavigation.creating_conversation s in
  Node "/main" "main" "Main content"Roles.Main(PageBody(page_kind_with snapshot s pending))
-  (page_contents snapshot s pending "/main" hide_details).
+  (page_contents snapshot s pending "/main" hide_details compact_graphs).

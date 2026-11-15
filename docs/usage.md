@@ -54,8 +54,9 @@ the instance completes.
 Use **启动工作流** to choose an entrance and enter the message, or choose a
 workflow and entrance in a ticket's details and then start its instance.
 The active nodes show one dot per instance, with the same color on each of
-its active nodes. Instance details link to its Tasks and show exit results
-or blocked paths. A ticket follows its current instance and completes
+its active nodes. Open the instance from a dot, the workflow, or the ticket.
+Instance details link to its Tasks and let you expand each exit result
+or inspect blocked paths. A ticket follows its current instance and completes
 automatically when that instance succeeds. Direct starts and ticket starts
 create separate instances, and editing the definition affects later starts.
 

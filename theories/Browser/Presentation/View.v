@@ -131,7 +131,8 @@ Definition view_region section snapshot state capacity : list (node Input.input)
  if Json.equal snapshot JNull then match section with MainRegionPart=>[connection_main state]|_=>[]end
  else match section with
  |NavigationRegionPart=>Navigation.navigation_base snapshot state capacity
- |MainRegionPart=>[Pages.main_with_details snapshot state (relocate_primary (details_owner snapshot state capacity))]
+ |MainRegionPart=>[Pages.main_with_details snapshot state
+  (relocate_primary (details_owner snapshot state capacity)) (negb (details_beside_timeline capacity))]
  |NoticesRegionPart=>pending_notices state
  end.
 

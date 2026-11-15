@@ -358,6 +358,14 @@ main > [data-page-region="collection-actions"]:has(> [data-semantic-key="history
   flex: none;
   gap: .25rem;
 }
+[data-board-stage-jump] {
+  min-block-size: 2rem;
+  max-inline-size: 9rem;
+  color: var(--selvedge-text);
+  background: var(--selvedge-surface);
+  border: 1px solid var(--selvedge-border);
+  border-radius: .375rem;
+}
 [data-semantic-key="board/working-empty"] {
   flex: none;
   align-self: flex-start;
@@ -555,14 +563,45 @@ dialog[data-semantic-key="card-details"] {
   border-radius: 0.5rem;
   padding: 0.35rem 0.65rem;
 }
+[data-semantic-key="workflow-node-name"] {
+  display: -webkit-box !important;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+[data-semantic-key="task-graph/viewport"]:has(> [data-semantic-key="workflow-pan-hint"]) {
+  container: workflow-viewport / scroll-state;
+}
+[data-semantic-key="workflow-pan-hint"] {
+  display: none !important;
+}
+@container workflow-viewport scroll-state(scrollable: inline) {
+  [data-semantic-key="workflow-pan-hint"] {
+    display: block !important;
+    position: sticky;
+    inset-inline-start: 0;
+  }
+}
 [data-semantic-key="workflow-instance-markers"] {
   position: absolute;
-  inset-block-start: -0.45rem;
-  inset-inline-end: 0.5rem;
+  inset-block-start: -0.8rem;
+  inset-inline-end: 0.3rem;
   display: flex;
   flex-direction: row !important;
   inline-size: max-content !important;
-  gap: 0.25rem;
+  gap: 0.125rem;
+}
+[data-semantic-key="workflow-instance-marker"] {
+  display: grid !important;
+  place-items: center;
+  inline-size: 2rem !important;
+  block-size: 2rem !important;
+  min-inline-size: 2rem !important;
+  min-block-size: 2rem !important;
+  padding: 0 !important;
+  border-radius: 50%;
+  background: var(--selvedge-surface, Canvas);
 }
 [data-semantic-key="workflow-instance-dot"] {
   flex: none;
@@ -577,4 +616,7 @@ dialog[data-semantic-key="card-details"] {
 [data-semantic-key="workflow-exit-output"] {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+[data-semantic-key="workflow-exit-result"] summary {
+  cursor: pointer;
 }

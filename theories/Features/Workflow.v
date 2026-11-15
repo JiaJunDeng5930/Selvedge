@@ -35,6 +35,8 @@ Definition entrance g key := match lookup_node key g with Some (Node _ Entrance)
 Definition unique (names : list string) :=
  Nat.eqb (List.length names) (List.length (nodup String.string_dec names)).
 Definition bounded_key key := match D.decode identifier (JString key) with Some _ => true | None => false end.
+Definition outgoing_allowed n :=
+ match node_behavior n with Exit => false | _ => true end.
 Definition valid_graph (g : graph) v :=
  bounded_key (workflow_name g) &&
  N.leb (N.of_nat (List.length (workflow_nodes g))) 128 &&
@@ -45,7 +47,7 @@ Definition valid_graph (g : graph) v :=
  forallb (fun n => bounded_key (WorkflowTypes.node_key n) &&
    match node_behavior n with
    | Entrance => negb (Nat.eqb (List.length (outgoing g (WorkflowTypes.node_key n))) 0)
-   | Exit => Nat.eqb (List.length (outgoing g (WorkflowTypes.node_key n))) 0
+   | Exit => true
    | TaskNode (ExistingTask id) =>
       match find_task id v with
       | Some task => negb (task_archived task) && TaskGraph.task_in_work (workflow_work g) id v
@@ -54,7 +56,7 @@ Definition valid_graph (g : graph) v :=
    end) (workflow_nodes g) &&
  forallb (fun e => bounded_key (connection_key e) &&
    match lookup_node (connection_source e) g, lookup_node (connection_target e) g with
-   | Some n, Some _ => match node_behavior n, outgoing g (WorkflowTypes.node_key n) with
+   | Some n, Some _ => outgoing_allowed n && match node_behavior n, outgoing g (WorkflowTypes.node_key n) with
      | TaskNode _, _ :: _ :: _ => Codec.nonempty (connection_description e)
      | _, _ => true end
    | _, _ => false end) (workflow_connections g).
@@ -100,7 +102,13 @@ Definition save_graph id owner name nodes edges v :=
        | Some id => replace id (Some g) (graphs v) end in
      let key := match id with Some id => id | None => N.of_nat (List.length (graphs v)) end in
      accept (JObject [("workflow_id", number key)]) (store_graphs updated v) []
-   else reject "invalid_workflow" "Check the Work, unique node and connection keys, entrance and exit, and descriptions for alternative routes." v
+   else match find (fun e => match lookup_node (connection_source e) g with
+     | Some n => negb (outgoing_allowed n) | None => false end) edges with
+   | Some edge => reject "invalid_workflow_exit_source"
+     ("连线「" ++ connection_key edge ++ "」的来源是出口。请选择入口或任务作为来源节点。") v
+   | None => reject "invalid_workflow"
+     "请检查工作流名称、工作组、节点和连线名称、出入口及分支说明。节点和连线名称必须各自唯一。" v
+   end
  | _, _ => reject "invalid_workflow" "Invalid workflow node or connection declaration." v end.
 
 Definition arrived p := match path_value p with Arrived _ _ => true | _ => false end.

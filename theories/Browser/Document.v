@@ -9,7 +9,7 @@ From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Audit Identity.
 From Selvedge.Browser.Session Require Appearance.
 From Selvedge.Interaction.Submission Require Fields Parameters.
-From Selvedge.Features Require BoardFilter.
+From Selvedge.Features Require BoardFilter Domain.
 From Selvedge.Interaction.Interactive Require Expand Vocabulary Presentation Local State.
 From Selvedge.Browser.Presentation Require Roles Information Composition Gesture.
 From Selvedge.Browser.Scene Require Model Surface.
@@ -900,7 +900,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
    (if String.eqb (S.semantic_key value) "full-path"
     then directory_path_parts "" label else [DOM.Text label])
  |S.ReadOnly text=>if String.eqb (S.semantic_key value) "workflow-instance-dot" then
-   DOM.Element key "span" (attrs++[("title",label);("aria-label",label);("tabindex","0")])
+   DOM.Element key "span" (attrs++[("aria-hidden","true")])
      (styles++[("display","block");("background-color",text)]) [] empty []
    else element "span" [] [] empty [DOM.Text text]
  |S.HistoryMatch before matched after=>element "span" [] [] empty
@@ -1102,9 +1102,16 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
      let button direction label icon:=DOM.Element (key++"/"++direction)%string "button"
        [("type","button");("data-board-scroll",direction);
         ("aria-label",label);("title",label)] [] [] empty (glyph icon) in
+     let stage_option stage:=let name:=Selvedge.Features.Domain.stage_name stage in
+       DOM.Element (key++"/stage/"++name)%string "option" [("value",name)] [] [] empty
+         [DOM.Text (Selvedge.Features.Domain.stage_label stage)] in
+     let stage_select:=DOM.Element (key++"/jump-to-stage")%string "select"
+       [("data-board-stage-jump","");("aria-label","跳到状态列")] [] [] empty
+       (DOM.Element (key++"/choose-stage")%string "option" [("value","")] [] [] empty
+         [DOM.Text "跳到状态列"] :: map stage_option Selvedge.Features.Domain.stages) in
      element (role_tag role) region_attr [] empty (children++
        [DOM.Element (key++"/scroll")%string "div" [("data-board-scroll-controls","");("hidden","")] [] [] empty
-         [button "previous" "向左查看更多状态列" "chevron-left";
+         [stage_select; button "previous" "向左查看更多状态列" "chevron-left";
           button "next" "向右查看更多状态列" "chevron-right"]])
    |Composition.BoardStages=>
      element "section" ([("tabindex","0");("aria-label","看板状态列")]++region_attr) [] empty children

@@ -50,7 +50,17 @@ test('a ticket waits for every exit, with a fresh reviewer and a reused implemen
   await page.getByRole('button', { name: '打开 Workflow acceptance ticket', exact: true }).click();
   const details = page.getByRole('dialog', { name: '卡片详情', exact: true });
   await details.getByRole('button', { name: '选择 Implement and review · start', exact: true }).click();
-  await details.getByRole('button', { name: '启动工作流实例', exact: true }).first().click();
+  await details.getByText('Implement and review · start', { exact: true }).waitFor();
+  let allowStart;
+  const startGate = new Promise(resolve => { allowStart = resolve; });
+  t.after(() => allowStart());
+  await page.route('**/api/browser/command', async route => {
+    if (route.request().postDataJSON()?.command?.op === 'start_ticket_workflow') await startGate;
+    await route.continue();
+  });
+  await details.getByRole('button', { name: '启动工作流实例', exact: true }).click();
+  await details.getByRole('button', { name: '正在提交…', exact: true }).waitFor();
+  allowStart();
   const instance_id = await until(async () => {
     const ticket = await command({ op: 'read_card', card_id });
     return Number.isInteger(ticket.workflow_instance_id) ? ticket.workflow_instance_id : null;
@@ -60,6 +70,8 @@ test('a ticket waits for every exit, with a fresh reviewer and a reused implemen
   const active = (instance, node) => instance.paths.find(path => path.node === node && path.active);
   const first = await requestFor(fixture, 'Workflow acceptance ticket');
   const parallel = await requestFor(fixture, 'Parallel acceptance work');
+  await details.getByRole('button', { name: `实例 #${instance_id} · 进行中`, exact: true }).waitFor();
+  await details.locator('[data-semantic-key="activity"]').getByText('进行中', { exact: true }).waitFor();
   const initial = await read();
   const implementer = active(initial, 'implement').task_id;
   assert.notEqual(implementer, active(initial, 'parallel').task_id);
@@ -71,11 +83,19 @@ test('a ticket waits for every exit, with a fresh reviewer and a reused implemen
   const color = dot => dot.evaluate(el => getComputedStyle(el).backgroundColor);
   assert.notEqual(await color(dots.first()), 'rgba(0, 0, 0, 0)');
   assert.equal(await color(dots.first()), await color(dots.nth(1)));
-  await dots.first().hover();
-  assert.equal(await dots.first().evaluate(el => {
-    const box = el.getBoundingClientRect();
-    return document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2) === el;
-  }), true, 'The floating dot is visible outside the node and can be hovered');
+  const marker = graph.getByRole('button', { name: /实例 #\d+ · 对话/ }).first();
+  await marker.focus();
+  await page.keyboard.press('Enter');
+  const instance = page.getByRole('dialog', { name: `实例 #${instance_id}`, exact: true });
+  await instance.getByText('进行中', { exact: true }).waitFor();
+  const linkedTask = instance.locator('button[data-semantic-key^="task/"]').first();
+  const taskTitle = await linkedTask.innerText();
+  await linkedTask.click();
+  const conversation = page.locator('dialog[data-semantic-key="side-conversation"]');
+  await conversation.waitFor();
+  assert.equal(await conversation.locator('h1,h2,h3').first().innerText(), taskTitle);
+  await conversation.getByRole('button', { name: /关闭|Close/ }).first().click();
+  await instance.getByRole('button', { name: 'Close panel', exact: true }).click();
 
   fixture.finish(first.index, { text: 'Implementation version one' });
   let review = await requestFor(fixture, 'Implementation version one');
@@ -116,6 +136,21 @@ test('a ticket waits for every exit, with a fresh reviewer and a reused implemen
   assert.equal((await read()).state, 'completed');
   assert.deepEqual((await read()).paths.map(path => path.result).sort(), ['Approved version two', 'Parallel work complete']);
   await dots.first().waitFor({ state: 'detached' });
+  await graph.getByRole('button', { name: `实例 #${instance_id} · 已完成`, exact: true }).click();
+  const receipts = await instance.locator('summary').allTextContents();
+  assert.equal(new Set(receipts.filter(receipt => receipt.startsWith('出口结果 · 路径 #'))).size, 2);
+  await instance.getByRole('button', { name: 'Close panel', exact: true }).click();
+
+  await page.getByRole('button', { name: '卡片看板', exact: true }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('combobox', { name: '跳到状态列' }).selectOption({ label: '已完成' });
+  const openedCard = page.getByRole('button', { name: '打开 Workflow acceptance ticket', exact: true });
+  await openedCard.waitFor();
+  assert.equal(await openedCard.evaluate(el => {
+    const track = el.closest('[data-page-region="board-stages"]').getBoundingClientRect();
+    const card = el.getBoundingClientRect();
+    return card.left < track.right && card.right > track.left;
+  }), true);
 });
 
 test('workflows can be authored and started in place from the browser', { timeout: 60000 }, async t => {
@@ -130,6 +165,8 @@ test('workflows can be authored and started in place from the browser', { timeou
   await create.getByRole('button', { name: '创建工作流', exact: true }).click();
   const graph = main.getByRole('region', { name: 'Browser workflow', exact: true });
   await graph.waitFor();
+  const canvas = graph.locator('[data-semantic-key="task-graph/viewport"]');
+  assert.equal(await canvas.evaluate(el => el.scrollWidth <= el.clientWidth), true);
 
   const start = async (name, message) => {
     const workflow = main.getByRole('region', { name, exact: true });
@@ -140,13 +177,15 @@ test('workflows can be authored and started in place from the browser', { timeou
     await dialog.getByRole('textbox', { name: '消息', exact: true }).fill(message);
     await dialog.getByRole('button', { name: '启动工作流', exact: true }).click();
     await dialog.waitFor({ state: 'hidden' });
-    return workflow;
+    const instance = page.getByRole('dialog', { name: /^实例 #\d+$/ });
+    await instance.waitFor();
+    return { workflow, instance };
   };
   const first = 'First line\nSecond line';
-  const firstRun = await start('Browser workflow', first);
-  const output = firstRun.getByRole('region', { name: '出口结果', exact: true });
-  await output.waitFor();
-  assert.equal(await output.getByText(first, { exact: true }).innerText(), first);
+  const { instance: firstRun } = await start('Browser workflow', first);
+  await firstRun.getByText(/出口结果 · 路径 #\d+ · finish/).click();
+  assert.equal(await firstRun.getByText(first, { exact: true }).innerText(), first);
+  await firstRun.getByRole('button', { name: 'Close panel', exact: true }).click();
 
   await graph.getByRole('button', { name: '编辑工作流', exact: true }).click();
   const editor = page.getByRole('dialog', { name: '编辑工作流', exact: true });
@@ -156,6 +195,8 @@ test('workflows can be authored and started in place from the browser', { timeou
   const model = node.getByRole('combobox', { name: '模型', exact: true });
   const modelLabel = await model.getByRole('option', { name: /interactive-fixture/ }).innerText();
   await model.selectOption({ label: modelLabel });
+  assert.equal(await editor.getByRole('region', { name: '连线 1', exact: true })
+    .getByRole('combobox', { name: '来源节点' }).getByRole('option', { name: 'finish' }).count(), 0);
   await editor.getByRole('region', { name: '连线 1', exact: true })
     .getByRole('combobox', { name: '接收节点', exact: true }).selectOption({ label: 'task-1' });
   await editor.getByRole('button', { name: '添加连线', exact: true }).click();
@@ -163,10 +204,11 @@ test('workflows can be authored and started in place from the browser', { timeou
   await route.getByRole('combobox', { name: '来源节点', exact: true }).selectOption({ label: 'task-1' });
   await route.getByRole('combobox', { name: '接收节点', exact: true }).selectOption({ label: 'finish' });
   await editor.getByRole('button', { name: '保存', exact: true }).click();
-  const renamed = await start('Renamed workflow', 'Run with the selected model');
+  const { workflow: renamed, instance: modelRun } = await start('Renamed workflow', 'Run with the selected model');
   assert.equal(await renamed.locator('[data-semantic-key="task-graph/viewport"]').count(), 1);
   const request = await requestFor(fixture, 'Run with the selected model');
   const answer = 'Model output\nSecond line';
   fixture.finish(request.index, { text: answer });
-  assert.equal(await renamed.getByText(answer, { exact: true }).innerText(), answer);
+  await modelRun.getByText(/出口结果 · 路径 #\d+ · finish/).click();
+  assert.equal(await modelRun.getByText(answer, { exact: true }).innerText(), answer);
 });

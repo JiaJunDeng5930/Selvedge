@@ -48,6 +48,7 @@ Inductive input :=
 | ClosePanel | OpenInformation(kind:State.information_panel)(trigger:string) | Confirm
 | Confirmation(command:State.public_command)(caption:string)(destination:route)(trigger:string)
 | BeginSide(task:N)(trigger:string) | ShowSide(task:N)(trigger:string) | CloseSide
+| InspectWorkflowTask(task:N)(trigger:string)
 | NavigationExpanded(value:bool) | TaskListVisible(value:bool)
 | WriteHistoryQuery(query:string) | ChooseHistoryScope(project:bool)(scope:option N)
 | SubmitHistorySearch(after:N) | OpenHistoryResult(task:N)(index:option N)(trigger:string)

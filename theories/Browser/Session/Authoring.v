@@ -387,6 +387,16 @@ Definition complete_draft snapshot captured navigation layer trigger outcome sta
     |None=>fail state "创建工作组的结果缺少工作组编号。"end
    |_=>keep state end
   |[]=>keep state end
+ |Draft.WorkflowStartBody _ _=>match natural_field "instance_id" reply, SS.layers(SS.navigation_state state) with
+  |Some instance, top::_=>adopt_navigation snapshot
+    (Navigation.handoff (Navigation.open_panel(SS.InformationPanel(SS.WorkflowInstanceDetails instance))) top state)
+  |_,_=>keep state end
+ |Draft.WorkflowDefinitionBody _ _ _=>match natural_field "workflow_id" reply with
+  |Some workflow=>
+    let closed:=Navigation.close_panel state in
+    let section:=NavigationIdentity.key_part "/main" ("workflow/"++show_natural workflow) in
+    changed (Navigation.result_state closed) [focus(NavigationIdentity.key_part section "start-workflow")]
+  |None=>adopt_navigation snapshot(Navigation.close_panel state) end
  |_=>match SS.layers(SS.navigation_state state)with
    |top::_=>match SS.layer_panel top with SS.EditorPanel owner|SS.PropertyPanel owner _=>if same_editor owner(Draft.owner captured)then adopt_navigation snapshot(Navigation.close_panel state)else keep state|_=>keep state end
    |[]=>keep state end end else keep state

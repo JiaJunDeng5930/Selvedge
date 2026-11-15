@@ -348,8 +348,8 @@ function refreshPageLayout(previous, scrollport, offset) {
   const controls = track?.parentElement.querySelector('[data-board-scroll-controls]') ?? null;
   if (controls !== boardScrollControls || track !== boardTrack) {
     boardScrollControls = controls;
-    for (const button of controls?.querySelectorAll('[data-board-scroll]') ?? [])
-      button.setAttribute('aria-controls', track.id);
+    for (const control of controls?.querySelectorAll('[data-board-scroll], [data-board-stage-jump]') ?? [])
+      control.setAttribute('aria-controls', track.id);
   }
   if (track !== boardTrack || firstLane !== boardFirstLane) {
     boardTrackResize.disconnect();
@@ -1205,6 +1205,15 @@ surface.addEventListener('click', event => {
   const button = event.target.closest?.('[data-board-scroll]');
   if (!boardTrack || !button || button.getAttribute('aria-disabled') === 'true') return;
   scrollBoard(button.dataset.boardScroll === 'next' ? 1 : -1);
+});
+surface.addEventListener('change', event => {
+  const select = event.target.closest?.('[data-board-stage-jump]');
+  if (!boardTrack || !select?.value) return;
+  const lane = boardTrack.querySelector(`[data-board-stage="${CSS.escape(select.value)}"]`);
+  if (lane) boardTrack.scrollBy({
+    left: lane.getBoundingClientRect().left - boardTrack.getBoundingClientRect().left,
+  });
+  select.value = '';
 });
 surface.addEventListener('keydown', event => {
   // DEFENSE: WebKit does not scroll the focused board region on arrow keys.

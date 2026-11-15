@@ -615,6 +615,15 @@ Definition body_requirements snapshot e (body:Draft.body):list(obstruction e):=
    if graph_declaration_valid body then [] else
    let '(code,reason):=graph_declaration_diagnostic snapshot graph parsed work in
    [requirement_obstruction e (Some Fields.TaskGraphDeclaration) code reason]
+ |Draft.WorkflowDefinitionBody _ _ source=>
+   failed_requirement e
+     (match parse_json source with Some (JObject _) => true | _ => false end)
+     (Some Fields.TaskGraphDeclaration) "invalid_workflow_json" "请展开高级选项并修正 JSON 定义。"
+ |Draft.WorkflowStartBody _ source=>
+   let message:=bind (parse_json source) (string_field "message") in
+   failed_requirement e
+     (match message with Some text=>Tasks.content_nonempty [Selvedge.Kernel.Domain.TextPart text]|None=>false end)
+     (Some Fields.TaskGraphDeclaration) "empty_message" "请输入要发送到入口的消息。"
  |Draft.TitlePromptsBody _ _ task agent _=>
    failed_requirement e(Titles.valid_instructions task)(Some Fields.TaskTitlePrompt)"invalid_task_title_prompt" "请输入非空提示词，最多 4096 UTF-8 字节"++
    failed_requirement e(Titles.valid_instructions agent)(Some Fields.AgentTitlePrompt)"invalid_agent_title_prompt" "请输入非空提示词，最多 4096 UTF-8 字节"

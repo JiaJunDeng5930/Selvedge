@@ -407,7 +407,7 @@ Definition editor_view snapshot (s:Session.state) e parent :=
  let assessment:=Observe.observe_assessment snapshot s e in
  let unit:=Observe.action_unit_for s e in
  let submit:=Control "submit"(submit_label snapshot draft e)Primary(Input.Submit e(part parent "submit"))(unit_availability unit assessment)in
- let reason:=commit_reason parent assessment in
+ let reason:=match e with WorkflowStart _=>[]|_=>commit_reason parent assessment end in
  let consequence:=if UX.action_pending unit then [] else match e with
  |Card _=>match Observe.card_save_consequence snapshot s draft with
   |Some BoardFacts.SaveLinked|None=>[]
@@ -422,9 +422,18 @@ Definition editor_view snapshot (s:Session.state) e parent :=
     |BoardFacts.SaveDraftsThenQueues=>"保存后先生成卡片内容，成功后自动排队。"
     |BoardFacts.SaveLinked=>""end)] end
  |_=>[]end in
+ let assessment_feedback:=match e with
+ |WorkflowStart _=>
+   let causes:=Observe.assessment_obstructions (UX.assessment_outcome assessment) in
+   let message:=match causes with
+   |cause::_=>if String.eqb (UX.obstruction_code cause) Observe.admission_pending_code
+     then "" else UX.obstruction_message cause
+   |[]=>"" end in
+   information parent "workflow-start-feedback" Information.Description message
+ |_=>assessment_nodes parent assessment end in
  let body := (title_prompt_help e parent ++
    section_nodes snapshot s e parent ++
-   [assessment_nodes parent assessment] ++
+   [assessment_feedback] ++
    Composer.action_feedback parent unit (draft_feedback draft))%list in
  let context := match e with
    |TitlePrompts ConversationTitles=>[Settings.editor_context parent Services.SettingsGeneral]

@@ -18,6 +18,7 @@ Open Scope string_scope.
 Definition public_command := command_value command_specs.
 
 Inductive information_panel := TaskDetails (task : N) | CardDetails (card : N)
+| WorkflowInstanceDetails (instance : N)
 | TaskContext (task : N) | PropertySource (owner : editor) (request : activity_request).
 Inductive board_panel := BoardSettings | BoardFilters | ArchivedCards.
 Definition card_decision_kinds := [CardDecisions.MoveCard; CardDecisions.LinkCard].
