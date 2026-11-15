@@ -265,12 +265,15 @@ test('workflows can be authored and started in place from the browser', { timeou
   assert.equal(await main.getByRole('button', { name: '启动工作流', exact: true }).isVisible(), false);
   assert.ok(await otherPreview.evaluate(tile => {
     const frame = tile.getBoundingClientRect();
-    return [...tile.querySelectorAll('[data-semantic-key="workflow-node"]')].every(node => {
+    return [...tile.querySelectorAll('[data-semantic-key="workflow-preview"] [data-semantic-key="workflow-node"]')].every(node => {
       const box = node.getBoundingClientRect();
       return box.left >= frame.left && box.right <= frame.right && box.bottom <= frame.bottom;
     });
   }), 'The overview renders the whole workflow');
+  const thumbnail = otherPreview.locator('[data-semantic-key="workflow-preview"] [data-semantic-key="task-graph/canvas"]');
+  const originalWidth = (await thumbnail.boundingBox()).width;
   await zoomIn.click();
+  assert.ok((await thumbnail.boundingBox()).width > originalWidth);
   await zoomIn.click();
   assert.equal(await zoomIn.isDisabled(), true);
   await otherPreview.click({ position: { x: 30, y: 70 } });
@@ -294,6 +297,14 @@ test('workflows can be authored and started in place from the browser', { timeou
       const picker = viewport.closest('[data-workflow-workspace]').querySelector('[data-workflow-target]');
       return viewport.getBoundingClientRect().right <= innerWidth && picker.getBoundingClientRect().right <= innerWidth;
     }));
+    if (width === 390) {
+      await until(() => canvas.evaluate(viewport => {
+        const preview = viewport.querySelector('[data-workflow-selected] [data-semantic-key="workflow-preview"]');
+        const name = preview.querySelector('summary');
+        const actual = name.getBoundingClientRect().width / name.offsetWidth;
+        return actual * parseFloat(getComputedStyle(name).fontSize) >= 9;
+      }), 'Mobile overview preserves readable node labels');
+    }
   }
   await page.setViewportSize({ width: 588, height: 744 });
   await main.getByRole('button', { name: '查看所有工作流', exact: true }).click();
@@ -434,7 +445,7 @@ test('workflows can be authored and started in place from the browser', { timeou
   await route.getByRole('combobox', { name: '接收节点', exact: true }).selectOption({ label: longExit });
   await save.click();
   const renamedGraph = main.getByRole('region', { name: 'Renamed workflow', exact: true });
-  const longNode = renamedGraph.locator('[data-semantic-key="workflow-node"]').filter({ hasText: longExit });
+  const longNode = renamedGraph.locator('[data-semantic-key="workflow-node"]:visible').filter({ hasText: longExit });
   const nodeBounds = () => longNode.evaluate(el => {
     const box = el.getBoundingClientRect();
     const name = el.querySelector('details').getBoundingClientRect();
@@ -460,7 +471,7 @@ test('workflows can be authored and started in place from the browser', { timeou
     await longNode.getByText(longExit, { exact: true }).click();
   }
   const { workflow: renamed, instance: modelRun } = await start('Renamed workflow', 'Run with the selected model');
-  assert.equal(await renamed.locator('[data-semantic-key="task-graph/viewport"]').count(), 1);
+  assert.equal(await renamed.locator('[data-semantic-key="task-graph/viewport"]:visible').count(), 1);
   const request = await requestFor(fixture, 'Run with the selected model');
   const answer = 'Model output\nSecond line';
   fixture.finish(request.index, { text: answer });

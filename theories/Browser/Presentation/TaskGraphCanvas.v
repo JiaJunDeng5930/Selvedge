@@ -23,6 +23,8 @@ Definition conversation_geometry :=
 Definition workflow_geometry (compact : bool) :=
  if compact then FlowGeometry true 98 136 56 16 18
  else FlowGeometry false 168 76 84 28 20.
+Definition workflow_preview_geometry :=
+ FlowGeometry false 91 42 23 13 8.
 Definition card_width geometry := if vertical geometry then across geometry else along geometry.
 Definition card_height geometry := if vertical geometry then along geometry else across geometry.
 

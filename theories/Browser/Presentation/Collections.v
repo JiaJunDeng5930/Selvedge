@@ -275,11 +275,10 @@ Definition workflow_markers snapshot definition node parent : Surface.node Input
          (ReadOnly (instance_color id)) []]]
    | _, _ => [] end else []) (workflow_list "workflow_instances" snapshot) in
  region parent "workflow-instance-markers" "" Roles.Section markers.
-Definition workflow_canvas snapshot parent compact definition :=
+Definition workflow_canvas snapshot parent geometry (markers : bool) definition :=
  let nodes := map (fun value => Read.GraphNode (workflow_field "key" value) 0%N) (workflow_list "nodes" definition) in
  let routes := map (fun edge => (workflow_field "source" edge, workflow_field "target" edge))
    (workflow_list "connections" definition) in
- let geometry := TaskGraphCanvas.workflow_geometry compact in
  let layout := TaskGraphCanvas.arrange_flow (A:=Input.input) geometry true nodes routes in
  let drawing := TaskGraphCanvas.edges layout in
  let viewport := part parent "task-graph/viewport" in
@@ -300,9 +299,9 @@ Definition workflow_canvas snapshot parent compact definition :=
       (InteractivePlacement (Presentation.GraphNode Presentation.RootFontScale
         (TaskGraphCanvas.left placed) (TaskGraphCanvas.top placed)
         (Z.to_N (TaskGraphCanvas.card_width geometry)) (Z.to_N (TaskGraphCanvas.card_height geometry)) false))
-      [Node (part key "workflow-node-name") "workflow-node-name" name Roles.Content ContentDisclosure [];
-       information key ("workflow-node-kind/" ++ kind) Information.Description caption;
-       workflow_markers snapshot definition name key])
+      ([Node (part key "workflow-node-name") "workflow-node-name" name Roles.Content ContentDisclosure [];
+       information key ("workflow-node-kind/" ++ kind) Information.Description caption] ++
+      if markers then [workflow_markers snapshot definition name key] else [])%list)
    (TaskGraphCanvas.nodes layout))].
 Definition workflow_instance_summary parent value :=
  let id := value_or 0%N (natural_field "instance_id" value) in
@@ -376,12 +375,15 @@ Definition workflow_section snapshot parent compact definition :=
    | None => collected end) [] active_runs in
  region parent section (workflow_field "name" definition) Roles.Section
   ([group_title key (workflow_field "name" definition);
-    workflow_canvas snapshot key compact definition] ++
+    workflow_canvas snapshot key (TaskGraphCanvas.workflow_geometry compact) true definition;
+    region key "workflow-preview" "" Roles.Section
+     [workflow_canvas snapshot (part key "workflow-preview") TaskGraphCanvas.workflow_preview_geometry false definition]] ++
    map (fun '(index, graph) =>
      let version := ("saved/" ++ show_natural (N.of_nat index))%string in
      let name := ("运行中的历史版本 " ++ show_natural (N.of_nat index) ++ " · " ++ workflow_field "name" graph)%string in
      region key version name Roles.Section
-       [group_title (part key version) name; workflow_canvas snapshot (part key version) compact graph])
+       [group_title (part key version) name;
+        workflow_canvas snapshot (part key version) (TaskGraphCanvas.workflow_geometry compact) true graph])
      (combine (seq 1 (List.length archived_definitions)) archived_definitions))%list.
 Definition ticket_workflow_controls snapshot s parent (card : Read.card) :=
  let id := Read.card_id card in

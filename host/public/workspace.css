@@ -632,6 +632,7 @@ dialog[data-semantic-key="card-details"] {
   inline-size: max-content !important;
   min-inline-size: min(18rem, 82vw);
 }
+[data-workflow-tile] [data-semantic-key="workflow-preview"] { display: none !important; }
 [data-workflow-frame="selected"] [data-workflow-tile]:not([data-workflow-selected]) > section {
   visibility: hidden;
 }
@@ -675,7 +676,12 @@ dialog[data-semantic-key="card-details"] {
   transform: scale(var(--workflow-thumbnail-scale, 1));
   transform-origin: top left;
 }
-[data-workflow-frame="overview"] [data-workflow-tile] > section > :first-child { display: none !important; }
+[data-workflow-frame="overview"] [data-workflow-tile] > section > :not([data-semantic-key="workflow-preview"]) {
+  display: none !important;
+}
+[data-workflow-frame="overview"] [data-workflow-tile] [data-semantic-key="workflow-preview"] {
+  display: block !important;
+}
 [data-workflow-frame="overview"] { grid-template-rows: auto minmax(0, 1fr); }
 [data-workflow-frame="overview"] [data-workflow-actions] { display: none !important; }
 [data-workflow-frame="overview"] [data-workflow-open] {
@@ -729,8 +735,14 @@ dialog[data-semantic-key="card-details"] {
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-rows: auto minmax(0, 1fr);
   }
+  [data-workflow-frame="selected"] [data-workflow-tile] > section {
+    gap: 0.125rem !important;
+  }
   [data-workflow-frame="selected"] [data-workflow-tile] > section > :first-child {
-    display: none !important;
+    min-block-size: 0 !important;
+    padding: 0 !important;
+    font-size: 0.875rem !important;
+    line-height: 1.25 !important;
   }
   [data-workflow-canvas] { grid-column: 1 / -1; }
   [data-workflow-viewport-controls] { gap: 0.25rem; padding: 0.25rem; }
@@ -899,6 +911,23 @@ button[data-semantic-key^="instance/"]:hover {
 }
 [data-semantic-key="workflow-node-name"][open] > summary::after {
   transform: rotate(225deg);
+}
+[data-semantic-key="workflow-preview"] [data-semantic-key="workflow-node"] {
+  gap: 0 !important;
+  padding: 2px 5px !important;
+}
+[data-semantic-key="workflow-preview"] [data-semantic-key="workflow-node-name"] > summary {
+  -webkit-line-clamp: 2 !important;
+  max-block-size: 2lh !important;
+  padding-inline-end: 0;
+  font-size: 0.75rem;
+  line-height: 1;
+}
+[data-semantic-key="workflow-preview"] [data-semantic-key="workflow-node-name"] > summary::after {
+  display: none;
+}
+[data-semantic-key="workflow-preview"] [data-semantic-key^="workflow-node-kind/"] {
+  font-size: 0.625rem !important;
 }
 [data-semantic-key="workflow-instance-markers"] {
   position: absolute;
