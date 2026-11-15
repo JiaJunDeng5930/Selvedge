@@ -41,8 +41,16 @@ test('a disconnected service keeps the editor Submit unavailable after fresh adm
   const { page, running } = fixture;
   const submit = page.getByRole('button', { name: 'Start task', exact: true });
   await submit.waitFor();
-  await page.getByRole('combobox', { name: 'Task', exact: true }).fill('Keep this draft while the service is disconnected.');
+  const draft = page.getByRole('combobox', { name: 'Task', exact: true });
+  const text = 'Keep this draft while the service is disconnected.';
+  await draft.fill(text);
   await page.getByRole('button', { name: 'Start task', exact: true, disabled: false }).waitFor();
+  await draft.focus();
+  const editor = await draft.elementHandle();
+  const position = await draft.boundingBox();
+  const attempts = [Promise.withResolvers(), Promise.withResolvers()];
+  let attempt = 0;
+  await page.route('**/api/browser/state', route => { attempts[attempt++].resolve(route); }, { times: attempts.length });
 
   let commands = 0;
   page.on('request', request => {
@@ -51,6 +59,19 @@ test('a disconnected service keeps the editor Submit unavailable after fresh adm
   await disconnectAndAdmit(page, 'create', () => running.disconnect());
   await page.getByRole('button', { name: 'Start task', exact: true, disabled: true }).waitFor();
   assert.equal(commands, 0, 'The disabled Submit control must not dispatch a command');
+  const notice = page.getByRole('region', { name: '服务连接', exact: true });
+  await notice.getByText('无法连接到 Selvedge，正在自动重试。', { exact: true }).waitFor();
+  const first = await attempts[0].promise;
+  await first.abort('failed');
+  const retry = await attempts[1].promise;
+  assert.equal(await notice.getByRole('button', { name: '立即重连', exact: true }).isVisible(), true);
+  assert.equal(await page.getByRole('dialog', { name: '设置', exact: true }).count(), 0);
+  assert.deepEqual(await draft.boundingBox(), position);
+  assert.equal(await editor.evaluate(node => node === document.activeElement), true);
+  assert.equal(await draft.inputValue(), text);
+  await retry.continue();
+  await notice.waitFor({ state: 'hidden' });
+  assert.equal(await draft.inputValue(), text);
 });
 
 test('an open confirmation stays unavailable after disconnect and fresh admission', { timeout: 60000 }, async t => {

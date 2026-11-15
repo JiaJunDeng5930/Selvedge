@@ -554,7 +554,11 @@ Definition planned_regions (context : prepared) : option region_plan :=
  let nav:=invalidate || resized || (snapshot && navigation_world_changed before context) ||
    negb(Json.equal(navigation_without_layers before)(navigation_without_layers context)) ||
    state_changed ["collapsed_projects";"collapsed_tasks"] before context in
- let notices:=invalidate || section_changed "authoring" ["pending"] before context in
+ let connection_failure ctx:=Services.connection_failure(Services.connection
+   (Session.service_state(prepared_state ctx))) in
+ let connection_notice_changed:=match connection_failure before,connection_failure context with
+   |None,None=>false|Some previous,Some current=>negb(String.eqb previous current)|_,_=>true end in
+ let notices:=invalidate || connection_notice_changed || section_changed "authoring" ["pending"] before context in
  let project part:=V.view_region part world current size in
  let base name nodes:=broad_change name (base_roots nodes) (cached_region controls name) in
  let nav_nodes:=if nav then project V.NavigationRegionPart else [] in
