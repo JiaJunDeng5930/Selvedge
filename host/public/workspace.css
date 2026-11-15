@@ -956,16 +956,51 @@ button[data-semantic-key^="instance/"]:hover {
   padding: 2px 5px !important;
 }
 [data-semantic-key="workflow-preview-name"] {
+  position: relative;
   display: -webkit-box !important;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   max-block-size: 2lh;
   overflow: hidden;
   overflow-wrap: anywhere;
+  min-block-size: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: start;
   text-overflow: ellipsis;
   font-size: 0.75rem !important;
   font-weight: 600 !important;
   line-height: 1.15 !important;
+}
+[data-semantic-key="workflow-preview-name"][data-workflow-overflow] {
+  padding-inline-end: 0.6rem;
+  cursor: pointer;
+}
+[data-semantic-key="workflow-preview-name"][data-workflow-overflow]::after {
+  content: "";
+  position: absolute;
+  inset: 0.2rem 0.125rem auto auto;
+  inline-size: 0.3125rem;
+  block-size: 0.3125rem;
+  border: solid currentColor;
+  border-width: 0 1px 1px 0;
+  transform: rotate(45deg);
+}
+[data-workflow-preview-detail] {
+  position: fixed;
+  inset: auto 1rem 1rem;
+  margin-inline: auto;
+  inline-size: fit-content;
+  max-inline-size: min(34rem, calc(100dvw - 2rem));
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--selvedge-border);
+  border-radius: 0.5rem;
+  background: var(--selvedge-surface);
+  color: var(--selvedge-text);
+  overflow-wrap: anywhere;
+  box-shadow: 0 0.375rem 1.5rem #0003;
 }
 [data-semantic-key="workflow-preview"] [data-semantic-key^="workflow-node-kind/"] {
   font-size: 0.625rem !important;

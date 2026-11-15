@@ -82,13 +82,22 @@ export function installWorkflowViewport(surface) {
     current.fitted = true;
     workspace.dataset.workflowFrame = current.frame;
     const zoomRatio = current.thumbnailZoom / defaultThumbnailZoom;
+    const compact = viewport.clientWidth <= 450;
+    const tablet = viewport.clientWidth >= 550 && viewport.clientWidth <= 820;
     if (all) viewport.style.setProperty('--workflow-thumbnail-column', `${21.5 * zoomRatio}rem`);
     for (const tile of viewport.querySelectorAll('[data-workflow-tile]')) {
       const graph = tile.lastElementChild;
       if (all) {
         // Use the contents' extent: a positioned chart can be wider than the section's layout box.
-        const height = (viewport.clientWidth <= 450 ? 144 : 200) * zoomRatio;
-        const scale = Math.min(current.thumbnailZoom, (tile.clientWidth - inset) / graph.scrollWidth, height / graph.scrollHeight);
+        const widthLimit = (tile.clientWidth - inset) / graph.scrollWidth;
+        const height = (compact ? 144 : 200) * zoomRatio;
+        let scale = Math.min(current.thumbnailZoom, widthLimit, height / graph.scrollHeight);
+        if (tablet) {
+          const limit = Math.min(1.95, widthLimit, 360 / graph.scrollHeight);
+          const base = Math.min(1.23, limit);
+          const enlargement = (current.thumbnailZoom - defaultThumbnailZoom) / (maxThumbnailZoom - defaultThumbnailZoom);
+          scale = enlargement < 0 ? base * zoomRatio : base + (limit - base) * enlargement;
+        }
         tile.style.setProperty('--workflow-thumbnail-scale', scale);
         tile.style.setProperty('--workflow-thumbnail-left', `${(tile.clientWidth - scale * graph.scrollWidth) / 2}px`);
         tile.style.setProperty('--workflow-thumbnail-height', `${Math.ceil(scale * graph.scrollHeight) + 8}px`);
@@ -98,6 +107,8 @@ export function installWorkflowViewport(surface) {
       showZoomLimits(workspace, current);
       return;
     }
+    const previewDetail = viewport.querySelector('[data-workflow-preview-detail]');
+    if (previewDetail.matches(':popover-open')) previewDetail.hidePopover();
     viewport.scrollTo({ top: 0, left: 0 });
     const group = viewport.querySelector(`[data-semantic-key="${CSS.escape(picker.value)}"]`);
     // DEFENSE: A world update can remove the selected workflow before its native change event is handled.
@@ -162,6 +173,14 @@ export function installWorkflowViewport(surface) {
     const workspace = event.target.closest('[data-workflow-workspace]');
     if (!workspace) return;
     if (workspace.dataset.workflowFrame === 'overview') {
+      const nodeName = event.target.closest('[data-semantic-key="workflow-preview-name"][data-workflow-overflow]');
+      if (nodeName) {
+        const detail = workspace.querySelector('[data-workflow-preview-detail]');
+        detail.textContent = nodeName.title;
+        detail.showPopover();
+        detail.focus({ preventScroll: true });
+        return;
+      }
       const target = event.target.closest('[data-workflow-open]');
       const preview = event.target.closest('[data-workflow-tile]');
       if (target || preview) {
@@ -262,7 +281,8 @@ export function installWorkflowViewport(surface) {
       if (viewport) viewportObserver.observe(viewport);
       observedViewport = viewport;
     }
-    const nextLabels = new Set(workspace?.querySelectorAll('[data-semantic-key="workflow-node-name"] > summary') ?? []);
+    const nextLabels = new Set(workspace?.querySelectorAll(
+      '[data-semantic-key="workflow-node-name"] > summary, [data-semantic-key="workflow-preview-name"]') ?? []);
     for (const label of labels) if (!nextLabels.has(label)) labelObserver.unobserve(label);
     for (const label of nextLabels) if (!labels.has(label)) labelObserver.observe(label);
     labels = nextLabels;

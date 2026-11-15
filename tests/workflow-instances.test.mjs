@@ -244,16 +244,17 @@ test('workflows can be authored and started in place from the browser', { timeou
   await canvas.press('0');
 
   const otherWorkflow = 'UI 走查 · 入口直达出口（测试）';
+  const longEntrance = '复查一个足够长而必须展开查看的入口名称包括末尾';
   await command({ op: 'create_workflow', name: otherWorkflow,
-    nodes: [{ key: 'entry', kind: 'entrance' }, { key: 'alternate', kind: 'entrance' }, { key: 'exit', kind: 'exit' },
+    nodes: [{ key: 'entry', kind: 'entrance' }, { key: longEntrance, kind: 'entrance' }, { key: 'exit', kind: 'exit' },
       { key: 'one', kind: 'task', profile, creation: 'once' }, { key: 'two', kind: 'task', profile, creation: 'once' }],
     connections: [
       { key: 'first', source: 'entry', target: 'one' },
-      { key: 'second', source: 'alternate', target: 'two' },
+      { key: 'second', source: longEntrance, target: 'two' },
       { key: 'third', source: 'two', target: 'exit' },
       { key: 'fourth', source: 'one', target: 'exit' },
       { key: 'direct-first', source: 'entry', target: 'exit' },
-      { key: 'direct-second', source: 'alternate', target: 'exit' },
+      { key: 'direct-second', source: longEntrance, target: 'exit' },
     ] });
   const picker = main.getByRole('combobox', { name: '定位工作流', exact: true });
   await picker.selectOption({ label: 'Browser workflow' });
@@ -325,6 +326,12 @@ test('workflows can be authored and started in place from the browser', { timeou
         const actual = name.getBoundingClientRect().width / name.offsetWidth;
         return actual * parseFloat(getComputedStyle(name).fontSize) >= 9 && name.title === name.textContent;
       }), 'Mobile overview preserves readable node labels');
+      await canvas.getByRole('button', { name: longEntrance, exact: true }).click();
+      const detail = canvas.getByRole('region', { name: '完整节点名称', exact: true });
+      await detail.getByText(longEntrance, { exact: true }).waitFor();
+      assert.equal(await main.getByRole('button', { name: '启动工作流', exact: true }).isVisible(), false);
+      await page.keyboard.press('Escape');
+      await detail.waitFor({ state: 'hidden' });
     }
   }
   await page.setViewportSize({ width: 588, height: 744 });

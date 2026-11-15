@@ -904,8 +904,9 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  |S.ReadOnly text=>if String.eqb (S.semantic_key value) "workflow-instance-dot" then
    DOM.Element key "span" (attrs++[("aria-hidden","true")])
      (styles++[("display","block");("background-color",text)]) [] empty []
-   else element "span" (if String.eqb (S.semantic_key value) "workflow-preview-name" then [("title",text)] else [])
-     [] empty [DOM.Text text]
+   else if String.eqb (S.semantic_key value) "workflow-preview-name" then
+     element "button" [("type","button");("title",text)] [] empty [DOM.Text text]
+   else element "span" [] [] empty [DOM.Text text]
  |S.HistoryMatch before matched after=>element "span" [] [] empty
  [DOM.Text before;DOM.Element "" "mark" [] [] [] empty [DOM.Text matched];DOM.Text after]
  |S.Fact text=>element "span"
@@ -1281,7 +1282,9 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
          (map (fun '((target,name), graph)=>
           DOM.Element (canvas++"/tile/"++target)%string "div" [("data-workflow-tile",target)] [] [] empty
            [DOM.Element (canvas++"/overview/"++target)%string "button" [("type","button");("data-workflow-open",target)]
-             [] [] empty [DOM.Text name]; graph]) (combine targets graphs))]]
+             [] [] empty [DOM.Text name]; graph]) (combine targets graphs));
+        DOM.Element (canvas++"/node-name")%string "div" [("data-workflow-preview-detail","");("popover","auto");
+          ("role","region");("aria-label","完整节点名称");("tabindex","-1")] [] [] empty []]]
  |S.WorkflowEditorJump targets=>element "select" [("data-workflow-editor-jump","")] [] empty
     (DOM.Element (key++"/placeholder")%string "option" [("value","")] [] [] empty [DOM.Text label] ::
      map (fun '(target,name)=>DOM.Element (key++"/"++target)%string "option"
