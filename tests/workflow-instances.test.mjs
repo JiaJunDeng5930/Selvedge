@@ -30,10 +30,11 @@ test('a ticket waits for every exit, with a fresh reviewer and a reused implemen
   const editor = page.getByRole('dialog', { name: '创建工作流', exact: true });
   const definition = {
     work_id, name: 'Implement and review',
-    nodes: [{ key: 'start', kind: 'entrance' }, { key: 'finish', kind: 'exit' },
+    nodes: [{ key: 'start', kind: 'entrance' }, { key: 'alternative', kind: 'entrance' }, { key: 'finish', kind: 'exit' },
       task('implement', 'once'), task('review', 'each'), task('parallel', 'once')],
     connections: [
       edge('start-implementation', 'start', 'implement'),
+      edge('alternative-implementation', 'alternative', 'implement'),
       { ...edge('start-parallel', 'start', 'parallel'), message: { kind: 'literal', value: 'Parallel acceptance work' } },
       edge('submit', 'implement', 'review'),
       edge('changes', 'review', 'implement', 'Changes are required'),
@@ -49,8 +50,24 @@ test('a ticket waits for every exit, with a fresh reviewer and a reused implemen
   await page.getByRole('button', { name: '卡片看板', exact: true }).click();
   await page.getByRole('button', { name: '打开 Workflow acceptance ticket', exact: true }).click();
   const details = page.getByRole('dialog', { name: '卡片详情', exact: true });
+  await details.getByRole('button', { name: '选择 Implement and review · alternative', exact: true }).click();
+  await details.getByText('Implement and review · alternative', { exact: true }).waitFor();
+  await page.setViewportSize({ width: 768, height: 1024 });
+  let failNextLaunchCheck = true;
+  await page.route('**/api/assess', async route => {
+    if (failNextLaunchCheck && route.request().postDataJSON()?.command?.op === 'start_ticket_workflow') {
+      failNextLaunchCheck = false;
+      await route.abort();
+    } else {
+      await route.continue();
+    }
+  });
+  const change = details.getByText('更改工作流入口', { exact: true });
+  assert.equal(await change.evaluate(el => el.getBoundingClientRect().bottom <= innerHeight), true);
+  await change.click();
   await details.getByRole('button', { name: '选择 Implement and review · start', exact: true }).click();
   await details.getByText('Implement and review · start', { exact: true }).waitFor();
+  await details.getByRole('button', { name: '重新检查', exact: true }).click();
   await page.setViewportSize({ width: 360, height: 640 });
   let allowStart;
   const startGate = new Promise(resolve => { allowStart = resolve; });
@@ -200,29 +217,67 @@ test('workflows can be authored and started in place from the browser', { timeou
   const exit = editor.getByRole('region', { name: '出口 2', exact: true });
   const exitName = exit.getByRole('textbox', { name: '节点名称', exact: true });
   const save = editor.getByRole('button', { name: '保存', exact: true });
+  await editor.getByText('高级选项', { exact: true }).click();
+  const json = editor.getByRole('textbox', { name: 'JSON 定义', exact: true });
+  const definition = await json.inputValue();
+  await json.fill('{');
+  await editor.getByText('修正 JSON 定义', { exact: true }).waitFor();
+  assert.equal(await json.isVisible(), true);
+  assert.equal(await save.isEnabled(), false);
+  await json.fill(definition);
+  await exitName.waitFor();
+  assert.deepEqual(await json.evaluate(el => ({
+    focused: el === document.activeElement,
+    expanded: el.closest('details').open,
+  })), { focused: true, expanded: true });
+  await editor.getByText('高级选项', { exact: true }).click();
   await exitName.fill('start');
   await exit.getByText('此名称已被其他节点使用。请选择不同的名称。', { exact: true }).waitFor();
   assert.equal(await save.isEnabled(), false);
-  await exitName.fill('finish-renamed');
+  const longExit = 'finish-renamed-with-a-long-label-that-wraps-on-a-narrow-screen';
+  await exitName.fill(longExit);
   await editor.getByRole('button', { name: '添加任务', exact: true }).click();
   const node = editor.getByRole('region', { name: '任务 3', exact: true });
   const model = node.getByRole('combobox', { name: '模型', exact: true });
+  await node.getByText('请选择用于创建对话的模型。', { exact: true }).waitFor();
+  assert.equal(await save.isEnabled(), false);
   const modelLabel = await model.getByRole('option', { name: /interactive-fixture/ }).innerText();
   await model.selectOption({ label: modelLabel });
   assert.equal(await editor.getByRole('region', { name: '连线 1', exact: true })
-    .getByRole('combobox', { name: '来源节点' }).getByRole('option', { name: 'finish-renamed' }).count(), 0);
+    .getByRole('combobox', { name: '来源节点' }).getByRole('option', { name: longExit }).count(), 0);
   await editor.getByRole('region', { name: '连线 1', exact: true })
     .getByRole('combobox', { name: '接收节点', exact: true }).selectOption({ label: 'task-1' });
   await editor.getByRole('button', { name: '添加连线', exact: true }).click();
   const route = editor.getByRole('region', { name: '连线 2', exact: true });
   await route.getByRole('combobox', { name: '来源节点', exact: true }).selectOption({ label: 'task-1' });
-  await route.getByRole('combobox', { name: '接收节点', exact: true }).selectOption({ label: 'finish-renamed' });
+  await route.getByRole('combobox', { name: '接收节点', exact: true }).selectOption({ label: longExit });
   await save.click();
+  const renamedGraph = main.getByRole('region', { name: 'Renamed workflow', exact: true });
+  const longNode = renamedGraph.locator('[data-semantic-key="workflow-node"]').filter({ hasText: longExit });
+  const nodeBounds = () => longNode.evaluate(el => {
+    const box = el.getBoundingClientRect();
+    const name = el.querySelector('details').getBoundingClientRect();
+    const kind = el.querySelector('[data-semantic-key="workflow-node-kind"]').getBoundingClientRect();
+    return { nameBottom: name.bottom - box.top, kindTop: kind.top - box.top,
+      kindBottom: kind.bottom - box.top, nodeHeight: box.height };
+  });
+  const verifyNodeBounds = async width => {
+    const bounds = await nodeBounds();
+    assert.ok(bounds.nameBottom <= bounds.kindTop + 1 && bounds.kindBottom <= bounds.nodeHeight + 1,
+      `Node label at ${width}px: ${JSON.stringify(bounds)}`);
+  };
+  for (const width of [360, 768]) {
+    await page.setViewportSize({ width, height: 900 });
+    await verifyNodeBounds(width);
+    await longNode.getByText(longExit, { exact: true }).click();
+    await verifyNodeBounds(width);
+    await longNode.getByText(longExit, { exact: true }).click();
+  }
   const { workflow: renamed, instance: modelRun } = await start('Renamed workflow', 'Run with the selected model');
   assert.equal(await renamed.locator('[data-semantic-key="task-graph/viewport"]').count(), 1);
   const request = await requestFor(fixture, 'Run with the selected model');
   const answer = 'Model output\nSecond line';
   fixture.finish(request.index, { text: answer });
-  await modelRun.getByText(/出口结果 · 路径 #\d+ · task-1 → finish-renamed/).click();
+  await modelRun.getByText(new RegExp(`出口结果 · 路径 #\\d+ · task-1 → ${longExit}`)).click();
   assert.equal(await modelRun.getByText(answer, { exact: true }).innerText(), answer);
 });

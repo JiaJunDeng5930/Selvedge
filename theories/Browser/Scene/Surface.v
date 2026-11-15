@@ -70,7 +70,7 @@ Inductive meaning (Action : Type) :=
 | WorkChoice (work : option N) (selected : bool) (action : control Action)
 | DirectoryRow (path : string) (primary : bool)
 | ContextSummary (owner : editor)
-| EditorOptions
+| EditorOptions (required : bool)
 | ContentDisclosure
 | SkillSuggestions (field_key : string) (expanded : bool) (active_option : option string)
 | SkillSuggestion (selected : bool) (action : control Action)
@@ -364,7 +364,7 @@ Definition map_meaning {A B} (f : A -> B) (value : meaning A) : meaning B :=
   | WorkChoice work selected action => WorkChoice work selected (map_control f action)
   | DirectoryRow path primary => DirectoryRow path primary
   | ContextSummary owner => ContextSummary owner
-  | EditorOptions => EditorOptions
+  | EditorOptions required => EditorOptions required
   | ContentDisclosure => ContentDisclosure
   | SkillSuggestions field expanded active => SkillSuggestions field expanded active
   | SkillSuggestion selected action => SkillSuggestion selected (map_control f action)

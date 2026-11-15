@@ -1249,9 +1249,10 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
     ("aria-label",(label++"，"++text_number count++" 张卡片")%string)] [] empty children
  |S.CardArchive count=>element (role_tag role) [("data-card-archive",text_number count);("data-drop-target",key)] [] empty children
  |S.TaskChildren task=>element "div"[("role","group");("aria-label",label);("data-task-parent",text_number task);("data-task-branches","")][]empty children
- |S.EditorOptions=>DOM.Element key "details" (attrs++[("data-editor-options","")])
+ |S.EditorOptions required=>DOM.Element key "details"
+   (attrs++[("data-editor-options","")]++(if required then [("data-editor-options-required","")]else[]))
    [("min-inline-size","0")] [] empty
-   [DOM.Element (key++"/summary")%string "summary" [] [] [] empty [DOM.Text label];
+   [DOM.Element (key++"/summary")%string "summary" (if required then [("inert","")]else[]) [] [] empty [DOM.Text label];
     DOM.Element (key++"/body")%string "div" [("data-editor-options-body","")]
       [] [] empty children]
  |S.ContentDisclosure=>DOM.Element key "details" attrs styles [] empty

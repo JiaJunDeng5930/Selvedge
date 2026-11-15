@@ -1334,7 +1334,8 @@ async function assessCandidates() {
 }
 async function performAssessment({ effect, namespace, key, controller }) {
   try {
-    const value = await post('/api/assess', effect.request, controller.signal);
+    // DEFENSE: A stalled admission request can leave a visible action indefinitely pending.
+    const value = await post('/api/assess', effect.request, AbortSignal.any([controller.signal, readDeadline()]));
     if (publication.namespace === namespace) dispatch({ type: 'command_assessed', ticket: effect.ticket, ok: true, value });
   } catch (error) {
     // DEFENSE: A newer draft assessment or page teardown cancels this superseded request.

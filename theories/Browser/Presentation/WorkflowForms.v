@@ -81,7 +81,11 @@ Definition task_node_fields snapshot work parent (entry : json) save :=
    let selected := value_or "" (string_field "profile" entry) in
    let prompt := if String.eqb selected "" then "请选择模型" else "不可用的模型 · " ++ selected in
    [select_field parent "profile" "模型" selected (select_prompt prompt selected profiles)
-      (fun raw => save (replace "profile" (JString raw) entry));
+      (fun raw => save (replace "profile" (JString raw) entry))] ++
+   (if Workflow.node_model_missing entry then
+     [information parent "workflow-node-model-required" Information.Description "请选择用于创建对话的模型。"]
+     else []) ++
+   [
     select_field parent "creation" "对话创建方式" (value_or "once" (string_field "creation" entry))
       [Fields.ChoiceValue "once" "每个实例复用一条对话"; Fields.ChoiceValue "each" "每次收到消息时创建"]
       (fun raw => save (replace "creation" (JString raw) entry))]
@@ -170,6 +174,12 @@ Definition definition_fields snapshot parent owner work feedback value (save : j
      form_action edge_panel "add-connection" "添加连线"
        (set_graph nodes (edges ++ [JObject [("key",JString (fresh_key "route" edges))]])%list))%list].
 
+Definition definition_object source :=
+ match parse_json source with Some (JObject _ as value) => Some value | _ => None end.
+Definition definition_needs_repair draft :=
+ match Draft.contents draft with
+ | Draft.WorkflowDefinitionBody _ _ source => match definition_object source with Some _ => false | None => true end
+ | _ => false end.
 Definition definition snapshot (s : Session.state) parent e id work :=
  let scope := match id with
  | None => work
@@ -178,9 +188,9 @@ Definition definition snapshot (s : Session.state) parent e id work :=
  let draft:=Session.current_draft s e in
  match Draft.contents draft, declaration_assignment e with
  | Draft.WorkflowDefinitionBody _ _ source, Some save =>
-   match parse_json source with
-   | Some (JObject _ as value) => definition_fields snapshot parent e scope (Draft.draft_feedback draft) value save
-   | _ => []
+   match definition_object source with
+   | Some value => definition_fields snapshot parent e scope (Draft.draft_feedback draft) value save
+   | None => []
    end
  | _, _ => []
  end.

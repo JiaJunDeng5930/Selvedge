@@ -246,7 +246,7 @@ Definition field_section snapshot s e parent name fields:=
  Node(part parent name)name name Roles.Section(ObjectGroup(UX.group_owner e fields))
   (group_title(part parent name)name::field_nodes snapshot s e parent fields).
 Definition editor_options {A} parent key label (children:list(node A)) :=
- Node(part parent key)key label Roles.Section EditorOptions children.
+ Node(part parent key)key label Roles.Section (EditorOptions false) children.
 Definition card_editor snapshot s e parent (target:Identity.card_subject) :=
  let linked task:=read_only parent "linked-conversation" "关联对话"
    (value_or ("对话 #"++show_natural task)(option_map task_title(find_task task snapshot))) in
@@ -385,8 +385,10 @@ Definition section_nodes snapshot s e parent :=
  |CardForConversation task=>card_editor snapshot s e parent (Identity.ConversationCard task)
  |Fork task=>fork_editor snapshot s e parent task
  |WorkflowDefinition id work=>
+  let key := "workflow-options" in
+  let repair := WorkflowForms.definition_needs_repair (Session.current_draft s e) in
   (WorkflowForms.definition snapshot s parent e id work ++
-   [editor_options parent "workflow-options" "高级选项"
+   [Node (part parent key) key (if repair then "修正 JSON 定义" else "高级选项") Roles.Section (EditorOptions repair)
      (field_nodes snapshot s e parent [Fields.TaskGraphDeclaration])])%list
  |WorkflowStart id=>WorkflowForms.start snapshot s parent e id
  |TaskGraph graph work=>graph_editor snapshot s e parent graph work

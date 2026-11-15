@@ -86,6 +86,24 @@ Definition detail_action_input parent(action:ObjectActions.action):Input.input:=
  |ObjectActions.Editor owner=>Input.OpenEditor owner trigger
  |ObjectActions.SideConversation task=>Input.BeginSide task trigger
  |ObjectActions.InspectCard card=>Input.OpenInformation(State.CardDetails card)trigger end.
+Definition ticket_workflow_launch snapshot s parent card :=
+ let subject:=CardActions card in
+ match find (fun action=>String.eqb (ObjectActions.action_key action) "run")
+    (ObjectActions.menu_items snapshot s subject) with
+ |None=>[]
+ |Some action=>
+   let status:=ObjectActions.action_status action in
+   let key:="workflow-start-ticket" in
+   let caption:=match status with ObjectActions.InFlight=>"正在提交…"|_=>ObjectActions.action_label action end in
+   let launch:=declared parent Roles.Button(Control key caption
+     Secondary (detail_action_input parent action)(status_availability status)) in
+   launch :: match status with
+   |ObjectActions.AssessmentFailed reason=>
+      [information parent "workflow-start-check-failed" Information.Description ("无法检查工作流启动。 "++reason);
+       declared parent Roles.Button(secondary "workflow-start-check-retry" "重新检查"
+         (Input.RetryMenuAssessment subject "run" 0%N))]
+   |_=>[] end
+ end.
 Definition detail_action_nodes snapshot s subject parent excluded:=List.app (card_decision_controls snapshot subject parent) (map(fun action=>
  declared parent Roles.Button(Control(ObjectActions.action_key action)(ObjectActions.action_label action)
   (match ObjectActions.action_confirmation action with Some _=>Destructive|None=>Secondary end)
@@ -153,8 +171,19 @@ Definition card_details snapshot s id parent :=match Read.find_card id snapshot 
 |Some card=>
  let face:=Collections.card_face snapshot s card in
  let '(workflow,entrances):=Collections.ticket_workflow_controls snapshot s parent card in
+ let '(launch,choices):=match Read.ticket_workflow snapshot id with
+ |Some _=> (ticket_workflow_launch snapshot s parent id,
+    match entrances with
+    |[]=>[]
+    |_=>[Node (part parent "workflow-entrances") "workflow-entrances" "更改工作流入口" Roles.Section ContentDisclosure entrances] end)
+ |None=>([],match entrances with
+    |[]=>[]
+    |_=>group_title (part parent "workflow-entrances") "选择工作流入口" :: entrances end)
+ end in
  ([read_only parent "identifier" "卡片编号"(Read.card_identifier card);read_only parent "title" "标题"(Model.card_title face)]++
- workflow++
+ workflow++launch++choices++
+ (match Read.ticket_instance snapshot id with
+ |Some instance=>[Collections.workflow_instance_summary parent instance]|None=>[] end)++
  [read_only parent "description" "描述"(Model.card_description face);read_only parent "stage" "状态"(Selvedge.Features.Domain.stage_label(Read.card_stage card));
   read_only parent "activity" "执行"(Model.card_status face);
   read_only parent "priority" "优先级"(Selvedge.Features.Domain.priority_label(Model.card_priority face));read_only parent "owner" "负责人"(Model.card_owner face);
@@ -168,7 +197,6 @@ Definition card_details snapshot s id parent :=match Read.find_card id snapshot 
   |Some entry=>[group_title (part parent "conversation") "关联对话";
     Navigation.task_entry_tree(State.location(State.navigation_state s))[] parent(TaskTree entry [])]
   |None=>Collections.card_conversation snapshot parent card "" end)++
- entrances ++
  [region parent "card-detail-actions" "卡片操作" Roles.Toolbar
    (detail_action_nodes snapshot s(CardActions id)parent
      (match Read.ticket_workflow snapshot id with Some _=>["run"]|None=>[]end))])%list end.

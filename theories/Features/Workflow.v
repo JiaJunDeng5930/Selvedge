@@ -37,6 +37,10 @@ Definition unique (names : list string) :=
 Definition bounded_key key := match D.decode identifier (JString key) with Some _ => true | None => false end.
 Definition outgoing_allowed n :=
  match node_behavior n with Exit => false | _ => true end.
+Definition node_model_selected n :=
+ match node_behavior n with
+ | TaskNode (CreateTask profile _ _ _) => Codec.nonempty profile
+ | _ => true end.
 Definition valid_graph (g : graph) v :=
  bounded_key (workflow_name g) &&
  N.leb (N.of_nat (List.length (workflow_nodes g))) 128 &&
@@ -52,7 +56,7 @@ Definition valid_graph (g : graph) v :=
       match find_task id v with
       | Some task => negb (task_archived task) && TaskGraph.task_in_work (workflow_work g) id v
       | None => false end
-   | TaskNode (CreateTask profile _ _ _) => Codec.nonempty profile
+   | TaskNode (CreateTask _ _ _ _) => node_model_selected n
    end) (workflow_nodes g) &&
  forallb (fun e => bounded_key (connection_key e) &&
    match lookup_node (connection_source e) g, lookup_node (connection_target e) g with
@@ -80,6 +84,10 @@ Definition parse_node source :=
      | _, _ => None end
    | _, _ => None end
  | _, _ => None end.
+Definition node_model_missing source :=
+ match parse_node source with
+ | Some node => negb (node_model_selected node)
+ | None => false end.
 Definition parse_edge source : option edge :=
  match string_field "key" source, string_field "source" source, string_field "target" source with
  | Some key, Some from, Some target =>

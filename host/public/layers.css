@@ -57,6 +57,7 @@ dialog[data-semantic-key="project-editor"] {
     transform: rotate(-45deg);
   }
   &[open] > summary::after { transform: rotate(45deg); }
+  &[data-editor-options-required] > summary::after { display: none; }
   & > summary:is(:hover, :focus-visible),
   &[open] > summary { color: var(--selvedge-text); }
   & > [data-editor-options-body] {

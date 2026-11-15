@@ -557,11 +557,22 @@ dialog[data-semantic-key="card-details"] {
 }
 
 [data-semantic-key="workflow-node"] {
+  display: grid !important;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 0.125rem !important;
   overflow: visible !important;
   background: var(--selvedge-surface, Canvas);
   border: 1px solid var(--selvedge-border, GrayText);
   border-radius: 0.5rem;
-  padding: 0.35rem 0.65rem;
+  padding: 0.25rem 0.5rem !important;
+}
+[data-semantic-key="workflow-node-name"] {
+  block-size: 100% !important;
+  min-block-size: 0 !important;
+  overflow: hidden;
+}
+[data-semantic-key="workflow-node-kind"] {
+  line-height: 1.2;
 }
 [data-semantic-key="workflow-node-name"] > summary {
   display: -webkit-box !important;
@@ -570,15 +581,11 @@ dialog[data-semantic-key="card-details"] {
   overflow: hidden;
   overflow-wrap: anywhere;
   text-overflow: ellipsis;
+  line-height: 1.15;
   cursor: pointer;
 }
 [data-semantic-key="workflow-node-name"][open] {
-  position: absolute;
-  inset: 0.25rem;
-  z-index: 1;
   overflow: auto;
-  padding: 0.125rem;
-  background: var(--selvedge-surface, Canvas);
 }
 [data-semantic-key="workflow-node-name"][open] > summary {
   display: block !important;

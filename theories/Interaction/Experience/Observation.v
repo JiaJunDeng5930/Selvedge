@@ -620,9 +620,13 @@ Definition body_requirements snapshot e (body:Draft.body):list(obstruction e):=
    |Some (JObject _ as value)=>
      let name:=text "name" value in
      required_name e Fields.TaskGraphDeclaration name (Workflow.bounded_key name)
-       "invalid_workflow_name" "请输入工作流名称。" "请缩短工作流名称。"
+       "invalid_workflow_name" "请输入工作流名称。" "请缩短工作流名称。" ++
+     match find Workflow.node_model_missing (value_or [] (array_field "nodes" value)) with
+     |Some node=>[requirement_obstruction e (Some Fields.TaskGraphDeclaration) "workflow_node_model_required"
+       ("请为节点「"++text "key" node++"」选择模型。")]
+     |None=>[] end
    |_=>[requirement_obstruction e (Some Fields.TaskGraphDeclaration) "invalid_workflow_json"
-     "请在高级选项中修正 JSON 定义。修正后即可继续使用表单。"] end
+     "请修正下方的 JSON 定义。修正后即可继续使用表单。"] end
  |Draft.WorkflowStartBody _ source=>
    let message:=bind (parse_json source) (string_field "message") in
    failed_requirement e

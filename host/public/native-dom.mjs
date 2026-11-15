@@ -8,6 +8,7 @@ const booleanProperties = new Set(['disabled', 'checked', 'indeterminate', 'sele
 const svgTags = new Set(['svg', 'path', 'line', 'polyline', 'rect', 'circle', 'text', 'g']);
 const svgNamespace = 'http://www.w3.org/2000/svg';
 const listenerGroup = { keyboardFocus: 1, actions: 2, field: 4, pointer: 8, reading: 16, files: 32 };
+const requiredEditorOptions = 'data-editor-options-required';
 
 function unmount(node) {
   if (node.nodeType === 1) {
@@ -265,6 +266,8 @@ export class Presentation {
         }
       } else if (record.attributes.get(name) !== value && node.getAttribute(name) !== value) node.setAttribute(name, value);
     }
+    // Once repaired, the disclosure remains open under native control.
+    if (next.has(requiredEditorOptions)) node.open = true;
     const previousStyles = record.styles;
     // Rebuild from an empty declaration list so CSS shorthand and logical properties keep source order.
     if (styles.length !== previousStyles.length ||
@@ -634,6 +637,8 @@ export class Presentation {
   renderRegions(materialize, generation) {
     if (!this.document || this.document.measurement_pending) return false;
     const active = this.root.ownerDocument.activeElement;
+    const options = active?.closest('[data-editor-options]');
+    const wasRequired = options?.hasAttribute(requiredEditorOptions);
     const focusedBefore = this.focusedKey(active);
     const previousScope = this.focusScope;
     const previousGeneration = this.generation;
@@ -680,6 +685,10 @@ export class Presentation {
     if (metadata.focus_scope) this.focusScope = metadata.focus_scope;
     if (metadata.layers_changed || metadata.focus_scope) {
       this.commitLayers(active, true);
+      // Restoring the structured form above its source can move the focused
+      // JSON field below the dialog's scrollport.
+      if (options?.open && options.contains(active) && wasRequired !== options.hasAttribute(requiredEditorOptions) &&
+          focusAvailable(active) && !focusVisible(active)) revealAndFocus(active);
       if (metadata.focus_scope || (focusedBefore !== null && active !== this.root.ownerDocument.activeElement))
         this.applyFocus(previousScope, focusedBefore);
     }
