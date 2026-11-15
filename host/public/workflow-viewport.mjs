@@ -30,18 +30,29 @@ export function installWorkflowViewport(surface) {
       const overflow = target.scrollHeight > target.clientHeight + 1;
       if (name) {
         name.toggleAttribute('data-workflow-overflow', overflow);
+        name.tabIndex = overflow ? 0 : -1;
         if (overflow) name.setAttribute('aria-expanded', String(expandedPreview?.source === name));
-        else name.removeAttribute('aria-expanded');
+        else {
+          if (expandedPreview?.source === name) closePreview();
+          name.removeAttribute('aria-expanded');
+        }
       } else if (!target.parentElement.open) target.toggleAttribute('data-workflow-overflow', overflow);
     }
   });
   function closePreview(returnFocus = false) {
     if (!expandedPreview) return;
-    const { detail, source } = expandedPreview;
+    const { viewport, source, previousScroll, revealedScroll } = expandedPreview;
+    const restoreScroll = returnFocus && Math.abs(viewport.scrollTop - revealedScroll) <= 1;
     expandedPreview = undefined;
-    detail.hidden = true;
     source.setAttribute('aria-expanded', 'false');
-    if (returnFocus) source.focus();
+    if (restoreScroll) viewport.scrollTop = previousScroll;
+    if (returnFocus) source.focus({ preventScroll: restoreScroll });
+  }
+  function showPreviewName(source) {
+    const detail = source.closest('[data-workflow-tile]').querySelector('[data-workflow-preview-detail]');
+    const name = detail.querySelector('[data-workflow-full-name]');
+    if (name.textContent !== source.title) name.textContent = source.title;
+    return detail;
   }
   const viewportObserver = new ResizeObserver(entries => {
     for (const { target } of entries) {
@@ -199,12 +210,12 @@ export function installWorkflowViewport(surface) {
           return;
         }
         closePreview();
-        const detail = nodeName.closest('[data-workflow-tile]').querySelector('[data-workflow-preview-detail]');
-        detail.querySelector('[data-workflow-full-name]').textContent = nodeName.title;
-        expandedPreview = { detail, source: nodeName };
+        const detail = showPreviewName(nodeName);
+        const viewport = nodeName.closest(viewportSelector);
+        const previousScroll = viewport.scrollTop;
         nodeName.setAttribute('aria-expanded', 'true');
-        detail.hidden = false;
         detail.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+        expandedPreview = { viewport, source: nodeName, previousScroll, revealedScroll: viewport.scrollTop };
         detail.focus({ preventScroll: true });
         return;
       }
@@ -307,7 +318,11 @@ export function installWorkflowViewport(surface) {
 
   return () => {
     const workspace = surface.querySelector('[data-workflow-workspace]');
-    if (expandedPreview && !expandedPreview.detail.isConnected) expandedPreview = undefined;
+    // A page publication reconciles the detail's children before restoring the physical view.
+    if (expandedPreview) {
+      if (expandedPreview.source.isConnected) showPreviewName(expandedPreview.source);
+      else expandedPreview = undefined;
+    }
     const viewport = workspace?.querySelector(viewportSelector);
     if (viewport !== observedViewport) {
       if (observedViewport) viewportObserver.unobserve(observedViewport);

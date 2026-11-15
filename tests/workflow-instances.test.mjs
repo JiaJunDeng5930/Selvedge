@@ -338,9 +338,38 @@ test('workflows can be authored and started in place from the browser', { timeou
           detail.bottom <= Math.min(tile.bottom, port.bottom, innerHeight) + 1;
       }));
       assert.equal(await main.getByRole('button', { name: '启动工作流', exact: true }).isVisible(), false);
+      await command({ op: 'create_workflow', name: 'Added during overview',
+        nodes: [{ key: 'start', kind: 'entrance' }, { key: 'finish', kind: 'exit' }],
+        connections: [{ key: 'finish', source: 'start', target: 'finish' }],
+      });
+      await canvas.getByRole('button', { name: 'Added during overview', exact: true }).waitFor();
+      assert.equal(await label.getAttribute('aria-expanded'), 'true');
+      assert.equal(await detail.innerText(), longEntrance);
       await page.keyboard.press('Escape');
       await detail.waitFor({ state: 'hidden' });
       assert.ok(await label.evaluate(node => node === document.activeElement));
+    }
+    if (width === 640) {
+      const label = canvas.getByRole('button', { name: longEntrance, exact: true });
+      const detail = canvas.getByRole('region', { name: '完整节点名称', exact: true });
+      const offset = () => canvas.evaluate(node => node.scrollTop);
+      const original = await label.evaluate(node => {
+        const port = node.closest('[data-workflow-canvas]');
+        port.scrollTop += node.getBoundingClientRect().bottom - port.getBoundingClientRect().bottom + 12;
+        return port.scrollTop;
+      });
+      await label.click();
+      await detail.waitFor();
+      assert.ok(await offset() > original);
+      await detail.getByRole('button', { name: '关闭完整节点名称', exact: true }).click();
+      await detail.waitFor({ state: 'hidden' });
+      assert.ok(Math.abs(await offset() - original) <= 1);
+      assert.equal(await label.getAttribute('aria-expanded'), 'false');
+      await label.click();
+      await detail.waitFor();
+      await page.keyboard.press('Escape');
+      await detail.waitFor({ state: 'hidden' });
+      assert.ok(Math.abs(await offset() - original) <= 1);
     }
   }
   await page.setViewportSize({ width: 588, height: 744 });

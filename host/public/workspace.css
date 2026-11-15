@@ -1001,7 +1001,10 @@ button[data-semantic-key^="instance/"]:hover {
 [data-semantic-key="workflow-preview-name"][aria-expanded="true"] > [data-workflow-preview-chevron] {
   transform: rotate(225deg);
 }
-[data-workflow-preview-detail]:not([hidden]) {
+[data-workflow-preview-detail] {
+  display: none;
+}
+[data-workflow-frame="overview"] [data-workflow-tile]:has([data-semantic-key="workflow-preview-name"][aria-expanded="true"]) > [data-workflow-preview-detail] {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;

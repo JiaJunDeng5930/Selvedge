@@ -1286,7 +1286,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
            [DOM.Element (canvas++"/overview/"++target)%string "button" [("type","button");("data-workflow-open",target)]
              [] [] empty [DOM.Text name];
             DOM.Element (canvas++"/preview-body/"++target)%string "div" [("data-workflow-preview-body","")] [] [] empty [graph];
-            DOM.Element (canvas++"/node-name/"++target)%string "div" [("data-workflow-preview-detail","");("hidden","");
+            DOM.Element (canvas++"/node-name/"++target)%string "div" [("data-workflow-preview-detail","");
               ("role","region");("aria-label","完整节点名称");("tabindex","-1")] [] [] empty
              [DOM.Element (canvas++"/full-name/"++target)%string "span" [("data-workflow-full-name","")] [] [] empty [];
               DOM.Element (canvas++"/close-name/"++target)%string "button" [("type","button");("data-workflow-close-name","");
