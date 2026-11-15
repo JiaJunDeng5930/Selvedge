@@ -6,6 +6,16 @@ let projectedWorld;
 let projection;
 parentPort.on('message', ({ text: input, snapshot, operation }) => {
   try {
+    if (operation === 'captureCheckpoint') {
+      parentPort.postMessage({ checkpoint: { schema: model.checkpointSchema, data: model.checkpoint(world) } });
+      return;
+    }
+    if (operation === 'restoreCheckpoint') {
+      const restored = input.schema === model.checkpointSchema ? model.restoreCheckpoint(input.data) : null;
+      if (restored !== null) world = restored;
+      parentPort.postMessage(restored !== null);
+      return;
+    }
     const run = operation === 'assess' ? model.assess : operation === 'replay' ? model.replay : model.packet;
     const output = run(input, world);
     if (output.inputError) {

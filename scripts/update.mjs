@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { constants } from 'node:fs';
 import { chmod, copyFile, cp, mkdir, open, readFile, readdir, rename, rm, stat } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
@@ -7,6 +8,7 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { targets } from './build-tools.mjs';
+import { journalPrepared, takeJournalOwnership } from './update-handoff.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const launchFile = 'launch.json';
@@ -80,10 +82,11 @@ async function snapshotRuntime(directory) {
   await Promise.all([
     copyFile(path.join(root, '.build/kernel-model.mjs'), path.join(directory, '.build/kernel-model.mjs'), constants.COPYFILE_FICLONE),
     copyFile(path.join(root, 'scripts/update-server.mjs'), path.join(directory, 'scripts/update-server.mjs')),
+    copyFile(path.join(root, 'scripts/update-handoff.mjs'), path.join(directory, 'scripts/update-handoff.mjs')),
   ]);
 }
 
-async function start(directory, launch, writeAtomic) {
+async function start(directory, launch, writeAtomic, handoff) {
   const publication = path.join(directory, 'ready.json');
   await rm(publication, { force: true });
   await writeAtomic(path.join(directory, launchFile), launch);
@@ -91,22 +94,38 @@ async function start(directory, launch, writeAtomic) {
   const log = await open(logPath, 'a', 0o600);
   let child;
   let exited;
+  let prepared;
   try {
+    const stdio = ['ignore', log.fd, log.fd];
+    if (handoff) stdio.push('ipc');
     child = spawn(process.execPath, [path.join(directory, 'scripts/update-server.mjs')], {
-      cwd: launch.cwd, detached: true, stdio: ['ignore', log.fd, log.fd],
+      cwd: launch.cwd, detached: true, stdio,
     });
     exited = new Promise(resolve => {
       child.once('error', resolve);
       child.once('exit', (code, signal) => resolve(Object.assign(new Error(`Service exited (${signal ?? code})`), { exitCode: code })));
     });
+    if (handoff) {
+      prepared = once(child, 'message', { signal: AbortSignal.timeout(120_000) })
+        .then(([message]) => message, error => error);
+    }
   } finally { await log.close(); }
   async function published() {
     const instance = await optionalRecord(publication);
     if (instance?.pid === child.pid && instance.release?.id === launch.release.id) return { child, instance, exited };
   }
 
-  const deadline = Date.now() + 120_000;
   try {
+    if (handoff) {
+      const result = await Promise.race([prepared, exited]);
+      // DEFENSE: A candidate can fail, exit, or time out while replaying the live journal.
+      if (result !== journalPrepared) throw new Error('Candidate could not prepare journal replay', { cause: result });
+      await handoff();
+      await new Promise((resolve, reject) => {
+        child.send(takeJournalOwnership, error => error ? reject(error) : resolve());
+      });
+    }
+    const deadline = Date.now() + 120_000;
     let failure;
     for (;;) {
       const running = await published();
@@ -188,17 +207,21 @@ async function update(options) {
     let hadJournal;
     try {
       await snapshotRuntime(directory);
-      if (active) {
-        console.log('Waiting for the running Selvedge to finish its operations…');
-        const response = await localRequest(active, '/_selvedge/update/drain', { method: 'POST', timeout: false });
-        const reply = await response.json();
-        // DEFENSE: A competing local handoff or journal failure can deny shutdown.
-        if (!response.ok || !reply.ok) throw new Error(reply.error?.message ?? 'The running release did not acknowledge handoff');
-        drained = true;
-      }
-      hadJournal = await databaseBackup(journal, backup, withJournalOwnership);
-      backupComplete = true;
-      const running = await start(directory, launch, writeAtomic);
+      const handoff = async () => {
+        if (active) {
+          console.log('Waiting for the running Selvedge to finish its operations…');
+          const response = await localRequest(active, '/_selvedge/update/drain', { method: 'POST', timeout: false });
+          const reply = await response.json();
+          // DEFENSE: A competing local handoff or journal failure can deny shutdown.
+          if (!response.ok || !reply.ok) throw new Error(reply.error?.message ?? 'The running release did not acknowledge handoff');
+          drained = true;
+        }
+        hadJournal = await databaseBackup(journal, backup, withJournalOwnership);
+        backupComplete = true;
+      };
+      if (active) console.log('Preparing the new Selvedge release from the committed journal…');
+      else await handoff();
+      const running = await start(directory, launch, writeAtomic, active ? handoff : undefined);
       installed = true;
       running.child.unref();
       await awaitAvailable(running);

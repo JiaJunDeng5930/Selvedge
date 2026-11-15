@@ -5,6 +5,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
 import { gunzipSync } from 'node:zlib';
 import { Service } from '../host/service.mjs';
+import { Journal } from '../host/journal.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
 import { home, responsesServer } from './support.mjs';
 
@@ -122,4 +123,85 @@ test('the previous durable journal format is rejected without replay or conversi
     return true;
   });
   assert.deepEqual(await readFile(filename), original);
+});
+
+test('a prepared restart includes commits made while the current service still owns the journal', async t => {
+  const directory = await home(t);
+  const options = { home: directory, cwd: directory,
+    config: validateConfig({ ...defaultConfig, chatgpt: false }) };
+  const previous = await Service.open(options);
+  t.after(() => previous.close());
+  assert.equal((await previous.command({ op: 'create_card', title: 'Before preparation' })).reply.ok, true);
+
+  const journal = await Journal.open(path.join(directory, 'journal.sqlite'), { waitForOwnership: async () => {
+    const committed = await previous.command({ op: 'create_card', title: 'During handoff' });
+    assert.equal(committed.reply.ok, true);
+    await previous.close();
+  } });
+  t.after(() => journal.close());
+  const next = await Service.open({ ...options, journal });
+  t.after(() => next.close());
+  const listed = await next.command({ op: 'list_cards' });
+  assert.equal(listed.reply.ok, true);
+  assert.deepEqual(new Set(listed.reply.result.cards.map(card => card.title)),
+    new Set(['Before preparation', 'During handoff']));
+});
+
+test('a prepared restart rejects a changed committed prefix at the same sequence', async t => {
+  const directory = await home(t);
+  const options = { home: directory, cwd: directory,
+    config: validateConfig({ ...defaultConfig, chatgpt: false }) };
+  const previous = await Service.open(options);
+  t.after(() => previous.close());
+  const committed = await previous.command({ op: 'create_card', title: 'Original title' });
+  assert.equal(committed.reply.ok, true);
+
+  await assert.rejects(async () => {
+    const next = await Journal.open(path.join(directory, 'journal.sqlite'), { waitForOwnership: async () => {
+      await previous.close();
+      const database = new DatabaseSync(path.join(directory, 'journal.sqlite'));
+      try {
+        const replace = database.prepare('UPDATE journal SET input = ? WHERE seq = ?');
+        replace.run(JSON.stringify({ kind: 'command', command: { op: 'create_card', title: 'Replaced title' } }), committed.sequence);
+      } finally { database.close(); }
+    } });
+    await next.close();
+  }, /committed journal prefix changed during update preparation/);
+});
+
+test('a journal reopens from its committed state and ignores a stale or damaged checkpoint', async t => {
+  const directory = await home(t);
+  const filename = path.join(directory, 'journal.sqlite');
+  const checkpoint = `${filename}.checkpoint`;
+  const card = title => ({ kind: 'command', command: { op: 'create_card', title } });
+  const expectCards = async titles => {
+    const journal = await Journal.open(filename);
+    try {
+      const listed = await journal.execute({ kind: 'command', command: { op: 'list_cards' } });
+      assert.equal(listed.reply.ok, true);
+      assert.deepEqual(new Set(listed.reply.result.cards.map(entry => entry.title)), new Set(titles));
+    } finally { await journal.close(); }
+  };
+
+  const writer = await Journal.open(filename);
+  t.after(() => writer.close());
+  const first = await writer.execute(card('检查点里的卡片 🌲'));
+  assert.equal(first.reply.ok, true);
+  assert.equal((await writer.execute(card('Checkpoint suffix'))).reply.ok, true);
+  await writer.close();
+  const saved = await readFile(checkpoint);
+  assert.ok(saved.length > 0);
+  await expectCards(['检查点里的卡片 🌲', 'Checkpoint suffix']);
+
+  const database = new DatabaseSync(filename);
+  try {
+    database.prepare('UPDATE journal SET input = ? WHERE seq = ?')
+      .run(JSON.stringify(card('Replacement prefix')), first.sequence);
+  } finally { database.close(); }
+  await expectCards(['Replacement prefix', 'Checkpoint suffix']);
+
+  const damaged = await readFile(checkpoint);
+  damaged[damaged.length - 1] ^= 1;
+  await writeFile(checkpoint, damaged);
+  await expectCards(['Replacement prefix', 'Checkpoint suffix']);
 });
