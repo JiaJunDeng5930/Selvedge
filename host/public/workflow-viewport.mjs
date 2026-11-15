@@ -2,6 +2,13 @@ const dateFormat = new Intl.DateTimeFormat('zh-CN', {
   month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
 });
 const chineseWords = new Intl.Segmenter('zh', { granularity: 'word' });
+const nodeNameSelector = '[data-semantic-key="workflow-node-name"] > summary';
+
+function cardNameTarget(target) {
+  if (target.closest('button,a,input,select,textarea')) return null;
+  const card = target.closest('[data-semantic-key="workflow-node"]');
+  return card?.querySelector(`:scope > ${nodeNameSelector}[data-workflow-overflow]`);
+}
 
 function wrapWorkflowName(target) {
   const text = target.textContent;
@@ -273,7 +280,7 @@ export function installWorkflowViewport(surface) {
       else closePreview(true);
       return;
     }
-    const summary = event.target.closest('[data-semantic-key="workflow-node-name"] > summary');
+    const summary = event.target.closest(nodeNameSelector) ?? cardNameTarget(event.target);
     if (summary) {
       event.preventDefault();
       if (expandedNode?.source === summary) closeNodeName(true);
@@ -341,7 +348,8 @@ export function installWorkflowViewport(surface) {
   surface.addEventListener('pointerdown', event => {
     const viewport = event.target.closest(viewportSelector);
     if (!viewport || viewport.closest('[data-workflow-frame="overview"]') ||
-      event.button !== 0 || event.target.closest('button,a,input,select,textarea,details')) return;
+      event.button !== 0 || event.target.closest('button,a,input,select,textarea,details') ||
+      cardNameTarget(event.target)) return;
     const current = view(viewport);
     if (current.drag) return;
     current.drag = { id: event.pointerId, x: event.clientX - current.x, y: event.clientY - current.y };
@@ -427,7 +435,7 @@ export function installWorkflowViewport(surface) {
       observedViewport = viewport;
     }
     const nextLabels = new Set(workspace?.querySelectorAll(
-      '[data-semantic-key="workflow-node-name"] > summary, [data-workflow-preview-text]') ?? []);
+      `${nodeNameSelector}, [data-workflow-preview-text]`) ?? []);
     for (const label of labels) if (!nextLabels.has(label)) labelObserver.unobserve(label);
     for (const label of nextLabels) {
       wrapWorkflowName(label);

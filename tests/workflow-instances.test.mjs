@@ -292,7 +292,9 @@ test('workflows can be authored and started in place from the browser', { timeou
   assert.equal(await zoomIn.isDisabled(), true);
   await otherPreview.click({ position: { x: 30, y: 70 } });
   assert.equal(await picker.locator(':checked').innerText(), otherWorkflow);
-  for (const [width, height] of [[320, 568], [360, 640], [390, 844], [768, 1024], [640, 360], [844, 390]]) {
+  const entranceCard = canvas.locator('[data-semantic-key="workflow-node"]')
+    .filter({ has: page.locator('summary:visible').filter({ hasText: longEntrance }) });
+  for (const [width, height] of [[320, 568], [360, 640], [390, 844], [768, 1024], [568, 320], [640, 360], [844, 390]]) {
     await page.setViewportSize({ width, height });
     await main.getByRole('button', { name: '适应工作流', exact: true }).click();
     await until(() => canvas.evaluate(viewport => {
@@ -341,7 +343,7 @@ test('workflows can be authored and started in place from the browser', { timeou
         return [port.getBoundingClientRect().toJSON(), graph.getBoundingClientRect().toJSON()];
       });
       const beforeDisclosure = await graphPosition();
-      await label.click();
+      await entranceCard.getByText('入口', { exact: true }).click();
       const content = detail.getByText(longEntrance, { exact: true });
       await content.waitFor();
       await until(() => content.evaluate(text => {
@@ -386,6 +388,13 @@ test('workflows can be authored and started in place from the browser', { timeou
       await page.keyboard.press('Escape');
       await detail.waitFor({ state: 'hidden' });
       assert.deepEqual(await graphPosition(), zoomed);
+    }
+    if (width === 568) {
+      await entranceCard.getByText('入口', { exact: true }).click();
+      const fullName = main.getByRole('region', { name: '完整节点名称', exact: true });
+      await fullName.getByText(longEntrance, { exact: true }).waitFor();
+      await page.keyboard.press('Escape');
+      await fullName.waitFor({ state: 'hidden' });
     }
     if (width === 640) {
       const name = main.locator('[data-workflow-selected-name]');

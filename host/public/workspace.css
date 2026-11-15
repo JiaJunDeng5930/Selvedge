@@ -971,6 +971,7 @@ button[data-semantic-key^="instance/"]:hover {
   text-wrap: balance;
   line-height: 1.15;
 }
+[data-semantic-key="workflow-node"]:has(> [data-semantic-key="workflow-node-name"] > summary[data-workflow-overflow]),
 [data-semantic-key="workflow-node-name"] > summary[data-workflow-overflow],
 [data-semantic-key="workflow-node-name"][open] > summary { cursor: pointer; }
 @media (min-width: 1024px) {
