@@ -42,6 +42,15 @@ Definition with_bounds (bounds : N * N) (argument : argument_spec) :=
  | Scalar (KOptional _) => ArgumentDeclaration.nullable bounded | _ => bounded end) argument.
 Definition type_declaration (description : argument_type) := match description with
  | Scalar kind => ArgumentDeclaration.of_kind kind | Structured declaration => declaration end.
+Definition same_spec (same_json : json -> json -> bool) (left right : argument_spec) :=
+ String.eqb (argument_name left) (argument_name right) &&
+ Bool.eqb (argument_required left) (argument_required right) &&
+ String.eqb (argument_description left) (argument_description right) &&
+ match argument_type_of left, argument_type_of right with
+ | Scalar kind, Scalar kind' => if Schema.kind_eq_dec kind kind' then true else false
+ | Structured declaration, Structured declaration' =>
+   ArgumentDeclaration.same same_json declaration declaration'
+ | _, _ => false end.
 Definition argument_declaration (declaration : list argument_spec) := ArgumentDeclaration.Object
  (map (fun argument => (argument_name argument,argument_required argument,
    type_declaration (argument_type_of argument))) declaration).

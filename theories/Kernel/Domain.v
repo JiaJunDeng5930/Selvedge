@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
+From Selvedge.Foundation Require Comparison.
 From Selvedge.Programming Require Import Arguments JsonSchema Schema.
 From Selvedge.Foundation Require Import Utf8.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
@@ -129,6 +130,18 @@ Record tool := Tool {
   tool_description : string;
   tool_origin : tool_source
 }.
+Definition same_tool (same_json : json -> json -> bool) (left right : tool) :=
+ String.eqb (tool_name left) (tool_name right) &&
+ String.eqb (tool_description left) (tool_description right) &&
+ match tool_origin left, tool_origin right with
+ | NativeToolSource arguments program, NativeToolSource arguments' program' =>
+   Comparison.list (Arguments.same_spec same_json) arguments arguments' && same_json program program'
+ | ExtensionToolSource schema reference remote, ExtensionToolSource schema' reference' remote' =>
+   same_json (JsonSchema.registered_source schema) (JsonSchema.registered_source schema') &&
+   same_json reference reference' && String.eqb remote remote'
+ | McpToolSource schema server remote, McpToolSource schema' server' remote' =>
+   same_json schema schema' && String.eqb server server' && String.eqb remote remote'
+ | _, _ => false end.
 Definition tool_schema (value : tool) := match tool_origin value with
 | NativeToolSource parameters _ => Arguments.json_schema parameters
 | ExtensionToolSource parameters _ _ => JsonSchema.registered_source parameters

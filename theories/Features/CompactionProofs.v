@@ -758,10 +758,11 @@ Qed.
 Lemma a_failed_capture_is_fresh_for_its_unchanged_input : forall current value,
  A.fresh (MeasurementFailed (A.capture_task current value)) current value = true.
 Proof.
- intros. unfold A.fresh, A.same_input, A.same_description,
-   R.same_description, A.same_history.
+ intros. unfold A.fresh, A.same_input, A.same_description.
+ rewrite CompactionRequestProofs.unchanged_description_is_compatible.
+ unfold A.same_history.
  cbn [A.capture_task R.capture_task captured_history].
- now rewrite !JsonObjectsProofs.equivalent_is_reflexive.
+ apply JsonObjectsProofs.equivalent_is_reflexive.
 Qed.
 
 Lemma synchronizing_a_fresh_terminal_failure_emits_no_requests :

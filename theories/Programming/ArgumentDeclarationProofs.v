@@ -1,8 +1,44 @@
-From Stdlib Require Import String Bool.
+From Stdlib Require Import String List Bool NArith ZArith.
 From Selvedge.Foundation Require Import Json.
+From Selvedge.Foundation Require Import ComparisonProofs.
 From Selvedge.Programming Require ArgumentDeclaration.
 Open Scope string_scope.
 Module D := ArgumentDeclaration.
+
+Lemma same_text_format_refl : forall format, D.same_text_format format format = true.
+Proof.
+ induction format as [constraints|low high|low high|prefix suffix IH]; cbn [D.same_text_format].
+ - unfold D.same_text_constraints.
+   rewrite !N.eqb_refl, !Bool.eqb_reflx.
+   rewrite ComparisonProofs.option_refl; [reflexivity|].
+   apply ComparisonProofs.list_refl, String.eqb_refl.
+ - now rewrite !N.eqb_refl.
+ - now rewrite N.eqb_refl, (ComparisonProofs.option_refl N.eqb N.eqb_refl).
+ - now rewrite String.eqb_refl, IH.
+Qed.
+
+Lemma same_refl : forall same_json,
+ (forall value, same_json value value = true) ->
+ forall declaration, D.same same_json declaration declaration = true.
+Proof.
+ intros same_json SameJson.
+ fix Refl 1.
+ intros declaration; destruct declaration; cbn [D.same]; try reflexivity.
+ - apply Nat.eqb_refl.
+ - destruct (Schema.kind_eq_dec kind kind); congruence.
+ - apply SameJson.
+ - apply same_text_format_refl.
+ - now rewrite !N.eqb_refl.
+ - now rewrite !Z.eqb_refl.
+ - apply Refl.
+ - now rewrite !N.eqb_refl, Refl.
+ - induction properties as [|[[name required] field] rest IH]; cbn; [reflexivity|].
+   now rewrite String.eqb_refl, Bool.eqb_reflx, Refl, IH.
+ - induction properties as [|[[name required] field] rest IH]; cbn; [reflexivity|].
+   now rewrite String.eqb_refl, Bool.eqb_reflx, Refl, IH.
+ - induction alternatives as [|choice rest IH]; cbn; [reflexivity|].
+   now rewrite Refl, IH.
+Qed.
 Lemma admitted_value_retains_its_constraint : forall (A : Set) (condition : A -> bool) value,
  D.present (D.admit condition value) = condition value.
 Proof.

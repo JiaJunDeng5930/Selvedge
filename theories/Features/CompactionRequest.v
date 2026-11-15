@@ -1,6 +1,7 @@
 From Selvedge.Programming Require Variant.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json JsonObjects.
+From Selvedge.Foundation Require Comparison.
 From Selvedge.Programming Require Import OptionObservation Receiver Schema.
 From Selvedge.Kernel Require Import Domain State Tasks.
 From Selvedge.Programming Require Import TaskScope.
@@ -21,13 +22,49 @@ Module S := FeatureRequest.
 Definition capture_task (current : task) (before : world) :=
  C.Capture (task_history current) (task_current_profile current) (task_current_settings current)
    (Capabilities.task_tools current) (Capabilities.callable current (world_environment before)).
-Definition input_description (input : C.capture) := JObject [
- ("model", Codec.model_json (C.captured_profile input)); ("profile", profile_metadata (C.captured_profile input));
- ("settings", Codec.settings_json (C.captured_settings input)); ("guidance", Guidance.json (settings_guidance (C.captured_settings input)));
- ("worktree", JBool (settings_worktree (C.captured_settings input)));
- ("tools", JArray (map Codec.tool_json (C.captured_tools input))); ("callable", JArray (map JString (C.captured_callable input)))].
+Definition same_reasoning_policy (left right : reasoning_policy) :=
+ match left, right with
+ | FixedReasoning, FixedReasoning => true
+ | AdaptivePolicy prior, AdaptivePolicy current =>
+   String.eqb (reasoning_evaluator prior) (reasoning_evaluator current) &&
+   Comparison.list String.eqb (reasoning_efforts prior) (reasoning_efforts current) &&
+   String.eqb (reasoning_baseline prior) (reasoning_baseline current) &&
+   (match reasoning_transport_mode prior, reasoning_transport_mode current with
+    | RequestEffort, RequestEffort | ConfigurationUpdates, ConfigurationUpdates => true
+    | _, _ => false end) &&
+   N.eqb (reasoning_max_lease prior) (reasoning_max_lease current)
+ | _, _ => false end.
+
+Definition same_measurement_profile (left right : profile) :=
+ JsonObjects.equivalent (profile_metadata left) (profile_metadata right) &&
+ String.eqb (profile_key left) (profile_key right) &&
+ String.eqb (profile_provider left) (profile_provider right) &&
+ String.eqb (profile_model left) (profile_model right) &&
+ String.eqb (profile_reasoning left) (profile_reasoning right) &&
+ same_reasoning_policy (profile_policy left) (profile_policy right).
+
+Definition same_settings (left right : task_settings) :=
+ let a := settings_workspace left in
+ let b := settings_workspace right in
+ Comparison.list String.eqb (workspace_roots a) (workspace_roots b) &&
+ Comparison.option String.eqb (workspace_primary a) (workspace_primary b) &&
+ (match sandbox_access (settings_sandbox left), sandbox_access (settings_sandbox right) with
+  | ReadOnly, ReadOnly | WorkspaceWrite, WorkspaceWrite => true | _, _ => false end) &&
+ Bool.eqb (sandbox_network (settings_sandbox left)) (sandbox_network (settings_sandbox right)) &&
+ (match settings_approval left, settings_approval right with
+  | FullAccess, FullAccess | AskForApproval, AskForApproval => true
+  | ReviewWith a, ReviewWith b => String.eqb (profile_key a) (profile_key b)
+  | _, _ => false end) &&
+ Comparison.option N.eqb (settings_project left) (settings_project right) &&
+ Comparison.option N.eqb (settings_resource left) (settings_resource right) &&
+ Guidance.same (settings_guidance left) (settings_guidance right) &&
+ Bool.eqb (settings_worktree left) (settings_worktree right).
+
 Definition same_description (input : C.capture) (current : task) (before : world) :=
- JsonObjects.equivalent (input_description input) (input_description (capture_task current before)).
+ same_measurement_profile (C.captured_profile input) (task_current_profile current) &&
+ same_settings (C.captured_settings input) (task_current_settings current) &&
+ Comparison.list (same_tool JsonObjects.equivalent) (C.captured_tools input) (Capabilities.task_tools current) &&
+ Comparison.list String.eqb (C.captured_callable input) (Capabilities.callable current (world_environment before)).
 Definition capture_compatible (input : C.capture) (current : task) (before : world) :=
  same_description input current before && ContextSelection.history_extends (C.captured_history input) (task_history current).
 Definition compaction_entry (owner : N) (before : world) :=
