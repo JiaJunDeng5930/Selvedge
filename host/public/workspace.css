@@ -556,9 +556,12 @@ dialog[data-semantic-key="card-details"] {
 }
 [data-workflow-workspace] {
   display: grid !important;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto auto minmax(0, 1fr);
   flex: 1 1 auto !important;
-  min-block-size: min(20rem, 55dvh) !important;
+  min-block-size: 0 !important;
+  min-inline-size: 0 !important;
+  max-inline-size: 100%;
   gap: 0 !important;
   border: 1px solid var(--selvedge-border);
   border-radius: 0.625rem;
@@ -598,6 +601,7 @@ dialog[data-semantic-key="card-details"] {
 [data-workflow-canvas] {
   position: relative;
   min-block-size: 0;
+  min-inline-size: 0;
   overflow: clip;
   cursor: grab;
   touch-action: none;
@@ -630,17 +634,25 @@ dialog[data-semantic-key="card-details"] {
 [data-workflow-open] { display: none; }
 [data-workflow-frame="overview"] [data-workflow-canvas] {
   overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
   touch-action: pan-y;
   cursor: default;
 }
 [data-workflow-frame="overview"] [data-workflow-plane] {
   position: static;
-  display: block;
-  column-width: var(--workflow-thumbnail-column, 27.2rem);
-  column-gap: 1rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 1rem;
   inline-size: 100%;
   padding: 0.75rem;
   transform: none;
+}
+@media (min-width: 1024px) {
+  [data-workflow-frame="overview"] [data-workflow-plane] {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 21rem), 1fr));
+  }
 }
 [data-workflow-frame="overview"] [data-workflow-tile] {
   display: block;
@@ -651,11 +663,9 @@ dialog[data-semantic-key="card-details"] {
   border-radius: 0.5rem;
   background: var(--selvedge-surface);
   cursor: pointer;
-  break-inside: avoid;
-  margin-block-end: 1rem;
 }
 [data-workflow-frame="overview"] [data-workflow-tile] > section {
-  margin-inline: 8px;
+  margin-inline-start: var(--workflow-thumbnail-left, 8px);
   min-inline-size: 0;
   max-inline-size: none !important;
   transform: scale(var(--workflow-thumbnail-scale, 1));
@@ -758,6 +768,10 @@ button[data-semantic-key^="instance/"]:hover {
 }
 
 /* The SVG and positioned HTML cards share the same physical coordinates. */
+[data-workflow-plane] [data-semantic-key="task-graph/viewport"] {
+  max-block-size: none;
+  overflow: visible !important;
+}
 [data-semantic-key="task-graph/canvas"] {
   max-inline-size: none !important;
 }
@@ -774,7 +788,7 @@ button[data-semantic-key^="instance/"]:hover {
 
 [data-semantic-key="workflow-node"] {
   display: grid !important;
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, max-content) auto;
   align-content: center;
   gap: 0.125rem !important;
   overflow: visible !important;
@@ -816,8 +830,8 @@ button[data-semantic-key^="instance/"]:hover {
   position: relative;
   display: -webkit-box !important;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  max-block-size: 2lh;
+  -webkit-line-clamp: 4;
+  max-block-size: 4lh;
   padding-inline-end: 0.9rem;
   overflow: hidden;
   overflow-wrap: anywhere;

@@ -268,6 +268,25 @@ test('workflows can be authored and started in place from the browser', { timeou
   }), 'The overview renders the whole workflow');
   await otherPreview.click({ position: { x: 30, y: 70 } });
   assert.equal(await picker.locator(':checked').innerText(), 'Other workflow');
+  for (const [width, height] of [[360, 640], [390, 844], [640, 360]]) {
+    await page.setViewportSize({ width, height });
+    await main.getByRole('button', { name: '适应工作流', exact: true }).click();
+    await until(() => canvas.evaluate(viewport => {
+      const frame = viewport.getBoundingClientRect();
+      const exit = viewport.querySelector('[data-workflow-selected] [data-semantic-key="workflow-node-kind/exit"]');
+      if (!exit) return false;
+      const node = exit.parentElement.getBoundingClientRect();
+      const diagram = exit.closest('[data-semantic-key="task-graph/viewport"]').getBoundingClientRect();
+      return node.left >= frame.left && node.right <= Math.min(innerWidth, frame.right) &&
+        node.top >= frame.top && node.bottom <= Math.min(innerHeight, frame.bottom, diagram.bottom);
+    }), `Fit shows the complete exit at ${width}×${height}`);
+    await main.getByRole('button', { name: '查看所有工作流', exact: true }).click();
+    assert.ok(await canvas.evaluate(viewport => {
+      const picker = viewport.closest('[data-workflow-workspace]').querySelector('[data-workflow-target]');
+      return viewport.getBoundingClientRect().right <= innerWidth && picker.getBoundingClientRect().right <= innerWidth;
+    }));
+  }
+  await page.setViewportSize({ width: 588, height: 744 });
   await main.getByRole('button', { name: '查看所有工作流', exact: true }).click();
   await canvas.getByRole('button', { name: 'Browser workflow', exact: true }).click();
   assert.match(await picker.inputValue(), /^workflow\//);
@@ -425,7 +444,7 @@ test('workflows can be authored and started in place from the browser', { timeou
     assert.ok((await main.getByRole('button', { name: '运行记录', exact: true }).boundingBox()).height >= (width <= 440 ? 44 : 36));
     await verifyNodeBounds(width);
     assert.ok(await longNode.locator('summary').evaluate(el =>
-      el.offsetHeight <= 2 * parseFloat(getComputedStyle(el).lineHeight) + 1));
+      el.offsetHeight <= 4 * parseFloat(getComputedStyle(el).lineHeight) + 1));
     await longNode.getByText(longExit, { exact: true }).click();
     const expanded = longNode.locator('details[open] > summary');
     assert.ok(await expanded.evaluate(el => el.scrollHeight <= el.clientHeight + 1));

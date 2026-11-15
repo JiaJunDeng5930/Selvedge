@@ -18,9 +18,16 @@ export function installWorkflowViewport(surface) {
   const inset = 16;
   const clamp = scale => Math.max(0.06, Math.min(2.5, scale));
   let labels = new Set();
+  let observedViewport;
   const labelObserver = new ResizeObserver(entries => {
     for (const { target } of entries) {
       if (!target.parentElement.open) target.toggleAttribute('data-workflow-overflow', target.scrollHeight > target.clientHeight + 1);
+    }
+  });
+  const viewportObserver = new ResizeObserver(entries => {
+    for (const { target } of entries) {
+      const workspace = target.closest('[data-workflow-workspace]');
+      if (workspace && view(target).fitted) fit(workspace, view(target).frame === 'overview');
     }
   });
 
@@ -56,14 +63,14 @@ export function installWorkflowViewport(surface) {
     current.frame = all ? 'overview' : 'selected';
     current.fitted = true;
     workspace.dataset.workflowFrame = current.frame;
-    viewport.style.setProperty('--workflow-thumbnail-column', `${32 * current.thumbnailZoom}rem`);
     for (const tile of viewport.querySelectorAll('[data-workflow-tile]')) {
       const graph = tile.lastElementChild;
       graph.inert = all;
       if (all) {
         // Use the contents' extent: a positioned chart can be wider than the section's layout box.
-        const scale = current.thumbnailZoom * Math.min(1, (tile.clientWidth - inset) / graph.scrollWidth);
+        const scale = current.thumbnailZoom * Math.min(1.5, (tile.clientWidth - inset) / graph.scrollWidth);
         tile.style.setProperty('--workflow-thumbnail-scale', scale);
+        tile.style.setProperty('--workflow-thumbnail-left', `${(tile.clientWidth - scale * graph.scrollWidth) / 2}px`);
         tile.style.setProperty('--workflow-thumbnail-height', `${Math.ceil(scale * graph.scrollHeight) + 8}px`);
       }
     }
@@ -73,9 +80,11 @@ export function installWorkflowViewport(surface) {
     // DEFENSE: A world update can remove the selected workflow before its native change event is handled.
     if (!group) return;
     const width = viewport.clientWidth;
-    const height = viewport.clientHeight;
-    current.scale = clamp(Math.min(1, (width - 2 * inset) / group.offsetWidth, (height - 2 * inset) / group.offsetHeight));
-    current.x = Math.max(inset, (width - group.offsetWidth * current.scale) / 2) - group.offsetLeft * current.scale;
+    const height = Math.min(viewport.clientHeight, innerHeight - viewport.getBoundingClientRect().top);
+    const contentWidth = group.scrollWidth;
+    const contentHeight = group.scrollHeight;
+    current.scale = clamp(Math.min(1, (width - 2 * inset) / contentWidth, (height - 2 * inset) / contentHeight));
+    current.x = Math.max(inset, (width - contentWidth * current.scale) / 2) - group.offsetLeft * current.scale;
     current.y = inset - group.offsetTop * current.scale;
     place(viewport, current);
   }
@@ -217,13 +226,19 @@ export function installWorkflowViewport(surface) {
 
   return () => {
     const workspace = surface.querySelector('[data-workflow-workspace]');
+    const viewport = workspace?.querySelector(viewportSelector);
+    if (viewport !== observedViewport) {
+      if (observedViewport) viewportObserver.unobserve(observedViewport);
+      if (viewport) viewportObserver.observe(viewport);
+      observedViewport = viewport;
+    }
     const nextLabels = new Set(workspace?.querySelectorAll('[data-semantic-key="workflow-node-name"] > summary') ?? []);
     for (const label of labels) if (!nextLabels.has(label)) labelObserver.unobserve(label);
     for (const label of nextLabels) if (!labels.has(label)) labelObserver.observe(label);
     labels = nextLabels;
     if (!workspace) return;
     const picker = workspace.querySelector('[data-workflow-target]');
-    const current = view(workspace.querySelector(viewportSelector));
+    const current = view(viewport);
     if (Array.from(picker.options).some(option => option.value === current.target)) {
       if (picker.value !== current.target) picker.value = current.target;
       select(workspace, current.target);

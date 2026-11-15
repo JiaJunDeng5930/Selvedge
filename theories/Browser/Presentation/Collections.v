@@ -325,7 +325,7 @@ Definition workflow_history snapshot parent id :=
       information key "workflow-run-entrance" Information.Description ("入口 · "++workflow_field "entrance" run)] ++
      (match natural_field "started_at" run with
       |Some time=>[information key "workflow-run-time" Information.Description (show_natural time)]
-      |None=>[] end) ++
+      |None=>[information key "workflow-run-time-unavailable" Information.Description "时间未记录"] end) ++
      [information key "workflow-run-message" Information.Description (workflow_field "message_preview" run)])%list) runs
  end.
 Definition workflow_instance_details snapshot parent value :=
