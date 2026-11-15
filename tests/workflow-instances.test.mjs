@@ -111,7 +111,7 @@ test('a ticket waits for every exit, with a fresh reviewer and a reused implemen
   await details.getByRole('button', { name: '正在检查启动条件…', exact: true }).waitFor();
   assert.equal((await command({ op: 'read_card', card_id })).workflow_instance_id, null);
   launchCheck.resolve();
-  const waitingForReceipt = details.getByRole('button', { name: '正在等待启动回执…', exact: true });
+  const waitingForReceipt = details.getByRole('button', { name: /正在等待启动回执|服务已收到请求/ });
   await waitingForReceipt.waitFor();
   const instance_id = await until(async () => {
     const ticket = await command({ op: 'read_card', card_id });
@@ -216,7 +216,7 @@ test('a ticket waits for every exit, with a fresh reviewer and a reused implemen
 
 test('workflows can be authored and started in place from the browser', { timeout: 60000 }, async t => {
   const fixture = await browserFixture(t);
-  const { page, command } = fixture;
+  const { page, command, profile } = fixture;
   await page.getByRole('button', { name: '任务图', exact: true }).click();
   await page.setViewportSize({ width: 588, height: 744 });
   const main = page.getByRole('main');
@@ -244,14 +244,28 @@ test('workflows can be authored and started in place from the browser', { timeou
   await canvas.press('0');
 
   await command({ op: 'create_workflow', name: 'Other workflow',
-    nodes: [{ key: 'entry', kind: 'entrance' }, { key: 'exit', kind: 'exit' }],
-    connections: [{ key: 'route', source: 'entry', target: 'exit' }] });
+    nodes: [{ key: 'entry', kind: 'entrance' }, { key: 'exit', kind: 'exit' },
+      { key: 'one', kind: 'task', profile, creation: 'once' }, { key: 'two', kind: 'task', profile, creation: 'once' }],
+    connections: [
+      { key: 'first', source: 'entry', target: 'one' },
+      { key: 'second', source: 'one', target: 'two' },
+      { key: 'third', source: 'two', target: 'exit' },
+    ] });
   const picker = main.getByRole('combobox', { name: '定位工作流', exact: true });
   await picker.selectOption({ label: 'Browser workflow' });
   await main.getByRole('button', { name: '查看所有工作流', exact: true }).click();
   const otherPreview = canvas.locator('[data-workflow-tile]').filter({
     has: page.getByRole('button', { name: 'Other workflow', exact: true }),
   });
+  await main.getByRole('button', { name: '放大画布', exact: true }).click();
+  assert.equal(await main.getByRole('button', { name: '启动工作流', exact: true }).isVisible(), false);
+  assert.ok(await otherPreview.evaluate(tile => {
+    const frame = tile.getBoundingClientRect();
+    return [...tile.querySelectorAll('[data-semantic-key="workflow-node"]')].every(node => {
+      const box = node.getBoundingClientRect();
+      return box.left >= frame.left && box.right <= frame.right && box.bottom <= frame.bottom;
+    });
+  }), 'The overview renders the whole workflow');
   await otherPreview.click({ position: { x: 30, y: 70 } });
   assert.equal(await picker.locator(':checked').innerText(), 'Other workflow');
   await main.getByRole('button', { name: '查看所有工作流', exact: true }).click();
@@ -329,14 +343,21 @@ test('workflows can be authored and started in place from the browser', { timeou
   assert.equal(await firstRun.getByText(first, { exact: true }).innerText(), first);
   await firstRun.getByRole('button', { name: 'Close panel', exact: true }).click();
   assert.equal(await graph.getByRole('button', { name: /^实例 #/ }).count(), 0);
+  const workflow_id = (await command({ op: 'list_workflows' })).definitions.find(entry => entry.name === 'Browser workflow').workflow_id;
+  const later = 'Second run with a different input';
+  await command({ op: 'start_workflow', workflow_id, entrance: 'start', message: later });
   const beforeHistory = await transform();
   await main.getByRole('button', { name: '运行记录', exact: true }).click();
   const history = page.getByRole('dialog', { name: '运行记录', exact: true });
-  const row = history.getByRole('button', { name: /^实例 #\d+ · 已完成$/ });
+  const row = history.getByRole('button', { name: /^实例 #\d+ · 已完成$/ }).filter({ hasText: first.replace('\n', ' ') });
   assert.match(await row.locator('time').getAttribute('datetime'), /^\d{4}-\d{2}-\d{2}T/);
   await row.getByText(first, { exact: true }).waitFor();
+  assert.ok(await row.evaluate(button => [...button.children].every(child =>
+    child.getBoundingClientRect().bottom <= button.getBoundingClientRect().bottom)));
   await row.getByText('入口 · start', { exact: true }).click();
-  await page.getByRole('dialog', { name: /^实例 #\d+$/ }).getByRole('button', { name: 'Close panel', exact: true }).click();
+  await receipt.click();
+  assert.equal(await firstRun.getByText(first, { exact: true }).innerText(), first);
+  await firstRun.getByRole('button', { name: 'Close panel', exact: true }).click();
   await history.getByRole('button', { name: 'Close panel', exact: true }).click();
   assert.equal(await transform(), beforeHistory);
 

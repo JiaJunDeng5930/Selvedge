@@ -1175,6 +1175,12 @@ async function authenticate(effect) {
           showUpdateStatus(value);
           return false;
         }
+        if (value.type === 'workflow_request_received') {
+          const pending = workflowReceipts.get(value.launch_id);
+          if (pending && pending.namespace === value.namespace)
+            dispatch({ type: 'completion_received', ticket: pending.ticket });
+          return false;
+        }
         streamNotices.push(value);
         return true;
       },

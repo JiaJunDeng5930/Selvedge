@@ -41,7 +41,7 @@ Inductive input :=
 | Command(command:State.public_command)
 | RequestCommand(command:State.public_command)
 | RetryCommandAssessment(command:State.public_command)
-| Completed(ticket:N)(outcome:sum string json) | CompletionUnknown(ticket:N)(reason:string)
+| Completed(ticket:N)(outcome:sum string json) | CompletionReceived(ticket:N) | CompletionUnknown(ticket:N)(reason:string)
 | NativeFailed(reason:string)
 | CopyPath(value:string)
 | ServiceInput(input:service_input) | SpeechInput(input:speech_input)
@@ -78,7 +78,7 @@ Definition semantic_change incoming := match incoming with
 (* Only semantic user actions acknowledge a displayed command receipt. Focus,
    selection, layout, and IO observations can also be delivered without intent. *)
 Definition acknowledges_feedback (incoming:input) := match incoming with
-|Completed _ _|CompletionUnknown _ _|NativeFailed _|DirectoriesCompleted _ _|ClockObserved _|EnvironmentObserved
+|Completed _ _|CompletionReceived _|CompletionUnknown _ _|NativeFailed _|DirectoriesCompleted _ _|ClockObserved _|EnvironmentObserved
 |Snapshot|Stream _|CodeObserved _|AppearanceRestored _|SkillsLoaded _ _
 |ActivityFocus _ _ _|EditorSelection _ _ _ _ _ _|ReadTimeline _ _ _=>false
 |LoadSkills _ explicit=>explicit

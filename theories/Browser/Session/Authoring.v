@@ -94,7 +94,7 @@ Definition issue command purpose state:=
  if SS.pending_command command state then fail state "This command is already pending."else
  let authoring:=SS.authoring_state state in let ticket:=SS.next authoring in
  let authoring:=set SS.next(fun _=>N.succ ticket)
- (set SS.awaiting(fun pending=>pending++[SS.Pending ticket command purpose None])authoring)in
+ (set SS.awaiting(fun pending=>pending++[SS.Pending ticket command purpose false None])authoring)in
  changed(SS.with_authoring authoring state)
  [emit "command"[("ticket",number ticket);("command",Schema.encode_command command);
   ("read_only",JBool(match purpose with SS.SearchSubmission _ _ _ _=>true|_=>false end))]].
@@ -102,7 +102,7 @@ Definition reserve command purpose state:=
  if SS.pending_command command state then fail state "This command is already pending."else
  let authoring:=SS.authoring_state state in let ticket:=SS.next authoring in
  let authoring:=set SS.next(fun _=>N.succ ticket)
-  (set SS.awaiting(fun pending=>pending++[SS.Pending ticket command purpose None])authoring)in
+ (set SS.awaiting(fun pending=>pending++[SS.Pending ticket command purpose false None])authoring)in
  keep(SS.with_authoring authoring state).
 Definition current_preparation draft state:=find(SO.matching_directory draft)(Services.preparations(SS.service_state state)).
 Definition preparation_request snapshot draft intent trigger state:=

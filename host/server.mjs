@@ -404,6 +404,14 @@ export async function startServer(options) {
           return;
         },
         browser_command: async (command) => {
+          if ((command.op === 'start_workflow' || command.op === 'start_ticket_workflow') &&
+              /^[0-9a-f]{32}$/.test(command.browser_launch_id)) {
+            // The authenticated HTTP envelope arrived. Only the later
+            // committed instance can confirm the workflow actually started.
+            const notice = { type: 'workflow_request_received', launch_id: command.browser_launch_id,
+              namespace: service.journal.namespace };
+            for (const client of clients) sendEvent(client, notice);
+          }
           const result = await service.browserCommand(command);
           browserJson(request, response, httpReplyStatus(boundary('http.reply_status', { reply: result.reply })), result);
           return;

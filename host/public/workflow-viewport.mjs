@@ -27,7 +27,7 @@ export function installWorkflowViewport(surface) {
   function view(viewport) {
     let current = views.get(viewport);
     if (!current) {
-      current = { x: inset, y: inset, scale: 1, target: '', drag: null, frame: null, fitted: false };
+      current = { x: inset, y: inset, scale: 1, target: '', drag: null, frame: null, fitted: false, thumbnailZoom: 0.85 };
       views.set(viewport, current);
     }
     return current;
@@ -56,13 +56,15 @@ export function installWorkflowViewport(surface) {
     current.frame = all ? 'overview' : 'selected';
     current.fitted = true;
     workspace.dataset.workflowFrame = current.frame;
+    viewport.style.setProperty('--workflow-thumbnail-column', `${32 * current.thumbnailZoom}rem`);
     for (const tile of viewport.querySelectorAll('[data-workflow-tile]')) {
       const graph = tile.lastElementChild;
       graph.inert = all;
       if (all) {
-        const scale = Math.min(1, (tile.clientWidth - 16) / graph.offsetWidth);
+        // Use the contents' extent: a positioned chart can be wider than the section's layout box.
+        const scale = current.thumbnailZoom * Math.min(1, (tile.clientWidth - inset) / graph.scrollWidth);
         tile.style.setProperty('--workflow-thumbnail-scale', scale);
-        tile.style.setProperty('--workflow-thumbnail-height', `${Math.ceil(scale * graph.offsetHeight) + 8}px`);
+        tile.style.setProperty('--workflow-thumbnail-height', `${Math.ceil(scale * graph.scrollHeight) + 8}px`);
       }
     }
     if (all) return;
@@ -136,8 +138,12 @@ export function installWorkflowViewport(surface) {
     const direction = button.dataset.workflowZoom;
     if (direction === 'fit' || direction === 'all') fit(workspace, direction === 'all');
     else {
-      if (workspace.dataset.workflowFrame === 'overview') fit(workspace);
-      zoomFromCenter(workspace.querySelector(viewportSelector), direction);
+      const viewport = workspace.querySelector(viewportSelector);
+      if (workspace.dataset.workflowFrame === 'overview') {
+        const current = view(viewport);
+        current.thumbnailZoom = Math.min(1, Math.max(0.5, current.thumbnailZoom * (direction === 'in' ? 1.18 : 0.85)));
+        fit(workspace, true);
+      } else zoomFromCenter(viewport, direction);
     }
   });
   surface.addEventListener('wheel', event => {
@@ -208,17 +214,6 @@ export function installWorkflowViewport(surface) {
     current.fitted = false;
     place(viewport, current);
   });
-  surface.addEventListener('toggle', event => {
-    const label = event.target;
-    if (!label.matches('[data-semantic-key="workflow-node-name"][open]')) return;
-    const viewport = label.closest(viewportSelector);
-    const overflow = label.getBoundingClientRect().bottom - viewport.getBoundingClientRect().bottom + inset;
-    if (overflow <= 0) return;
-    const current = view(viewport);
-    current.y -= overflow;
-    current.fitted = false;
-    place(viewport, current);
-  }, true);
 
   return () => {
     const workspace = surface.querySelector('[data-workflow-workspace]');

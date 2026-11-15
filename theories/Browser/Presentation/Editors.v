@@ -420,7 +420,8 @@ Definition editor_view snapshot (s:Session.state) e parent :=
  let progress:=match e with
  |WorkflowStart _=>match find (Authoring.pending_for_editor e) (Session.awaiting(Session.authoring_state s)) with
    |Some entry=>match Session.outcome_unknown entry with
-      |Some _=>"启动结果待确认。可在运行记录中查看。"|None=>"正在等待启动回执…" end
+      |Some _=>"启动结果待确认。可在运行记录中查看。"
+      |None=>if Session.request_received entry then "服务已收到请求，正在等待启动确认…" else "正在等待启动回执…" end
    |None=>"正在提交…" end
  |_=>"正在提交…" end in
  let availability:=match e with

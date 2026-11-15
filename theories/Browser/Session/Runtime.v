@@ -71,7 +71,8 @@ Definition forget_pending ticket state:=
 Definition promote_language_admission pending editor owner path language_ticket state:=
  let authoring:=SS.authoring_state state in
  let awaiting:=map(fun current=>if N.eqb(SS.ticket pending)(SS.ticket current)then
-  SS.Pending(SS.ticket current)(SS.accepted_command current)(SS.LanguageSubmission editor owner path language_ticket)(SS.outcome_unknown current)else current)
+  SS.Pending(SS.ticket current)(SS.accepted_command current)(SS.LanguageSubmission editor owner path language_ticket)
+   (SS.request_received current)(SS.outcome_unknown current)else current)
   (SS.awaiting authoring)in
  Authoring.changed(SS.with_authoring(set SS.awaiting(fun _=>awaiting)authoring)state)
   [Authoring.emit "command"[("ticket",number(SS.ticket pending));("command",Schema.encode_command(SS.accepted_command pending))]].
@@ -310,6 +311,8 @@ Definition core namespace snapshot lagged input state:Authoring.result:=match in
  else Authoring.adopt_navigation snapshot(Navigation.open_activity snapshot owner(Activity.SubjectActivity field)trigger state)
  else Authoring.keep state
 |Input.Completed ticket outcome=>complete namespace snapshot lagged ticket outcome state
+|Input.CompletionReceived ticket=>Authoring.keep(SS.with_authoring
+ (set SS.awaiting(map(SS.receive_request ticket))(SS.authoring_state state))state)
 |Input.CompletionUnknown ticket reason=>Authoring.keep(SS.with_authoring
  (set SS.awaiting(map(SS.unknown_outcome ticket reason))(SS.authoring_state state))state)
 |Input.NativeFailed reason=>Authoring.alert_diagnostic state(JString reason)

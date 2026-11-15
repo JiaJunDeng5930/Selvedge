@@ -21,8 +21,8 @@ Record flow_geometry := FlowGeometry {
 Definition conversation_geometry :=
  FlowGeometry false node_width node_height column_gap row_gap inset.
 Definition workflow_geometry (compact : bool) :=
- if compact then FlowGeometry true 70 128 56 16 18
- else FlowGeometry false 188 76 100 30 24.
+ if compact then FlowGeometry true 98 136 56 16 18
+ else FlowGeometry false 224 86 106 32 24.
 Definition card_width geometry := if vertical geometry then across geometry else along geometry.
 Definition card_height geometry := if vertical geometry then along geometry else across geometry.
 
@@ -105,7 +105,8 @@ Definition adjacent_curve {A} geometry (edge : positioned_node * positioned_node
   let middle := (x1 + x2) / 2 in
   flow_curve geometry x1 y1 middle y1 middle y2 x2 y2 true Graphics.Neutral.
 
-Definition outside_curve {A} geometry lane index (spread : bool) (edge : positioned_node * positioned_node) y1 y2 : list (Graphics.primitive A) :=
+Definition outside_curve {A} geometry lane index (spread : bool) shift nodes
+ (edge : positioned_node * positioned_node) y1 y2 : list (Graphics.primitive A) :=
   let '(source, target) := edge in
   let x1 := left source + along geometry in
   let x2 := left target in
@@ -113,9 +114,18 @@ Definition outside_curve {A} geometry lane index (spread : bool) (edge : positio
   let exit := x1 + offset in
   let enter := x2 - offset in
   let tone := if spread then if Nat.even index then Graphics.Accent else Graphics.Success else Graphics.Neutral in
-  [flow_curve geometry x1 y1 exit y1 exit y1 exit lane false tone;
-   flow_line geometry exit lane enter lane tone;
-   flow_curve geometry enter lane enter y2 enter y2 x2 y2 true tone].
+  let above := lane <? top target + shift in
+  let side_clear := negb (existsb (fun node => Nat.eqb (column node) (column target) &&
+    (if above then top node <? top target else top target <? top node)) nodes) in
+  let start := flow_curve geometry x1 y1 exit y1 exit y1 exit lane false tone in
+  if spread && side_clear && (column source <? column target)%nat then
+    let x := x2 + along geometry / 2 in
+    let y := top target + shift + (if above then 0 else across geometry) in
+    let tail := y + (if above then -8 else 8) in
+    [start; flow_curve geometry exit lane x lane x lane x y false tone;
+      flow_line geometry (x - 4) tail x y tone; flow_line geometry (x + 4) tail x y tone]
+  else [start; flow_line geometry exit lane enter lane tone;
+        flow_curve geometry enter lane enter y2 enter y2 x2 y2 true tone].
 
 Record layout (A : Type) := Layout {
   nodes : list positioned_node;
@@ -156,7 +166,7 @@ Definition arrange_flow {A} geometry (spread : bool) entries routes : layout A :
         reserved_above - Z.of_nat (Nat.div2 index) * lane_spacing - lane_spacing / 2
         else height + (if spread then reserved_above + Z.of_nat (Nat.div2 index) * lane_spacing
           else Z.of_nat index * lane_spacing) in
-      outside_curve geometry lane index spread edge y1 y2)
+      outside_curve geometry lane index spread reserved_above placed edge y1 y2)
       (combine (seq 0 lanes) outside) in
   let height := height + Z.of_nat lanes * lane_spacing in
   let placed := map shift placed in

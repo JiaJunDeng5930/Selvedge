@@ -42,8 +42,12 @@ Definition decode_purpose value:=match string_field "kind" value with
 |Some "language_admission"=>task<-natural_field "task" value;;revision<-natural_field "revision" value;;text<-string_field "text" value;;owner<-bind(field "owner" value)Selvedge.Interaction.Interactive.Types.decode_owner;;path<-string_field "path" value;;ticket<-natural_field "ticket" value;;Some(LanguageAdmission task revision text owner path ticket)
 |Some "language"=>editor<-bind(field "editor" value)decode_editor;;owner<-bind(field "owner" value)Selvedge.Interaction.Interactive.Types.decode_owner;;path<-string_field "path" value;;ticket<-natural_field "ticket" value;;Some(LanguageSubmission editor owner path ticket)
 |_=>None end.
-Definition encode_pending value:=JObject[("ticket",number(ticket value));("command",encode_command(accepted_command value));("purpose",encode_purpose(purpose value));("outcome_unknown",DraftCodec.optional_value JString(outcome_unknown value))].
-Definition decode_pending value:=ticket<-natural_field "ticket" value;;command<-bind(field "command" value)(decode_command command_specs);;purpose<-bind(field "purpose" value)decode_purpose;;unknown<-bind(field "outcome_unknown" value)(DraftCodec.parse_optional as_string);;Some(Pending ticket command purpose unknown).
+Definition encode_pending value:=JObject[("ticket",number(ticket value));("command",encode_command(accepted_command value));
+ ("purpose",encode_purpose(purpose value));("request_received",JBool(request_received value));
+ ("outcome_unknown",DraftCodec.optional_value JString(outcome_unknown value))].
+Definition decode_pending value:=ticket<-natural_field "ticket" value;;command<-bind(field "command" value)(decode_command command_specs);;
+ purpose<-bind(field "purpose" value)decode_purpose;;received<-bool_field "request_received" value;;
+ unknown<-bind(field "outcome_unknown" value)(DraftCodec.parse_optional as_string);;Some(Pending ticket command purpose received unknown).
 Definition encode_search_page value:=JObject[
  ("ticket",number(search_page_ticket value));("reply",search_reply value)].
 Definition decode_search_page value:=ticket<-natural_field "ticket" value;;

@@ -26,6 +26,7 @@ Definition decode_runtime value:option Input.input:=
  |"environment_observed"=>Some Input.EnvironmentObserved
  |"clock_observed"=>option_map Input.ClockObserved(natural_field "now" value)
  |"completed"=>ticket<-natural_field "ticket" value;;outcome<-Services.decode_outcome(fun value=>Some value)value;;Some(Input.Completed ticket outcome)
+ |"completion_received"=>option_map Input.CompletionReceived (natural_field "ticket" value)
  |"completion_unknown"=>ticket<-natural_field "ticket" value;;reason<-string_field "error" value;;Some(Input.CompletionUnknown ticket reason)
  |"completion_failed"=>ticket<-natural_field "ticket" value;;reason<-string_field "error" value;;body<-field "body" value;;
    Some(if String.eqb(text "code"(value_or JNull(field "error" body)))"command_not_submitted"

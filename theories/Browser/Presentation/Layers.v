@@ -102,7 +102,7 @@ Definition ticket_workflow_launch snapshot s parent card :=
     |ObjectActions.InFlight=>match pending with
       |Some entry=>match State.outcome_unknown entry,State.purpose entry with
         |Some _,_=>"启动结果待确认"|None,State.DirectAdmission=>"正在检查启动条件…"
-        |None,_=>"正在等待启动回执…" end
+        |None,_=>if State.request_received entry then "服务已收到请求，正在等待启动确认…" else "正在等待启动回执…" end
       |None=>"正在等待启动回执…" end
     |_=>match Read.ticket_instance snapshot card with
       |Some instance=>if String.eqb (Read.workflow_instance_status instance) "已完成" then
