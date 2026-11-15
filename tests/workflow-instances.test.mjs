@@ -243,7 +243,8 @@ test('workflows can be authored and started in place from the browser', { timeou
   await canvas.focus();
   await canvas.press('0');
 
-  await command({ op: 'create_workflow', name: 'Other workflow',
+  const otherWorkflow = 'UI 走查 · 入口直达出口（测试）';
+  await command({ op: 'create_workflow', name: otherWorkflow,
     nodes: [{ key: 'entry', kind: 'entrance' }, { key: 'alternate', kind: 'entrance' }, { key: 'exit', kind: 'exit' },
       { key: 'one', kind: 'task', profile, creation: 'once' }, { key: 'two', kind: 'task', profile, creation: 'once' }],
     connections: [
@@ -258,7 +259,7 @@ test('workflows can be authored and started in place from the browser', { timeou
   await picker.selectOption({ label: 'Browser workflow' });
   await main.getByRole('button', { name: '查看所有工作流', exact: true }).click();
   const otherPreview = canvas.locator('[data-workflow-tile]').filter({
-    has: page.getByRole('button', { name: 'Other workflow', exact: true }),
+    has: page.getByRole('button', { name: otherWorkflow, exact: true }),
   });
   const zoomIn = main.getByRole('button', { name: '放大画布', exact: true });
   await zoomIn.click();
@@ -277,7 +278,7 @@ test('workflows can be authored and started in place from the browser', { timeou
   await zoomIn.click();
   assert.equal(await zoomIn.isDisabled(), true);
   await otherPreview.click({ position: { x: 30, y: 70 } });
-  assert.equal(await picker.locator(':checked').innerText(), 'Other workflow');
+  assert.equal(await picker.locator(':checked').innerText(), otherWorkflow);
   for (const [width, height] of [[360, 640], [390, 844], [640, 360]]) {
     await page.setViewportSize({ width, height });
     await main.getByRole('button', { name: '适应工作流', exact: true }).click();
@@ -292,6 +293,20 @@ test('workflows can be authored and started in place from the browser', { timeou
       return readable && node.left >= frame.left && node.right <= Math.min(innerWidth, frame.right) &&
         node.top >= frame.top && node.bottom <= Math.min(innerHeight, frame.bottom, diagram.bottom);
     }), `Fit shows a complete, readable exit at ${width}×${height}`);
+    if (width === 640) {
+      const heading = canvas.locator('[data-workflow-selected] > section > [data-semantic-key="heading"]');
+      assert.equal(await heading.innerText(), otherWorkflow);
+      assert.ok(await heading.evaluate(title => title.scrollWidth <= title.clientWidth + 1));
+      await main.getByRole('button', { name: '启动工作流', exact: true }).click();
+      const launchPanel = page.getByRole('dialog', { name: '启动工作流', exact: true });
+      const message = launchPanel.getByRole('textbox', { name: '消息', exact: true });
+      assert.ok(await message.evaluate(input => {
+        const port = input.closest('[data-surface-role="dialog-body"]').getBoundingClientRect();
+        const field = input.getBoundingClientRect();
+        return field.top >= port.top && field.bottom <= port.bottom + 1;
+      }));
+      await launchPanel.getByRole('button', { name: '取消', exact: true }).click();
+    }
     await main.getByRole('button', { name: '查看所有工作流', exact: true }).click();
     assert.ok(await canvas.evaluate(viewport => {
       const picker = viewport.closest('[data-workflow-workspace]').querySelector('[data-workflow-target]');
@@ -311,7 +326,7 @@ test('workflows can be authored and started in place from the browser', { timeou
   await canvas.getByRole('button', { name: 'Browser workflow', exact: true }).click();
   assert.match(await picker.inputValue(), /^workflow\//);
   assert.equal(await picker.locator(':checked').innerText(), 'Browser workflow');
-  assert.equal(await main.getByRole('region', { name: 'Other workflow', exact: true }).isVisible(), false);
+  assert.equal(await main.getByRole('region', { name: otherWorkflow, exact: true }).isVisible(), false);
   const launchControl = main.getByRole('button', { name: '启动工作流', exact: true });
   const buttonLocation = await launchControl.boundingBox();
   await main.getByRole('button', { name: '适应工作流', exact: true }).click();

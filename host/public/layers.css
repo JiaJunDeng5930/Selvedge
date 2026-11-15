@@ -81,6 +81,23 @@ dialog[data-semantic-key="project-editor"] {
 [data-semantic-key="workflow-start-feedback"] {
   min-block-size: 2lh;
 }
+[data-semantic-key="workflow-start-feedback"]:empty {
+  display: none !important;
+}
+@media (orientation: landscape) and (max-height: 480px) {
+  dialog:has([data-semantic-key="workflow-start-feedback"]) {
+    max-block-size: calc(100dvb - 1rem) !important;
+  }
+  form:has([data-semantic-key="workflow-start-feedback"]) > [data-surface-role="dialog-body"] {
+    gap: 0.375rem !important;
+    padding-block: 0.375rem !important;
+  }
+  form:has([data-semantic-key="workflow-start-feedback"]) textarea {
+    block-size: 3.25rem !important;
+    min-block-size: 3.25rem !important;
+    resize: vertical;
+  }
+}
 dialog[data-semantic-key="workflow-instance-details"] {
   --workflow-dialog-top: clamp(1rem, 8dvb, 4rem);
   inset-block: var(--workflow-dialog-top) auto !important;
