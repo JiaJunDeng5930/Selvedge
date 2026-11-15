@@ -555,11 +555,11 @@ dialog[data-semantic-key="card-details"] {
   min-block-size: 0 !important;
 }
 [data-workflow-workspace] {
-  /* The name panel shares the action row so opening it preserves the canvas bounds. */
-  --workflow-action-height: 3.375rem;
+  --workflow-toolbar-row-height: 3.375rem;
   display: grid !important;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto var(--workflow-action-height) minmax(0, 1fr);
+  /* Reserve the name row before fitting so inspection never changes the chart or controls. */
+  grid-template-rows: auto repeat(2, var(--workflow-toolbar-row-height)) minmax(0, 1fr);
   flex: 1 1 auto !important;
   min-block-size: 0 !important;
   min-inline-size: 0 !important;
@@ -571,6 +571,7 @@ dialog[data-semantic-key="card-details"] {
   overflow: clip;
 }
 [data-workflow-viewport-controls] {
+  grid-column: 1 / -1;
   grid-row: 1;
   display: flex;
   align-items: center;
@@ -643,7 +644,7 @@ dialog[data-semantic-key="card-details"] {
 }
 [data-workflow-canvas] {
   grid-column: 1 / -1;
-  grid-row: 3;
+  grid-row: 4;
   position: relative;
   min-block-size: 0;
   min-inline-size: 0;
@@ -755,9 +756,6 @@ dialog[data-semantic-key="card-details"] {
   grid-column: 1 / -1;
   border-block-end: 1px solid var(--selvedge-border);
 }
-[data-workflow-frame="selected"]:has([data-semantic-key="workflow-node-name"][open]) [data-workflow-actions] {
-  visibility: hidden;
-}
 [data-workflow-actions] [data-semantic-key^="workflow/"]:not([hidden]) {
   display: flex !important;
   flex-flow: row wrap !important;
@@ -777,6 +775,15 @@ dialog[data-semantic-key="card-details"] {
   [data-workflow-selection] { flex-basis: 100%; }
   [data-workflow-actions] button { min-block-size: 44px !important; }
 }
+@media (max-width: 440px) and (max-height: 720px) {
+  main:has(> [data-page-region="task-graph-entries"] > [data-workflow-workspace]) {
+    padding-block: 0.5rem !important;
+    gap: 0.5rem !important;
+    > [data-semantic-key="workspace-browse-heading"] > [data-page-region]:first-child {
+      flex-basis: 0 !important;
+    }
+  }
+}
 @media (orientation: landscape) and (max-height: 480px) {
   main:has(> [data-page-region="task-graph-entries"] > [data-workflow-workspace]) {
     gap: 0.375rem !important;
@@ -794,15 +801,23 @@ dialog[data-semantic-key="card-details"] {
   }
   [data-workflow-actions] button { min-block-size: 32px !important; }
 }
-@media (orientation: landscape) and (max-height: 480px) and (min-width: 600px) {
+@media (min-width: 900px) {
+  [data-workflow-frame="selected"] {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-rows: auto var(--workflow-toolbar-row-height) minmax(0, 1fr);
+    [data-workflow-actions] { grid-column: 1; }
+    [data-workflow-node-detail] { grid-area: 2 / 2; }
+    [data-workflow-canvas] { grid-row: 3; }
+  }
+}
+@media (orientation: landscape) and (max-height: 480px) and (min-width: 600px) and (max-width: 899px) {
   [data-workflow-frame="selected"] {
     grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-rows: var(--workflow-action-height) minmax(0, 1fr);
+    grid-template-rows: repeat(2, var(--workflow-toolbar-row-height)) minmax(0, 1fr);
     [data-workflow-viewport-controls] { grid-column: 1; }
     [data-workflow-actions] { grid-area: 1 / 2; }
-    [data-workflow-node-detail] { grid-row: 1; }
-    [data-workflow-canvas] { grid-row: 2; }
-    &:has([data-semantic-key="workflow-node-name"][open]) [data-workflow-viewport-controls] { visibility: hidden; }
+    [data-workflow-node-detail] { grid-row: 2; }
+    [data-workflow-canvas] { grid-row: 3; }
   }
 }
 @media (orientation: landscape) and (max-height: 480px) and (min-width: 600px) and (max-width: 760px) {
@@ -1068,11 +1083,11 @@ button[data-semantic-key^="instance/"]:hover {
 }
 [data-workflow-node-detail] {
   grid-column: 1 / -1;
-  grid-row: 2;
+  grid-row: 3;
   border-block-end: 1px solid var(--selvedge-border);
 }
 [data-workflow-node-detail] > [data-workflow-full-name] {
-  max-block-size: calc(var(--workflow-action-height) - 0.75rem - 2px);
+  max-block-size: calc(var(--workflow-toolbar-row-height) - 0.75rem - 2px);
   overflow: auto;
   overscroll-behavior: contain;
 }

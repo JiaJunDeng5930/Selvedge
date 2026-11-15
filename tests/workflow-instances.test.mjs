@@ -349,9 +349,18 @@ test('workflows can be authored and started in place from the browser', { timeou
           graph.top >= canvas.top && graph.bottom <= Math.min(canvas.bottom, innerHeight);
       }), 'The full name and close control stay above the complete, readable graph');
       assert.deepEqual(await graphPosition(), beforeDisclosure);
+      for (const name of ['编辑工作流', '启动工作流', '运行记录']) {
+        assert.ok(await main.getByRole('button', { name, exact: true }).isVisible());
+      }
       await detail.getByRole('button', { name: '关闭完整节点名称', exact: true }).click();
       await detail.waitFor({ state: 'hidden' });
       assert.ok(await label.evaluate(node => !node.parentElement.open && node === document.activeElement));
+      await label.click();
+      await detail.waitFor();
+      await main.getByRole('button', { name: '启动工作流', exact: true }).click();
+      const launch = page.getByRole('dialog', { name: '启动工作流', exact: true });
+      await launch.getByRole('button', { name: '取消', exact: true }).click();
+      await detail.waitFor({ state: 'hidden' });
       await label.click();
       await detail.waitFor();
       await main.getByRole('button', { name: '适应工作流', exact: true }).click();
