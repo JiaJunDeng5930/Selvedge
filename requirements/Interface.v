@@ -496,6 +496,9 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
 
     Before the first snapshot, preserve the basic navigation and content layout.
     Show the connection attempt or its failure and let the user reconnect.
+    After a connection failure, use a stable notice and reconnect control while
+    automatic attempts continue. If a workspace is already open, the notice
+    preserves its layout and reading position and does not open Settings.
     After the snapshot, a missing measurement selects
     the compact layout until real dimensions are available. A page change can
     continue to present the workspace while the browser measures it.

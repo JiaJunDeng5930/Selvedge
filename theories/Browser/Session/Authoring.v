@@ -592,8 +592,8 @@ Definition service_step snapshot input state:=
  (* DEFENSE: Stale connection receipts emit neither authentication nor owned
     reconnect effects and must not retire the current microphone session. *)
  let signal:=match input with
- |Services.Authenticated _ (inr _)=>match previous_connection,Services.connection(Services.service_state decision)with
-  |Services.ConnectionLoading _,Services.ConnectionReady _=>Some Speech.Refresh|_,_=>None end
+ |Services.Authenticated _ (inr _)=>match Services.connection_attempt previous_connection,Services.connection(Services.service_state decision)with
+  |Some _,Services.ConnectionReady _=>Some Speech.Refresh|_,_=>None end
  |_=>if existsb(fun effect=>match input,effect with
     |_,Services.Authenticate _=>true
     |Services.Disconnected _ _ _,Services.Reconnect _ _=>true

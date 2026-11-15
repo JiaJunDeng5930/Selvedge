@@ -503,6 +503,9 @@ Definition appearance parent current :=
              (secondary key label (Input.ServiceInput (Services.ChooseAppearance theme))))
           (samples ++ [Node (part choice "theme-choice-label") "theme-choice-label" "" Roles.Content (ReadOnly label) []])%list) themes)].
 
+Definition connection_failure_message := "无法连接到 Selvedge，正在自动重试。".
+Definition reconnect_label := "立即重连".
+
 Definition local_connection parent services :=
  let id := part (part parent "local") "settings-controls" in
  match Services.connection services with
@@ -512,10 +515,10 @@ Definition local_connection parent services :=
       [information id "service-connecting" Information.Status "连接中"] []
  | ConnectionDormant => row parent "local" "本地服务" "将当前浏览器连接到 Selvedge。"
       [button id "connect" "连接" true Services.Connect] []
- | ConnectionFailed _ reason | ConnectionRevoked _ reason =>
-      row parent "local" "本地服务" "将当前浏览器连接到 Selvedge。"
-        [button id "connect" "重新连接" true Services.Connect]
-        [information (part parent "local") "service-error" Information.Status reason]
+ | ConnectionFailed _ reason | ConnectionRetrying _ reason | ConnectionRevoked _ reason =>
+      row parent "local" "本地服务" connection_failure_message
+        [button id "connect" reconnect_label true Services.Connect]
+        [information (part parent "local") "service-error" Information.Description reason]
  end.
 Definition overview root parent section services speech groups :=
  let render_group '(key, label, content) :=

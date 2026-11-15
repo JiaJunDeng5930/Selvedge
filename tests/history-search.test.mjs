@@ -485,19 +485,37 @@ test('A search result opens and highlights a deep visible match while later repl
   await atLatest();
 });
 
-test('A stalled first connection is visible and the user can reconnect', async t => {
+test('A stalled first connection keeps its failure and reconnect control across automatic attempts', async t => {
   const { browser, running } = await browserFixture(t);
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   t.after(() => page.close());
-  let first = true;
+  const attempts = [];
+  let recover = false;
   await page.route('**/api/browser/state', route => {
-    if (!first) return route.continue();
-    first = false;
-    // Leave the first state request unanswered so the browser's own deadline fires.
+    if (recover) return route.continue();
+    // Hold requests so the test can observe the UI during each attempt.
+    attempts.push(route);
   });
   await page.goto(running.url);
   await page.getByRole('status').filter({ hasText: /^正在连接 Selvedge…$/u }).waitFor();
-  const retry = page.getByRole('button', { name: '重新连接', exact: true });
-  await retry.click({ timeout: 25000 });
+  const status = page.getByRole('status').filter({ hasText: /^无法连接到 Selvedge，正在自动重试。$/u });
+  const retry = page.getByRole('button', { name: '立即重连', exact: true });
+  // The first request ends when the browser's own deadline fires.
+  await status.waitFor({ timeout: 25000 });
+  await retry.focus();
+  const control = await retry.elementHandle();
+  const position = await retry.boundingBox();
+  const main = page.getByRole('main');
+  const failure = await main.innerText();
+  for (const index of [1, 2]) {
+    const attempt = await until(() => attempts[index], 'an automatic reconnection attempt');
+    assert.equal(await status.isVisible(), true);
+    assert.equal(await control.evaluate(node => node === document.activeElement), true);
+    assert.deepEqual(await retry.boundingBox(), position);
+    assert.equal(await main.innerText(), failure);
+    if (index === 1) await attempt.abort('failed');
+  }
+  recover = true;
+  await retry.click();
   await page.getByRole('navigation', { name: 'Global navigation', exact: true }).waitFor({ timeout: 10000 });
 });
