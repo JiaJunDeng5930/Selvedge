@@ -12,7 +12,7 @@ From Selvedge.Interaction.Interactive Require Presentation.
 From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Codec Identity.
 From Selvedge.Browser.Session Require Import Input ObjectActions.
-From Selvedge.Browser.Session Require State Authoring.
+From Selvedge.Browser.Session Require State Authoring Services.
 From Selvedge.Browser.Scene Require Import Surface Model Construction.
 From Selvedge.Browser.Presentation Require Import Projection Navigation.
 From Selvedge.Browser.Presentation Require Editors Roles Information Composition TaskGraphCanvas.
@@ -366,9 +366,14 @@ Definition ticket_workflow_controls snapshot s parent (card : Read.card) :=
      (JObject (("op",JString op) :: fields)) with
    | Some command =>
      let pending := State.pending_command command s in
-     let caption := if pending then "正在提交…" else caption in
-     [declared parent Roles.Button (Control key caption Secondary (Input.Command command)
-       (if pending then Busy caption else domain_availability (Authoring.command_availability snapshot s command)))]
+     let connected := Services.connected (State.service_state s) in
+     let control := if pending then Control key "正在提交…" Secondary (Input.Command command) (Busy "正在提交…")
+       else if negb connected then Control key caption Secondary (Input.Command command) (Unavailable "正在重新连接服务…")
+       else match Authoring.command_assessment_failure snapshot s command with
+       | Some _ => Control key ("重新检查 · " ++ caption) Secondary (Input.RetryCommandAssessment command) Available
+       | None => Control key caption Secondary (Input.Command command)
+           (domain_availability (Authoring.command_availability snapshot s command)) end in
+     [declared parent Roles.Button control]
    | None => [] end in
  let configured : list (node Input.input) := match link with
    | None => []

@@ -575,14 +575,28 @@ dialog[data-semantic-key="card-details"] {
   line-height: 1.2;
 }
 [data-semantic-key="workflow-node-name"] > summary {
+  position: relative;
   display: -webkit-box !important;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+  min-block-size: 100%;
+  padding-inline-end: 0.9rem;
   overflow: hidden;
   overflow-wrap: anywhere;
   text-overflow: ellipsis;
   line-height: 1.15;
   cursor: pointer;
+}
+[data-semantic-key="workflow-node-name"] > summary::after {
+  content: "";
+  position: absolute;
+  inset-block-start: 0.25rem;
+  inset-inline-end: 0.125rem;
+  inline-size: 0.45em;
+  block-size: 0.45em;
+  border: solid currentColor;
+  border-width: 0 0.1em 0.1em 0;
+  transform: rotate(45deg);
 }
 [data-semantic-key="workflow-node-name"][open] {
   overflow: auto;
@@ -590,6 +604,9 @@ dialog[data-semantic-key="card-details"] {
 [data-semantic-key="workflow-node-name"][open] > summary {
   display: block !important;
   overflow: visible;
+}
+[data-semantic-key="workflow-node-name"][open] > summary::after {
+  transform: rotate(225deg);
 }
 [data-semantic-key="task-graph/viewport"]:has(> [data-semantic-key="workflow-pan-hint"]) {
   container: workflow-viewport / scroll-state;

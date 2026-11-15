@@ -329,6 +329,7 @@ Definition core namespace snapshot lagged input state:Authoring.result:=match in
 |Input.MenuAction subject key occurrence=>menu_action snapshot subject key occurrence state
 |Input.RetryMenuAssessment subject key occurrence=>Authoring.keep(SS.with_services
  (Services.forget_owned_assessment(CommandAssessment.ObjectActionOwner subject key)(SS.service_state state))state)
+|Input.RetryCommandAssessment command=>Authoring.retry_command_assessment snapshot state command
 |Input.Command command=>match Authoring.command_availability snapshot state command with
  |EM.Available=>Authoring.issue command SS.DirectSubmission state
  |EM.Unavailable reason=>Authoring.fail state reason end

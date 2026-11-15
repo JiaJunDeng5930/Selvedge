@@ -600,12 +600,14 @@ export class Service extends EventEmitter {
     return result;
   }
 
-  assess(candidate) {
+  assess(candidate, { signal } = {}) {
     this.#publicCommand(candidate.command);
     // DEFENSE: An HTTP assessment can already be in flight when the service closes or loses its worker.
     if (this.#failure) return Promise.reject(this.#failure);
     if (this.#closing) return Promise.reject(new Error('Service is stopping'));
     const result = this.#catalogTail.then(async () => {
+      // DEFENSE: A closed browser request may still have an observation queued here.
+      signal?.throwIfAborted();
       // DEFENSE: Catalog work queued before assessment can fail, or shutdown can finish while it waits.
       if (this.#failure) throw this.#failure;
       if (this.#closing) throw new Error('Service is stopping');
@@ -613,7 +615,7 @@ export class Service extends EventEmitter {
       // DEFENSE: Shutdown or a fatal operation can occur during the same filesystem preparation used by submission.
       if (this.#failure) throw this.#failure;
       if (this.#closing) throw new Error('Service is stopping');
-      return this.journal.assess({ ...candidate, command });
+      return this.journal.assess({ ...candidate, command }, { signal });
     });
     // DEFENSE: A refused filesystem observation reports its own error without blocking later catalog work.
     this.#catalogTail = result.catch(() => {});

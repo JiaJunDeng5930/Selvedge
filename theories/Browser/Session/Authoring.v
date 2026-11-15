@@ -141,6 +141,14 @@ Definition command_owner snapshot state command:=match ObjectActions.descriptor_
 Definition command_availability snapshot (state:SS.state) command:EM.availability:=
  if SS.pending_command command state then EM.Unavailable "This command is already pending." else
  EO.admission snapshot state(command_owner snapshot state command)(ObjectActions.assessment_revision state)command.
+Definition command_assessment_failure snapshot state command :=
+ let owner:=command_owner snapshot state command in
+ let revision:=ObjectActions.assessment_revision state in
+ match natural_field "sequence" snapshot,
+       find(Services.owned_assessment owner)(Services.command_assessments(SS.service_state state)) with
+ |Some sequence,Some(Resource.Failed _ request reason)=>
+   if CommandAssessment.matches owner revision sequence command request then Some reason else None
+ |_,_=>None end.
 Definition submission_obstruction snapshot draft state:option string:=
  if negb(Services.connected(SS.service_state state))then Some "Connect to continue."else
  match EO.project_precondition snapshot state draft with
@@ -764,6 +772,14 @@ Definition ensure_cloud_repository snapshot state:=
 Definition ensure_request snapshot owner revision command state:=match natural_field "sequence" snapshot with
 |None=>keep state
 |Some sequence=>adopt_service(Services.ensure_assessment owner revision sequence command(SS.service_state state))state end.
+Definition retry_command_assessment snapshot state command:=
+ match command_assessment_failure snapshot state command with
+ |None=>keep state
+ |Some _=>
+   let owner:=command_owner snapshot state command in
+   let current:=SS.with_services(Services.forget_owned_assessment owner(SS.service_state state))state in
+   ensure_request snapshot owner (ObjectActions.assessment_revision state) command current
+ end.
 Definition preparation_owner ticket command:=CommandAssessment.PreparationOwner ticket(CommandAssessment.command_identity command).
 Definition assessed_command snapshot owner revision command state:option(sum string unit):=
  match natural_field "sequence" snapshot with

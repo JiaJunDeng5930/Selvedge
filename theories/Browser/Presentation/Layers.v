@@ -95,8 +95,10 @@ Definition ticket_workflow_launch snapshot s parent card :=
    let status:=ObjectActions.action_status action in
    let key:="workflow-start-ticket" in
    let caption:=match status with ObjectActions.InFlight=>"正在提交…"|_=>ObjectActions.action_label action end in
+   let connected:=Services.connected (State.service_state s) in
    let launch:=declared parent Roles.Button(Control key caption
-     Secondary (detail_action_input parent action)(status_availability status)) in
+     Secondary (detail_action_input parent action)
+     (if connected then status_availability status else Unavailable "正在重新连接服务…")) in
    launch :: match status with
    |ObjectActions.AssessmentFailed reason=>
       [information parent "workflow-start-check-failed" Information.Description ("无法检查工作流启动。 "++reason);

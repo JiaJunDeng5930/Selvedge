@@ -23,8 +23,9 @@ const updateSessionKey = 'selvedge-update-session';
 const files = new Map();
 const transfers = new Map();
 const assessments = new Map();
+const interactiveAssessments = new Map();
 const candidateAssessments = new Map();
-let drainingCandidates = false;
+const drainingAssessments = new Set();
 const resources = new Set();
 const timers = new Set();
 const readings = new Map();
@@ -228,6 +229,7 @@ function retireDocumentViews() {
   suspendedPrefixFocus = null;
   for (const controller of assessments.values()) controller.abort();
   assessments.clear();
+  interactiveAssessments.clear();
   candidateAssessments.clear();
   for (const resource of resources) URL.revokeObjectURL(resource);
   resources.clear();
@@ -1306,23 +1308,21 @@ function assessCommand(effect) {
   assessments.get(key)?.abort();
   const controller = new AbortController();
   assessments.set(key, controller);
-  const job = { effect, namespace, key, controller };
-  if (effect.request.editor.kind !== 'candidate') return performAssessment(job);
-  candidateAssessments.set(key, job);
-  if (!drainingCandidates) return assessCandidates();
+  const queue = effect.request.editor.kind === 'candidate' ? candidateAssessments : interactiveAssessments;
+  queue.set(key, { effect, namespace, key, controller });
+  if (!drainingAssessments.has(queue)) return drainAssessments(queue);
 }
-async function assessCandidates() {
-  drainingCandidates = true;
+async function drainAssessments(queue) {
+  drainingAssessments.add(queue);
   try {
-    // The service already serializes these checks. Keep only one candidate
-    // request in flight so the browser can fetch a state snapshot for its SSE
-    // subscription while the chooser evaluates the rest of the catalog.
-    while (!disposed && candidateAssessments.size) {
+    // The service serializes these checks. Give the visible actions and the
+    // candidate list one request each, leaving connections for state and SSE.
+    while (!disposed && queue.size) {
       await new Promise(resolve => setTimeout(resolve, 0));
-      const next = candidateAssessments.entries().next();
+      const next = queue.entries().next();
       if (disposed || next.done) return;
       const [key, job] = next.value;
-      candidateAssessments.delete(key);
+      queue.delete(key);
       // A queued check belongs to the snapshot against which it was issued.
       if (!sameGeneration(job.effect.request.sequence, publication.sequence)) {
         if (assessments.get(key) === job.controller) assessments.delete(key);
@@ -1330,7 +1330,7 @@ async function assessCandidates() {
       }
       await performAssessment(job);
     }
-  } finally { drainingCandidates = false; }
+  } finally { drainingAssessments.delete(queue); }
 }
 async function performAssessment({ effect, namespace, key, controller }) {
   try {
@@ -1584,6 +1584,7 @@ window.addEventListener('pagehide', () => {
   for (const entry of codeBlocks.values()) for (const physical of entry.views.values()) physical.renderer?.dispose();
   for (const controller of transfers.values()) controller.abort();
   for (const controller of assessments.values()) controller.abort();
+  interactiveAssessments.clear();
   candidateAssessments.clear();
   for (const node of readingMeasurements.keys()) retireReadingMeasurement(node);
   retireHistoryLocation();

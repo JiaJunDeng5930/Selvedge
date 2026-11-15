@@ -132,7 +132,7 @@ export async function startServer(options) {
 
   function requestSignal(request, response) {
     const controller = new AbortController();
-    const abort = () => controller.abort(new Error('Audio client disconnected'));
+    const abort = () => controller.abort(new Error('Client disconnected'));
     request.once('aborted', abort);
     const closed = () => { if (!response.writableEnded) abort(); };
     response.once('close', closed);
@@ -409,7 +409,14 @@ export async function startServer(options) {
           return;
         },
         assess: async (body) => {
-          json(response, 200, await service.assess(body));
+          const operation = requestSignal(request, response);
+          try {
+            const result = await service.assess(body, { signal: operation.signal });
+            if (!operation.signal.aborted) json(response, 200, result);
+          } catch (error) {
+            // DEFENSE: Superseded observations are cancelled by the browser while in the service queue.
+            if (error !== operation.signal.reason) throw error;
+          } finally { operation.close(); }
           return;
         },
         connection_command: async (body) => {

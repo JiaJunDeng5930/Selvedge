@@ -39,6 +39,7 @@ Inductive input :=
 | RetryWorkspace(owner:editor)(trigger:string) | DirectoriesCompleted(ticket:N)(outcome:sum string json)
 | Submit(owner:editor)(trigger:string) | RemoveAttachment(owner:editor)(id:string)
 | Command(command:State.public_command)
+| RetryCommandAssessment(command:State.public_command)
 | Completed(ticket:N)(outcome:sum string json) | CompletionUnknown(ticket:N)(reason:string)
 | NativeFailed(reason:string)
 | CopyPath(value:string)

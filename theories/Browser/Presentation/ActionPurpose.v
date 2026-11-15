@@ -98,7 +98,8 @@ Definition describe snapshot state input:P.purpose:=match input with
 |Input.FollowLatest _=>P.Latest
 |Input.CopyPath _=>P.CopyPath
 |Input.RemoveAttachment _ _|Input.ActivityWorkspaceChange _ (Input.RemoveDirectory _)=>P.RemoveValue
-|Input.RetryWorkspace _ _=>P.NamedAction|Input.RetryMenuAssessment _ _ _=>P.RetryTransfer
+|Input.RetryWorkspace _ _=>P.NamedAction
+|Input.RetryMenuAssessment _ _ _|Input.RetryCommandAssessment _=>P.RetryTransfer
 |Input.ServiceInput input=>match input with
  |Services.Connect|Services.RetryConnection _=>
    match Services.connection(State.service_state state)with

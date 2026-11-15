@@ -48,20 +48,40 @@ test('a ticket waits for every exit, with a fresh reviewer and a reused implemen
   await editor.waitFor({ state: 'hidden' });
   const { card_id } = await command({ op: 'create_card', title: 'Workflow acceptance ticket' });
   await page.getByRole('button', { name: '卡片看板', exact: true }).click();
-  await page.getByRole('button', { name: '打开 Workflow acceptance ticket', exact: true }).click();
-  const details = page.getByRole('dialog', { name: '卡片详情', exact: true });
-  await details.getByRole('button', { name: '选择 Implement and review · alternative', exact: true }).click();
-  await details.getByText('Implement and review · alternative', { exact: true }).waitFor();
-  await page.setViewportSize({ width: 768, height: 1024 });
-  let failNextLaunchCheck = true;
+  let concurrentChecks = 0;
+  let peakChecks = 0;
+  let checkedActions = 0;
+  let measureChecks = true;
+  let failEntranceCheck = true;
+  let failLaunchCheckAtRevision;
   await page.route('**/api/assess', async route => {
-    if (failNextLaunchCheck && route.request().postDataJSON()?.command?.op === 'start_ticket_workflow') {
-      failNextLaunchCheck = false;
+    const { editor: owner, command: assessed } = route.request().postDataJSON();
+    if (measureChecks && owner.kind !== 'candidate') {
+      checkedActions++;
+      peakChecks = Math.max(peakChecks, ++concurrentChecks);
+      await delay(60);
+      concurrentChecks--;
+    }
+    if ((failEntranceCheck && assessed?.op === 'configure_ticket_workflow' && assessed.entrance === 'alternative') ||
+        (failLaunchCheckAtRevision !== undefined && assessed?.op === 'start_ticket_workflow' &&
+          assessed.revision === failLaunchCheckAtRevision)) {
+      if (assessed.op === 'configure_ticket_workflow') failEntranceCheck = false;
+      else failLaunchCheckAtRevision = undefined;
       await route.abort();
     } else {
       await route.continue();
     }
   });
+  await page.getByRole('button', { name: '打开 Workflow acceptance ticket', exact: true }).click();
+  const details = page.getByRole('dialog', { name: '卡片详情', exact: true });
+  await details.getByRole('button', { name: '重新检查 · 选择 Implement and review · alternative', exact: true }).click();
+  await until(() => checkedActions >= 3, 'Opening a card checks multiple actions');
+  assert.equal(peakChecks, 1);
+  measureChecks = false;
+  await details.getByRole('button', { name: '选择 Implement and review · alternative', exact: true }).click();
+  await details.getByText('Implement and review · alternative', { exact: true }).waitFor();
+  await page.setViewportSize({ width: 768, height: 1024 });
+  failLaunchCheckAtRevision = (await command({ op: 'read_card', card_id })).revision + 1;
   const change = details.getByText('更改工作流入口', { exact: true });
   assert.equal(await change.evaluate(el => el.getBoundingClientRect().bottom <= innerHeight), true);
   await change.click();
