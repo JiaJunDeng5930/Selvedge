@@ -579,7 +579,7 @@ dialog[data-semantic-key="card-details"] {
   display: -webkit-box !important;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
-  min-block-size: 100%;
+  max-block-size: 2lh;
   padding-inline-end: 0.9rem;
   overflow: hidden;
   overflow-wrap: anywhere;
@@ -603,6 +603,7 @@ dialog[data-semantic-key="card-details"] {
 }
 [data-semantic-key="workflow-node-name"][open] > summary {
   display: block !important;
+  max-block-size: none;
   overflow: visible;
 }
 [data-semantic-key="workflow-node-name"][open] > summary::after {

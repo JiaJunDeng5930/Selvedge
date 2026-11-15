@@ -91,20 +91,27 @@ Definition ticket_workflow_launch snapshot s parent card :=
  match find (fun action=>String.eqb (ObjectActions.action_key action) "run")
     (ObjectActions.menu_items snapshot s subject) with
  |None=>[]
- |Some action=>
+ |Some action=>match ObjectActions.command action with
+ |None=>[]
+ |Some command=>
    let status:=ObjectActions.action_status action in
    let key:="workflow-start-ticket" in
-   let caption:=match status with ObjectActions.InFlight=>"正在提交…"|_=>ObjectActions.action_label action end in
+   let caption:=match status with
+    |ObjectActions.InFlight=>if State.checking_command command s then "正在检查启动条件…" else "正在提交…"
+    |_=>ObjectActions.action_label action end in
    let connected:=Services.connected (State.service_state s) in
    let launch:=declared parent Roles.Button(Control key caption
-     Secondary (detail_action_input parent action)
-     (if connected then status_availability status else Unavailable "正在重新连接服务…")) in
+     Secondary (Input.RequestCommand command)
+     (if connected then match status with
+      |ObjectActions.Awaiting=>Available|ObjectActions.InFlight=>Busy caption|_=>status_availability status end
+      else Unavailable "正在重新连接服务…")) in
    launch :: match status with
    |ObjectActions.AssessmentFailed reason=>
       [information parent "workflow-start-check-failed" Information.Description ("无法检查工作流启动。 "++reason);
        declared parent Roles.Button(secondary "workflow-start-check-retry" "重新检查"
          (Input.RetryMenuAssessment subject "run" 0%N))]
    |_=>[] end
+ end
  end.
 Definition detail_action_nodes snapshot s subject parent excluded:=List.app (card_decision_controls snapshot subject parent) (map(fun action=>
  declared parent Roles.Button(Control(ObjectActions.action_key action)(ObjectActions.action_label action)

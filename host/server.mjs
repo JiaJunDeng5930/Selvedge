@@ -69,9 +69,11 @@ export async function startServer(options) {
   server.headersTimeout = service.limits.request_timeout_ms;
   server.keepAliveTimeout = service.limits.request_timeout_ms;
 
-  function json(response, status, value) {
-    const body = stringifyJson(value);
-    response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+  function json(response, status, value, gzip = false) {
+    const text = stringifyJson(value);
+    const body = gzip ? Bun.gzipSync(text, { level: 1 }) : text;
+    response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store',
+      ...(gzip ? { 'content-encoding': 'gzip' } : {}) });
     response.end(body);
   }
 
@@ -313,7 +315,12 @@ export async function startServer(options) {
         browser_state: async () => {
           const snapshot = service.browserSnapshot();
           if (release) response.setHeader('x-selvedge-release', release.id);
-          json(response, 200, { ...snapshot, program: snapshot.program });
+          response.setHeader('vary', 'Accept-Encoding');
+          const gzip = request.headers['accept-encoding']?.split(',').some(value => {
+            const [coding, quality] = value.toLowerCase().split(';').map(part => part.trim());
+            return coding === 'gzip' && (quality === undefined || Number(quality.split('=')[1]) > 0);
+          });
+          json(response, 200, snapshot, gzip);
           return;
         },
         describe: async () => {

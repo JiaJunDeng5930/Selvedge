@@ -54,6 +54,9 @@ test('a ticket waits for every exit, with a fresh reviewer and a reused implemen
   let measureChecks = true;
   let failEntranceCheck = true;
   let failLaunchCheckAtRevision;
+  let holdLaunchRevision;
+  const launchCheck = Promise.withResolvers();
+  t.after(() => launchCheck.resolve());
   await page.route('**/api/assess', async route => {
     const { editor: owner, command: assessed } = route.request().postDataJSON();
     if (measureChecks && owner.kind !== 'candidate') {
@@ -69,6 +72,8 @@ test('a ticket waits for every exit, with a fresh reviewer and a reused implemen
       else failLaunchCheckAtRevision = undefined;
       await route.abort();
     } else {
+      if (assessed?.op === 'start_ticket_workflow' && assessed.revision === holdLaunchRevision)
+        await launchCheck.promise;
       await route.continue();
     }
   });
@@ -82,6 +87,7 @@ test('a ticket waits for every exit, with a fresh reviewer and a reused implemen
   await details.getByText('Implement and review · alternative', { exact: true }).waitFor();
   await page.setViewportSize({ width: 768, height: 1024 });
   failLaunchCheckAtRevision = (await command({ op: 'read_card', card_id })).revision + 1;
+  holdLaunchRevision = failLaunchCheckAtRevision;
   const change = details.getByText('更改工作流入口', { exact: true });
   assert.equal(await change.evaluate(el => el.getBoundingClientRect().bottom <= innerHeight), true);
   await change.click();
@@ -99,6 +105,9 @@ test('a ticket waits for every exit, with a fresh reviewer and a reused implemen
   const launch = details.getByRole('button', { name: '启动工作流实例', exact: true });
   assert.equal(await launch.evaluate(el => el.getBoundingClientRect().bottom <= innerHeight), true);
   await launch.click();
+  await details.getByRole('button', { name: '正在检查启动条件…', exact: true }).waitFor();
+  assert.equal((await command({ op: 'read_card', card_id })).workflow_instance_id, null);
+  launchCheck.resolve();
   await details.getByRole('button', { name: '正在提交…', exact: true }).waitFor();
   allowStart();
   const instance_id = await until(async () => {
@@ -209,7 +218,7 @@ test('workflows can be authored and started in place from the browser', { timeou
   const canvas = graph.locator('[data-semantic-key="task-graph/viewport"]');
   assert.equal(await canvas.evaluate(el => el.scrollWidth <= el.clientWidth), true);
 
-  const start = async (name, message) => {
+  const start = async (name, message, awaitingStart) => {
     const workflow = main.getByRole('region', { name, exact: true });
     await workflow.getByRole('button', { name: '启动工作流', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: '启动工作流', exact: true });
@@ -217,13 +226,23 @@ test('workflows can be authored and started in place from the browser', { timeou
     await dialog.getByRole('combobox', { name: '入口', exact: true }).selectOption({ label: 'start' });
     await dialog.getByRole('textbox', { name: '消息', exact: true }).fill(message);
     await dialog.getByRole('button', { name: '启动工作流', exact: true }).click();
+    if (awaitingStart) await awaitingStart(dialog);
     await dialog.waitFor({ state: 'hidden' });
     const instance = page.getByRole('dialog', { name: /^实例 #\d+$/ });
     await instance.waitFor();
     return { workflow, instance };
   };
   const first = 'First line\nSecond line';
-  const { instance: firstRun } = await start('Browser workflow', first);
+  const workflowCheck = Promise.withResolvers();
+  t.after(() => workflowCheck.resolve());
+  await page.route('**/api/assess', async route => {
+    if (route.request().postDataJSON()?.command?.op === 'start_workflow') await workflowCheck.promise;
+    await route.continue();
+  });
+  const { instance: firstRun } = await start('Browser workflow', first, async dialog => {
+    await dialog.getByText('正在提交…', { exact: true }).waitFor();
+    workflowCheck.resolve();
+  });
   const receipt = firstRun.getByText(/出口结果 · 路径 #\d+ · start → finish/);
   const receiptTop = await receipt.evaluate(el => el.getBoundingClientRect().top);
   await receipt.click();
@@ -289,6 +308,8 @@ test('workflows can be authored and started in place from the browser', { timeou
   for (const width of [360, 768]) {
     await page.setViewportSize({ width, height: 900 });
     await verifyNodeBounds(width);
+    assert.ok(await longNode.locator('summary').evaluate(el =>
+      el.getBoundingClientRect().height <= 2 * parseFloat(getComputedStyle(el).lineHeight) + 1));
     await longNode.getByText(longExit, { exact: true }).click();
     await verifyNodeBounds(width);
     await longNode.getByText(longExit, { exact: true }).click();

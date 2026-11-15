@@ -121,3 +121,37 @@ Proof.
  intro Older. unfold Authoring.complete_draft. rewrite Older.
  destruct(Authoring.completion_success outcome);[rewrite Bool.andb_false_r|];reflexivity.
 Qed.
+
+Theorem a_captured_direct_request_waits_for_its_verdict snapshot pending state :
+ SS.purpose pending=SS.DirectAdmission ->
+ let command:=SS.accepted_command pending in
+ let revision:=SS.ticket pending in
+ let owner:=Authoring.preparation_owner revision command in
+ let checked:=Authoring.ensure_request snapshot owner revision command state in
+ Authoring.assessed_command snapshot owner revision command (Authoring.result_state checked)=None ->
+ Authoring.continue_admission snapshot pending state=checked.
+Proof.
+ intro Captured. cbv zeta. intro Waiting.
+ unfold Authoring.continue_admission. rewrite Captured.
+ unfold Authoring.continue_direct_admission. now rewrite Waiting.
+Qed.
+
+Theorem an_admitted_direct_request_executes_its_captured_command snapshot pending state :
+ SS.purpose pending=SS.DirectAdmission ->
+ let command:=SS.accepted_command pending in
+ let revision:=SS.ticket pending in
+ let owner:=Authoring.preparation_owner revision command in
+ Authoring.ensure_request snapshot owner revision command state=Authoring.keep state ->
+ Authoring.assessed_command snapshot owner revision command state=Some(inr tt) ->
+ Authoring.continue_admission snapshot pending state=
+ Authoring.issue command SS.DirectSubmission
+   (SS.with_services(Services.forget_owned_assessment owner(SS.service_state state))
+     (Authoring.release_admission pending state)).
+Proof.
+ intro Captured. cbv zeta. intros Checked Admitted.
+ unfold Authoring.continue_admission. rewrite Captured.
+ unfold Authoring.continue_direct_admission. rewrite Checked.
+ cbn [Authoring.result_state Authoring.keep]. rewrite Admitted.
+ unfold Authoring.append,Authoring.keep. simpl.
+ destruct (Authoring.issue _ _ _) as [updated effects [error|]]; reflexivity.
+Qed.

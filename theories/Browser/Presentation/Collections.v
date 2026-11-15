@@ -367,12 +367,14 @@ Definition ticket_workflow_controls snapshot s parent (card : Read.card) :=
    | Some command =>
      let pending := State.pending_command command s in
      let connected := Services.connected (State.service_state s) in
-     let control := if pending then Control key "正在提交…" Secondary (Input.Command command) (Busy "正在提交…")
-       else if negb connected then Control key caption Secondary (Input.Command command) (Unavailable "正在重新连接服务…")
+     let request := Input.RequestCommand command in
+     let progress := if State.checking_command command s then "正在检查入口切换…" else "正在提交…" in
+     let control := if pending then Control key progress Secondary request (Busy progress)
+       else if negb connected then Control key caption Secondary request (Unavailable "正在重新连接服务…")
        else match Authoring.command_assessment_failure snapshot s command with
        | Some _ => Control key ("重新检查 · " ++ caption) Secondary (Input.RetryCommandAssessment command) Available
-       | None => Control key caption Secondary (Input.Command command)
-           (domain_availability (Authoring.command_availability snapshot s command)) end in
+       | None => Control key caption Secondary request
+           (value_or Available (option_map domain_availability (Authoring.direct_command_admission snapshot s command))) end in
      [declared parent Roles.Button control]
    | None => [] end in
  let configured : list (node Input.input) := match link with

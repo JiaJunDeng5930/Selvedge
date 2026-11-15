@@ -408,7 +408,9 @@ Definition editor_view snapshot (s:Session.state) e parent :=
  let draft:=Session.current_draft s e in
  let assessment:=Observe.observe_assessment snapshot s e in
  let unit:=Observe.action_unit_for s e in
- let submit:=Control "submit"(submit_label snapshot draft e)Primary(Input.Submit e(part parent "submit"))(unit_availability unit assessment)in
+ let capture:=match e with WorkflowStart _=>Observe.awaits_only_admission assessment|_=>false end in
+ let submit:=Control "submit"(submit_label snapshot draft e)Primary(Input.Submit e(part parent "submit"))
+  (if capture && negb(UX.action_pending unit) then Available else unit_availability unit assessment)in
  let reason:=match e,Draft.draft_feedback draft with
  |WorkflowStart _,_|_,Draft.DuplicateWorkflowNodeName _ _=>[]
  |_,_=>commit_reason parent assessment end in

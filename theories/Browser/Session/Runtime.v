@@ -330,6 +330,7 @@ Definition core namespace snapshot lagged input state:Authoring.result:=match in
 |Input.RetryMenuAssessment subject key occurrence=>Authoring.keep(SS.with_services
  (Services.forget_owned_assessment(CommandAssessment.ObjectActionOwner subject key)(SS.service_state state))state)
 |Input.RetryCommandAssessment command=>Authoring.retry_command_assessment snapshot state command
+|Input.RequestCommand command=>Authoring.request_command snapshot state command
 |Input.Command command=>match Authoring.command_availability snapshot state command with
  |EM.Available=>Authoring.issue command SS.DirectSubmission state
  |EM.Unavailable reason=>Authoring.fail state reason end
@@ -420,8 +421,8 @@ Definition prepares_authoring input before := match input with
 Definition continue_authoring input snapshot state := match input with
  |Input.ServiceInput(Services.CommandAssessed _ _)=>
    let prepared:=Authoring.continue_preparations snapshot state in
-   Authoring.append prepared(Authoring.continue_draft_admissions snapshot(Authoring.result_state prepared))
- |Input.Interactive _=>Authoring.continue_draft_admissions snapshot state
+   Authoring.append prepared(Authoring.continue_admissions snapshot(Authoring.result_state prepared))
+ |Input.Interactive _=>Authoring.continue_admissions snapshot state
  |_=>Authoring.keep state end.
 
 Definition resumes_language_admissions input := match input with

@@ -1319,9 +1319,9 @@ async function drainAssessments(queue) {
     // candidate list one request each, leaving connections for state and SSE.
     while (!disposed && queue.size) {
       await new Promise(resolve => setTimeout(resolve, 0));
-      const next = queue.entries().next();
-      if (disposed || next.done) return;
-      const [key, job] = next.value;
+      const next = [...queue].find(([, job]) => job.effect.request.editor.kind === 'preparation') ?? queue.entries().next().value;
+      if (disposed || !next) return;
+      const [key, job] = next;
       queue.delete(key);
       // A queued check belongs to the snapshot against which it was issued.
       if (!sameGeneration(job.effect.request.sequence, publication.sequence)) {

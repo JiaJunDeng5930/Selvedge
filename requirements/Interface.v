@@ -111,6 +111,7 @@ Export ApplicationProof(live_setting_selection_preserves_the_message_draft,
   a_pending_command_is_not_executed_twice).
 Export ObjectActionsProof(available_native_has_current_admission).
 Export AuthoringProof(an_admitted_captured_submission_executes_its_captured_command,
+  a_captured_direct_request_waits_for_its_verdict, an_admitted_direct_request_executes_its_captured_command,
   completion_of_an_older_revision_preserves_the_newer_editor,
   git_observation_settles_only_the_workspace_check,
   a_blocked_directory_choice_does_not_change_the_draft).
@@ -120,8 +121,9 @@ Export NavigationProof(new_selection_intent_prevents_work_completion_selection,
 (** ** A displayed action is still a request to the service
 
     Menu and editor assessment uses the same command admission as committed
-    submission. A composer can capture a locally valid message while its
-    admission is pending. Only the exact captured command may run after
+    submission. Composers and workflow launch controls can capture a locally
+    valid request while its admission is pending. A card also captures entrance
+    changes in this state. Only the exact captured command may run after
     admission. Sending from an existing conversation shows a visible status
     in the composer and leaves the draft and send control in place. Starting a
     conversation places its captured message and submission status in a temporary
