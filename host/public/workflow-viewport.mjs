@@ -3,11 +3,14 @@ const dateFormat = new Intl.DateTimeFormat('zh-CN', {
 });
 const chineseWords = new Intl.Segmenter('zh', { granularity: 'word' });
 const nodeNameSelector = '[data-semantic-key="workflow-node-name"] > summary';
+const previewNameSelector = '[data-semantic-key="workflow-preview-name"]';
+const overflowSelector = '[data-workflow-overflow]';
+const formControlSelector = 'button,a,input,select,textarea';
+const panThreshold = 6;
 
-function cardNameTarget(target) {
-  if (target.closest('button,a,input,select,textarea')) return null;
+function cardNameTarget(target, nameSelector) {
   const card = target.closest('[data-semantic-key="workflow-node"]');
-  return card?.querySelector(`:scope > ${nodeNameSelector}[data-workflow-overflow]`);
+  return card?.querySelector(`:scope > ${nameSelector}${overflowSelector}`);
 }
 
 function wrapWorkflowName(target) {
@@ -280,7 +283,9 @@ export function installWorkflowViewport(surface) {
       else closePreview(true);
       return;
     }
-    const summary = event.target.closest(nodeNameSelector) ?? cardNameTarget(event.target);
+    const control = event.target.closest(formControlSelector);
+    const summary = event.target.closest(nodeNameSelector) ??
+      (!control && cardNameTarget(event.target, nodeNameSelector));
     if (summary) {
       event.preventDefault();
       if (expandedNode?.source === summary) closeNodeName(true);
@@ -298,7 +303,8 @@ export function installWorkflowViewport(surface) {
     closeNodeName();
     if (workspace.dataset.workflowFrame === 'overview') {
       if (event.target.closest('[data-workflow-preview-detail]')) return;
-      const nodeName = event.target.closest('[data-semantic-key="workflow-preview-name"][data-workflow-overflow]');
+      const nodeName = event.target.closest(previewNameSelector + overflowSelector) ??
+        (!control && cardNameTarget(event.target, previewNameSelector));
       if (nodeName) {
         if (expandedPreview?.source === nodeName) {
           closePreview(true);
@@ -348,27 +354,42 @@ export function installWorkflowViewport(surface) {
   surface.addEventListener('pointerdown', event => {
     const viewport = event.target.closest(viewportSelector);
     if (!viewport || viewport.closest('[data-workflow-frame="overview"]') ||
-      event.button !== 0 || event.target.closest('button,a,input,select,textarea,details') ||
-      cardNameTarget(event.target)) return;
+      event.button !== 0 || event.target.closest(formControlSelector)) return;
+    const nameTarget = cardNameTarget(event.target, nodeNameSelector);
+    if (!nameTarget && event.target.closest('details')) return;
     const current = view(viewport);
     if (current.drag) return;
-    current.drag = { id: event.pointerId, x: event.clientX - current.x, y: event.clientY - current.y };
-    viewport.setPointerCapture(event.pointerId);
-    viewport.toggleAttribute('data-panning', true);
+    const capture = nameTarget ? event.target : viewport;
+    current.drag = { id: event.pointerId, capture, x: event.clientX, y: event.clientY,
+      originX: current.x, originY: current.y, moving: false };
+    capture.setPointerCapture(event.pointerId);
   });
   surface.addEventListener('pointermove', event => {
     const viewport = event.target.closest(viewportSelector);
     const current = views.get(viewport);
-    if (current?.drag?.id !== event.pointerId) return;
-    current.x = event.clientX - current.drag.x;
-    current.y = event.clientY - current.drag.y;
+    const drag = current?.drag;
+    if (drag?.id !== event.pointerId) return;
+    const dx = event.clientX - drag.x;
+    const dy = event.clientY - drag.y;
+    if (!drag.moving) {
+      if (Math.hypot(dx, dy) < panThreshold) return;
+      drag.moving = true;
+      // Keep a tap on the node. Once panning starts, the viewport receives the release and click.
+      if (drag.capture !== viewport) {
+        drag.capture = viewport;
+        viewport.setPointerCapture(event.pointerId);
+      }
+      viewport.setAttribute('data-panning', '');
+    }
+    current.x = drag.originX + dx;
+    current.y = drag.originY + dy;
     current.fitted = false;
     place(viewport, current);
   });
   surface.addEventListener('lostpointercapture', event => {
     const viewport = event.target.closest(viewportSelector);
     const current = views.get(viewport);
-    if (current?.drag?.id !== event.pointerId) return;
+    if (current?.drag?.id !== event.pointerId || current.drag.capture !== event.target) return;
     current.drag = null;
     viewport.removeAttribute('data-panning');
   });

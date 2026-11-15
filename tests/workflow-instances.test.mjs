@@ -390,8 +390,24 @@ test('workflows can be authored and started in place from the browser', { timeou
       assert.deepEqual(await graphPosition(), zoomed);
     }
     if (width === 568) {
-      await entranceCard.getByText('入口', { exact: true }).click();
+      const kind = entranceCard.getByText('入口', { exact: true });
       const fullName = main.getByRole('region', { name: '完整节点名称', exact: true });
+      await kind.click();
+      await fullName.getByText(longEntrance, { exact: true }).waitFor();
+      await page.keyboard.press('Escape');
+      await fullName.waitFor({ state: 'hidden' });
+      const body = await kind.boundingBox();
+      const x = body.x + body.width * 0.25;
+      const y = body.y + body.height / 2;
+      const beforePan = await transform();
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      await page.mouse.move(x + body.width * 0.5, y, { steps: 5 });
+      await page.mouse.up();
+      assert.notEqual(await transform(), beforePan);
+      assert.equal(await fullName.isVisible(), false);
+      await main.getByRole('button', { name: '适应工作流', exact: true }).click();
+      await kind.click();
       await fullName.getByText(longEntrance, { exact: true }).waitFor();
       await page.keyboard.press('Escape');
       await fullName.waitFor({ state: 'hidden' });
@@ -455,7 +471,7 @@ test('workflows can be authored and started in place from the browser', { timeou
         return actual * parseFloat(getComputedStyle(name).fontSize) >= 9 && name.title === name.textContent;
       }), 'Mobile overview preserves readable node labels');
       const label = canvas.getByRole('button', { name: longEntrance, exact: true });
-      await label.click();
+      await label.locator('..').getByText('入口', { exact: true }).click();
       const detail = canvas.getByRole('region', { name: '完整节点名称', exact: true });
       await detail.getByText(longEntrance, { exact: true }).waitFor();
       assert.ok(await detail.evaluate(node => {
