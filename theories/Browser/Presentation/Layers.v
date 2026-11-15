@@ -109,8 +109,8 @@ Definition ticket_workflow_launch snapshot s parent card :=
         "再次启动工作流" else ObjectActions.action_label action
       |None=>ObjectActions.action_label action end end in
    let connected:=Services.connected (State.service_state s) in
-   let launch:=declared parent Roles.Button(Control key caption
-     Secondary (Input.RequestCommand command)
+   let launch:=declared parent Roles.PrimaryButton(Control key caption
+     Primary (Input.RequestCommand command)
      (if connected then match status with
       |ObjectActions.Awaiting=>Available|ObjectActions.InFlight=>Busy caption|_=>status_availability status end
       else Unavailable "正在重新连接服务…")) in

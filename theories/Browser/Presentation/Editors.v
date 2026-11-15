@@ -424,7 +424,7 @@ Definition editor_view snapshot (s:Session.state) e parent :=
    |None=>"正在提交…" end
  |_=>"正在提交…" end in
  let availability:=match e with
- |WorkflowStart _=>if busy then Busy progress else unit_availability unit assessment
+ |WorkflowStart _=>if busy then Busy "" else unit_availability unit assessment
  |_=>unit_availability unit assessment end in
  let status:=match e with
  |WorkflowStart workflow=>if busy then
@@ -485,6 +485,7 @@ Definition editor_view snapshot (s:Session.state) e parent :=
     [dialog_actions parent
       (reason ++ status ++
        consequence ++ capture ++ [declared parent Roles.Button(secondary "cancel"
-        (match e with Card _|TaskGraph _ _|WorkflowDefinition _ _|WorkflowStart _|Fork _|Compact _|WorkName _|TitlePrompts _=>"取消"|_=>"Cancel"end) Input.ClosePanel)] ++
+        (match e with WorkflowStart _=>if busy then "关闭" else "取消"
+         |Card _|TaskGraph _ _|WorkflowDefinition _ _|Fork _|Compact _|WorkName _|TitlePrompts _=>"取消"|_=>"Cancel"end) Input.ClosePanel)] ++
        [Node(part parent "submit")"submit"(control_label submit)
          (commit_role unit(draft_feedback draft))(ActionCommit e assessment submit)[]])%list])].

@@ -619,38 +619,62 @@ dialog[data-semantic-key="card-details"] {
   transform-origin: 0 0;
   transform: translate(var(--workflow-x, 16px), var(--workflow-y, 16px)) scale(var(--workflow-scale, 1));
 }
-[data-workflow-plane] > [data-semantic-key^="workflow/"] {
+[data-workflow-tile] { display: contents; }
+[data-workflow-tile] > [data-semantic-key^="workflow/"] {
   inline-size: max-content !important;
   min-inline-size: min(18rem, 82vw);
 }
-[data-workflow-frame="selected"] [data-workflow-plane] > :not([data-workflow-selected]) {
+[data-workflow-frame="selected"] [data-workflow-tile]:not([data-workflow-selected]) > section {
   visibility: hidden;
 }
-[data-workflow-overview] { display: none; }
-[data-workflow-frame="overview"] [data-workflow-plane] > * { cursor: pointer; }
-[data-workflow-frame="overview"] [data-workflow-overview] {
-  position: absolute;
-  inset: auto 0.75rem 0.75rem;
-  display: flex;
-  flex-wrap: wrap;
-  align-content: start;
-  gap: 0.375rem;
-  max-block-size: 40%;
-  padding: 0.25rem;
-  overflow: auto;
+[data-workflow-open] { display: none; }
+[data-workflow-frame="overview"] [data-workflow-canvas] {
+  overflow-y: auto;
   touch-action: pan-y;
+  cursor: default;
 }
-[data-workflow-overview] button {
+[data-workflow-frame="overview"] [data-workflow-plane] {
+  position: static;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 25rem), 1fr));
+  gap: 1rem;
+  inline-size: 100%;
+  padding: 0.75rem;
+  transform: none;
+}
+[data-workflow-frame="overview"] [data-workflow-tile] {
+  display: block;
+  block-size: calc(44px + var(--workflow-thumbnail-height, 140px));
   min-inline-size: 0;
-  min-block-size: 44px;
-  padding: 0.375rem 0.75rem;
+  overflow: hidden;
   border: 1px solid var(--selvedge-border);
-  border-radius: 0.375rem;
+  border-radius: 0.5rem;
   background: var(--selvedge-surface);
-  color: var(--selvedge-text);
-  overflow-wrap: anywhere;
   cursor: pointer;
 }
+[data-workflow-frame="overview"] [data-workflow-tile] > section {
+  margin-inline: 8px;
+  transform: scale(var(--workflow-thumbnail-scale, 1));
+  transform-origin: top left;
+}
+[data-workflow-frame="overview"] [data-workflow-tile] > section > h3 { display: none; }
+[data-workflow-frame="overview"] [data-workflow-open] {
+  display: block;
+  min-inline-size: 0;
+  inline-size: 100%;
+  block-size: 44px;
+  padding: 0.375rem 0.75rem;
+  border: 0;
+  border-block-end: 1px solid var(--selvedge-border);
+  background: var(--selvedge-surface);
+  color: var(--selvedge-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: start;
+  font-weight: 600;
+  cursor: pointer;
+}
+[data-workflow-tile]:hover > [data-workflow-open] { background: var(--selvedge-hover); }
 [data-workflow-actions] {
   border-block-end: 1px solid var(--selvedge-border);
 }
@@ -672,21 +696,50 @@ dialog[data-semantic-key="card-details"] {
   [data-workflow-viewport-controls] > select { flex-basis: 100%; }
   [data-workflow-actions] button { min-block-size: 44px !important; }
 }
-[data-semantic-key="workflow-history"] [data-semantic-key^="run/"] > button {
+[data-semantic-key="workflow-history"] button[data-semantic-key^="run/"] {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-block-size: 44px !important;
   inline-size: 100% !important;
-  justify-content: start !important;
-}
-[data-semantic-key="workflow-history"] [data-semantic-key^="run/"] {
   gap: 0.1875rem !important;
-  padding: 0.375rem 0.5rem;
-  border-block-end: 1px solid var(--selvedge-border);
+  padding: 0.5rem !important;
+  text-align: start;
+  border: 1px solid var(--selvedge-border) !important;
+  border-radius: 0.5rem;
+}
+[data-semantic-key="workflow-history"] button[data-semantic-key^="run/"]:hover,
+button[data-semantic-key^="instance/"]:hover {
+  background: var(--selvedge-hover) !important;
+}
+[data-semantic-key="workflow-run-title"] {
+  grid-column: 1 / -1;
+  font-weight: 600 !important;
 }
 [data-semantic-key="workflow-run-message"] {
+  grid-column: 1 / -1;
   display: -webkit-box !important;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
   overflow-wrap: anywhere;
+}
+[data-semantic-key="workflow-run-time"] {
+  font-variant-numeric: tabular-nums;
+}
+[data-semantic-key="card-details"] button[data-semantic-key^="instance/"] {
+  min-block-size: 44px !important;
+  border: 1px solid var(--selvedge-border) !important;
+  border-radius: 0.5rem;
+  justify-content: start !important;
+}
+[data-workflow-editor-jump] {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 1;
+  background: var(--selvedge-surface);
+}
+:is([data-semantic-key="workflow-node-editor"], [data-semantic-key="workflow-connection-editor"]) {
+  scroll-margin-block-start: 3.5rem;
 }
 
 [data-semantic-key="task-graph/group"] + [data-semantic-key="task-graph/group"] {
@@ -741,10 +794,12 @@ dialog[data-semantic-key="card-details"] {
 }
 [data-semantic-key="workflow-node"]:has(> [data-semantic-key="workflow-node-kind/task"]) {
   --workflow-node-tone: var(--selvedge-text);
+  border-color: color-mix(in srgb, var(--selvedge-text) 38%, var(--selvedge-border)) !important;
+  background: color-mix(in srgb, var(--selvedge-text) 5%, var(--selvedge-surface)) !important;
 }
 [data-semantic-key="workflow-node"]:has(> [data-semantic-key="workflow-node-kind/exit"]) {
   --workflow-node-tone: var(--selvedge-accent);
-  border: 4px double var(--workflow-node-tone) !important;
+  border-block-end: 3px solid var(--workflow-node-tone) !important;
   border-radius: 0.5rem;
 }
 [data-semantic-key="workflow-node"]:has(> :is([data-semantic-key="workflow-node-kind/entrance"], [data-semantic-key="workflow-node-kind/exit"])) {
@@ -763,6 +818,12 @@ dialog[data-semantic-key="card-details"] {
   line-height: 1.15;
   cursor: pointer;
 }
+@media (min-width: 1024px) {
+  [data-semantic-key="workflow-node-name"]:not([open]) > summary {
+    -webkit-line-clamp: 3;
+    max-block-size: 3lh;
+  }
+}
 [data-semantic-key="workflow-node-name"] > summary::after {
   content: "";
   position: absolute;
@@ -779,13 +840,16 @@ dialog[data-semantic-key="card-details"] {
 }
 [data-semantic-key="workflow-node-name"][open] {
   position: absolute;
-  inset: 0.2rem 0.2rem auto;
+  inset: calc(100% - 0.25rem) 0.2rem auto;
   z-index: 2;
   background: var(--selvedge-surface);
   border: 1px solid var(--selvedge-border);
   border-radius: 0.375rem;
   box-shadow: 0 0.25rem 0.75rem #0002;
   overflow: visible;
+}
+[data-semantic-key="workflow-node-name"][open] ~ [data-semantic-key^="workflow-node-kind/"] {
+  align-self: start;
 }
 [data-semantic-key="workflow-node-name"][open] > summary {
   display: block !important;

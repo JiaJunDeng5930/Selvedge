@@ -3,7 +3,7 @@ From Selvedge.Foundation Require Import Json.
 From Selvedge.Foundation Require Utf8.
 From Selvedge.Kernel Require Import Numbers Domain State Codec Tasks CommandExecution.
 From Selvedge.Features Require Import WorkflowTypes TaskGraph TaskGraphDeclarations Work Worktree Board BoardFacts.
-From Selvedge.Features Require Domain Observation.
+From Selvedge.Features Require Domain Observation BoardClock.
 Module F := Selvedge.Features.Domain.
 From Selvedge.Programming Require CommandResult DecisionComposition CardScope.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
@@ -315,12 +315,12 @@ Definition after_transition before :=
   (DecisionComposition.and_then (for_paths service_path) synchronize).
 
 Definition launch_result id := JObject [("instance_id", number id)].
-Definition start id key contents ticket project browser_launch v :=
+Definition start id key contents preview_text ticket project clock browser_launch v :=
  match lookup_graph id v with
  | Some g => if entrance g key && Tasks.content_nonempty contents then
    let instance_id := N.of_nat (List.length (instances v)) in
-   let preview := match Utf8.take 96 (text_content contents) with Some text => text | None => "" end in
-   let i := Instance id g ticket project key preview browser_launch
+   let preview := match Utf8.take 96 preview_text with Some text => text | None => "" end in
+   let i := Instance id g ticket project key preview (option_map BoardClock.value clock) browser_launch
      [Path 0 (Pending (WorkflowTypes.Delivery key contents None))] [] [] 1 in
    let started := store_instances (instances v ++ [i]) v in
    accept (launch_result instance_id) started []
@@ -360,15 +360,17 @@ Definition ticket_start id revision clock browser_launch v :=
   match ticket_setting id v with
   | Some selected =>
     if ticket_available card && negb (ticket_running id v) then
+      let draft := F.card_contents card in
+      let preview := if String.eqb (F.draft_description draft) "" then F.draft_title draft else F.draft_description draft in
       let launched := start (invocation_graph selected) (invocation_entrance selected)
-        (Board.task_contents id (F.card_contents card)) (Some id) (F.draft_project (F.card_contents card)) browser_launch v in
+        (Board.task_contents id draft) preview (Some id) (F.draft_project draft) clock browser_launch v in
       match field "result" (decision_reply launched) with
       | Some result => match natural_field "instance_id" result with
         | Some key =>
           let updated := decision_world launched in
           let updated := with_features (set F.feature_ticket_instances
             (set_binding id key) (world_features updated)) updated in
-          accept result (revise_ticket id F.InProgress clock card updated) (decision_effects launched)
+          accept result (revise_ticket id F.InProgress (BoardClock.observed clock) card updated) (decision_effects launched)
         | None => launched end
       | None => launched end
     else reject "workflow_ticket_unavailable" "Wait for the current work and drafting to settle before starting the ticket." v
@@ -410,6 +412,7 @@ Definition instance_json v id (i : execution) := JObject [("instance_id", number
  ("workflow_id", number (instance_graph i)); ("definition", graph_json (instance_graph i) (instance_definition i));
  ("ticket_id", match instance_card i with Some ticket => number ticket | None => JNull end);
  ("entrance", JString (instance_entrance i)); ("message_preview", JString (instance_message_preview i));
+ ("started_at", match instance_started_at i with Some seconds => number seconds | None => JNull end);
  ("browser_launch_receipt", match instance_browser_launch i with
   | Some launch => JObject [("key", JString launch); ("reply", success (launch_result id))]
   | None => JNull end);

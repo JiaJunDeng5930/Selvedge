@@ -53,7 +53,8 @@ Definition attachment_media_type (source : json) :=
 Definition board_command (source : json) :=
   let command := get source "command" in
   let observe := is_object command && existsb (String.eqb (str command "op"))
-    ["create_card";"update_card";"move_card";"archive_card";"restore_card";"delete_card";"run_card";"link_card";"regenerate_card_title";"pin_card"] in
+    ["create_card";"update_card";"move_card";"archive_card";"restore_card";"delete_card";"run_card";"link_card";"regenerate_card_title";"pin_card";
+     "start_workflow";"start_ticket_workflow"] in
   (* DEFENSE: Explicit malformed attachment input must not bypass reference admission. *)
   success (JObject [("observe",JBool observe);("attachments",JBool
     (observe && has command "attachments" && existsb (String.eqb (str command "op")) ["create_card";"update_card"]))]).

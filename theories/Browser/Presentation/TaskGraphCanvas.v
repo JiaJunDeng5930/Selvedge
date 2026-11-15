@@ -21,8 +21,8 @@ Record flow_geometry := FlowGeometry {
 Definition conversation_geometry :=
  FlowGeometry false node_width node_height column_gap row_gap inset.
 Definition workflow_geometry (compact : bool) :=
- if compact then FlowGeometry true 66 126 54 14 16
- else FlowGeometry false 148 62 94 28 24.
+ if compact then FlowGeometry true 70 128 56 16 18
+ else FlowGeometry false 188 76 100 30 24.
 Definition card_width geometry := if vertical geometry then across geometry else along geometry.
 Definition card_height geometry := if vertical geometry then along geometry else across geometry.
 
@@ -132,26 +132,34 @@ Definition port_coordinate geometry (spread : bool) (pairs : list (positioned_no
   let rank := Z.of_nat (ListCount.count same (firstn index pairs)) in
   top node + 5 + (across geometry - 10) * (rank + 1) / (count + 1)
  else center_y geometry node.
-Definition arrange_flow {A} geometry spread entries routes : layout A :=
+Definition arrange_flow {A} geometry (spread : bool) entries routes : layout A :=
   let groups := columns (List.length entries) routes entries in
   let rows := fold_left (fun count group => Nat.max count (List.length group)) groups 0%nat in
   let content_height := extent (across geometry) (across_gap geometry) rows in
   let placed := position_nodes geometry content_height groups in
   let pairs := flat_map (position_connection placed) routes in
+  let outside_count := ListCount.count (fun entry=>negb (adjacent entry)) pairs in
+  let lane_spacing := if spread then 16 else 8 in
+  let reserved_above := if spread then lane_spacing * Z.of_nat (Nat.div2 (S outside_count)) else 0 in
+  let shift item := PositionedNode (entry item) (column item) (left item) (top item + reserved_above) in
   let connections := map (fun '(index, (source, target)) =>
-    ((source, target),(port_coordinate geometry spread pairs index fst source,
-                      port_coordinate geometry spread pairs index snd target)))
+    ((source, target),(reserved_above + port_coordinate geometry spread pairs index fst source,
+                      reserved_above + port_coordinate geometry spread pairs index snd target)))
     (combine (seq 0 (List.length pairs)) pairs) in
   let '(forward, outside) := partition (fun connection=>adjacent (fst connection)) connections in
   let width := 2 * margin geometry + extent (along geometry) (along_gap geometry) (List.length groups) in
   let height := 2 * margin geometry + content_height in
-  let lane_spacing := if spread then 16 else 8 in
   let lanes := List.length outside in
   let curves := map (fun '(edge,(y1,y2))=>adjacent_curve geometry edge y1 y2) forward ++
     flat_map (fun '(index, (edge,(y1,y2))) =>
-      outside_curve geometry (height + Z.of_nat index * lane_spacing) index spread edge y1 y2)
+      let lane := if spread && Nat.even index then
+        reserved_above - Z.of_nat (Nat.div2 index) * lane_spacing - lane_spacing / 2
+        else height + (if spread then reserved_above + Z.of_nat (Nat.div2 index) * lane_spacing
+          else Z.of_nat index * lane_spacing) in
+      outside_curve geometry lane index spread edge y1 y2)
       (combine (seq 0 lanes) outside) in
   let height := height + Z.of_nat lanes * lane_spacing in
+  let placed := map shift placed in
   if vertical geometry then
     Layout (map (fun item => PositionedNode (entry item) (column item) (top item) (left item)) placed)
       (Graphics.Plot (Z.to_pos height) (Z.to_pos width) curves)

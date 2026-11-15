@@ -1,3 +1,15 @@
+const dateFormat = new Intl.DateTimeFormat('zh-CN', {
+  month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+});
+
+export function showWorkflowTimes(surface) {
+  for (const time of surface.querySelectorAll('time[data-epoch-seconds]:not([datetime])')) {
+    const date = new Date(Number(time.dataset.epochSeconds) * 1000);
+    time.dateTime = date.toISOString();
+    time.textContent = dateFormat.format(date);
+  }
+}
+
 // The scene supplies workflow groups and target identities. All coordinates
 // here belong to the browser viewport and never change a workflow definition.
 export function installWorkflowViewport(surface) {
@@ -40,19 +52,29 @@ export function installWorkflowViewport(surface) {
   function fit(workspace, all = false) {
     const viewport = workspace.querySelector(viewportSelector);
     const picker = workspace.querySelector('[data-workflow-target]');
-    const group = all ? viewport.querySelector('[data-workflow-plane]')
-      : viewport.querySelector(`[data-semantic-key="${CSS.escape(picker.value)}"]`);
+    const current = view(viewport);
+    current.frame = all ? 'overview' : 'selected';
+    current.fitted = true;
+    workspace.dataset.workflowFrame = current.frame;
+    for (const tile of viewport.querySelectorAll('[data-workflow-tile]')) {
+      const graph = tile.lastElementChild;
+      graph.inert = all;
+      if (all) {
+        const scale = Math.min(1, (tile.clientWidth - 16) / graph.offsetWidth);
+        tile.style.setProperty('--workflow-thumbnail-scale', scale);
+        tile.style.setProperty('--workflow-thumbnail-height', `${Math.ceil(scale * graph.offsetHeight) + 8}px`);
+      }
+    }
+    if (all) return;
+    viewport.scrollTo({ top: 0, left: 0 });
+    const group = viewport.querySelector(`[data-semantic-key="${CSS.escape(picker.value)}"]`);
     // DEFENSE: A world update can remove the selected workflow before its native change event is handled.
     if (!group) return;
-    const current = view(viewport);
     const width = viewport.clientWidth;
     const height = viewport.clientHeight;
     current.scale = clamp(Math.min(1, (width - 2 * inset) / group.offsetWidth, (height - 2 * inset) / group.offsetHeight));
     current.x = Math.max(inset, (width - group.offsetWidth * current.scale) / 2) - group.offsetLeft * current.scale;
     current.y = inset - group.offsetTop * current.scale;
-    current.frame = all ? 'overview' : 'selected';
-    current.fitted = true;
-    workspace.dataset.workflowFrame = current.frame;
     place(viewport, current);
   }
   function select(workspace, target) {
@@ -62,8 +84,8 @@ export function installWorkflowViewport(surface) {
       const hidden = group.dataset.semanticKey !== target;
       if (group.hidden !== hidden) group.hidden = hidden;
     }
-    for (const graph of viewport.querySelector('[data-workflow-plane]').children)
-      graph.toggleAttribute('data-workflow-selected', graph.dataset.semanticKey === target);
+    for (const tile of viewport.querySelectorAll('[data-workflow-tile]'))
+      tile.toggleAttribute('data-workflow-selected', tile.dataset.workflowTile === target);
   }
 
   function open(workspace, target) {
@@ -101,10 +123,10 @@ export function installWorkflowViewport(surface) {
     if (!workspace) return;
     if (workspace.dataset.workflowFrame === 'overview') {
       const target = event.target.closest('[data-workflow-open]');
-      const preview = event.target.closest('[data-workflow-plane] > [data-semantic-key^="workflow/"]');
+      const preview = event.target.closest('[data-workflow-tile]');
       if (target || preview) {
         event.preventDefault();
-        open(workspace, target?.dataset.workflowOpen ?? preview.dataset.semanticKey);
+        open(workspace, target?.dataset.workflowOpen ?? preview.dataset.workflowTile);
         workspace.querySelector('[data-workflow-target]').focus({ preventScroll: true });
         return;
       }
@@ -113,11 +135,14 @@ export function installWorkflowViewport(surface) {
     if (!button) return;
     const direction = button.dataset.workflowZoom;
     if (direction === 'fit' || direction === 'all') fit(workspace, direction === 'all');
-    else zoomFromCenter(workspace.querySelector(viewportSelector), direction);
+    else {
+      if (workspace.dataset.workflowFrame === 'overview') fit(workspace);
+      zoomFromCenter(workspace.querySelector(viewportSelector), direction);
+    }
   });
   surface.addEventListener('wheel', event => {
     const viewport = event.target.closest(viewportSelector);
-    if (!viewport || event.target.closest('details[open]')) return;
+    if (!viewport || viewport.closest('[data-workflow-frame="overview"]') || event.target.closest('details[open]')) return;
     event.preventDefault();
     const box = viewport.getBoundingClientRect();
     const units = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? viewport.clientHeight : 1;
@@ -125,7 +150,8 @@ export function installWorkflowViewport(surface) {
   }, { passive: false });
   surface.addEventListener('pointerdown', event => {
     const viewport = event.target.closest(viewportSelector);
-    if (!viewport || event.button !== 0 || event.target.closest('button,a,input,select,textarea,details')) return;
+    if (!viewport || viewport.closest('[data-workflow-frame="overview"]') ||
+      event.button !== 0 || event.target.closest('button,a,input,select,textarea,details')) return;
     const current = view(viewport);
     if (current.drag) return;
     current.drag = { id: event.pointerId, x: event.clientX - current.x, y: event.clientY - current.y };
@@ -151,6 +177,7 @@ export function installWorkflowViewport(surface) {
   surface.addEventListener('keydown', event => {
     const viewport = event.target;
     if (!viewport.matches(viewportSelector)) return;
+    if (viewport.closest('[data-workflow-frame="overview"]') && event.key !== '0') return;
     const direction = { ArrowLeft: [70, 0], ArrowRight: [-70, 0], ArrowUp: [0, 70], ArrowDown: [0, -70] }[event.key];
     if (direction) {
       const current = view(viewport);
@@ -166,7 +193,8 @@ export function installWorkflowViewport(surface) {
   });
   surface.addEventListener('focusin', event => {
     const viewport = event.target.closest(viewportSelector);
-    if (!viewport || event.target === viewport || !event.target.matches(':focus-visible')) return;
+    if (!viewport || viewport.closest('[data-workflow-frame="overview"]') ||
+      event.target === viewport || !event.target.matches(':focus-visible')) return;
     const bounds = viewport.getBoundingClientRect();
     const target = event.target.getBoundingClientRect();
     const adjustment = (start, end, first, last) =>
@@ -180,6 +208,17 @@ export function installWorkflowViewport(surface) {
     current.fitted = false;
     place(viewport, current);
   });
+  surface.addEventListener('toggle', event => {
+    const label = event.target;
+    if (!label.matches('[data-semantic-key="workflow-node-name"][open]')) return;
+    const viewport = label.closest(viewportSelector);
+    const overflow = label.getBoundingClientRect().bottom - viewport.getBoundingClientRect().bottom + inset;
+    if (overflow <= 0) return;
+    const current = view(viewport);
+    current.y -= overflow;
+    current.fitted = false;
+    place(viewport, current);
+  }, true);
 
   return () => {
     const workspace = surface.querySelector('[data-workflow-workspace]');

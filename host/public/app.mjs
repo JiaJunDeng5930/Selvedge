@@ -13,7 +13,7 @@ import { safeHref, scheduleDisplay, cancelDisplay } from './markdown.mjs';
 import { findHistoryRange, firstRangeRect } from './history-location.mjs';
 import { createPhysicalMeasurer } from './physical-measurement.mjs';
 import { installModelPickerPreview } from './model-picker.mjs';
-import { installWorkflowViewport } from './workflow-viewport.mjs';
+import { installWorkflowViewport, showWorkflowTimes } from './workflow-viewport.mjs';
 
 const surface = document.getElementById('surface');
 installModelPickerPreview(surface);
@@ -425,7 +425,10 @@ function present(mode) {
   if (freshnessChanged) surface.dataset.sourcesFresh = freshness;
   const layoutChanged = pageChanged || regions?.focus_scope || regions?.layout_changed;
   if (pageChanged || regions?.layout_changed && !regions.layers_changed) schedulePhysicalRefresh();
-  if (pageChanged || regions?.layers_changed) layoutReading(true);
+  if (pageChanged || regions?.layers_changed) {
+    layoutReading(true);
+    showWorkflowTimes(surface);
+  }
   if (!renderer.document.measurement_pending) {
     publication = publicationEvent('document', { receipt_generation: generation });
     if (!streamed) {

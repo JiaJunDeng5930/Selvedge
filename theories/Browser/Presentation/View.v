@@ -21,6 +21,9 @@ Definition pending_notices (state : State.state) : list (node Input.input) :=
    |State.DraftSubmission draft _ _ _=>
      match Selvedge.Interaction.Submission.Draft.owner draft with
      |Selvedge.Interaction.Identity.WorkflowStart workflow=>
+       if existsb (fun layer => match State.layer_panel layer with
+         |State.EditorPanel (Selvedge.Interaction.Identity.WorkflowStart selected)=>N.eqb selected workflow
+         |_=>false end) (State.layers (State.navigation_state state)) then [] else
        [information "/workspace/status" key Information.Status "启动结果待确认。";
         declared "/workspace/status" Roles.Button
           (secondary (key++"/history") "查看运行记录"

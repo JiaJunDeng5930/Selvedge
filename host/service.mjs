@@ -76,6 +76,7 @@ export class Service extends EventEmitter {
   #closing = false;
   #failure;
   #catalogTail = Promise.resolve();
+  #observationTail = Promise.resolve();
   #catalogRefreshes = new Map();
   #closePromise;
   #streams = [];
@@ -531,9 +532,21 @@ export class Service extends EventEmitter {
 
   #settleCompletion(input, failure, handle) {
     return settleEffect(observation => this.#dispatchControl(observation), handle, input,
-      value => this.journal.execute(value), failure,
+      value => this.#commitEffectObservation(value), failure,
       error => isDefiniteRejection(error) && error instanceof RangeError ? 'input_limit'
         : transactionOutcome(error) === 'unknown' ? 'uncertain' : 'rejected');
+  }
+
+  #commitEffectObservation(input) {
+    if (input.kind !== 'context_observed' && input.kind !== 'compaction_measured')
+      return this.journal.execute(input);
+    // Independent observations from many recovered conversations can arrive
+    // together. Only one of them needs a place in the shared journal queue.
+    const next = this.#observationTail.then(() => this.journal.execute(input));
+    // DEFENSE: One refused observation has its own effect settlement and
+    // must not prevent later observations from entering the journal.
+    this.#observationTail = next.catch(() => {});
+    return next;
   }
 
   async #settleWorkspaceCompletion(effect, completion, handle) {

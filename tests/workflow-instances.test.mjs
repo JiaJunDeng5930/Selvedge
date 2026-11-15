@@ -129,6 +129,8 @@ test('a ticket waits for every exit, with a fresh reviewer and a reused implemen
   assert.equal(await details.locator('[data-semantic-key="activity"]').count(), 0);
   await page.setViewportSize({ width: 1280, height: 900 });
   const initial = await read();
+  assert.equal(initial.message_preview, 'Workflow acceptance ticket');
+  assert.ok(Number.isInteger(initial.started_at) && initial.started_at > 0);
   const implementer = active(initial, 'implement').task_id;
   assert.notEqual(implementer, active(initial, 'parallel').task_id);
   await page.keyboard.press('Escape');
@@ -245,7 +247,13 @@ test('workflows can be authored and started in place from the browser', { timeou
     nodes: [{ key: 'entry', kind: 'entrance' }, { key: 'exit', kind: 'exit' }],
     connections: [{ key: 'route', source: 'entry', target: 'exit' }] });
   const picker = main.getByRole('combobox', { name: '定位工作流', exact: true });
-  await picker.selectOption({ label: 'Other workflow' });
+  await picker.selectOption({ label: 'Browser workflow' });
+  await main.getByRole('button', { name: '查看所有工作流', exact: true }).click();
+  const otherPreview = canvas.locator('[data-workflow-tile]').filter({
+    has: page.getByRole('button', { name: 'Other workflow', exact: true }),
+  });
+  await otherPreview.click({ position: { x: 30, y: 70 } });
+  assert.equal(await picker.locator(':checked').innerText(), 'Other workflow');
   await main.getByRole('button', { name: '查看所有工作流', exact: true }).click();
   await canvas.getByRole('button', { name: 'Browser workflow', exact: true }).click();
   assert.match(await picker.inputValue(), /^workflow\//);
@@ -324,9 +332,10 @@ test('workflows can be authored and started in place from the browser', { timeou
   const beforeHistory = await transform();
   await main.getByRole('button', { name: '运行记录', exact: true }).click();
   const history = page.getByRole('dialog', { name: '运行记录', exact: true });
-  await history.getByText('入口 · start', { exact: true }).waitFor();
-  await history.getByText(first, { exact: true }).waitFor();
-  await history.getByRole('button', { name: /^实例 #\d+ · 已完成$/ }).click();
+  const row = history.getByRole('button', { name: /^实例 #\d+ · 已完成$/ });
+  assert.match(await row.locator('time').getAttribute('datetime'), /^\d{4}-\d{2}-\d{2}T/);
+  await row.getByText(first, { exact: true }).waitFor();
+  await row.getByText('入口 · start', { exact: true }).click();
   await page.getByRole('dialog', { name: /^实例 #\d+$/ }).getByRole('button', { name: 'Close panel', exact: true }).click();
   await history.getByRole('button', { name: 'Close panel', exact: true }).click();
   assert.equal(await transform(), beforeHistory);

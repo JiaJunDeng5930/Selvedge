@@ -895,7 +895,9 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
    [("id",String.append key "/help");("class","visually-hidden")] [] [] empty
    [DOM.Text description]] else []))in
  match meaning with
- |S.InformationText info=>element (text_tag info) ([("tabindex","-1")] ++
+ |S.InformationText info=>if String.eqb (S.semantic_key value) "workflow-run-time"
+   then element "time" [("data-epoch-seconds",label)] [] empty []
+   else element (text_tag info) ([("tabindex","-1")] ++
    match info with Information.Status=>[("role","status")]|_=>[]end) [] empty
    (if String.eqb (S.semantic_key value) "full-path"
     then directory_path_parts "" label else [DOM.Text label])
@@ -1271,11 +1273,11 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
         control "all" "总览" "查看所有工作流"];
      DOM.Element (key++"/actions")%string "div" [("data-workflow-actions","")] [] [] empty toolbars;
      DOM.Element canvas "div" [("data-workflow-canvas","");("role","region");("aria-label",label);("tabindex","0")]
-       [] [] empty [DOM.Element (canvas++"/plane")%string "div" [("data-workflow-plane","")] [] [] empty graphs;
-        DOM.Element (canvas++"/overview")%string "div" [("data-workflow-overview","");("role","group");
-          ("aria-label","选择工作流")] [] [] empty
-         (map (fun '(target,name)=>DOM.Element (canvas++"/overview/"++target)%string "button"
-           [("type","button");("data-workflow-open",target)] [] [] empty [DOM.Text name]) targets)]]
+       [] [] empty [DOM.Element (canvas++"/plane")%string "div" [("data-workflow-plane","")] [] [] empty
+         (map (fun '((target,name), graph)=>
+          DOM.Element (canvas++"/tile/"++target)%string "div" [("data-workflow-tile",target)] [] [] empty
+           [DOM.Element (canvas++"/overview/"++target)%string "button" [("type","button");("data-workflow-open",target)]
+             [] [] empty [DOM.Text name]; graph]) (combine targets graphs))]]
  |S.WorkflowEditorJump targets=>element "select" [("data-workflow-editor-jump","")] [] empty
     (DOM.Element (key++"/placeholder")%string "option" [("value","")] [] [] empty [DOM.Text label] ::
      map (fun '(target,name)=>DOM.Element (key++"/"++target)%string "option"

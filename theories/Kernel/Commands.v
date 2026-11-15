@@ -133,7 +133,8 @@ Definition command_declarations : list command_declaration := [
   DeclareCommand TaskGraphChange TaskExcluded (WireCommand "update_workflow"
     [u32 (req "workflow_id" KNatural); req "name" KText; req "nodes" (KArray KJson); req "connections" (KArray KJson)]);
   DeclareCommand TaskGraphChange TaskExcluded (WireCommand "start_workflow"
-    [u32 (req "workflow_id" KNatural); req "entrance" KText; req "message" KText; opt "browser_launch_id" KText]);
+    [u32 (req "workflow_id" KNatural); req "entrance" KText; req "message" KText; opt "browser_launch_id" KText;
+     typed board_clock (opt "observed_at" KText)]);
   DeclareCommand TaskGraphQuery TaskExcluded (WireCommand "list_workflows" []);
   DeclareCommand TaskGraphQuery TaskExcluded (WireCommand "read_workflow_instance" [u32 (req "instance_id" KNatural)]);
   DeclareCommand TaskGraphChange TaskAllowed (WireCommand "choose_workflow_connection" [req "connection" KText]);

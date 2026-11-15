@@ -316,12 +316,17 @@ Definition workflow_history snapshot parent id :=
  match rev (workflow_instances snapshot id) with
  |[]=>[information parent "empty" Information.Description "还没有运行记录。"]
  |runs=>map (fun run=>
-   let index:=show_natural (value_or 0%N (natural_field "instance_id" run)) in
-   let key:=part parent ("run/"++index) in
-   region parent ("run/"++index) "" Roles.Section
-    [workflow_instance_summary key run;
-     information key "workflow-run-entrance" Information.Description ("入口 · "++workflow_field "entrance" run);
-     information key "workflow-run-message" Information.Description (workflow_field "message_preview" run)]) runs
+   let instance := value_or 0%N (natural_field "instance_id" run) in
+   let name := "run/"++show_natural instance in
+   let key := part parent name in
+   let label := workflow_instance_label instance ++ " · " ++ Read.workflow_instance_status run in
+   Node key name label Roles.Button (Activate (inspect_instance parent name label instance))
+    ([information key "workflow-run-title" Information.OptionLabel label;
+      information key "workflow-run-entrance" Information.Description ("入口 · "++workflow_field "entrance" run)] ++
+     (match natural_field "started_at" run with
+      |Some time=>[information key "workflow-run-time" Information.Description (show_natural time)]
+      |None=>[] end) ++
+     [information key "workflow-run-message" Information.Description (workflow_field "message_preview" run)])%list) runs
  end.
 Definition workflow_instance_details snapshot parent value :=
  let workflow := value_or "" (bind (field "definition" value) (string_field "name")) in
