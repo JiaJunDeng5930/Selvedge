@@ -75,8 +75,12 @@ Definition discard_editor owner state:=
  let next_layer:=match previous with
   |Some draft=>N.max(N.succ(Draft.revision draft))(N.succ(SS.next_layer state))
   |None=>N.succ(SS.next_layer state)end in
+ let retained pending:=match owner,SS.purpose pending with
+  (* A sent workflow launch still owns its receipt after the dialog closes. *)
+  |Identity.WorkflowStart _,SS.DraftSubmission _ _ _ _=>true
+  |_,_=>negb(pending_for_editor owner pending) end in
  let authoring:=set SS.awaiting
-  (fun _=>filter(fun pending=>negb(pending_for_editor owner pending))(SS.awaiting authoring))
+  (fun _=>filter retained (SS.awaiting authoring))
   (set SS.drafts(fun drafts=>filter(fun draft=>negb(same_editor owner(Draft.owner draft)))drafts)authoring)in
  let services:=SS.service_state state in
  let services:=fold_left(fun services resource=>match resource_ticket resource with
@@ -145,6 +149,9 @@ Definition direct_command_admission snapshot (state:SS.state) command:=
  EO.checked_admission snapshot state(command_owner snapshot state command)(ObjectActions.assessment_revision state)command.
 Definition request_command snapshot state command:=
  if negb(Services.connected(SS.service_state state))then fail state "正在重新连接服务…" else
+ if match SS.workflow_start_card command with
+ |Some card=>match SS.pending_ticket_start card state with Some _=>true|None=>false end
+ |None=>false end then fail state "正在等待这张卡片的启动回执。" else
  match direct_command_admission snapshot state command with
  |Some EM.Available=>issue command SS.DirectSubmission state
  |Some (EM.Unavailable reason)=>fail state reason
@@ -159,9 +166,6 @@ Definition assessment_failure snapshot state owner revision command :=
 Definition command_assessment_failure snapshot state command :=
  assessment_failure snapshot state (command_owner snapshot state command)
    (ObjectActions.assessment_revision state) command.
-Definition draft_assessment_failure snapshot state draft :=
- bind (current_command state draft) (assessment_failure snapshot state
-   (CommandAssessment.DraftOwner(Draft.owner draft)) (Draft.revision draft)).
 Definition submission_obstruction snapshot draft state:option string:=
  if negb(Services.connected(SS.service_state state))then Some "Connect to continue."else
  match EO.project_precondition snapshot state draft with
@@ -208,7 +212,14 @@ Definition submit snapshot owner trigger state:=
   |Some _,None|Some _,Some(Resource.Loading _ _)=>capture_workspace snapshot draft trigger state
   |Some _,Some(Resource.Failed _ _ reason)=>fail state reason
  |_,_=>match owner with
-   |Identity.NewTask _|Identity.Message _|Identity.WorkflowStart _=>
+   |Identity.WorkflowStart _=>
+    match submission_obstruction snapshot draft state, EO.body_requirements snapshot owner(Draft.contents draft), current_command state draft with
+    |None,[],Some command=>issue command
+      (SS.DraftSubmission draft(SS.generation(SS.navigation_state state))(SS.next_layer state)trigger)state
+    |Some reason,_,_=>fail state reason
+    |_,cause::_,_=>fail state(EM.obstruction_message cause)
+    |_,[],None=>fail state "请选择入口并输入启动消息。" end
+   |Identity.NewTask _|Identity.Message _=>
     if EO.awaits_only_admission(EO.observe_assessment snapshot state owner) then
      match submission_obstruction snapshot draft state,current_command state draft with
      |Some reason,_=>fail state reason
@@ -948,12 +959,9 @@ Definition refresh_input snapshot input state:=match input with
 |Input.SubmitHistorySearch _=>keep state
 |Input.BeginVoiceNew owner=>let draft:=SS.current_draft state owner in
  match current_voice_command state draft with Some command=>ensure_request snapshot(voice_owner command)(Draft.revision draft)command state|None=>keep state end
+|Input.Submit (Identity.WorkflowStart _) _=>keep state
 |Input.Submit owner _=>let draft:=SS.current_draft state owner in
- let incomplete:=match owner with
- |Identity.WorkflowStart _=>match EO.body_requirements snapshot owner(Draft.contents draft) with
-    |[]=>false|_=>true end
- |_=>false end in
- if SS.pending_editor owner state || incomplete then keep state else
+ if SS.pending_editor owner state then keep state else
  let checked:=match current_command state draft with Some command=>ensure_request snapshot(CommandAssessment.DraftOwner owner)(Draft.revision draft)command state|None=>keep state end in
  match SO.worktree_preference snapshot state draft with
  |Some update=>append checked(ensure_request snapshot(CommandAssessment.DirectOwner(CommandAssessment.command_identity update))

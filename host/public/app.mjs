@@ -17,7 +17,7 @@ import { installWorkflowViewport } from './workflow-viewport.mjs';
 
 const surface = document.getElementById('surface');
 installModelPickerPreview(surface);
-installWorkflowViewport(surface);
+const synchronizeWorkflowViewport = installWorkflowViewport(surface);
 const announcements = document.getElementById('announcements');
 const updateStatus = document.getElementById('selvedge-update-status');
 const documentRelease = document.querySelector('meta[name="selvedge-release"]')?.content;
@@ -403,7 +403,10 @@ function present(mode) {
   const regions = !streamed && renderer.renderRegions(materialize('region'), generation);
   if (!streamed && !regions) throw new Error('Unable to publish the native regions');
   const pageChanged = starting || regions?.page_changed;
-  if (pageChanged) refreshPageLayout(previousResults, scrollport, offset);
+  if (pageChanged) {
+    refreshPageLayout(previousResults, scrollport, offset);
+    synchronizeWorkflowViewport();
+  }
   const freshness = String(sourceFresh);
   const freshnessChanged = surface.dataset.sourcesFresh !== freshness;
   if (freshnessChanged) surface.dataset.sourcesFresh = freshness;
@@ -1278,6 +1281,14 @@ surface.addEventListener('dragend', () => {
 
 async function completeCommand(effect) {
   const namespace = publication.namespace;
+  const startingWorkflow = effect.command.op === 'start_workflow' || effect.command.op === 'start_ticket_workflow';
+  // DEFENSE: A launch can lose its reply after submission. Report uncertainty
+  // while keeping the transport open for a late receipt and retaining its ticket.
+  const receiptTimer = startingWorkflow ? setTimeout(() => {
+    if (publication.namespace === namespace)
+      dispatch({ type: 'completion_unknown', ticket: effect.ticket, error: '未收到启动回执，结果待确认。' });
+  }, 35_000) : null;
+  if (receiptTimer !== null) timers.add(receiptTimer);
   try {
     const value = await requestCommand(effect.command, effect.read_only ? readDeadline() : undefined);
     if (publication.namespace === namespace && value !== undefined)
@@ -1289,6 +1300,11 @@ async function completeCommand(effect) {
       dispatch(effect.read_only
         ? { type: 'completed', ticket: effect.ticket, ok: false, error: error.message }
         : { type: 'completion_failed', ticket: effect.ticket, error: error.message, body: error.body ?? null });
+    }
+  } finally {
+    if (receiptTimer !== null) {
+      clearTimeout(receiptTimer);
+      timers.delete(receiptTimer);
     }
   }
 }

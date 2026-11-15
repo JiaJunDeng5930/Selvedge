@@ -406,15 +406,31 @@ Definition title_prompt_help e parent : list (node Input.input) := match e with
 |_=>[]end.
 Definition editor_view snapshot (s:Session.state) e parent :=
  let draft:=Session.current_draft s e in
- let assessment:=Observe.observe_assessment snapshot s e in
+ let assessment:=match e with
+ |WorkflowStart _=>
+   let outcome:=match Observe.draft_requirements snapshot s e with
+   |cause::rest=>UX.PreparationBlocked cause rest
+   |[]=>UX.PreparationReady end in
+   UX.Assessment (UX.ActionIdentity (Draft.revision draft))
+    (if Services.connected (Session.service_state s) then outcome
+     else Observe.restrict_outcome "正在重新连接服务…" outcome)
+ |_=>Observe.observe_assessment snapshot s e end in
  let unit:=Observe.action_unit_for s e in
  let busy:=UX.action_pending unit in
- let failed_check:=match e with
- |WorkflowStart _=>Authoring.draft_assessment_failure snapshot s draft
- |_=>None end in
- let capture:=match e with WorkflowStart _=>Observe.awaits_only_admission assessment|_=>false end in
+ let progress:=match e with
+ |WorkflowStart _=>match find (Authoring.pending_for_editor e) (Session.awaiting(Session.authoring_state s)) with
+   |Some entry=>match Session.outcome_unknown entry with
+      |Some _=>"启动结果待确认。可在运行记录中查看。"|None=>"正在等待启动回执…" end
+   |None=>"正在提交…" end
+ |_=>"正在提交…" end in
+ let availability:=match e with
+ |WorkflowStart _=>if busy then Busy progress else unit_availability unit assessment
+ |_=>unit_availability unit assessment end in
+ let status:=match e with
+ |WorkflowStart _=>if busy then [information parent "editor-commit-status" Information.Status progress] else []
+ |_=>commit_status parent unit end in
  let submit:=Control "submit"(submit_label snapshot draft e)Primary(Input.Submit e(part parent "submit"))
-  (if capture && negb(UX.action_pending unit) then Available else unit_availability unit assessment)in
+  availability in
  let reason:=match e,Draft.draft_feedback draft with
  |WorkflowStart _,_|_,Draft.DuplicateWorkflowNodeName _ _=>[]
  |_,_=>commit_reason parent assessment end in
@@ -439,15 +455,11 @@ Definition editor_view snapshot (s:Session.state) e parent :=
    |cause::_=>if String.eqb (UX.obstruction_code cause) Observe.admission_pending_code
      then "" else UX.obstruction_message cause
    |[]=>"" end in
-   information parent "workflow-start-feedback" Information.Description message ::
-   (match failed_check with
-   |Some _=>if busy then [] else [declared parent Roles.Button(secondary "retry-start-check" "重新检查"
-      (Input.ServiceInput(Services.RetryAssessment e)))]
-   |None=>[] end)
+   [information parent "workflow-start-feedback" Information.Description message]
  |_=>[assessment_nodes parent assessment] end in
- let feedback:=match e,failed_check with
- |WorkflowStart _,Some _=>None
- |WorkflowStart _,None=>if busy || Observe.awaits_only_admission assessment then None else draft_feedback draft
+ let feedback:=match e,Draft.draft_feedback draft with
+ |WorkflowStart _,Draft.Rejected _ diagnostic=>
+   if busy then None else Some(value_or (Codec.diagnostic_message diagnostic) (string_field "message" diagnostic))
  |_,_=>draft_feedback draft end in
  let body := (title_prompt_help e parent ++
    section_nodes snapshot s e parent ++
@@ -463,7 +475,8 @@ Definition editor_view snapshot (s:Session.state) e parent :=
   Node parent "editor"(editor_title e)Roles.Section(ActionUnit e unit)
    (dialog_body parent body::
     [dialog_actions parent
-      (reason ++ commit_status parent unit ++ consequence ++ capture ++ [declared parent Roles.Button(secondary "cancel"
+      (reason ++ status ++
+       consequence ++ capture ++ [declared parent Roles.Button(secondary "cancel"
         (match e with Card _|TaskGraph _ _|WorkflowDefinition _ _|WorkflowStart _|Fork _|Compact _|WorkName _|TitlePrompts _=>"取消"|_=>"Cancel"end) Input.ClosePanel)] ++
        [Node(part parent "submit")"submit"(control_label submit)
          (commit_role unit(draft_feedback draft))(ActionCommit e assessment submit)[]])%list])].

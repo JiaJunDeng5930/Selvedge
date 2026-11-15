@@ -94,11 +94,20 @@ Definition ticket_workflow_launch snapshot s parent card :=
  |Some action=>match ObjectActions.command action with
  |None=>[]
  |Some command=>
-   let status:=ObjectActions.action_status action in
+   let pending:=State.pending_ticket_start card s in
+   let status:=match pending with
+    |Some _=>ObjectActions.InFlight|None=>ObjectActions.action_status action end in
    let key:="workflow-start-ticket" in
    let caption:=match status with
-    |ObjectActions.InFlight=>if State.checking_command command s then "正在检查启动条件…" else "正在提交…"
-    |_=>ObjectActions.action_label action end in
+    |ObjectActions.InFlight=>match pending with
+      |Some entry=>match State.outcome_unknown entry,State.purpose entry with
+        |Some _,_=>"启动结果待确认"|None,State.DirectAdmission=>"正在检查启动条件…"
+        |None,_=>"正在等待启动回执…" end
+      |None=>"正在等待启动回执…" end
+    |_=>match Read.ticket_instance snapshot card with
+      |Some instance=>if String.eqb (Read.workflow_instance_status instance) "已完成" then
+        "再次启动工作流" else ObjectActions.action_label action
+      |None=>ObjectActions.action_label action end end in
    let connected:=Services.connected (State.service_state s) in
    let launch:=declared parent Roles.Button(Control key caption
      Secondary (Input.RequestCommand command)

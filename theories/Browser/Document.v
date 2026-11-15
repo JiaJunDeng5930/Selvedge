@@ -1259,6 +1259,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
    (DOM.Element (key++"/summary")%string "summary" [] [] [] empty [DOM.Text label]::children)
  |S.WorkflowWorkspace targets=>
    let canvas:=(key++"/viewport")%string in
+   let '(toolbars, graphs):=match children with first::rest=>([first],rest)|[]=>([],[]) end in
    let control action caption title := DOM.Element (key++"/zoom/"++action)%string "button"
       [("type","button");("data-workflow-zoom",action);("aria-label",title);("title",title)] [] [] empty [DOM.Text caption] in
    element "div" [("data-workflow-workspace","")] [] empty
@@ -1266,9 +1267,15 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
        [DOM.Element (key++"/target")%string "select" [("data-workflow-target","");("aria-label","定位工作流")] [] [] empty
          (map (fun '(target,name)=>DOM.Element (key++"/target/"++target)%string "option"
             [("value",target)] [] [] empty [DOM.Text name]) targets);
-        control "out" "−" "缩小画布"; control "in" "+" "放大画布"; control "fit" "适应" "适应工作流"];
+        control "out" "−" "缩小画布"; control "in" "+" "放大画布"; control "fit" "适应" "适应工作流";
+        control "all" "总览" "查看所有工作流"];
+     DOM.Element (key++"/actions")%string "div" [("data-workflow-actions","")] [] [] empty toolbars;
      DOM.Element canvas "div" [("data-workflow-canvas","");("role","region");("aria-label",label);("tabindex","0")]
-       [] [] empty [DOM.Element (canvas++"/plane")%string "div" [("data-workflow-plane","")] [] [] empty children]]
+       [] [] empty [DOM.Element (canvas++"/plane")%string "div" [("data-workflow-plane","")] [] [] empty graphs]]
+ |S.WorkflowEditorJump targets=>element "select" [("data-workflow-editor-jump","")] [] empty
+    (DOM.Element (key++"/placeholder")%string "option" [("value","")] [] [] empty [DOM.Text label] ::
+     map (fun '(target,name)=>DOM.Element (key++"/"++target)%string "option"
+       [("value",target)] [] [] empty [DOM.Text name]) targets)
  |S.Region=>if voice_disclosure then
    let live:=existsb(fun child=>match S.node_meaning child with
     |S.InformationText Information.Status=>true

@@ -280,7 +280,7 @@ Definition workflow_canvas snapshot parent compact definition :=
  let routes := map (fun edge => (workflow_field "source" edge, workflow_field "target" edge))
    (workflow_list "connections" definition) in
  let geometry := TaskGraphCanvas.workflow_geometry compact in
- let layout := TaskGraphCanvas.arrange_flow (A:=Input.input) geometry nodes routes in
+ let layout := TaskGraphCanvas.arrange_flow (A:=Input.input) geometry true nodes routes in
  let drawing := TaskGraphCanvas.edges layout in
  let viewport := part parent "task-graph/viewport" in
  let canvas := part viewport "task-graph/canvas" in
@@ -301,7 +301,7 @@ Definition workflow_canvas snapshot parent compact definition :=
         (TaskGraphCanvas.left placed) (TaskGraphCanvas.top placed)
         (Z.to_N (TaskGraphCanvas.card_width geometry)) (Z.to_N (TaskGraphCanvas.card_height geometry)) false))
       [Node (part key "workflow-node-name") "workflow-node-name" name Roles.Content ContentDisclosure [];
-       information key "workflow-node-kind" Information.Description caption;
+       information key ("workflow-node-kind/" ++ kind) Information.Description caption;
        workflow_markers snapshot definition name key])
    (TaskGraphCanvas.nodes layout))].
 Definition workflow_instance_summary parent value :=
@@ -315,7 +315,13 @@ Definition workflow_instances snapshot id :=
 Definition workflow_history snapshot parent id :=
  match rev (workflow_instances snapshot id) with
  |[]=>[information parent "empty" Information.Description "还没有运行记录。"]
- |runs=>map (workflow_instance_summary parent) runs
+ |runs=>map (fun run=>
+   let index:=show_natural (value_or 0%N (natural_field "instance_id" run)) in
+   let key:=part parent ("run/"++index) in
+   region parent ("run/"++index) "" Roles.Section
+    [workflow_instance_summary key run;
+     information key "workflow-run-entrance" Information.Description ("入口 · "++workflow_field "entrance" run);
+     information key "workflow-run-message" Information.Description (workflow_field "message_preview" run)]) runs
  end.
 Definition workflow_instance_details snapshot parent value :=
  let workflow := value_or "" (bind (field "definition" value) (string_field "name")) in
@@ -342,6 +348,17 @@ Definition workflow_instance_details snapshot parent value :=
    information parent "instance-status" Information.Status (Read.workflow_instance_status value)] ++ links ++ results)%list.
 Definition workflow_section_key definition :=
  "workflow/" ++ show_natural (value_or 0%N (natural_field "workflow_id" definition)).
+Definition workflow_controls parent definition :=
+ let id := value_or 0%N (natural_field "workflow_id" definition) in
+ let section := workflow_section_key definition in
+ let key := part parent section in
+ Node key section "" Roles.Toolbar Region
+  [declared key Roles.Button (secondary "edit-workflow" "编辑工作流"
+     (Input.OpenEditor (Identity.WorkflowDefinition (Some id) None) (part key "edit-workflow")));
+   declared key Roles.Button (secondary "start-workflow" "启动工作流"
+     (Input.OpenEditor (Identity.WorkflowStart id) (part key "start-workflow")));
+   declared key Roles.Button (secondary "workflow-history" "运行记录"
+     (Input.OpenInformation (State.WorkflowHistory id) (part key "workflow-history")))].
 Definition workflow_section snapshot parent compact definition :=
  let id := value_or 0%N (natural_field "workflow_id" definition) in
  let section := workflow_section_key definition in
@@ -353,14 +370,7 @@ Definition workflow_section snapshot parent compact definition :=
      then collected else graph :: collected
    | None => collected end) [] active_runs in
  region parent section (workflow_field "name" definition) Roles.Section
-  ([Node (part key "workflow-controls") "workflow-controls" "" Roles.Toolbar Region
-   [group_title key (workflow_field "name" definition);
-    declared key Roles.Button (secondary "edit-workflow" "编辑工作流"
-      (Input.OpenEditor (Identity.WorkflowDefinition (Some id) None) (part key "edit-workflow")));
-    declared key Roles.Button (secondary "start-workflow" "启动工作流"
-      (Input.OpenEditor (Identity.WorkflowStart id) (part key "start-workflow")));
-    declared key Roles.Button (secondary "workflow-history" "运行记录"
-      (Input.OpenInformation (State.WorkflowHistory id) (part key "workflow-history")))];
+  ([group_title key (workflow_field "name" definition);
     workflow_canvas snapshot key compact definition] ++
    map (fun '(index, graph) =>
      let version := ("saved/" ++ show_natural (N.of_nat index))%string in
@@ -445,7 +455,9 @@ Definition graphs_page snapshot s parent compact :=
    (match definitions with
     |[]=>relay_contents snapshot s parent
     |_=>let key := part parent ("workflow-workspace/" ++ value_or "all" (option_map show_natural work)) in
+       let controls := part key "workflow-actions" in
        [Node key "workflow-workspace" "工作流画布" Roles.Section
          (WorkflowWorkspace (map (fun definition => (workflow_section_key definition, workflow_field "name" definition)) definitions))
-         (map (workflow_section snapshot key compact) definitions)]
+         (Node controls "workflow-actions" "" Roles.Content Region (map (workflow_controls controls) definitions) ::
+          map (workflow_section snapshot key compact) definitions)]
     end)].

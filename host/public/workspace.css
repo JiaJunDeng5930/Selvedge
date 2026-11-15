@@ -541,7 +541,7 @@ dialog[data-semantic-key="card-details"] {
 }
 [data-workflow-workspace] {
   display: grid !important;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   flex: 1 1 auto !important;
   min-block-size: min(20rem, 55dvh) !important;
   gap: 0 !important;
@@ -568,11 +568,14 @@ dialog[data-semantic-key="card-details"] {
   font: inherit;
 }
 [data-workflow-viewport-controls] > select {
-  max-inline-size: min(45%, 19rem);
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  max-inline-size: 100%;
   margin-inline-end: auto;
 }
 [data-workflow-viewport-controls] > button {
   cursor: pointer;
+  flex: none;
 }
 [data-workflow-viewport-controls] > button:hover {
   background: var(--selvedge-hover);
@@ -605,20 +608,42 @@ dialog[data-semantic-key="card-details"] {
   inline-size: max-content !important;
   min-inline-size: min(18rem, 82vw);
 }
-[data-semantic-key="workflow-controls"] {
+[data-workflow-actions] {
+  border-block-end: 1px solid var(--selvedge-border);
+}
+[data-workflow-actions] [data-semantic-key^="workflow/"]:not([hidden]) {
   display: flex !important;
   flex-flow: row wrap !important;
   align-items: center !important;
-  max-inline-size: min(100%, max(16rem, 86vw));
   gap: 0.3rem !important;
-  padding-block-end: 0.25rem;
+  padding: 0.25rem 0.5rem;
 }
-[data-semantic-key="workflow-controls"] > :first-child {
-  flex-basis: 100%;
+[data-workflow-actions] [data-semantic-key^="workflow/"][hidden] {
+  display: none !important;
 }
-[data-semantic-key="workflow-history"] > [data-surface-role="dialog-body"] > button {
+[data-workflow-actions] button {
+  min-block-size: max(36px, 2.25rem) !important;
+}
+@media (max-width: 440px) {
+  [data-workflow-viewport-controls] { flex-wrap: wrap; }
+  [data-workflow-viewport-controls] > select { flex-basis: 100%; }
+  [data-workflow-actions] button { min-block-size: 44px !important; }
+}
+[data-semantic-key="workflow-history"] [data-semantic-key^="run/"] > button {
   inline-size: 100% !important;
   justify-content: start !important;
+}
+[data-semantic-key="workflow-history"] [data-semantic-key^="run/"] {
+  gap: 0.1875rem !important;
+  padding: 0.375rem 0.5rem;
+  border-block-end: 1px solid var(--selvedge-border);
+}
+[data-semantic-key="workflow-run-message"] {
+  display: -webkit-box !important;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 
 [data-semantic-key="task-graph/group"] + [data-semantic-key="task-graph/group"] {
@@ -656,8 +681,26 @@ dialog[data-semantic-key="card-details"] {
   min-block-size: 0 !important;
   overflow: hidden;
 }
-[data-semantic-key="workflow-node-kind"] {
+[data-semantic-key^="workflow-node-kind/"] {
   line-height: 1.2;
+  font-weight: 600;
+  color: var(--workflow-node-tone) !important;
+}
+[data-semantic-key="workflow-node"]:has(> [data-semantic-key="workflow-node-kind/entrance"]) {
+  --workflow-node-tone: var(--selvedge-success);
+  border-inline-start: 0.25rem solid var(--workflow-node-tone) !important;
+  border-radius: 0.875rem;
+}
+[data-semantic-key="workflow-node"]:has(> [data-semantic-key="workflow-node-kind/task"]) {
+  --workflow-node-tone: var(--selvedge-text);
+}
+[data-semantic-key="workflow-node"]:has(> [data-semantic-key="workflow-node-kind/exit"]) {
+  --workflow-node-tone: var(--selvedge-accent);
+  border-inline-end: 0.25rem solid var(--workflow-node-tone) !important;
+  border-radius: 0.875rem;
+}
+[data-semantic-key="workflow-node"]:has(> :is([data-semantic-key="workflow-node-kind/entrance"], [data-semantic-key="workflow-node-kind/exit"])) {
+  background: color-mix(in srgb, var(--workflow-node-tone) 9%, var(--selvedge-surface)) !important;
 }
 [data-semantic-key="workflow-node-name"] > summary {
   position: relative;
@@ -682,6 +725,9 @@ dialog[data-semantic-key="card-details"] {
   border: solid currentColor;
   border-width: 0 0.1em 0.1em 0;
   transform: rotate(45deg);
+}
+[data-semantic-key="workflow-node-name"]:not([open]) > summary:not([data-workflow-overflow])::after {
+  display: none;
 }
 [data-semantic-key="workflow-node-name"][open] {
   overflow: auto;

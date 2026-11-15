@@ -42,6 +42,8 @@ Record instance := Instance {
  instance_definition : definition;
  instance_card : option N;
  instance_project : option N;
+ instance_entrance : string;
+ instance_message_preview : string;
  instance_paths : list path;
  instance_tasks : list (string * N);
  instance_history : list (N * string * N);

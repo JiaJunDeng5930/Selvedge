@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
+From Selvedge.Foundation Require Utf8.
 From Selvedge.Kernel Require Import Numbers Domain State Codec Tasks CommandExecution.
 From Selvedge.Features Require Import WorkflowTypes TaskGraph TaskGraphDeclarations Work Worktree Board BoardFacts.
 From Selvedge.Features Require Domain Observation.
@@ -317,7 +318,8 @@ Definition start id key contents ticket project v :=
  match lookup_graph id v with
  | Some g => if entrance g key && Tasks.content_nonempty contents then
    let instance_id := N.of_nat (List.length (instances v)) in
-   let i := Instance id g ticket project [Path 0 (Pending (WorkflowTypes.Delivery key contents None))] [] [] 1 in
+   let preview := match Utf8.take 96 (text_content contents) with Some text => text | None => "" end in
+   let i := Instance id g ticket project key preview [Path 0 (Pending (WorkflowTypes.Delivery key contents None))] [] [] 1 in
    let started := store_instances (instances v ++ [i]) v in
    accept (JObject [("instance_id", number instance_id)]) started []
    else reject "invalid_workflow_start" "Select an entrance of the workflow and supply a nonempty message." v
@@ -405,6 +407,7 @@ Definition path_json v p :=
 Definition instance_json v id (i : execution) := JObject [("instance_id", number id);
  ("workflow_id", number (instance_graph i)); ("definition", graph_json (instance_graph i) (instance_definition i));
  ("ticket_id", match instance_card i with Some ticket => number ticket | None => JNull end);
+ ("entrance", JString (instance_entrance i)); ("message_preview", JString (instance_message_preview i));
  ("state", JString (status i)); ("paths", JArray (map (path_json v) (instance_paths i)));
  ("tasks", JArray (map (fun '(path, node, task) =>
   JObject [("path_id", number path); ("node", JString node); ("task_id", number task)]) (instance_history i)))].

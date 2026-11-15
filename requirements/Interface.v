@@ -121,10 +121,11 @@ Export NavigationProof(new_selection_intent_prevents_work_completion_selection,
 (** ** A displayed action is still a request to the service
 
     Menu and editor assessment uses the same command admission as committed
-    submission. Composers and workflow launch controls can capture a locally
-    valid request while its admission is pending. A card also captures entrance
-    changes in this state. Only the exact captured command may run after
-    admission. Sending from an existing conversation shows a visible status
+    submission. Composers and workflow card controls can capture a locally
+    valid request while its admission is pending. Direct workflow launches
+    submit the captured request for admission and execution in one service
+    transaction. Only the exact captured command may run after admission.
+    Sending from an existing conversation shows a visible status
     in the composer and leaves the draft and send control in place. Starting a
     conversation places its captured message and submission status in a temporary
     conversation view before the receipt. A refusal restores the creation draft.

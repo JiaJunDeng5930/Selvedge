@@ -76,6 +76,14 @@ export async function startServer(options) {
       ...(gzip ? { 'content-encoding': 'gzip' } : {}) });
     response.end(body);
   }
+  function browserJson(request, response, status, value) {
+    response.setHeader('vary', 'Accept-Encoding');
+    const gzip = request.headers['accept-encoding']?.split(',').some(value => {
+      const [coding, quality] = value.toLowerCase().split(';').map(part => part.trim());
+      return coding === 'gzip' && (quality === undefined || Number(quality.split('=')[1]) > 0);
+    });
+    json(response, status, value, gzip);
+  }
 
   function authorized(request) {
     // DEFENSE: A request can contain an invalid explicit Authorization plus a valid browser cookie; the explicit credential must stand on its own.
@@ -315,12 +323,7 @@ export async function startServer(options) {
         browser_state: async () => {
           const snapshot = service.browserSnapshot();
           if (release) response.setHeader('x-selvedge-release', release.id);
-          response.setHeader('vary', 'Accept-Encoding');
-          const gzip = request.headers['accept-encoding']?.split(',').some(value => {
-            const [coding, quality] = value.toLowerCase().split(';').map(part => part.trim());
-            return coding === 'gzip' && (quality === undefined || Number(quality.split('=')[1]) > 0);
-          });
-          json(response, 200, snapshot, gzip);
+          browserJson(request, response, 200, snapshot);
           return;
         },
         describe: async () => {
@@ -402,7 +405,7 @@ export async function startServer(options) {
         },
         browser_command: async (command) => {
           const result = await service.browserCommand(command);
-          json(response, httpReplyStatus(boundary('http.reply_status', { reply: result.reply })), { ...result, program: result.program });
+          browserJson(request, response, httpReplyStatus(boundary('http.reply_status', { reply: result.reply })), result);
           return;
         },
         browser_observation: async (body) => {

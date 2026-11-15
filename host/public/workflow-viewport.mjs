@@ -1,15 +1,23 @@
+import { revealAndFocus } from './layout-reveal.mjs';
+
 // The scene supplies workflow groups and target identities. All coordinates
 // here belong to the browser viewport and never change a workflow definition.
 export function installWorkflowViewport(surface) {
   const views = new WeakMap();
   const viewportSelector = '[data-workflow-canvas]';
   const inset = 16;
-  const clamp = scale => Math.max(0.2, Math.min(2.5, scale));
+  const clamp = scale => Math.max(0.06, Math.min(2.5, scale));
+  let labels = new Set();
+  const labelObserver = new ResizeObserver(entries => {
+    for (const { target } of entries) {
+      if (!target.parentElement.open) target.toggleAttribute('data-workflow-overflow', target.scrollHeight > target.clientHeight + 1);
+    }
+  });
 
   function view(viewport) {
     let current = views.get(viewport);
     if (!current) {
-      current = { x: inset, y: inset, scale: 1, drag: null };
+      current = { x: inset, y: inset, scale: 1, target: '', drag: null };
       views.set(viewport, current);
     }
     return current;
@@ -30,10 +38,11 @@ export function installWorkflowViewport(surface) {
     place(viewport, current);
   }
 
-  function fit(workspace) {
+  function fit(workspace, all = false) {
     const viewport = workspace.querySelector(viewportSelector);
     const picker = workspace.querySelector('[data-workflow-target]');
-    const group = viewport.querySelector(`[data-semantic-key="${CSS.escape(picker.value)}"]`);
+    const group = all ? viewport.querySelector('[data-workflow-plane]')
+      : viewport.querySelector(`[data-semantic-key="${CSS.escape(picker.value)}"]`);
     // DEFENSE: A world update can remove the selected workflow before its native change event is handled.
     if (!group) return;
     const current = view(viewport);
@@ -44,20 +53,43 @@ export function installWorkflowViewport(surface) {
     current.y = Math.max(inset, (height - group.offsetHeight * current.scale) / 2) - group.offsetTop * current.scale;
     place(viewport, current);
   }
+  function select(workspace, target) {
+    const viewport = workspace.querySelector(viewportSelector);
+    view(viewport).target = target;
+    for (const group of workspace.querySelectorAll('[data-workflow-actions] [data-semantic-key^="workflow/"]')) {
+      const hidden = group.dataset.semanticKey !== target;
+      if (group.hidden !== hidden) group.hidden = hidden;
+    }
+  }
 
   function zoomFromCenter(viewport, direction) {
     zoom(viewport, view(viewport), direction === 'in' ? 1.25 : 0.8, viewport.clientWidth / 2, viewport.clientHeight / 2);
   }
 
   surface.addEventListener('change', event => {
-    if (event.target.matches('[data-workflow-target]')) fit(event.target.closest('[data-workflow-workspace]'));
+    if (event.target.matches('[data-workflow-editor-jump]')) {
+      const [kind, index] = event.target.value.split('/');
+      if (!kind) return;
+      const section = kind === 'node' ? 'workflow-node-editor' : 'workflow-connection-editor';
+      const form = event.target.closest('form');
+      const destination = form.querySelectorAll(`[data-semantic-key="${section}"]`)[Number(index)];
+      const field = destination?.querySelector('input,select,textarea');
+      // DEFENSE: A draft edit can remove the selected row before the native change arrives.
+      if (field) revealAndFocus(field);
+      event.target.value = '';
+      return;
+    }
+    if (!event.target.matches('[data-workflow-target]')) return;
+    const workspace = event.target.closest('[data-workflow-workspace]');
+    select(workspace, event.target.value);
+    fit(workspace);
   });
   surface.addEventListener('click', event => {
     const button = event.target.closest('[data-workflow-zoom]');
     if (!button) return;
     const workspace = button.closest('[data-workflow-workspace]');
     const direction = button.dataset.workflowZoom;
-    if (direction === 'fit') fit(workspace);
+    if (direction === 'fit' || direction === 'all') fit(workspace, direction === 'all');
     else zoomFromCenter(workspace.querySelector(viewportSelector), direction);
   });
   surface.addEventListener('wheel', event => {
@@ -109,7 +141,7 @@ export function installWorkflowViewport(surface) {
   });
   surface.addEventListener('focusin', event => {
     const viewport = event.target.closest(viewportSelector);
-    if (!viewport || event.target === viewport) return;
+    if (!viewport || event.target === viewport || !event.target.matches(':focus-visible')) return;
     const bounds = viewport.getBoundingClientRect();
     const target = event.target.getBoundingClientRect();
     const adjustment = (start, end, first, last) =>
@@ -122,4 +154,22 @@ export function installWorkflowViewport(surface) {
     current.y += y;
     place(viewport, current);
   });
+
+  return () => {
+    const workspace = surface.querySelector('[data-workflow-workspace]');
+    const nextLabels = new Set(workspace?.querySelectorAll('[data-semantic-key="workflow-node-name"] > summary') ?? []);
+    for (const label of labels) if (!nextLabels.has(label)) labelObserver.unobserve(label);
+    for (const label of nextLabels) if (!labels.has(label)) labelObserver.observe(label);
+    labels = nextLabels;
+    if (!workspace) return;
+    const picker = workspace.querySelector('[data-workflow-target]');
+    const current = view(workspace.querySelector(viewportSelector));
+    if (Array.from(picker.options).some(option => option.value === current.target)) {
+      if (picker.value !== current.target) picker.value = current.target;
+      select(workspace, current.target);
+    } else {
+      select(workspace, picker.value);
+      fit(workspace);
+    }
+  };
 }

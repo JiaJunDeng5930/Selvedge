@@ -1,4 +1,5 @@
 From Stdlib Require Import String List Bool NArith ZArith.
+From Selvedge.Foundation Require ListCount.
 From Selvedge.Programming Require Import Graphics.
 From Selvedge.Interaction.Experience Require Read.
 Import ListNotations.
@@ -97,23 +98,17 @@ Definition flow_line {A} geometry x1 y1 x2 y2 : Graphics.primitive A :=
  if vertical geometry then Graphics.Line y1 x1 y2 x2 Graphics.Neutral
  else Graphics.Line x1 y1 x2 y2 Graphics.Neutral.
 
-Definition adjacent_curve {A} geometry (edge : positioned_node * positioned_node) : Graphics.primitive A :=
+Definition adjacent_curve {A} geometry (edge : positioned_node * positioned_node) y1 y2 : Graphics.primitive A :=
   let '(source, target) := edge in
   let x1 := left source + along geometry in
   let x2 := left target in
-  let y1 := center_y geometry source in
-  let y2 := center_y geometry target in
   let middle := (x1 + x2) / 2 in
   flow_curve geometry x1 y1 middle y1 middle y2 x2 y2 true.
 
-Definition lane_spacing : Z := 8.
-
-Definition outside_curve {A} geometry lane (edge : positioned_node * positioned_node) : list (Graphics.primitive A) :=
+Definition outside_curve {A} geometry lane (edge : positioned_node * positioned_node) y1 y2 : list (Graphics.primitive A) :=
   let '(source, target) := edge in
   let x1 := left source + along geometry in
   let x2 := left target in
-  let y1 := center_y geometry source in
-  let y2 := center_y geometry target in
   let exit := x1 + margin geometry / 2 in
   let enter := x2 - margin geometry / 2 in
   [flow_curve geometry x1 y1 exit y1 exit y1 exit lane false;
@@ -128,17 +123,30 @@ Arguments Layout {A}.
 Arguments nodes {A}.
 Arguments edges {A}.
 
-Definition arrange_flow {A} geometry entries routes : layout A :=
+Definition port_coordinate geometry (spread : bool) (pairs : list (positioned_node * positioned_node)) index project node :=
+ if spread then
+  let same edge := String.eqb (Read.node_key (entry (project edge))) (Read.node_key (entry node)) in
+  let count := Z.of_nat (ListCount.count same pairs) in
+  let rank := Z.of_nat (ListCount.count same (firstn index pairs)) in
+  top node + 5 + (across geometry - 10) * (rank + 1) / (count + 1)
+ else center_y geometry node.
+Definition arrange_flow {A} geometry spread entries routes : layout A :=
   let groups := columns (List.length entries) routes entries in
   let rows := fold_left (fun count group => Nat.max count (List.length group)) groups 0%nat in
   let content_height := extent (across geometry) (across_gap geometry) rows in
   let placed := position_nodes geometry content_height groups in
-  let '(forward, outside) := partition adjacent (flat_map (position_connection placed) routes) in
+  let pairs := flat_map (position_connection placed) routes in
+  let connections := map (fun '(index, (source, target)) =>
+    ((source, target),(port_coordinate geometry spread pairs index fst source,
+                      port_coordinate geometry spread pairs index snd target)))
+    (combine (seq 0 (List.length pairs)) pairs) in
+  let '(forward, outside) := partition (fun connection=>adjacent (fst connection)) connections in
   let width := 2 * margin geometry + extent (along geometry) (along_gap geometry) (List.length groups) in
   let height := 2 * margin geometry + content_height in
+  let lane_spacing := if spread then 16 else 8 in
   let lanes := List.length outside in
-  let curves := map (adjacent_curve geometry) forward ++
-    flat_map (fun '(index, edge) => outside_curve geometry (height + Z.of_nat index * lane_spacing) edge)
+  let curves := map (fun '(edge,(y1,y2))=>adjacent_curve geometry edge y1 y2) forward ++
+    flat_map (fun '(index, (edge,(y1,y2))) => outside_curve geometry (height + Z.of_nat index * lane_spacing) edge y1 y2)
       (combine (seq 0 lanes) outside) in
   let height := height + Z.of_nat lanes * lane_spacing in
   if vertical geometry then
@@ -147,7 +155,7 @@ Definition arrange_flow {A} geometry entries routes : layout A :=
   else Layout placed (Graphics.Plot (Z.to_pos width) (Z.to_pos height) curves).
 
 Definition arrange_nodes {A} entries routes : layout A :=
- arrange_flow conversation_geometry entries routes.
+ arrange_flow conversation_geometry false entries routes.
 
 Definition arrange {A} (graph : Read.graph) : layout A :=
   arrange_nodes (A:=A) (Read.graph_nodes graph) (connections graph).

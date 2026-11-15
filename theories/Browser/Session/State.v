@@ -127,6 +127,13 @@ Definition pending_editor owner state:=existsb(fun pending=>match purpose pendin
 |LanguageSubmission editor _ _ _=>same_editor owner editor
 |_=>false end)(awaiting(authoring_state state)).
 Definition pending_command command state:=existsb(fun pending=>CommandAssessment.same_command command(accepted_command pending))(awaiting(authoring_state state)).
+Definition workflow_start_card (command : public_command) :=
+ let source:=Schema.encode_command command in
+ if String.eqb (Codec.text "op" source) "start_ticket_workflow"
+ then Codec.natural_field "card_id" source else None.
+Definition pending_ticket_start card state :=
+ find (fun pending=>match workflow_start_card (accepted_command pending) with
+  |Some owner=>N.eqb owner card|None=>false end)(awaiting(authoring_state state)).
 Definition checking_command command state:=existsb(fun pending=>match purpose pending with
  |DirectAdmission=>CommandAssessment.same_command command(accepted_command pending)
  |_=>false end)(awaiting(authoring_state state)).

@@ -164,7 +164,17 @@ Definition definition_fields snapshot parent owner work feedback value (save : j
    let entry := JObject (fields ++ if String.eqb kind "task" then
      [("profile",JString "");("creation",JString "once")] else [])%list in
    form_action node_panel ("add-" ++ kind) ("添加" ++ node_kind_label kind) (set_graph (nodes ++ [entry])%list edges) in
+ let targets := List.app (map (fun '(index,node) =>
+   ("node/" ++ show_natural (N.of_nat index),
+    node_kind_label (value_or "task" (string_field "kind" node)) ++ " · " ++ value_or "" (string_field "key" node)))
+   (indexed nodes))
+   (map (fun '(index,edge) =>
+   ("edge/" ++ show_natural (N.of_nat index),
+    "连线 " ++ row_number index ++ " · " ++ value_or "未选来源" (string_field "source" edge) ++
+    " → " ++ value_or "未选目标" (string_field "target" edge))) (indexed edges)) in
  [text_field parent "name" "工作流名称" false value save;
+  Node (part parent "workflow-editor-jump") "workflow-editor-jump" "定位节点或连线" Roles.Field
+   (WorkflowEditorJump targets) [];
   region parent "workflow-nodes" "节点" Roles.Section
     (group_title node_panel "节点" :: map (node_fields snapshot work node_panel owner feedback nodes edges set_graph) (indexed nodes) ++
      flat_map add_node ["entrance";"task";"exit"])%list;
