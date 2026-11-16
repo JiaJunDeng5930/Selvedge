@@ -14,18 +14,22 @@ import { safeHref, scheduleDisplay, cancelDisplay } from './markdown.mjs';
 import { findHistoryRange, firstRangeRect } from './history-location.mjs';
 import { createPhysicalMeasurer } from './physical-measurement.mjs';
 import { installModelPickerPreview } from './model-picker.mjs';
+import { installWorkflowViewport, showWorkflowTimes } from './workflow-viewport.mjs';
 
 const surface = document.getElementById('surface');
 installModelPickerPreview(surface);
+const synchronizeWorkflowViewport = installWorkflowViewport(surface);
 const announcements = document.getElementById('announcements');
 const updateStatus = document.getElementById('selvedge-update-status');
 const documentRelease = document.querySelector('meta[name="selvedge-release"]')?.content;
 const updateSessionKey = 'selvedge-update-session';
 const files = new Map();
 const transfers = new Map();
+const workflowReceipts = new Map();
 const assessments = new Map();
+const interactiveAssessments = new Map();
 const candidateAssessments = new Map();
-let drainingCandidates = false;
+const drainingAssessments = new Set();
 const resources = new Set();
 const timers = new Set();
 const readings = new Map();
@@ -223,6 +227,17 @@ function snapshot(body, expected = publication.namespace, authenticating = false
   publication = publicationEvent('observe', { observed_namespace: body.namespace, observed_sequence: body.sequence });
   if (firstSnapshot && documentRelease) restoreUpdateSession();
   dispatch({ type: 'snapshot' });
+  // A committed launch can arrive through the live snapshot before its HTTP
+  // reply, or after that connection was interrupted.
+  if (workflowReceipts.size) {
+    for (const instance of world.workflow_instances) {
+      const receipt = instance.browser_launch_receipt;
+      const pending = workflowReceipts.get(receipt?.key);
+      if (pending?.namespace !== publication.namespace) continue;
+      workflowReceipts.delete(receipt.key);
+      dispatch({ type: 'completed', ticket: pending.ticket, ok: true, value: receipt.reply });
+    }
+  }
   return true;
 }
 function retireDocumentViews() {
@@ -235,7 +250,9 @@ function retireDocumentViews() {
   suspendedPrefixFocus = null;
   for (const controller of assessments.values()) controller.abort();
   assessments.clear();
+  interactiveAssessments.clear();
   candidateAssessments.clear();
+  workflowReceipts.clear();
   for (const resource of resources) URL.revokeObjectURL(resource);
   resources.clear();
 }
@@ -355,8 +372,8 @@ function refreshPageLayout(previous, scrollport, offset) {
   const controls = track?.parentElement.querySelector('[data-board-scroll-controls]') ?? null;
   if (controls !== boardScrollControls || track !== boardTrack) {
     boardScrollControls = controls;
-    for (const button of controls?.querySelectorAll('[data-board-scroll]') ?? [])
-      button.setAttribute('aria-controls', track.id);
+    for (const control of controls?.querySelectorAll('[data-board-scroll], [data-board-stage-jump]') ?? [])
+      control.setAttribute('aria-controls', track.id);
   }
   if (track !== boardTrack || firstLane !== boardFirstLane) {
     boardTrackResize.disconnect();
@@ -406,13 +423,19 @@ function present(mode) {
   const regions = !streamed && renderer.renderRegions(materialize('region'), generation);
   if (!streamed && !regions) throw new Error('Unable to publish the native regions');
   const pageChanged = starting || regions?.page_changed;
-  if (pageChanged) refreshPageLayout(previousResults, scrollport, offset);
+  if (pageChanged) {
+    refreshPageLayout(previousResults, scrollport, offset);
+    synchronizeWorkflowViewport();
+  }
   const freshness = String(sourceFresh);
   const freshnessChanged = surface.dataset.sourcesFresh !== freshness;
   if (freshnessChanged) surface.dataset.sourcesFresh = freshness;
   const layoutChanged = pageChanged || regions?.focus_scope || regions?.layout_changed;
   if (pageChanged || regions?.layout_changed && !regions.layers_changed) schedulePhysicalRefresh();
-  if (pageChanged || regions?.layers_changed) layoutReading(true);
+  if (pageChanged || regions?.layers_changed) {
+    layoutReading(true);
+    showWorkflowTimes(surface);
+  }
   if (layoutChanged) observeReadingProcesses();
   if (!renderer.document.measurement_pending) {
     publication = publicationEvent('document', { receipt_generation: generation });
@@ -1197,6 +1220,12 @@ async function authenticate(effect) {
           showUpdateStatus(value);
           return false;
         }
+        if (value.type === 'workflow_request_received') {
+          const pending = workflowReceipts.get(value.launch_id);
+          if (pending && pending.namespace === value.namespace)
+            dispatch({ type: 'completion_received', ticket: pending.ticket });
+          return false;
+        }
         streamNotices.push(value);
         return true;
       },
@@ -1250,6 +1279,15 @@ surface.addEventListener('click', event => {
   const button = event.target.closest?.('[data-board-scroll]');
   if (!boardTrack || !button || button.getAttribute('aria-disabled') === 'true') return;
   scrollBoard(button.dataset.boardScroll === 'next' ? 1 : -1);
+});
+surface.addEventListener('change', event => {
+  const select = event.target.closest?.('[data-board-stage-jump]');
+  if (!boardTrack || !select?.value) return;
+  const lane = boardTrack.querySelector(`[data-board-stage="${CSS.escape(select.value)}"]`);
+  if (lane) boardTrack.scrollBy({
+    left: lane.getBoundingClientRect().left - boardTrack.getBoundingClientRect().left,
+  });
+  select.value = '';
 });
 surface.addEventListener('keydown', event => {
   // DEFENSE: WebKit does not scroll the focused board region on arrow keys.
@@ -1310,17 +1348,36 @@ surface.addEventListener('dragend', () => {
 
 async function completeCommand(effect) {
   const namespace = publication.namespace;
+  const startingWorkflow = effect.command.op === 'start_workflow' || effect.command.op === 'start_ticket_workflow';
+  const launch = startingWorkflow ? randomBrowserIdentifier() : null;
+  const command = launch === null ? effect.command : { ...effect.command, browser_launch_id: launch };
+  if (launch !== null) workflowReceipts.set(launch, { namespace, ticket: effect.ticket });
+  // DEFENSE: A launch can lose its reply after submission. Report uncertainty
+  // while keeping the transport open for a late receipt and retaining its ticket.
+  const receiptTimer = startingWorkflow ? setTimeout(() => {
+    if (publication.namespace === namespace && workflowReceipts.has(launch))
+      dispatch({ type: 'completion_unknown', ticket: effect.ticket, error: '未收到启动回执，结果待确认。' });
+  }, 35_000) : null;
+  if (receiptTimer !== null) timers.add(receiptTimer);
   try {
-    const value = await requestCommand(effect.command, effect.read_only ? readDeadline() : undefined);
-    if (publication.namespace === namespace && value !== undefined)
+    const value = await requestCommand(command, effect.read_only ? readDeadline() : undefined);
+    if (publication.namespace === namespace && value !== undefined &&
+        (launch === null || workflowReceipts.delete(launch)))
       dispatch({ type: 'completed', ticket: effect.ticket, ok: true, value });
   } catch (error) {
     // DEFENSE: A lost reply ends a read observation. The server may have
     // committed a mutation, so preserve its ticket and duplicate protection.
-    if (publication.namespace === namespace) {
+    if (publication.namespace === namespace && (launch === null || workflowReceipts.has(launch))) {
       dispatch(effect.read_only
         ? { type: 'completed', ticket: effect.ticket, ok: false, error: error.message }
         : { type: 'completion_failed', ticket: effect.ticket, error: error.message, body: error.body ?? null });
+      if (launch !== null && error.body?.error?.code === 'command_not_submitted')
+        workflowReceipts.delete(launch);
+    }
+  } finally {
+    if (receiptTimer !== null) {
+      clearTimeout(receiptTimer);
+      timers.delete(receiptTimer);
     }
   }
 }
@@ -1342,23 +1399,21 @@ function assessCommand(effect) {
   assessments.get(key)?.abort();
   const controller = new AbortController();
   assessments.set(key, controller);
-  const job = { effect, namespace, key, controller };
-  if (effect.request.editor.kind !== 'candidate') return performAssessment(job);
-  candidateAssessments.set(key, job);
-  if (!drainingCandidates) return assessCandidates();
+  const queue = effect.request.editor.kind === 'candidate' ? candidateAssessments : interactiveAssessments;
+  queue.set(key, { effect, namespace, key, controller });
+  if (!drainingAssessments.has(queue)) return drainAssessments(queue);
 }
-async function assessCandidates() {
-  drainingCandidates = true;
+async function drainAssessments(queue) {
+  drainingAssessments.add(queue);
   try {
-    // The service already serializes these checks. Keep only one candidate
-    // request in flight so the browser can fetch a state snapshot for its SSE
-    // subscription while the chooser evaluates the rest of the catalog.
-    while (!disposed && candidateAssessments.size) {
+    // The service serializes these checks. Give the visible actions and the
+    // candidate list one request each, leaving connections for state and SSE.
+    while (!disposed && queue.size) {
       await new Promise(resolve => setTimeout(resolve, 0));
-      const next = candidateAssessments.entries().next();
-      if (disposed || next.done) return;
-      const [key, job] = next.value;
-      candidateAssessments.delete(key);
+      const next = [...queue].find(([, job]) => job.effect.request.editor.kind === 'preparation') ?? queue.entries().next().value;
+      if (disposed || !next) return;
+      const [key, job] = next;
+      queue.delete(key);
       // A queued check belongs to the snapshot against which it was issued.
       if (!sameGeneration(job.effect.request.sequence, publication.sequence)) {
         if (assessments.get(key) === job.controller) assessments.delete(key);
@@ -1366,16 +1421,18 @@ async function assessCandidates() {
       }
       await performAssessment(job);
     }
-  } finally { drainingCandidates = false; }
+  } finally { drainingAssessments.delete(queue); }
 }
 async function performAssessment({ effect, namespace, key, controller }) {
   try {
-    const value = await post('/api/assess', effect.request, controller.signal);
+    // DEFENSE: A stalled admission request can leave a visible action indefinitely pending.
+    const value = await post('/api/assess', effect.request, AbortSignal.any([controller.signal, readDeadline()]));
     if (publication.namespace === namespace) dispatch({ type: 'command_assessed', ticket: effect.ticket, ok: true, value });
   } catch (error) {
     // DEFENSE: A newer draft assessment or page teardown cancels this superseded request.
     if (controller.signal.aborted || publication.namespace !== namespace) return;
-    dispatch({ type: 'command_assessed', ticket: effect.ticket, ok: false, error: error.message });
+    const message = error.name === 'TimeoutError' ? '检查超时，请重试。' : error.message;
+    dispatch({ type: 'command_assessed', ticket: effect.ticket, ok: false, error: message });
   } finally {
     if (assessments.get(key) === controller) assessments.delete(key);
   }
@@ -1620,6 +1677,7 @@ window.addEventListener('pagehide', () => {
   for (const entry of codeBlocks.values()) for (const physical of entry.views.values()) physical.renderer?.dispose();
   for (const controller of transfers.values()) controller.abort();
   for (const controller of assessments.values()) controller.abort();
+  interactiveAssessments.clear();
   candidateAssessments.clear();
   for (const node of readingMeasurements.keys()) retireReadingMeasurement(node);
   retireHistoryLocation();

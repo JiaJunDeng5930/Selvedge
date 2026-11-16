@@ -93,7 +93,8 @@ Definition handlers : G.handler_table interpretation := {|
    | None => reject "workflow_not_found" "The workflow does not exist." v end);
  G.handle_start_workflow := fun p => Mutation (fun _ =>
    Workflow.start (G.start_workflow_workflow_id p) (G.start_workflow_entrance p)
-     (TextPart (G.start_workflow_message p) :: nil) None None);
+     (TextPart (G.start_workflow_message p) :: nil) (G.start_workflow_message p) None None
+     (G.start_workflow_observed_at_admitted p) (G.start_workflow_browser_launch_id p));
  G.handle_list_workflows := fun _ => Observation (fun _ v =>
    success (JObject (("definitions", Workflow.definitions_json v) ::
      ("instances", Workflow.instances_json v) :: nil)));
@@ -104,7 +105,8 @@ Definition handlers : G.handler_table interpretation := {|
      (G.configure_ticket_workflow_workflow_id p) (G.configure_ticket_workflow_entrance p) v);
  G.handle_start_ticket_workflow := fun p => Mutation (fun _ =>
    Workflow.ticket_start (G.start_ticket_workflow_card_id p) (G.start_ticket_workflow_revision p)
-     (Selvedge.Features.BoardParameters.observed_clock (G.start_ticket_workflow_observed_at_admitted p)))
+     (G.start_ticket_workflow_observed_at_admitted p)
+     (G.start_ticket_workflow_browser_launch_id p))
 |}.
 Definition task_origin {A : Type} (context : option A) := match context with Some _ => true | None => false end.
 Definition origin_failure := State.failure "access_denied" "This command is not available to task-originated calls".

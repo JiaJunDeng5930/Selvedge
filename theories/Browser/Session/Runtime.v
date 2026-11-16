@@ -71,7 +71,8 @@ Definition forget_pending ticket state:=
 Definition promote_language_admission pending editor owner path language_ticket state:=
  let authoring:=SS.authoring_state state in
  let awaiting:=map(fun current=>if N.eqb(SS.ticket pending)(SS.ticket current)then
-  SS.Pending(SS.ticket current)(SS.accepted_command current)(SS.LanguageSubmission editor owner path language_ticket)(SS.outcome_unknown current)else current)
+  SS.Pending(SS.ticket current)(SS.accepted_command current)(SS.LanguageSubmission editor owner path language_ticket)
+   (SS.request_received current)(SS.outcome_unknown current)else current)
   (SS.awaiting authoring)in
  Authoring.changed(SS.with_authoring(set SS.awaiting(fun _=>awaiting)authoring)state)
   [Authoring.emit "command"[("ticket",number(SS.ticket pending));("command",Schema.encode_command(SS.accepted_command pending))]].
@@ -310,6 +311,8 @@ Definition core namespace snapshot lagged input state:Authoring.result:=match in
  else Authoring.adopt_navigation snapshot(Navigation.open_activity snapshot owner(Activity.SubjectActivity field)trigger state)
  else Authoring.keep state
 |Input.Completed ticket outcome=>complete namespace snapshot lagged ticket outcome state
+|Input.CompletionReceived ticket=>Authoring.keep(SS.with_authoring
+ (set SS.awaiting(map(SS.receive_request ticket))(SS.authoring_state state))state)
 |Input.CompletionUnknown ticket reason=>Authoring.keep(SS.with_authoring
  (set SS.awaiting(map(SS.unknown_outcome ticket reason))(SS.authoring_state state))state)
 |Input.NativeFailed reason=>Authoring.alert_diagnostic state(JString reason)
@@ -329,6 +332,8 @@ Definition core namespace snapshot lagged input state:Authoring.result:=match in
 |Input.MenuAction subject key occurrence=>menu_action snapshot subject key occurrence state
 |Input.RetryMenuAssessment subject key occurrence=>Authoring.keep(SS.with_services
  (Services.forget_owned_assessment(CommandAssessment.ObjectActionOwner subject key)(SS.service_state state))state)
+|Input.RetryCommandAssessment command=>Authoring.retry_command_assessment snapshot state command
+|Input.RequestCommand command=>Authoring.request_command snapshot state command
 |Input.Command command=>match Authoring.command_availability snapshot state command with
  |EM.Available=>Authoring.issue command SS.DirectSubmission state
  |EM.Unavailable reason=>Authoring.fail state reason end
@@ -419,8 +424,8 @@ Definition prepares_authoring input before := match input with
 Definition continue_authoring input snapshot state := match input with
  |Input.ServiceInput(Services.CommandAssessed _ _)=>
    let prepared:=Authoring.continue_preparations snapshot state in
-   Authoring.append prepared(Authoring.continue_draft_admissions snapshot(Authoring.result_state prepared))
- |Input.Interactive _=>Authoring.continue_draft_admissions snapshot state
+   Authoring.append prepared(Authoring.continue_admissions snapshot(Authoring.result_state prepared))
+ |Input.Interactive _=>Authoring.continue_admissions snapshot state
  |_=>Authoring.keep state end.
 
 Definition resumes_language_admissions input := match input with

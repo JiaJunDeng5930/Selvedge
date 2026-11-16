@@ -302,7 +302,7 @@ test('task graph setup creates its conversations in scope and routes replies', {
     .getByRole('button', { name: '任务图', exact: true }).click();
   const emptyGraph = page.getByRole('main').locator('[data-semantic-key="task-graph/empty"]');
   await page.getByRole('main').getByRole('heading', { name: '任务图', exact: true }).waitFor();
-  await emptyGraph.getByRole('heading', { name: '暂无任务图', exact: true }).waitFor();
+  await emptyGraph.getByRole('heading', { name: '暂无对话转发', exact: true }).waitFor();
   const emptyRoute = emptyGraph.getByRole('region', { name: '转发方向', exact: true });
   await emptyRoute.getByText('来源对话', { exact: true }).waitFor();
   await emptyGraph.getByText('接收对话', { exact: true }).waitFor();
@@ -326,10 +326,10 @@ test('task graph setup creates its conversations in scope and routes replies', {
     assert.deepEqual(geometry, { row: true, follows: true, fits: true, centered: true }, 'Empty route at ' + width + 'px');
   }
   await page.setViewportSize({ width: 1280, height: 900 });
-  await emptyGraph.getByRole('button', { name: '创建任务图', exact: true }).click();
+  await emptyGraph.getByRole('button', { name: '创建对话转发', exact: true }).click();
 
-  const dialog = page.getByRole('dialog', { name: '创建任务图', exact: true });
-  const create = dialog.getByRole('button', { name: '创建任务图', exact: true });
+  const dialog = page.getByRole('dialog', { name: '创建对话转发', exact: true });
+  const create = dialog.getByRole('button', { name: '创建对话转发', exact: true });
   await create.waitFor();
   const declaration = dialog.getByRole('textbox', { name: 'JSON 定义', exact: true });
   const advanced = dialog.getByText('高级配置', { exact: true });
@@ -488,8 +488,8 @@ test('task graph setup creates its conversations in scope and routes replies', {
   await dialog.waitFor({ state: 'hidden' });
 
   await page.getByRole('region', { name: 'Browser handoff', exact: true })
-    .getByRole('button', { name: '编辑任务图', exact: true }).click();
-  const editor = page.getByRole('dialog', { name: '编辑任务图', exact: true });
+    .getByRole('button', { name: '编辑对话转发', exact: true }).click();
+  const editor = page.getByRole('dialog', { name: '编辑对话转发', exact: true });
   const from = editor.getByRole('combobox', { name: '来源对话', exact: true });
   const to = editor.getByRole('combobox', { name: '接收对话', exact: true });
   assert.equal(await from.inputValue(), String(source));
@@ -511,8 +511,8 @@ test('leaving a graph conversation before its receipt preserves the newer destin
   const { page } = await browserFixture(t);
   await page.getByRole('navigation', { name: 'Task tree', exact: true })
     .getByRole('button', { name: '任务图', exact: true }).click();
-  await page.getByRole('main').getByRole('button', { name: '创建任务图', exact: true }).click();
-  const graph = page.getByRole('dialog', { name: '创建任务图', exact: true });
+  await page.getByRole('main').getByRole('button', { name: '创建对话转发', exact: true }).click();
+  const graph = page.getByRole('dialog', { name: '创建对话转发', exact: true });
   const name = graph.getByRole('textbox', { name: '转发名称', exact: true });
   await name.fill('Keep this graph');
   await graph.getByRole('button', { name: '新建对话', exact: true }).click();
@@ -542,7 +542,7 @@ test('leaving a graph conversation before its receipt preserves the newer destin
 
   await page.getByRole('navigation', { name: 'Task tree', exact: true })
     .getByRole('button', { name: '任务图', exact: true }).click();
-  await page.getByRole('main').getByRole('button', { name: '创建任务图', exact: true }).click();
+  await page.getByRole('main').getByRole('button', { name: '创建对话转发', exact: true }).click();
   await graph.locator('[data-semantic-key="handoff-needs-conversations"]')
     .filter({ hasText: '请在此范围内再新建一条对话。' }).waitFor();
   assert.equal(await name.inputValue(), 'Keep this graph');

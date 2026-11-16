@@ -69,6 +69,7 @@ export class Service extends EventEmitter {
   #plugins = new Map();
   #pluginCatalog = new Map();
   #continuation;
+  #continuationInFlight = false;
   #continuationPending = false;
   #compactionTimer;
   #compactionClock;
@@ -79,6 +80,7 @@ export class Service extends EventEmitter {
   #closing = false;
   #failure;
   #catalogTail = Promise.resolve();
+  #observationTail = Promise.resolve();
   #catalogRefreshes = new Map();
   #closePromise;
   #streams = [];
@@ -262,15 +264,22 @@ export class Service extends EventEmitter {
 
   #scheduleContinuation() {
     this.#continuationPending = true;
-    if (this.draining) return;
+    if (this.draining || this.#continuationInFlight) return;
     this.#continuation ??= setImmediate(() => {
       this.#continuation = undefined;
       this.#continuationPending = false;
       // DEFENSE: Shutdown can retire this scheduled observation before it runs.
-      if (!this.#closing && !this.#failure) this.#trackSubmission(this.journal.execute({ kind: 'continue' }).then(result => {
+      if (this.#closing || this.#failure) return;
+      // A commit can request more scheduling while this one is still queued.
+      // Keep one follow-up so scheduling cannot fill the journal ahead of a command.
+      this.#continuationInFlight = true;
+      this.#trackSubmission(this.journal.execute({ kind: 'continue' }).then(result => {
         // DEFENSE: A full resulting decision can exceed the kernel output budget.
         if (!result.reply.ok) throw new Error(`Scheduling could not advance: ${result.reply.error.message}`);
-      }).catch(error => this.#fatal(error)));
+      }).catch(error => this.#fatal(error)).finally(() => {
+        this.#continuationInFlight = false;
+        if (this.#continuationPending && !this.#closing && !this.#failure) this.#scheduleContinuation();
+      }));
     });
   }
 
@@ -562,9 +571,21 @@ export class Service extends EventEmitter {
 
   #settleCompletion(input, failure, handle) {
     return settleEffect(observation => this.#dispatchControl(observation), handle, input,
-      value => this.journal.execute(value), failure,
+      value => this.#commitEffectObservation(value), failure,
       error => isDefiniteRejection(error) && error instanceof RangeError ? 'input_limit'
         : transactionOutcome(error) === 'unknown' ? 'uncertain' : 'rejected');
+  }
+
+  #commitEffectObservation(input) {
+    if (input.kind !== 'context_observed' && input.kind !== 'compaction_measured')
+      return this.journal.execute(input);
+    // Independent observations from many recovered conversations can arrive
+    // together. Only one of them needs a place in the shared journal queue.
+    const next = this.#observationTail.then(() => this.journal.execute(input));
+    // DEFENSE: One refused observation has its own effect settlement and
+    // must not prevent later observations from entering the journal.
+    this.#observationTail = next.catch(() => {});
+    return next;
   }
 
   async #settleWorkspaceCompletion(effect, completion, handle) {
@@ -639,12 +660,14 @@ export class Service extends EventEmitter {
     return result;
   }
 
-  assess(candidate) {
+  assess(candidate, { signal } = {}) {
     this.#publicCommand(candidate.command);
     // DEFENSE: An HTTP assessment can already be in flight when the service closes or loses its worker.
     if (this.#failure) return Promise.reject(this.#failure);
     if (this.#closing) return Promise.reject(new Error('Service is stopping'));
     const result = this.#catalogTail.then(async () => {
+      // DEFENSE: A closed browser request may still have an observation queued here.
+      signal?.throwIfAborted();
       // DEFENSE: Catalog work queued before assessment can fail, or shutdown can finish while it waits.
       if (this.#failure) throw this.#failure;
       if (this.#closing) throw new Error('Service is stopping');
@@ -652,7 +675,7 @@ export class Service extends EventEmitter {
       // DEFENSE: Shutdown or a fatal operation can occur during the same filesystem preparation used by submission.
       if (this.#failure) throw this.#failure;
       if (this.#closing) throw new Error('Service is stopping');
-      return this.journal.assess({ ...candidate, command });
+      return this.journal.assess({ ...candidate, command }, { signal });
     });
     // DEFENSE: A refused filesystem observation reports its own error without blocking later catalog work.
     this.#catalogTail = result.catch(() => {});

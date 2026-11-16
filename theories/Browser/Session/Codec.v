@@ -22,6 +22,7 @@ Definition encode_purpose value:=match value with
 |LiveConfiguration draft occurrence remember=>JObject[("kind",JString "configuration");("draft",encode_draft draft);("occurrence",optional_id occurrence);("remember_model",JBool remember)]
 |ProjectPreference draft command generation layer trigger=>JObject[("kind",JString "project_preference");("draft",encode_draft draft);("command",encode_command command);("generation",number generation);("layer",number layer);("trigger",JString trigger)]
 |DirectSubmission=>JObject[("kind",JString "direct")]
+|DirectAdmission=>JObject[("kind",JString "direct_admission")]
 |MenuSubmission occurrence=>JObject[("kind",JString "menu");("occurrence",number occurrence)]
 |SideCreation parent generation layer trigger=>JObject[("kind",JString "side");("parent",number parent);("generation",number generation);("layer",number layer);("trigger",JString trigger)]
 |SearchSubmission query project work submitted=>JObject[("kind",JString "search");("ticket",number submitted);("query",JString query);("project",optional_id project);("work",optional_id work)]
@@ -34,14 +35,19 @@ Definition decode_purpose value:=match string_field "kind" value with
 |Some "configuration"=>draft<-bind(field "draft" value)decode_draft;;occurrence<-bind(field "occurrence" value)decode_id;;remember<-bool_field "remember_model" value;;Some(LiveConfiguration draft occurrence remember)
 |Some "project_preference"=>draft<-bind(field "draft" value)decode_draft;;command<-bind(field "command" value)(decode_command command_specs);;generation<-natural_field "generation" value;;layer<-natural_field "layer" value;;trigger<-string_field "trigger" value;;Some(ProjectPreference draft command generation layer trigger)
 |Some "direct"=>Some DirectSubmission
+|Some "direct_admission"=>Some DirectAdmission
 |Some "menu"=>option_map MenuSubmission(natural_field "occurrence" value)
 |Some "side"=>parent<-natural_field "parent" value;;generation<-natural_field "generation" value;;trigger<-string_field "trigger" value;;layer<-natural_field "layer" value;;Some(SideCreation parent generation layer trigger)
 |Some "search"=>query<-string_field "query" value;;project<-bind(field "project" value)decode_id;;work<-bind(field "work" value)decode_id;;submitted<-natural_field "ticket" value;;Some(SearchSubmission query project work submitted)
 |Some "language_admission"=>task<-natural_field "task" value;;revision<-natural_field "revision" value;;text<-string_field "text" value;;owner<-bind(field "owner" value)Selvedge.Interaction.Interactive.Types.decode_owner;;path<-string_field "path" value;;ticket<-natural_field "ticket" value;;Some(LanguageAdmission task revision text owner path ticket)
 |Some "language"=>editor<-bind(field "editor" value)decode_editor;;owner<-bind(field "owner" value)Selvedge.Interaction.Interactive.Types.decode_owner;;path<-string_field "path" value;;ticket<-natural_field "ticket" value;;Some(LanguageSubmission editor owner path ticket)
 |_=>None end.
-Definition encode_pending value:=JObject[("ticket",number(ticket value));("command",encode_command(accepted_command value));("purpose",encode_purpose(purpose value));("outcome_unknown",DraftCodec.optional_value JString(outcome_unknown value))].
-Definition decode_pending value:=ticket<-natural_field "ticket" value;;command<-bind(field "command" value)(decode_command command_specs);;purpose<-bind(field "purpose" value)decode_purpose;;unknown<-bind(field "outcome_unknown" value)(DraftCodec.parse_optional as_string);;Some(Pending ticket command purpose unknown).
+Definition encode_pending value:=JObject[("ticket",number(ticket value));("command",encode_command(accepted_command value));
+ ("purpose",encode_purpose(purpose value));("request_received",JBool(request_received value));
+ ("outcome_unknown",DraftCodec.optional_value JString(outcome_unknown value))].
+Definition decode_pending value:=ticket<-natural_field "ticket" value;;command<-bind(field "command" value)(decode_command command_specs);;
+ purpose<-bind(field "purpose" value)decode_purpose;;received<-bool_field "request_received" value;;
+ unknown<-bind(field "outcome_unknown" value)(DraftCodec.parse_optional as_string);;Some(Pending ticket command purpose received unknown).
 Definition encode_search_page value:=JObject[
  ("ticket",number(search_page_ticket value));("reply",search_reply value)].
 Definition decode_search_page value:=ticket<-natural_field "ticket" value;;

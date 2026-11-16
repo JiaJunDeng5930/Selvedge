@@ -13,11 +13,25 @@ Import ListNotations.
 Open Scope string_scope.
 
 Definition pending_notices (state : State.state) : list (node Input.input) :=
- flat_map (fun pending => match State.outcome_unknown pending with
+ let notices:=flat_map (fun pending => match State.outcome_unknown pending with
  |None => []
- |Some reason => [information "/workspace" ("request/" ++ show_natural(State.ticket pending))
-   Information.Status ("Connection interrupted. Submission status is unknown. " ++ reason)] end)
- (State.awaiting(State.authoring_state state)).
+ |Some reason =>
+   let key:="request/" ++ show_natural(State.ticket pending) in
+   match State.purpose pending with
+   |State.DraftSubmission draft _ _ _=>
+     match Selvedge.Interaction.Submission.Draft.owner draft with
+     |Selvedge.Interaction.Identity.WorkflowStart workflow=>
+       if existsb (fun layer => match State.layer_panel layer with
+         |State.EditorPanel (Selvedge.Interaction.Identity.WorkflowStart selected)=>N.eqb selected workflow
+         |_=>false end) (State.layers (State.navigation_state state)) then [] else
+       [information "/workspace/status" key Information.Status "启动结果待确认。";
+        declared "/workspace/status" Roles.Button
+          (secondary (key++"/history") "查看运行记录"
+            (Input.OpenInformation (State.WorkflowHistory workflow) (part "/workspace/status" (key++"/history"))))]
+     |_=>[information "/workspace/status" key Information.Status ("未收到提交回执。 " ++ reason)] end
+   |_=>[information "/workspace/status" key Information.Status ("未收到提交回执。 " ++ reason)] end
+   end) (State.awaiting(State.authoring_state state)) in
+ match notices with []=>[]|_=>[region "/workspace" "status" "提交状态" Roles.Section notices] end.
 
 Definition occurrence_matches occurrence (value:node Input.input):=match layer_region(node_meaning value)with
  |Some behavior=>N.eqb occurrence(layer_occurrence behavior)|None=>false end.
@@ -137,11 +151,13 @@ Definition overlay_region_with render_layer section snapshot state capacity : li
  |LoginOverlay=>ServiceControls.account_login_view state end.
 Definition view_overlay_region section snapshot state capacity compact :=
  overlay_region_with (view_workspace_overlay snapshot state capacity compact) section snapshot state capacity.
-Definition view_region section snapshot state capacity : list (node Input.input) :=
+Definition view_region section snapshot state capacity (short_landscape : bool) : list (node Input.input) :=
  if Json.equal snapshot JNull then match section with MainRegionPart=>[connection_main state]|_=>[]end
  else match section with
  |NavigationRegionPart=>Navigation.navigation_base snapshot state capacity
- |MainRegionPart=>[Pages.main_with_details snapshot state (relocate_primary (details_owner snapshot state capacity))]
+ |MainRegionPart=>[Pages.main_with_details snapshot state
+  (relocate_primary (details_owner snapshot state capacity))
+  (negb (details_beside_timeline capacity || short_landscape))]
  |NoticesRegionPart=>List.app(connection_notice state)(pending_notices state)
  end.
 

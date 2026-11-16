@@ -111,6 +111,7 @@ Export ApplicationProof(live_setting_selection_preserves_the_message_draft,
   a_pending_command_is_not_executed_twice).
 Export ObjectActionsProof(available_native_has_current_admission).
 Export AuthoringProof(an_admitted_captured_submission_executes_its_captured_command,
+  a_captured_direct_request_waits_for_its_verdict, an_admitted_direct_request_executes_its_captured_command,
   completion_of_an_older_revision_preserves_the_newer_editor,
   git_observation_settles_only_the_workspace_check,
   a_blocked_directory_choice_does_not_change_the_draft).
@@ -120,9 +121,11 @@ Export NavigationProof(new_selection_intent_prevents_work_completion_selection,
 (** ** A displayed action is still a request to the service
 
     Menu and editor assessment uses the same command admission as committed
-    submission. A composer can capture a locally valid message while its
-    admission is pending. Only the exact captured command may run after
-    admission. Sending from an existing conversation shows a visible status
+    submission. Composers and workflow card controls can capture a locally
+    valid request while its admission is pending. Direct workflow launches
+    submit the captured request for admission and execution in one service
+    transaction. Only the exact captured command may run after admission.
+    Sending from an existing conversation shows a visible status
     in the composer and leaves the draft and send control in place. Starting a
     conversation places its captured message and submission status in a temporary
     conversation view before the receipt. A refusal restores the creation draft.
@@ -308,8 +311,10 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     Inert content still occupies space; foreground interaction does not imply
     removal from layout. Workspace navigation and supporting regions receive
     separate allocations from the viewport, so a temporary dialog cannot itself
-    force an otherwise viable desktop navigation mode. Centered dialogs fit
-    the current viewport while a new layout observation is pending.
+    force an otherwise viable desktop navigation mode. Short landscape task graphs
+    can put task navigation in a drawer to leave room for the graph and its actions.
+    Centered dialogs fit the current viewport while a new layout observation is
+    pending.
     Collapsed desktop navigation keeps the new conversation and search actions
     beside the control that reopens the sidebar.
     Returning to the latest message uses the reading area's outer edge.
@@ -386,9 +391,22 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     The permissions menu describes what happens when an operation needs more
     access and presents shared filesystem and network limits on a separate line.
     Users can save a workflow definition in the current Work before any of its
-    Tasks exist. Its editor identifies entrance, exit and Task nodes, the Task
-    creation policy and the descriptions on alternative outgoing connections.
-    Start presents the selected definition and entrance and accepts a message.
+    Tasks exist. Its editor lets users enter the name, configure entrance,
+    exit and Task nodes, select a configured model by its display name,
+    and describe alternative outgoing connections. Start shows the definition
+    name, offers its entrance nodes and accepts a multiline message.
+    The task-graph page puts the current Work's definitions on a shared canvas
+    with pan, zoom, and direct navigation to each definition. Instance history
+    opens separately so new receipts do not move the canvas or other definitions.
+    Accepted definition changes and new instances appear without requiring a
+    reload. Conversation forwarding has its own controls and empty state.
+    The current workflow and entrance remain visible on the
+    ticket. An instance can be opened from the ticket, the workflow or one
+    of its active node markers. Each exit result is separately expandable
+    and identifies the path and the final connection's source and exit.
+    Its text preserves line breaks.
+    Opening a conversation from an instance keeps the instance available
+    at the same position when the conversation panel closes.
     The ticket launch surface lets the user select the definition and entrance
     for the ticket's message and open the resulting instance after acceptance.
 

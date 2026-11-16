@@ -25,12 +25,16 @@ Record definition := DefinitionOf {
  workflow_connections : list connection
 }.
 Record invocation := Invocation { invocation_graph : N; invocation_entrance : string }.
-Record delivery := Delivery { delivery_node : string; delivery_content : content }.
+Record delivery := Delivery {
+ delivery_node : string;
+ delivery_content : content;
+ delivery_source : option string
+}.
 Inductive path_state :=
 | Pending (input : delivery)
 | Executing (input : delivery) (task : N) (choice : option string)
 | Forwarding (input : delivery) (task : N) (choice : option string) (answer : content)
-| Arrived (exit : string) (result : content)
+| Arrived (exit : string) (source : option string) (result : content)
 | Blocked (input : delivery) (reason : string).
 Record path := Path { path_id : N; path_value : path_state }.
 Record instance := Instance {
@@ -38,6 +42,10 @@ Record instance := Instance {
  instance_definition : definition;
  instance_card : option N;
  instance_project : option N;
+ instance_entrance : string;
+ instance_message_preview : string;
+ instance_started_at : option N;
+ instance_browser_launch : option string;
  instance_paths : list path;
  instance_tasks : list (string * N);
  instance_history : list (N * string * N);

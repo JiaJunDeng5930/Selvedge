@@ -37,7 +37,7 @@ Definition card_decisions snapshot clock (card:Read.card) :=
   let observed:=Some(show_natural now) in
   (if existsb (fun item=>match natural_field "card_id" item with Some key=>N.eqb key id|None=>false end)
      (value_or [] (array_field "ticket_workflows" snapshot))
-   then [immediate "run" "启动工作流实例" (G.Cmd_start_ticket_workflow(G.Build_start_ticket_workflow id revision observed))]
+   then [immediate "run" "启动工作流实例" (G.Cmd_start_ticket_workflow(G.Build_start_ticket_workflow id revision observed None))]
    else [immediate "run" "启动对话" (G.Cmd_run_card(G.Build_run_card id revision observed))]) ++
   [
    if Read.card_archived card

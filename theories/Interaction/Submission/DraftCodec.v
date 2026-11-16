@@ -109,11 +109,16 @@ Definition decode_body e value :option body :=match e with
 Definition encode_feedback value:=match value with Editing=>JObject[("kind",JString "editing")]
 |Accepted revision reply=>JObject[("kind",JString "accepted");("revision",number revision);("reply",reply)]
 |Rejected revision diagnostic=>JObject[("kind",JString "rejected");("revision",number revision);("reason",diagnostic)]
-|WorkspaceRejected revision reason=>JObject[("kind",JString "workspace_rejected");("revision",number revision);("reason",JString reason)]end.
+|WorkspaceRejected revision reason=>JObject[("kind",JString "workspace_rejected");("revision",number revision);("reason",JString reason)]
+|DuplicateWorkflowNodeName index name=>JObject[("kind",JString "duplicate_workflow_node_name");
+  ("index",number index);("name",JString name)]end.
 Definition decode_feedback value:=match string_field "kind" value with
 |Some "editing"=>Some Editing|Some "accepted"=>revision<-natural_field "revision" value;;reply<-field "reply" value;;Some(Accepted revision reply)
 |Some "rejected"=>revision<-natural_field "revision" value;;diagnostic<-field "reason" value;;Some(Rejected revision diagnostic)
-|Some "workspace_rejected"=>revision<-natural_field "revision" value;;reason<-string_field "reason" value;;Some(WorkspaceRejected revision reason)|_=>None end.
+|Some "workspace_rejected"=>revision<-natural_field "revision" value;;reason<-string_field "reason" value;;Some(WorkspaceRejected revision reason)
+|Some "duplicate_workflow_node_name"=>index<-natural_field "index" value;;name<-string_field "name" value;;
+ Some(DuplicateWorkflowNodeName index name)
+|_=>None end.
 Definition encode_selection value := JObject[("start",number(selection_start value));
  ("end",number(selection_end value));("direction",JString(direction_name(selection_orientation value)))].
 Definition decode_selection value := start<-natural_field "start"value;;finish<-natural_field "end"value;;

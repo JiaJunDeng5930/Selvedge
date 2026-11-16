@@ -47,7 +47,10 @@ Definition matches (selection:filter) (now:N) (card:json) :=
  date_matches (filter_values selection Date) (elapsed now (match field "updated_at" card with Some value=>match value with JString source=>match natural (JNumber source) with Some value=>value | None=>0 end | _=>0 end | None=>0 end)) &&
  contains (lower_text (trim (filter_query selection))) (lower_text ((text "identifier" card)++" "++text "title" card++" "++text "description" card)).
 Definition task_working (card world:json) := match field "task_id" card, array_field "tasks" world with Some (JNumber id),Some tasks=>existsb (fun task=>match field "id" task with Some (JNumber other)=>String.eqb id other && flag "working" task | _=>false end) tasks | _,_=>false end.
-Definition matches_in_world (selection:filter) (now:N) (card world:json) := matches selection now (match card with JObject fields=>JObject (set_field "working" (JBool (task_working card world)) fields) | _=>card end).
+Definition matches_in_world (selection:filter) (now:N) (card world:json) :=
+ let working := task_working card world ||
+   match string_field "activity" card with Some "running"=>true|_=>false end in
+ matches selection now (match card with JObject fields=>JObject (set_field "working" (JBool working) fields) | _=>card end).
 Definition apply (selection:filter) (now:N) (cards:list json) := List.filter (matches selection now) cards.
 Definition apply_in_world (selection:filter) (now:N) (cards:list json) (world:json) := List.filter (fun card=>matches_in_world selection now card world) cards.
 Definition choices (entries:list (string*string)) := map (fun entry=>JObject [("value",JString (fst entry));("label",JString (snd entry))]) entries.

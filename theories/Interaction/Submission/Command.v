@@ -63,7 +63,10 @@ Definition command_json (now:option N)(value:Draft.body):option json:=
    (present "graph_id"(optional_id graph)(match graph with None=>present "work_id"(optional_id work)(object_fields parsed)|Some _=>object_fields parsed end)))
  |Draft.TitlePromptsBody _ revision task agent profile=>Some(record "configure_title_settings"
    (present "agent_profile" (DraftCodec.option_text profile) [("revision",number revision);("task_prompt",JString task);("agent_prompt",JString agent)]))end.
-Definition command now value :=source<-command_json now(Draft.contents value);;Schema.decode_command command_specs source.
+Definition command now value :=
+ match Draft.draft_feedback value with
+ |Draft.DuplicateWorkflowNodeName _ _=>None
+ |_=>source<-command_json now(Draft.contents value);;Schema.decode_command command_specs source end.
 Definition admit_directories source:=kind<-string_field "kind" source;;if String.eqb kind "directories"then
  workspace<-bind(field "workspace" source)Codec.parse_workspace;;guidance<-field "guidance" source;;
  match Codec.parse_guidance workspace guidance with Some _=>Some(workspace,guidance)|None=>None end else None.

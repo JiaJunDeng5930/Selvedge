@@ -9,7 +9,7 @@ From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Audit Identity.
 From Selvedge.Browser.Session Require Appearance.
 From Selvedge.Interaction.Submission Require Fields Parameters.
-From Selvedge.Features Require BoardFilter.
+From Selvedge.Features Require BoardFilter Domain.
 From Selvedge.Interaction.Interactive Require Expand Vocabulary Presentation Local State.
 From Selvedge.Browser.Presentation Require Roles Information Composition Gesture.
 From Selvedge.Browser.Scene Require Model Surface.
@@ -836,7 +836,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  let voice_disclosure:=String.eqb(S.semantic_key value)"speech-controls" in
  let responsive:=negb voice_disclosure && SemanticAppearance.responsive_row activity source role meaning in
  let attrs:=common key (S.semantic_key value)
-   (match meaning with S.TaskRow _ _ _ _=>""|_=>label end) role ++
+   (match meaning with S.TaskRow _ _ _ _|S.WorkflowWorkspace _=>""|_=>label end) role ++
  (match role,meaning with
  |Roles.Navigation,_=>[("data-workspace-sidebar","")]
  |Roles.NavigationHeader,_=>[("data-workspace-navigation","header")]
@@ -978,13 +978,19 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
    [("id",String.append key "/help");("class","visually-hidden")] [] [] empty
    [DOM.Text description]] else []))in
  match meaning with
- |S.InformationText info=>element (text_tag info) ([("tabindex","-1")] ++
+ |S.InformationText info=>if String.eqb (S.semantic_key value) "workflow-run-time"
+   then element "time" [("data-epoch-seconds",label)] [] empty []
+   else element (text_tag info) ([("tabindex","-1")] ++
    match info with Information.Status=>[("role","status")]|_=>[]end) [] empty
    (if String.eqb (S.semantic_key value) "full-path"
     then directory_path_parts "" label else [DOM.Text label])
  |S.ReadOnly text=>if String.eqb (S.semantic_key value) "workflow-instance-dot" then
-   DOM.Element key "span" (attrs++[("title",label);("aria-label",label);("tabindex","0")])
+   DOM.Element key "span" (attrs++[("aria-hidden","true")])
      (styles++[("display","block");("background-color",text)]) [] empty []
+   else if String.eqb (S.semantic_key value) "workflow-preview-name" then
+     element "button" [("type","button");("title",text)] [] empty
+       [DOM.Element (key++"/text")%string "span" [("data-workflow-preview-text","")] [] [] empty [DOM.Text text];
+        DOM.Element (key++"/chevron")%string "span" [("data-workflow-preview-chevron","");("aria-hidden","true")] [] [] empty []]
    else element "span" [] [] empty [DOM.Text text]
  |S.HistoryMatch before matched after=>element "span" [] [] empty
  [DOM.Text before;DOM.Element "" "mark" [] [] [] empty [DOM.Text matched];DOM.Text after]
@@ -1185,9 +1191,16 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
      let button direction label icon:=DOM.Element (key++"/"++direction)%string "button"
        [("type","button");("data-board-scroll",direction);
         ("aria-label",label);("title",label)] [] [] empty (glyph icon) in
+     let stage_option stage:=let name:=Selvedge.Features.Domain.stage_name stage in
+       DOM.Element (key++"/stage/"++name)%string "option" [("value",name)] [] [] empty
+         [DOM.Text (Selvedge.Features.Domain.stage_label stage)] in
+     let stage_select:=DOM.Element (key++"/jump-to-stage")%string "select"
+       [("data-board-stage-jump","");("aria-label","跳到状态列")] [] [] empty
+       (DOM.Element (key++"/choose-stage")%string "option" [("value","")] [] [] empty
+         [DOM.Text "跳到状态列"] :: map stage_option Selvedge.Features.Domain.stages) in
      element (role_tag role) region_attr [] empty (children++
        [DOM.Element (key++"/scroll")%string "div" [("data-board-scroll-controls","");("hidden","")] [] [] empty
-         [button "previous" "向左查看更多状态列" "chevron-left";
+         [stage_select; button "previous" "向左查看更多状态列" "chevron-left";
           button "next" "向右查看更多状态列" "chevron-right"]])
    |Composition.BoardStages=>
      element "section" ([("tabindex","0");("aria-label","看板状态列")]++region_attr) [] empty children
@@ -1326,13 +1339,56 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
     ("aria-label",(label++"，"++text_number count++" 张卡片")%string)] [] empty children
  |S.CardArchive count=>element (role_tag role) [("data-card-archive",text_number count);("data-drop-target",key)] [] empty children
  |S.TaskChildren task=>element "div"[("role","group");("aria-label",label);("data-task-parent",text_number task);("data-task-branches","")][]empty children
- |S.EditorOptions=>DOM.Element key "details" (attrs++[("data-editor-options","")])
+ |S.EditorOptions required=>DOM.Element key "details"
+   (attrs++[("data-editor-options","")]++(if required then [("data-editor-options-required","")]else[]))
    [("min-inline-size","0")] [] empty
-   [DOM.Element (key++"/summary")%string "summary" [] [] [] empty [DOM.Text label];
+   [DOM.Element (key++"/summary")%string "summary" (if required then [("inert","")]else[]) [] [] empty [DOM.Text label];
     DOM.Element (key++"/body")%string "div" [("data-editor-options-body","")]
       [] [] empty children]
- |S.ContentDisclosure=>DOM.Element key "details" attrs styles [] empty
-   (DOM.Element (key++"/summary")%string "summary" [] [] [] empty [DOM.Text label]::children)
+ |S.ContentDisclosure=>
+   let '(summary, body) :=
+     if String.eqb (S.semantic_key value) "workflow-exit-result" then
+       (firstn 2 children, skipn 2 children)
+     else ([DOM.Text label], children) in
+   DOM.Element key "details" attrs styles [] empty
+     (DOM.Element (key++"/summary")%string "summary" [] [] [] empty summary::body)
+ |S.WorkflowWorkspace targets=>
+   let canvas:=(key++"/viewport")%string in
+   let '(toolbars, graphs):=match children with first::rest=>([first],rest)|[]=>([],[]) end in
+   let control action caption title := DOM.Element (key++"/zoom/"++action)%string "button"
+      [("type","button");("data-workflow-zoom",action);("aria-label",title);("title",title)] [] [] empty [DOM.Text caption] in
+   let node_name_panel panel attributes := DOM.Element panel "div"
+     (attributes++[("role","region");("aria-label","完整节点名称");("tabindex","-1")]) [] [] empty
+     [DOM.Element (panel++"/name")%string "span" [("data-workflow-full-name","")] [] [] empty [];
+      DOM.Element (panel++"/close")%string "button" [("type","button");("data-workflow-close-name","");
+        ("aria-label","关闭完整节点名称")] [] [] empty (glyph "close-cross")] in
+   element "div" [("data-workflow-workspace","")] [] empty
+    [DOM.Element (key++"/controls")%string "div" [("data-workflow-viewport-controls","")] [] [] empty
+       [DOM.Element (key++"/selector")%string "div" [("data-workflow-selection","")] [] [] empty
+         [DOM.Element (key++"/selected-name")%string "span" [("data-workflow-selected-name","");("aria-hidden","true")]
+           [] [] empty [];
+          DOM.Element (key++"/target")%string "select" [("data-workflow-target","");("aria-label","定位工作流")] [] [] empty
+           (map (fun '(target,name)=>DOM.Element (key++"/target/"++target)%string "option"
+              [("value",target)] [] [] empty [DOM.Text name]) targets)];
+        control "out" "−" "缩小画布"; control "in" "+" "放大画布"; control "fit" "适应" "适应工作流";
+        control "all" "总览" "查看所有工作流"];
+     DOM.Element (key++"/actions")%string "div" [("data-workflow-actions","")] [] [] empty toolbars;
+     node_name_panel (key++"/node-name")%string [("data-workflow-node-detail","")];
+     DOM.Element canvas "div" [("data-workflow-canvas","");("role","region");("aria-label",label);("tabindex","0")]
+       [] [] empty [DOM.Element (canvas++"/plane")%string "div" [("data-workflow-plane","")] [] [] empty
+         (map (fun '((target,name), graph)=>
+          DOM.Element (canvas++"/tile/"++target)%string "div" [("data-workflow-tile",target)] [] [] empty
+           [DOM.Element (canvas++"/overview/"++target)%string "button" [("type","button");("data-workflow-open",target)]
+             [] [] empty [DOM.Text name];
+            DOM.Element (canvas++"/preview-body/"++target)%string "div" [("data-workflow-preview-body","")] [] [] empty [graph];
+            node_name_panel (canvas++"/node-name/"++target)%string [("data-workflow-preview-detail","")]])
+          (combine targets graphs))]]
+ |S.WorkflowEditorJump targets=>
+   DOM.Element (key++"/anchor")%string "div" [("data-workflow-editor-anchor","")] [] [] empty
+     [element "select" [("data-workflow-editor-jump","")] [] empty
+       (DOM.Element (key++"/placeholder")%string "option" [("value","")] [] [] empty [DOM.Text label] ::
+        map (fun '(target,name)=>DOM.Element (key++"/"++target)%string "option"
+          [("value",target)] [] [] empty [DOM.Text name]) targets)]
  |S.Region=>if voice_disclosure then
    let live:=existsb(fun child=>match S.node_meaning child with
     |S.InformationText Information.Status=>true

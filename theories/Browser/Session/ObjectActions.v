@@ -124,9 +124,9 @@ Definition card_action_applies snapshot (card:Read.card) (value:action) :=
  let editable:=negb(Read.card_archived card) in
  match action_key value with
  |"edit"|"pin"=>editable
- |"run"=>editable && match Read.card_task card,Read.card_owner card with
-   |None,Domain.ProfileOwner _=>true
-   |_,_=>false end
+ |"run"=>editable && match Read.card_task card,Read.ticket_workflow snapshot (Read.card_id card),Read.card_owner card with
+   |None,Some _,_|None,None,Domain.ProfileOwner _=>true
+   |_,_,_=>false end
  |"regenerate"=>editable && match Read.board_configuration snapshot with
    |Some settings=>negb(String.eqb(Read.board_draft_profile settings)"")
    |None=>true end
@@ -173,5 +173,5 @@ Definition descriptors snapshot state subject :=items snapshot state subject++
  match subject with TaskActions task=>reading_actions snapshot state task|_=>[]end.
 Definition descriptor_for_command snapshot state (accepted:State.public_command) :=
  find(fun entry=>match command(snd entry)with
-  |Some candidate=>Json.equal(encode_command candidate)(encode_command accepted)|None=>false end)
+  |Some candidate=>CommandAssessment.same_command candidate accepted|None=>false end)
   (flat_map(fun subject=>map(fun action=>(subject,action))(descriptors snapshot state subject))(Decisions.subjects snapshot)).

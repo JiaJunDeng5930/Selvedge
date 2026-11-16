@@ -39,7 +39,9 @@ Inductive input :=
 | RetryWorkspace(owner:editor)(trigger:string) | DirectoriesCompleted(ticket:N)(outcome:sum string json)
 | Submit(owner:editor)(trigger:string) | RemoveAttachment(owner:editor)(id:string)
 | Command(command:State.public_command)
-| Completed(ticket:N)(outcome:sum string json) | CompletionUnknown(ticket:N)(reason:string)
+| RequestCommand(command:State.public_command)
+| RetryCommandAssessment(command:State.public_command)
+| Completed(ticket:N)(outcome:sum string json) | CompletionReceived(ticket:N) | CompletionUnknown(ticket:N)(reason:string)
 | NativeFailed(reason:string)
 | CopyPath(value:string)
 | ServiceInput(input:service_input) | SpeechInput(input:speech_input)
@@ -48,6 +50,8 @@ Inductive input :=
 | ClosePanel | OpenInformation(kind:State.information_panel)(trigger:string) | Confirm
 | Confirmation(command:State.public_command)(caption:string)(destination:route)(trigger:string)
 | BeginSide(task:N)(trigger:string) | ShowSide(task:N)(trigger:string) | CloseSide
+| InspectWorkflowTask(task:N)(trigger:string)
+| RejectDuplicateWorkflowNodeName(owner:editor)(index:N)(name:string)
 | NavigationExpanded(value:bool) | TaskListVisible(value:bool)
 | WriteHistoryQuery(query:string) | ChooseHistoryScope(project:bool)(scope:option N)
 | SubmitHistorySearch(after:N) | OpenHistoryResult(task:N)(index:option N)(trigger:string)
@@ -74,7 +78,7 @@ Definition semantic_change incoming := match incoming with
 (* Only semantic user actions acknowledge a displayed command receipt. Focus,
    selection, layout, and IO observations can also be delivered without intent. *)
 Definition acknowledges_feedback (incoming:input) := match incoming with
-|Completed _ _|CompletionUnknown _ _|NativeFailed _|DirectoriesCompleted _ _|ClockObserved _|EnvironmentObserved
+|Completed _ _|CompletionReceived _|CompletionUnknown _ _|NativeFailed _|DirectoriesCompleted _ _|ClockObserved _|EnvironmentObserved
 |Snapshot|Stream _|CodeObserved _|AppearanceRestored _|SkillsLoaded _ _
 |ActivityFocus _ _ _|EditorSelection _ _ _ _ _ _|ReadTimeline _ _ _=>false
 |LoadSkills _ explicit=>explicit

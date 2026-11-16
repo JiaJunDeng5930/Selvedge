@@ -86,11 +86,48 @@ Definition detail_action_input parent(action:ObjectActions.action):Input.input:=
  |ObjectActions.Editor owner=>Input.OpenEditor owner trigger
  |ObjectActions.SideConversation task=>Input.BeginSide task trigger
  |ObjectActions.InspectCard card=>Input.OpenInformation(State.CardDetails card)trigger end.
-Definition detail_action_nodes snapshot s subject parent:=List.app (card_decision_controls snapshot subject parent) (map(fun action=>
+Definition ticket_workflow_launch snapshot s parent card :=
+ let subject:=CardActions card in
+ match find (fun action=>String.eqb (ObjectActions.action_key action) "run")
+    (ObjectActions.menu_items snapshot s subject) with
+ |None=>[]
+ |Some action=>match ObjectActions.command action with
+ |None=>[]
+ |Some command=>
+   let pending:=State.pending_ticket_start card s in
+   let status:=match pending with
+    |Some _=>ObjectActions.InFlight|None=>ObjectActions.action_status action end in
+   let key:="workflow-start-ticket" in
+   let caption:=match status with
+    |ObjectActions.InFlight=>match pending with
+      |Some entry=>match State.outcome_unknown entry,State.purpose entry with
+        |Some _,_=>"启动结果待确认"|None,State.DirectAdmission=>"正在检查启动条件…"
+        |None,_=>if State.request_received entry then "服务已收到请求，正在等待启动确认…" else "正在等待启动回执…" end
+      |None=>"正在等待启动回执…" end
+    |_=>match Read.ticket_instance snapshot card with
+      |Some instance=>if String.eqb (Read.workflow_instance_status instance) "已完成" then
+        "再次启动工作流" else ObjectActions.action_label action
+      |None=>ObjectActions.action_label action end end in
+   let connected:=Services.connected (State.service_state s) in
+   let launch:=declared parent Roles.PrimaryButton(Control key caption
+     Primary (Input.RequestCommand command)
+     (if connected then match status with
+      |ObjectActions.Awaiting=>Available|ObjectActions.InFlight=>Busy caption|_=>status_availability status end
+      else Unavailable "正在重新连接服务…")) in
+   launch :: match status with
+   |ObjectActions.AssessmentFailed reason=>
+      [information parent "workflow-start-check-failed" Information.Description ("无法检查工作流启动。 "++reason);
+       declared parent Roles.Button(secondary "workflow-start-check-retry" "重新检查"
+         (Input.RetryMenuAssessment subject "run" 0%N))]
+   |_=>[] end
+ end
+ end.
+Definition detail_action_nodes snapshot s subject parent excluded:=List.app (card_decision_controls snapshot subject parent) (map(fun action=>
  declared parent Roles.Button(Control(ObjectActions.action_key action)(ObjectActions.action_label action)
   (match ObjectActions.action_confirmation action with Some _=>Destructive|None=>Secondary end)
   (detail_action_input parent action)(status_availability(ObjectActions.action_status action))))
- (ObjectActions.menu_items snapshot s subject)).
+ (filter (fun action=>negb (existsb (String.eqb (ObjectActions.action_key action)) excluded))
+   (ObjectActions.menu_items snapshot s subject))).
 Definition committed_workspace_facts parent workspace:list(node Input.input) :=
  let primary:=Domain.workspace_primary workspace in
  let roots:=Domain.workspace_roots workspace in
@@ -151,23 +188,38 @@ Definition card_details snapshot s id parent :=match Read.find_card id snapshot 
 |None=>[information parent "missing" Information.Description "这张卡片已不存在。"]
 |Some card=>
  let face:=Collections.card_face snapshot s card in
- ([read_only parent "identifier" "卡片编号"(Read.card_identifier card);read_only parent "title" "标题"(Model.card_title face);
-  read_only parent "description" "描述"(Model.card_description face);read_only parent "stage" "状态"(Selvedge.Features.Domain.stage_label(Read.card_stage card));
-  read_only parent "activity" "执行"(Model.card_status face);
-  read_only parent "priority" "优先级"(Selvedge.Features.Domain.priority_label(Model.card_priority face));read_only parent "owner" "负责人"(Model.card_owner face);
+ let '(workflow,entrances):=Collections.ticket_workflow_controls snapshot s parent card in
+ let '(launch,choices):=match Read.ticket_workflow snapshot id with
+ |Some _=> (ticket_workflow_launch snapshot s parent id,
+    match entrances with
+    |[]=>[]
+    |_=>[Node (part parent "workflow-entrances") "workflow-entrances" "更改工作流入口" Roles.Section ContentDisclosure entrances] end)
+ |None=>([],match entrances with
+    |[]=>[]
+    |_=>group_title (part parent "workflow-entrances") "选择工作流入口" :: entrances end)
+ end in
+ ([read_only parent "identifier" "卡片编号"(Read.card_identifier card);read_only parent "title" "标题"(Model.card_title face)]++
+ workflow++launch++choices++
+ (match Read.ticket_instance snapshot id with
+ |Some instance=>[Collections.workflow_instance_summary parent instance]|None=>[] end)++
+ [read_only parent "description" "描述"(Model.card_description face);read_only parent "stage" "看板列"(Selvedge.Features.Domain.stage_label(Read.card_stage card))]++
+ (match Read.ticket_instance snapshot id with None=>[read_only parent "activity" "执行"(Model.card_status face)]|Some _=>[]end)++
+ [read_only parent "priority" "优先级"(Selvedge.Features.Domain.priority_label(Model.card_priority face));
+  read_only parent "owner" "负责人"(Model.card_owner face);
   read_only parent "project" "项目"(Model.card_project face);read_only parent "labels" "标签"(String.concat "
 "(Model.card_labels face));
-  read_only parent "start-error" "启动错误"(Read.card_start_error card);
   read_only parent "enrichment" "生成"(Read.generation_caption(Read.card_generation card))]++
+ (if String.eqb (Read.card_start_error card) "" then [] else
+  [read_only parent "start-error" "启动错误"(Read.card_start_error card)])++
  map(fun file=>declared parent Roles.Button(secondary("preview/"++asset_id file)("Preview "++asset_name file)
    (Input.ServiceInput(Services.OpenPreview file(part parent("preview/"++asset_id file))))))(Read.card_attachments card)++
  (match bind(Read.card_task card)(fun task=>find_task task snapshot)with
   |Some entry=>[group_title (part parent "conversation") "关联对话";
     Navigation.task_entry_tree(State.location(State.navigation_state s))[] parent(TaskTree entry [])]
   |None=>Collections.card_conversation snapshot parent card "" end)++
- Collections.ticket_workflow_controls snapshot parent card ++
  [region parent "card-detail-actions" "卡片操作" Roles.Toolbar
-   (detail_action_nodes snapshot s(CardActions id)parent)])%list end.
+   (detail_action_nodes snapshot s(CardActions id)parent
+     (match Read.ticket_workflow snapshot id with Some _=>["run"]|None=>[]end))])%list end.
 Definition board_automation_description (automatic:bool) :=
  if automatic then "关闭后，正在运行的对话会继续。"
  else "启用后，符合条件的现有卡片会自动排队。".
@@ -297,7 +349,12 @@ Definition behavior s capacity layer :=
     match layers_after(State.layer_occurrence layer)(State.layers(State.navigation_state s))with
     |origin::_=>context_submenu panel(State.layer_panel origin)|[]=>false end
   |_=>false end in
- let kind:=if composer_menu then ComposerMenu else panel_kind capacity panel in
+ let kind:=if composer_menu then ComposerMenu else
+  match panel,layers_after(State.layer_occurrence layer)(State.layers(State.navigation_state s))with
+  |State.SideConversationPanel _,origin::_=>match State.layer_panel origin with
+    |State.InformationPanel(State.WorkflowInstanceDetails _)=>ModalDialog
+    |_=>panel_kind capacity panel end
+  |_,_=>panel_kind capacity panel end in
  let beside:=match kind with TrailingDetails=>details_beside_timeline capacity|_=>false end in
  let dismissal:=match State.layer_panel layer with
   |State.InformationPanel(State.TaskDetails _)|State.SideConversationPanel _=>false
@@ -308,6 +365,12 @@ Definition information_panel snapshot (s:State.state) kind parent :=match kind w
 |State.TaskDetails task=>task_details snapshot s task parent
 |State.TaskContext task=>context_facts snapshot task parent
 |State.CardDetails card=>card_details snapshot s card parent
+|State.WorkflowInstanceDetails instance=>
+ match Read.find_workflow_instance snapshot instance with
+ |Some value=>Collections.workflow_instance_details snapshot parent value
+ |None=>[information parent "instance-loading" Information.Status "正在读取实例…"] end
+|State.WorkflowHistory workflow=>Collections.workflow_history snapshot parent workflow
+|State.ConversationRelays=>Collections.relay_contents snapshot s parent
 |State.PropertySource e request=>
  let label (project other:string):=match e with Identity.Project _=>project|_=>other end in
  match Observation.property_for_request snapshot s e request with
@@ -352,6 +415,9 @@ Definition panel_title panel := match panel with
  |State.InformationPanel(State.TaskDetails _)=>Pages.task_details_label
  |State.InformationPanel(State.TaskContext _)=>"执行环境"
  |State.InformationPanel(State.CardDetails _)=>"卡片详情"
+ |State.InformationPanel(State.WorkflowInstanceDetails instance)=>Collections.workflow_instance_label instance
+ |State.InformationPanel(State.WorkflowHistory _)=>"运行记录"
+ |State.InformationPanel State.ConversationRelays=>"对话转发"
  |State.InformationPanel(State.PropertySource e _)=>Activities.configuration_source_label e
  |State.BoardSettingsPanel=>"看板设置"|State.BoardFiltersPanel=>"筛选卡片"
  |State.ArchivedCardsPanel=>"归档卡片"|State.Confirmation _ caption _=>caption
@@ -414,7 +480,8 @@ Definition layer_view snapshot s capacity compact_model_picker layer hide_side_d
       declared parent Roles.Button(secondary "close" "Close panel" Input.ClosePanel)];
      dialog_body parent content]
   |State.InformationPanel(State.TaskContext _)
-  |State.InformationPanel(State.CardDetails _)|State.BoardSettingsPanel
+  |State.InformationPanel(State.CardDetails _)|State.InformationPanel(State.WorkflowInstanceDetails _)|State.BoardSettingsPanel
+  |State.InformationPanel(State.WorkflowHistory _)|State.InformationPanel State.ConversationRelays
   |State.ArchivedCardsPanel=>[dismissible_heading parent (panel_title panel);dialog_body parent content]
   |_=>if Model.modal_layer behavior then [dialog_body parent content] else content end in
   let semantic:=match panel with
@@ -430,6 +497,9 @@ Definition layer_view snapshot s capacity compact_model_picker layer hide_side_d
     |State.InformationPanel(State.TaskDetails _)=>"task-details"
     |State.InformationPanel(State.TaskContext _)=>"task-context"
     |State.InformationPanel(State.CardDetails _)=>"card-details"
+    |State.InformationPanel(State.WorkflowInstanceDetails _)=>"workflow-instance-details"
+    |State.InformationPanel(State.WorkflowHistory _)=>"workflow-history"
+    |State.InformationPanel State.ConversationRelays=>"conversation-relays"
     |State.BoardSettingsPanel=>"board-settings"
     |State.BoardFiltersPanel=>"board-filters"
     |State.ArchivedCardsPanel=>"archived-cards"

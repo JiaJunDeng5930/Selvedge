@@ -13,7 +13,7 @@ From Selvedge.Browser.Session Require State Observation Authoring ObjectActions.
 From Selvedge.Interaction.Submission Require Fields Parameters.
 From Selvedge.Browser.Scene Require Import Surface Model Construction Composer.
 From Selvedge.Browser.Presentation Require Import ServiceControls Projection.
-From Selvedge.Browser.Presentation Require Roles Information Settings.
+From Selvedge.Browser.Presentation Require Roles Information Settings WorkflowForms.
 From Selvedge.Browser.Session Require Import EditorContext.
 Import ListNotations.
 Open Scope string_scope.
@@ -21,14 +21,15 @@ Module UX := Selvedge.Interaction.Experience.Model.
 Module Session := Selvedge.Browser.Session.State.
 Module Observe := Selvedge.Interaction.Experience.Observation.
 
-Definition graph_creation_label := "创建任务图".
+Definition graph_creation_label := "创建对话转发".
+Definition graph_edit_label := "编辑对话转发".
 Definition editor_title e := match e with
 |NewTask _=>"New conversation"|Message _=>"Message"
 |Identity.Project None=>"新建项目"|Identity.Project(Some _)=>"编辑项目"|Card None=>"新建卡片"|Card(Some _)=>"编辑卡片"
 |CardForConversation _=>"添加到看板"
 |Fork _=>ObjectActions.fork_label|Compact _=>"压缩上下文"
 |WorkflowDefinition None _=>"创建工作流"|WorkflowDefinition (Some _) _=>"编辑工作流"|WorkflowStart _=>"启动工作流"
-|TaskGraph None _=>graph_creation_label|TaskGraph(Some _) _=>"编辑任务图"
+|TaskGraph None _=>graph_creation_label|TaskGraph(Some _) _=>graph_edit_label
 |WorkName None=>"新建工作组"|WorkName(Some _) =>"重命名工作组"
 |TitlePrompts ConversationTitles=>Settings.conversation_titles_label
 |TitlePrompts BoardTitles=>"卡片提示词" end.
@@ -238,13 +239,14 @@ Definition editor_sections e :=match e with
  |None=>[("Creation options",[Fields.ContinueCapture;Fields.AssistedCapture;Fields.AssistanceProfile])]|Some _=>[]end)%list
 |Fork _=>[("Fork",[Fields.ForkCount;Fields.ForkMessages]);execution_section]
 |Compact _=>[("Compaction",[Fields.CompactionSummary])]
-|TaskGraph _ _|WorkflowDefinition _ _|WorkflowStart _=>[("Task graph",[Fields.TaskGraphDeclaration])]
+|TaskGraph _ _|WorkflowDefinition _ _=>[("Task graph",[Fields.TaskGraphDeclaration])]
+|WorkflowStart _=>[]
 |Identity.Project _|CardForConversation _|WorkName _|TitlePrompts _=>[]end.
 Definition field_section snapshot s e parent name fields:=
  Node(part parent name)name name Roles.Section(ObjectGroup(UX.group_owner e fields))
   (group_title(part parent name)name::field_nodes snapshot s e parent fields).
 Definition editor_options {A} parent key label (children:list(node A)) :=
- Node(part parent key)key label Roles.Section EditorOptions children.
+ Node(part parent key)key label Roles.Section (EditorOptions false) children.
 Definition card_editor snapshot s e parent (target:Identity.card_subject) :=
  let linked task:=read_only parent "linked-conversation" "关联对话"
    (value_or ("对话 #"++show_natural task)(option_map task_title(find_task task snapshot))) in
@@ -382,7 +384,13 @@ Definition section_nodes snapshot s e parent :=
  |Card id=>card_editor snapshot s e parent (Identity.BoardCard id)
  |CardForConversation task=>card_editor snapshot s e parent (Identity.ConversationCard task)
  |Fork task=>fork_editor snapshot s e parent task
- |WorkflowDefinition _ _|WorkflowStart _=>field_nodes snapshot s e parent [Fields.TaskGraphDeclaration]
+ |WorkflowDefinition id work=>
+  let key := "workflow-options" in
+  let repair := WorkflowForms.definition_needs_repair (Session.current_draft s e) in
+  (WorkflowForms.definition snapshot s parent e id work ++
+   [Node (part parent key) key (if repair then "修正 JSON 定义" else "高级选项") Roles.Section (EditorOptions repair)
+     (field_nodes snapshot s e parent [Fields.TaskGraphDeclaration])])%list
+ |WorkflowStart id=>WorkflowForms.start snapshot s parent e id
  |TaskGraph graph work=>graph_editor snapshot s e parent graph work
  |WorkName _=>field_nodes snapshot s e parent [Fields.WorkName]
  |TitlePrompts scope=>title_prompt_fields snapshot s scope parent
@@ -398,10 +406,43 @@ Definition title_prompt_help e parent : list (node Input.input) := match e with
 |_=>[]end.
 Definition editor_view snapshot (s:Session.state) e parent :=
  let draft:=Session.current_draft s e in
- let assessment:=Observe.observe_assessment snapshot s e in
+ let assessment:=match e with
+ |WorkflowStart _=>
+   let outcome:=match Observe.draft_requirements snapshot s e with
+   |cause::rest=>UX.PreparationBlocked cause rest
+   |[]=>UX.PreparationReady end in
+   UX.Assessment (UX.ActionIdentity (Draft.revision draft))
+    (if Services.connected (Session.service_state s) then outcome
+     else Observe.restrict_outcome "正在重新连接服务…" outcome)
+ |_=>Observe.observe_assessment snapshot s e end in
  let unit:=Observe.action_unit_for s e in
- let submit:=Control "submit"(submit_label snapshot draft e)Primary(Input.Submit e(part parent "submit"))(unit_availability unit assessment)in
- let reason:=commit_reason parent assessment in
+ let busy:=UX.action_pending unit in
+ let progress:=match e with
+ |WorkflowStart _=>match find (Authoring.pending_for_editor e) (Session.awaiting(Session.authoring_state s)) with
+   |Some entry=>match Session.outcome_unknown entry with
+      |Some _=>"启动结果待确认。可在运行记录中查看。"
+      |None=>if Session.request_received entry then "服务已收到请求，正在等待启动确认…" else "正在等待启动回执…" end
+   |None=>"正在提交…" end
+ |_=>"正在提交…" end in
+ let availability:=match e with
+ |WorkflowStart _=>if busy then Busy "" else unit_availability unit assessment
+ |_=>unit_availability unit assessment end in
+ let status:=match e with
+ |WorkflowStart workflow=>if busy then
+   ([information parent "editor-commit-status" Information.Status progress] ++
+   (match find (Authoring.pending_for_editor e) (Session.awaiting(Session.authoring_state s)) with
+   |Some entry=>match Session.outcome_unknown entry with
+      |Some _=>[declared parent Roles.Button(secondary "check-workflow-run" "查看运行记录"
+        (Input.OpenInformation (Session.WorkflowHistory workflow) (part parent "check-workflow-run")))]
+      |None=>[] end
+   |None=>[] end))%list
+   else []
+ |_=>commit_status parent unit end in
+ let submit:=Control "submit"(submit_label snapshot draft e)Primary(Input.Submit e(part parent "submit"))
+  availability in
+ let reason:=match e,Draft.draft_feedback draft with
+ |WorkflowStart _,_|_,Draft.DuplicateWorkflowNodeName _ _=>[]
+ |_,_=>commit_reason parent assessment end in
  let consequence:=if UX.action_pending unit then [] else match e with
  |Card _=>match Observe.card_save_consequence snapshot s draft with
   |Some BoardFacts.SaveLinked|None=>[]
@@ -416,10 +457,23 @@ Definition editor_view snapshot (s:Session.state) e parent :=
     |BoardFacts.SaveDraftsThenQueues=>"保存后先生成卡片内容，成功后自动排队。"
     |BoardFacts.SaveLinked=>""end)] end
  |_=>[]end in
+ let assessment_feedback:=match e with
+ |WorkflowStart _=>
+   let causes:=Observe.assessment_obstructions (UX.assessment_outcome assessment) in
+   let message:=if busy then "" else match causes with
+   |cause::_=>if String.eqb (UX.obstruction_code cause) Observe.admission_pending_code
+     then "" else UX.obstruction_message cause
+   |[]=>"" end in
+   [information parent "workflow-start-feedback" Information.Description message]
+ |_=>[assessment_nodes parent assessment] end in
+ let feedback:=match e,Draft.draft_feedback draft with
+ |WorkflowStart _,Draft.Rejected _ diagnostic=>
+   if busy then None else Some(value_or (Codec.diagnostic_message diagnostic) (string_field "message" diagnostic))
+ |_,_=>draft_feedback draft end in
  let body := (title_prompt_help e parent ++
    section_nodes snapshot s e parent ++
-   [assessment_nodes parent assessment] ++
-   Composer.action_feedback parent unit (draft_feedback draft))%list in
+   assessment_feedback ++
+   Composer.action_feedback parent unit feedback)%list in
  let context := match e with
    |TitlePrompts ConversationTitles=>[Settings.editor_context parent Services.SettingsGeneral]
    |_=>[]end in
@@ -430,7 +484,9 @@ Definition editor_view snapshot (s:Session.state) e parent :=
   Node parent "editor"(editor_title e)Roles.Section(ActionUnit e unit)
    (dialog_body parent body::
     [dialog_actions parent
-      (reason ++ commit_status parent unit ++ consequence ++ capture ++ [declared parent Roles.Button(secondary "cancel"
-        (match e with Card _|TaskGraph _ _|WorkflowDefinition _ _|WorkflowStart _|Fork _|Compact _|WorkName _|TitlePrompts _=>"取消"|_=>"Cancel"end) Input.ClosePanel)] ++
+      (reason ++ status ++
+       consequence ++ capture ++ [declared parent Roles.Button(secondary "cancel"
+        (match e with WorkflowStart _=>if busy then "关闭" else "取消"
+         |Card _|TaskGraph _ _|WorkflowDefinition _ _|Fork _|Compact _|WorkName _|TitlePrompts _=>"取消"|_=>"Cancel"end) Input.ClosePanel)] ++
        [Node(part parent "submit")"submit"(control_label submit)
          (commit_role unit(draft_feedback draft))(ActionCommit e assessment submit)[]])%list])].

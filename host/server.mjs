@@ -69,10 +69,20 @@ export async function startServer(options) {
   server.headersTimeout = service.limits.request_timeout_ms;
   server.keepAliveTimeout = service.limits.request_timeout_ms;
 
-  function json(response, status, value) {
-    const body = stringifyJson(value);
-    response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+  function json(response, status, value, gzip = false) {
+    const text = stringifyJson(value);
+    const body = gzip ? Bun.gzipSync(text, { level: 1 }) : text;
+    response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store',
+      ...(gzip ? { 'content-encoding': 'gzip' } : {}) });
     response.end(body);
+  }
+  function browserJson(request, response, status, value) {
+    response.setHeader('vary', 'Accept-Encoding');
+    const gzip = request.headers['accept-encoding']?.split(',').some(value => {
+      const [coding, quality] = value.toLowerCase().split(';').map(part => part.trim());
+      return coding === 'gzip' && (quality === undefined || Number(quality.split('=')[1]) > 0);
+    });
+    json(response, status, value, gzip);
   }
 
   function authorized(request) {
@@ -132,7 +142,7 @@ export async function startServer(options) {
 
   function requestSignal(request, response) {
     const controller = new AbortController();
-    const abort = () => controller.abort(new Error('Audio client disconnected'));
+    const abort = () => controller.abort(new Error('Client disconnected'));
     request.once('aborted', abort);
     const closed = () => { if (!response.writableEnded) abort(); };
     response.once('close', closed);
@@ -313,7 +323,7 @@ export async function startServer(options) {
         browser_state: async () => {
           const snapshot = service.browserSnapshot();
           if (release) response.setHeader('x-selvedge-release', release.id);
-          json(response, 200, { ...snapshot, program: snapshot.program });
+          browserJson(request, response, 200, snapshot);
           return;
         },
         describe: async () => {
@@ -395,8 +405,16 @@ export async function startServer(options) {
           return;
         },
         browser_command: async (command) => {
+          if ((command.op === 'start_workflow' || command.op === 'start_ticket_workflow') &&
+              /^[0-9a-f]{32}$/.test(command.browser_launch_id)) {
+            // The authenticated HTTP envelope arrived. Only the later
+            // committed instance can confirm the workflow actually started.
+            const notice = { type: 'workflow_request_received', launch_id: command.browser_launch_id,
+              namespace: service.journal.namespace };
+            for (const client of clients) sendEvent(client, notice);
+          }
           const result = await service.browserCommand(command);
-          json(response, httpReplyStatus(boundary('http.reply_status', { reply: result.reply })), { ...result, program: result.program });
+          browserJson(request, response, httpReplyStatus(boundary('http.reply_status', { reply: result.reply })), result);
           return;
         },
         browser_observation: async (body) => {
@@ -410,7 +428,14 @@ export async function startServer(options) {
           return;
         },
         assess: async (body) => {
-          json(response, 200, await service.assess(body));
+          const operation = requestSignal(request, response);
+          try {
+            const result = await service.assess(body, { signal: operation.signal });
+            if (!operation.signal.aborted) json(response, 200, result);
+          } catch (error) {
+            // DEFENSE: Superseded observations are cancelled by the browser while in the service queue.
+            if (error !== operation.signal.reason) throw error;
+          } finally { operation.close(); }
           return;
         },
         connection_command: async (body) => {

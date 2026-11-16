@@ -33,7 +33,7 @@ dialog[data-semantic-key="project-editor"] {
   overflow-wrap: normal !important;
   overflow: auto !important;
 }
-[data-semantic-key="graph-options"] {
+:is([data-semantic-key="graph-options"], [data-semantic-key="workflow-options"]) {
   border-block-start: 1px solid var(--selvedge-border);
   padding-block-start: .375rem;
 
@@ -57,6 +57,7 @@ dialog[data-semantic-key="project-editor"] {
     transform: rotate(-45deg);
   }
   &[open] > summary::after { transform: rotate(45deg); }
+  &[data-editor-options-required] > summary::after { display: none; }
   & > summary:is(:hover, :focus-visible),
   &[open] > summary { color: var(--selvedge-text); }
   & > [data-editor-options-body] {
@@ -70,6 +71,38 @@ dialog[data-semantic-key="project-editor"] {
     min-block-size: 0 !important;
     resize: none !important;
   }
+}
+
+:is([data-semantic-key="workflow-node-editor"], [data-semantic-key="workflow-connection-editor"]) {
+  padding: 0.625rem;
+  border: 1px solid var(--selvedge-border);
+  border-radius: 8px;
+}
+[data-semantic-key="workflow-start-feedback"] {
+  block-size: 2lh;
+  min-block-size: 2lh;
+  flex: none !important;
+  overflow: auto;
+}
+@media (orientation: landscape) and (max-height: 480px) {
+  dialog:has([data-semantic-key="workflow-start-feedback"]) {
+    max-block-size: calc(100dvb - 1rem) !important;
+  }
+  form:has([data-semantic-key="workflow-start-feedback"]) > [data-surface-role="dialog-body"] {
+    gap: 0.375rem !important;
+    padding-block: 0.375rem !important;
+  }
+  form:has([data-semantic-key="workflow-start-feedback"]) textarea {
+    block-size: 3.25rem !important;
+    min-block-size: 3.25rem !important;
+    resize: vertical;
+  }
+}
+dialog[data-semantic-key="workflow-instance-details"] {
+  --workflow-dialog-top: clamp(1rem, 8dvb, 4rem);
+  inset-block: var(--workflow-dialog-top) auto !important;
+  margin-block: 0 !important;
+  max-block-size: calc(100dvb - var(--workflow-dialog-top) - 1rem) !important;
 }
 @media (min-width: 600px) and (max-height: 460px) {
   dialog:has([data-semantic-key="graph-options"][open]) {
@@ -247,6 +280,13 @@ dialog[data-semantic-key="project-editor"] {
     overflow: hidden auto !important;
     overscroll-behavior: contain;
     &:has(> [data-semantic-key="card-options"]) { padding-block: .25lh .5lh !important; }
+    &:has(> [data-workflow-editor-anchor]) {
+      padding-block-start: 0 !important;
+    }
+    &[data-workflow-editor-jump-space]::after {
+      content: "";
+      flex: 0 0 var(--workflow-editor-jump-space);
+    }
   }
   :is(&, & > form[data-semantic-key="editor"]) > [data-surface-role="dialog-actions"] {
     display: flex !important;

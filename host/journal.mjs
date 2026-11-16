@@ -225,10 +225,12 @@ export class Journal extends EventEmitter {
     this.emit('retired', error);
   }
 
-  assess(candidate) {
+  assess(candidate, { signal } = {}) {
     // DEFENSE: An assessment may be queued just before the journal closes.
     if (this.#closing) return Promise.reject(rejected(new Error('Journal is closed'), 'rejected'));
     const result = this.#tail.then(async () => {
+      // DEFENSE: A browser can cancel a stale observation before its turn in the journal.
+      signal?.throwIfAborted();
       // DEFENSE: A failed prior commit leaves no authoritative world for a read-only assessment.
       if (this.#failure) throw this.#failure;
       const request = this.#kernel.assess(candidate);

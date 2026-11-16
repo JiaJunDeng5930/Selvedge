@@ -88,8 +88,10 @@ Inductive meaning (Action : Type) :=
 | WorkChoice (work : option N) (selected : bool) (action : control Action)
 | DirectoryRow (path : string) (primary : bool)
 | ContextSummary (owner : editor)
-| EditorOptions
+| EditorOptions (required : bool)
 | ContentDisclosure
+| WorkflowWorkspace (targets : list (string * string))
+| WorkflowEditorJump (targets : list (string * string))
 | SkillSuggestions (field_key : string) (expanded : bool) (active_option : option string)
 | SkillSuggestion (selected : bool) (action : control Action)
 | ChoiceGroup
@@ -163,6 +165,8 @@ Arguments DirectoryRow {Action}.
 Arguments ContextSummary {Action}.
 Arguments EditorOptions {Action}.
 Arguments ContentDisclosure {Action}.
+Arguments WorkflowWorkspace {Action}.
+Arguments WorkflowEditorJump {Action}.
 Arguments SkillSuggestions {Action}.
 Arguments SkillSuggestion {Action}.
 Arguments ChoiceGroup {Action}.
@@ -385,8 +389,10 @@ Definition map_meaning {A B} (f : A -> B) (value : meaning A) : meaning B :=
   | WorkChoice work selected action => WorkChoice work selected (map_control f action)
   | DirectoryRow path primary => DirectoryRow path primary
   | ContextSummary owner => ContextSummary owner
-  | EditorOptions => EditorOptions
+  | EditorOptions required => EditorOptions required
   | ContentDisclosure => ContentDisclosure
+  | WorkflowWorkspace targets => WorkflowWorkspace targets
+  | WorkflowEditorJump targets => WorkflowEditorJump targets
   | SkillSuggestions field expanded active => SkillSuggestions field expanded active
   | SkillSuggestion selected action => SkillSuggestion selected (map_control f action)
   | ChoiceGroup => ChoiceGroup

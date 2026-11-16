@@ -18,6 +18,9 @@ Open Scope string_scope.
 Definition public_command := command_value command_specs.
 
 Inductive information_panel := TaskDetails (task : N) | CardDetails (card : N)
+| WorkflowInstanceDetails (instance : N)
+| WorkflowHistory (workflow : N)
+| ConversationRelays
 | TaskContext (task : N) | PropertySource (owner : editor) (request : activity_request).
 Inductive board_panel := BoardSettings | BoardFilters | ArchivedCards.
 Definition card_decision_kinds := [CardDecisions.MoveCard; CardDecisions.LinkCard].
@@ -62,16 +65,21 @@ Inductive pending_purpose := DraftSubmission (snapshot : draft) (navigation_gene
 | LiveConfiguration (snapshot : draft) (view_occurrence : option N) (remember_model:bool)
 | ProjectPreference (snapshot : draft) (prepared : public_command) (navigation_generation layer_generation : N) (trigger : string)
 | DirectSubmission
+| DirectAdmission
 | MenuSubmission (occurrence : N)
 | SideCreation (parent navigation_generation layer_generation:N)(trigger:string)
 | SearchSubmission(query:string)(project work:option N)(search_ticket:N)
 | LanguageAdmission (task revision : N) (text : string) (owner : Selvedge.Interaction.Interactive.Types.owner) (path : string) (ticket : N)
 | LanguageSubmission (editor : Identity.editor) (owner : Selvedge.Interaction.Interactive.Types.owner) (path : string) (ticket : N).
 Record pending := Pending { ticket : N; accepted_command : public_command; purpose : pending_purpose;
-  outcome_unknown : option string }.
+  request_received : bool; outcome_unknown : option string }.
+Definition receive_request requested current :=
+ if N.eqb requested (ticket current) then
+  Pending (ticket current) (accepted_command current) (purpose current) true (outcome_unknown current)
+ else current.
 Definition unknown_outcome requested reason current :=
  if N.eqb requested (ticket current) then
-  Pending (ticket current) (accepted_command current) (purpose current) (Some reason)
+  Pending (ticket current) (accepted_command current) (purpose current) (request_received current) (Some reason)
  else current.
 Record search_page := SearchPage {
   search_page_ticket : N;
@@ -123,6 +131,16 @@ Definition pending_editor owner state:=existsb(fun pending=>match purpose pendin
 |LanguageSubmission editor _ _ _=>same_editor owner editor
 |_=>false end)(awaiting(authoring_state state)).
 Definition pending_command command state:=existsb(fun pending=>CommandAssessment.same_command command(accepted_command pending))(awaiting(authoring_state state)).
+Definition workflow_start_card (command : public_command) :=
+ let source:=Schema.encode_command command in
+ if String.eqb (Codec.text "op" source) "start_ticket_workflow"
+ then Codec.natural_field "card_id" source else None.
+Definition pending_ticket_start card state :=
+ find (fun pending=>match workflow_start_card (accepted_command pending) with
+  |Some owner=>N.eqb owner card|None=>false end)(awaiting(authoring_state state)).
+Definition checking_command command state:=existsb(fun pending=>match purpose pending with
+ |DirectAdmission=>CommandAssessment.same_command command(accepted_command pending)
+ |_=>false end)(awaiting(authoring_state state)).
 Definition pending_search state:=existsb(fun pending=>match purpose pending with
  |SearchSubmission _ _ _ _=>true|_=>false end)(awaiting(authoring_state state)).
 Definition pending_placement card state:=existsb(fun pending=>

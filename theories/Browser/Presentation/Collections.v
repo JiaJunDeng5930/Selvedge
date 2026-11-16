@@ -5,13 +5,14 @@ From Selvedge.Programming Require Graphics.
 From Selvedge.Kernel Require Domain.
 From Selvedge.Features Require Domain BoardFilter.
 From Selvedge.Interaction Require CardDecisions.
+From Selvedge.Interaction Require World.
 From Selvedge.Interaction.Experience Require Read.
 From Selvedge.Interaction.Submission Require GraphAuthoring.
 From Selvedge.Interaction.Interactive Require Presentation.
 From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Codec Identity.
 From Selvedge.Browser.Session Require Import Input ObjectActions.
-From Selvedge.Browser.Session Require State Authoring.
+From Selvedge.Browser.Session Require State Authoring Services.
 From Selvedge.Browser.Scene Require Import Surface Model Construction.
 From Selvedge.Browser.Presentation Require Import Projection Navigation.
 From Selvedge.Browser.Presentation Require Editors Roles Information Composition TaskGraphCanvas.
@@ -230,7 +231,7 @@ Definition graph_node snapshot s parent value :=
  Node key "task-graph/group" (graph_name value) Roles.Section Region
   ([region key "task-graph/actions" "任务图操作" Roles.Toolbar
     [group_title key (graph_name value);
-     declared key Roles.Button(secondary "edit" "编辑任务图"(Input.OpenEditor(graph_editor(Some id)(State.active_work(State.navigation_state s)))(part key "edit")));
+     declared key Roles.Button(secondary "edit" Editors.graph_edit_label (Input.OpenEditor(graph_editor(Some id)(State.active_work(State.navigation_state s)))(part key "edit")));
      more key(GraphActions id)]] ++
    (match graph_nodes value with
     | [] => [read_only key "nodes" "" "此任务图还没有对话。"]
@@ -246,32 +247,44 @@ Definition workflow_field key value := value_or "" (string_field key value).
 Definition workflow_list key value := value_or [] (array_field key value).
 Definition workflow_scope selected value := match selected with
  | None => true | Some id => match natural_field "work_id" value with Some work => N.eqb work id | None => false end end.
+Definition same_workflow_canvas first second :=
+ forallb (fun key => Json.equal (value_or JNull (field key first)) (value_or JNull (field key second)))
+   ["workflow_id";"nodes";"connections"].
+Definition active_workflow_path path := match bool_field "active" path with
+ | Some active => active | None => false end.
+Definition workflow_instance_label id := "实例 #" ++ show_natural id.
+Definition inspect_instance parent key label id :=
+ secondary key label (Input.OpenInformation (State.WorkflowInstanceDetails id) (part parent key)).
 Definition instance_color (id:N) :=
  String.concat "" ["hsl(";show_natural (N.modulo (id * 137) 360); " 72% 49%)"].
 Definition workflow_markers snapshot definition node parent : Surface.node Input.input :=
  let markers : list (Surface.node Input.input) := flat_map (fun instance =>
-  if match field "definition" instance with Some graph => Json.equal graph definition | None => false end then
+  if match field "definition" instance with Some graph => same_workflow_canvas graph definition | None => false end then
    let active := filter (fun path => String.eqb node (workflow_field "node" path) &&
-     match bool_field "active" path with Some true=>true|_=>false end) (workflow_list "paths" instance) in
+     active_workflow_path path) (workflow_list "paths" instance) in
    match active, natural_field "instance_id" instance with
    | _ :: _, Some id =>
      let details := String.concat "、" (map (fun path =>
        "#" ++ show_natural (value_or 0%N (natural_field "task_id" path))) active) in
-     let label := String.concat "" ["实例 #"; show_natural id; " · 对话 ";details] in
-     [Node (part parent ("instance/" ++ show_natural id)) "workflow-instance-dot" label Roles.Content
-       (ReadOnly (instance_color id)) []]
+     let key := "instance/" ++ show_natural id in
+     let label := workflow_instance_label id ++ " · 对话 " ++ details in
+     let control := inspect_instance parent key label id in
+     let marker := part parent key in
+     [Node marker "workflow-instance-marker" label Roles.Button (Activate control)
+       [Node (part marker "dot") "workflow-instance-dot" "" Roles.Decorative
+         (ReadOnly (instance_color id)) []]]
    | _, _ => [] end else []) (workflow_list "workflow_instances" snapshot) in
  region parent "workflow-instance-markers" "" Roles.Section markers.
-Definition workflow_canvas snapshot parent definition :=
+Definition workflow_canvas snapshot parent geometry (markers : bool) definition :=
  let nodes := map (fun value => Read.GraphNode (workflow_field "key" value) 0%N) (workflow_list "nodes" definition) in
  let routes := map (fun edge => (workflow_field "source" edge, workflow_field "target" edge))
    (workflow_list "connections" definition) in
- let layout := TaskGraphCanvas.arrange_nodes (A:=Input.input) nodes routes in
+ let layout := TaskGraphCanvas.arrange_flow (A:=Input.input) geometry true nodes routes in
  let drawing := TaskGraphCanvas.edges layout in
  let viewport := part parent "task-graph/viewport" in
  let canvas := part viewport "task-graph/canvas" in
  let edges := part canvas "edges" in
- graph_placement parent "task-graph/viewport" "工作流画布" Roles.Section Presentation.GraphViewport
+ region parent "task-graph/viewport" "工作流图" Roles.Section
  [graph_placement viewport "task-graph/canvas" "" Roles.Content
   (Presentation.GraphCanvas Presentation.RootFontScale (Npos (Graphics.width drawing)) (Npos (Graphics.height drawing)))
   (graph_placement canvas "edges" "" Roles.Content Presentation.GraphEdges
@@ -281,108 +294,184 @@ Definition workflow_canvas snapshot parent definition :=
      let key := part canvas ("node/" ++ name) in
      let kind := value_or "" (option_map (workflow_field "kind")
        (find (fun n => String.eqb name (workflow_field "key" n)) (workflow_list "nodes" definition))) in
-     let caption := match kind with "entrance"=>"入口"|"exit"=>"出口"|_=>"Task"end in
+     let caption := match kind with "entrance"=>"入口"|"exit"=>"出口"|_=>"任务"end in
+     let title := if markers then
+       Node (part key "workflow-node-name") "workflow-node-name" name Roles.Content ContentDisclosure []
+       else Node (part key "workflow-preview-name") "workflow-preview-name" name Roles.Content (ReadOnly name) [] in
      Node key "workflow-node" name Roles.Section
       (InteractivePlacement (Presentation.GraphNode Presentation.RootFontScale
         (TaskGraphCanvas.left placed) (TaskGraphCanvas.top placed)
-        (Z.to_N TaskGraphCanvas.node_width) (Z.to_N TaskGraphCanvas.node_height) false))
-      [information key "name" Information.OptionLabel name;
-       information key "kind" Information.Description caption;
-       workflow_markers snapshot definition name key])
+        (Z.to_N (TaskGraphCanvas.card_width geometry)) (Z.to_N (TaskGraphCanvas.card_height geometry)) false))
+      ([title; information key ("workflow-node-kind/" ++ kind) Information.Description caption] ++
+      if markers then [workflow_markers snapshot definition name key] else [])%list)
    (TaskGraphCanvas.nodes layout))].
-Definition workflow_instance_summary snapshot parent value :=
+Definition workflow_instance_summary parent value :=
  let id := value_or 0%N (natural_field "instance_id" value) in
- let label := ("实例 #" ++ show_natural id)%string in
- let key := part parent ("instance/" ++ show_natural id) in
- let caption := match workflow_field "state" value with
-   | "completed" => "已完成" | "blocked" => "已阻塞" | _ => "进行中" end in
+ let key := "instance/" ++ show_natural id in
+ declared parent Roles.Button
+   (inspect_instance parent key (workflow_instance_label id ++ " · " ++ Read.workflow_instance_status value) id).
+Definition workflow_instances snapshot id :=
+ filter (fun value => match natural_field "workflow_id" value with
+   | Some origin => N.eqb id origin | None => false end) (workflow_list "workflow_instances" snapshot).
+Definition workflow_history snapshot parent id :=
+ match rev (workflow_instances snapshot id) with
+ |[]=>[information parent "empty" Information.Description "还没有运行记录。"]
+ |runs=>map (fun run=>
+   let instance := value_or 0%N (natural_field "instance_id" run) in
+   let name := "run/"++show_natural instance in
+   let key := part parent name in
+   let label := workflow_instance_label instance ++ " · " ++ Read.workflow_instance_status run in
+   Node key name label Roles.Button (Activate (inspect_instance parent name label instance))
+    ([information key "workflow-run-title" Information.OptionLabel label;
+      information key "workflow-run-entrance" Information.Description ("入口 · "++workflow_field "entrance" run)] ++
+     (match natural_field "started_at" run with
+      |Some time=>[information key "workflow-run-time" Information.Description (show_natural time)]
+      |None=>[information key "workflow-run-time-unavailable" Information.Description "时间未记录"] end) ++
+     [information key "workflow-run-message" Information.Description (workflow_field "message_preview" run)])%list) runs
+ end.
+Definition workflow_instance_details snapshot parent value :=
+ let workflow := value_or "" (bind (field "definition" value) (string_field "name")) in
  let task_ids := nodup N.eq_dec (flat_map (fun occurrence =>
    match natural_field "task_id" occurrence with Some task=>[task]|None=>[]end) (workflow_list "tasks" value)) in
  let links := map (fun task =>
    let text := value_or ("对话 #" ++ show_natural task)%string (option_map task_title (find_task task snapshot)) in
-   declared key Roles.Button (secondary ("task/" ++ show_natural task) text (Input.Navigate (Conversation task)))) task_ids in
+   let key := "task/" ++ show_natural task in
+   declared parent Roles.Button (secondary key text (Input.InspectWorkflowTask task (part parent key)))) task_ids in
  let results := flat_map (fun path =>
    let suffix := show_natural (value_or 0%N (natural_field "path_id" path)) in
+   let node := workflow_field "node" path in
+   let route := match string_field "source" path with
+     | Some source => String.concat "" [source; " → "; node] | None => node end in
+   let label := String.concat "" ["路径 #"; suffix; " · "; route] in
    match string_field "result" path, string_field "reason" path with
-   | Some output, _ => [read_only key ("exit/" ++ suffix) "出口结果" output]
-   | _, Some reason => [read_only key ("failure/" ++ suffix) "阻塞原因" reason]
+   | Some output, _ =>
+     let result := part parent ("exit/" ++ suffix) in
+     [Node result "workflow-exit-result" ("出口结果 · " ++ label) Roles.Section ContentDisclosure
+       [information result "workflow-exit-route" Information.OptionLabel route;
+        information result "workflow-exit-path" Information.Description ("出口结果 · 路径 #" ++ suffix);
+        read_only result "workflow-exit-output" "出口结果" output]]
+   | _, Some reason => [read_only parent ("failure/" ++ suffix) ("阻塞原因 · " ++ label) reason]
    | _, _ => [] end) (workflow_list "paths" value) in
- region parent ("instance/" ++ show_natural id) label Roles.Section
-  (read_only key "instance-status" label caption :: links ++ results)%list.
-Definition workflow_section snapshot parent definition :=
+ ([read_only parent "workflow-name" "工作流" workflow;
+   information parent "instance-status" Information.Status (Read.workflow_instance_status value)] ++ links ++ results)%list.
+Definition workflow_section_key definition :=
+ "workflow/" ++ show_natural (value_or 0%N (natural_field "workflow_id" definition)).
+Definition workflow_controls parent definition :=
  let id := value_or 0%N (natural_field "workflow_id" definition) in
- let key := part parent ("workflow/" ++ show_natural id) in
- let runs := filter (fun value => match natural_field "workflow_id" value with
-   | Some origin => N.eqb id origin | None => false end) (workflow_list "workflow_instances" snapshot) in
+ let section := workflow_section_key definition in
+ let key := part parent section in
+ Node key section "" Roles.Toolbar Region
+  [declared key Roles.Button (secondary "edit-workflow" "编辑工作流"
+     (Input.OpenEditor (Identity.WorkflowDefinition (Some id) None) (part key "edit-workflow")));
+   declared key Roles.PrimaryButton (primary "start-workflow" "启动工作流"
+     (Input.OpenEditor (Identity.WorkflowStart id) (part key "start-workflow")));
+   declared key Roles.Button (secondary "workflow-history" "运行记录"
+     (Input.OpenInformation (State.WorkflowHistory id) (part key "workflow-history")))].
+Definition workflow_section snapshot parent compact definition :=
+ let id := value_or 0%N (natural_field "workflow_id" definition) in
+ let section := workflow_section_key definition in
+ let key := part parent section in
+ let runs := workflow_instances snapshot id in
+ let active_runs := filter (fun instance => existsb active_workflow_path (workflow_list "paths" instance)) runs in
  let archived_definitions := fold_right (fun instance collected => match field "definition" instance with
-   | Some graph => if Json.equal graph definition || existsb (Json.equal graph) collected then collected else graph :: collected
-   | None => collected end) [] runs in
- region parent ("workflow/" ++ show_natural id) (workflow_field "name" definition) Roles.Section
-  ([group_title key (workflow_field "name" definition);
-    declared key Roles.Button (secondary "edit-workflow" "编辑工作流"
-      (Input.OpenEditor (Identity.WorkflowDefinition (Some id) None) (part key "edit-workflow")));
-    declared key Roles.Button (secondary "start-workflow" "启动工作流"
-      (Input.OpenEditor (Identity.WorkflowStart id) (part key "start-workflow")));
-    workflow_canvas snapshot key definition] ++
+   | Some graph => if same_workflow_canvas graph definition || existsb (same_workflow_canvas graph) collected
+     then collected else graph :: collected
+   | None => collected end) [] active_runs in
+ region parent section (workflow_field "name" definition) Roles.Section
+  ([workflow_canvas snapshot key (TaskGraphCanvas.workflow_geometry compact) true definition;
+    region key "workflow-preview" "" Roles.Section
+     [workflow_canvas snapshot (part key "workflow-preview")
+       (TaskGraphCanvas.workflow_preview_geometry (compact && (2 <? List.length (workflow_list "nodes" definition))%nat))
+       false definition]] ++
    map (fun '(index, graph) =>
-     workflow_canvas snapshot (part key ("saved/" ++ show_natural (N.of_nat index))) graph)
-     (combine (seq 0 (List.length archived_definitions)) archived_definitions) ++
-   map (workflow_instance_summary snapshot key) runs)%list.
-Definition ticket_workflow_controls snapshot parent (card : Read.card) :=
+     let version := ("saved/" ++ show_natural (N.of_nat index))%string in
+     let name := ("运行中的历史版本 " ++ show_natural (N.of_nat index) ++ " · " ++ workflow_field "name" graph)%string in
+     region key version name Roles.Section
+       [group_title (part key version) name;
+        workflow_canvas snapshot (part key version) (TaskGraphCanvas.workflow_geometry compact) true graph])
+     (combine (seq 1 (List.length archived_definitions)) archived_definitions))%list.
+Definition ticket_workflow_controls snapshot s parent (card : Read.card) :=
  let id := Read.card_id card in
- let link := find (fun binding => match natural_field "card_id" binding with
-   | Some ticket => N.eqb ticket id | None => false end) (workflow_list "ticket_workflows" snapshot) in
+ let link := Read.ticket_workflow snapshot id in
  let card_args := [("card_id",number id);("revision",number (Read.card_revision card))] in
  let command key caption op fields :=
    match Selvedge.Programming.Schema.decode_command Selvedge.Kernel.Commands.command_specs
      (JObject (("op",JString op) :: fields)) with
-   | Some command => [declared parent Roles.Button (secondary key caption (Input.Command command))]
+   | Some command =>
+     let pending := State.pending_command command s in
+     let connected := Services.connected (State.service_state s) in
+     let request := Input.RequestCommand command in
+     let progress := if State.checking_command command s then "正在检查入口切换…" else "正在提交…" in
+     let control := if pending then Control key progress Secondary request (Busy progress)
+       else if negb connected then Control key caption Secondary request (Unavailable "正在重新连接服务…")
+       else match Authoring.command_assessment_failure snapshot s command with
+       | Some _ => Control key ("重新检查 · " ++ caption) Secondary (Input.RetryCommandAssessment command) Available
+       | None => Control key caption Secondary request
+           (value_or Available (option_map domain_availability (Authoring.direct_command_admission snapshot s command))) end in
+     [declared parent Roles.Button control]
    | None => [] end in
- let configured := match link with
+ let configured : list (node Input.input) := match link with
    | None => []
    | Some value =>
-      let started := command "workflow-start-ticket" "启动工作流实例" "start_ticket_workflow" card_args in
-      match natural_field "instance_id" value with
-      | Some instance => match find (fun entry => match natural_field "instance_id" entry with
-          | Some key => N.eqb key instance | None => false end) (workflow_list "workflow_instances" snapshot) with
-        | Some entry => workflow_instance_summary snapshot parent entry :: started
-        | None => started end
-      | None => started end end in
+      let workflow := bind (natural_field "workflow_id" value)
+        (fun workflow => World.find_world "workflows" "workflow_id" workflow snapshot) in
+      let selection := String.concat "" [value_or "" (bind workflow (string_field "name")); " · "; workflow_field "entrance" value] in
+      [read_only parent "workflow-entrance" "当前工作流入口" selection] end in
  let options := flat_map (fun graph =>
    let workflow := value_or 0%N (natural_field "workflow_id" graph) in
    flat_map (fun node =>
      if String.eqb (workflow_field "kind" node) "entrance" then
        let entrance := workflow_field "key" node in
-       command ("workflow-choice/" ++ show_natural workflow ++ "/" ++ entrance)
+       let selected := match link with
+         | Some value => match natural_field "workflow_id" value with
+           | Some previous => N.eqb previous workflow && String.eqb entrance (workflow_field "entrance" value)
+           | None => false end
+         | None => false end in
+       if selected then [] else command ("workflow-choice/" ++ show_natural workflow ++ "/" ++ entrance)
          (String.concat "" ["选择 ";workflow_field "name" graph; " · ";entrance])
          "configure_ticket_workflow" ([("workflow_id",number workflow);("entrance",JString entrance)] ++ card_args)%list
      else []) (workflow_list "nodes" graph)) (workflow_list "workflows" snapshot) in
  match Read.card_task card, Read.card_archived card with
- | None, false => (configured ++ options)%list
- | _, _ => configured end.
-Definition graphs_page snapshot s parent :=
+ | None, false => (configured, options)
+ | _, _ => (configured, []) end.
+Definition relay_creation work parent :=
+ declared parent Roles.Button (secondary "graph/new" Editors.graph_creation_label
+   (Input.OpenEditor (graph_editor None work) (part parent "graph/new"))).
+Definition relay_contents snapshot s parent :=
  let work:=State.active_work(State.navigation_state s) in
- let graphs:=scoped_graphs work snapshot in
- let definitions:=filter (workflow_scope work) (workflow_list "workflows" snapshot) in
- let create_workflow:=declared parent Roles.PrimaryButton
-   (primary "workflow/new" "创建工作流"
-     (Input.OpenEditor (Identity.WorkflowDefinition None work) (part parent "workflow/new"))) in
- let create:=declared parent Roles.PrimaryButton
-   (primary "graph/new" Editors.graph_creation_label
-     (Input.OpenEditor(graph_editor None(State.active_work(State.navigation_state s)))(part parent "graph/new"))) in
+ let create:=relay_creation work parent in
+ match scoped_graphs work snapshot with
+ |Some []=>[region parent "task-graph/empty" "" Roles.Section
+    [group_title (part parent "empty-relay-heading") "暂无对话转发";
+     information parent "task-graph/empty-description" Information.Description "把来源对话的新回复发送到接收对话。";
+     region parent "task-graph/empty-route" "转发方向" Roles.Section
+     [Node (part parent "graph/empty-source") "task-graph/empty-endpoint" "" Roles.Content (ReadOnly GraphAuthoring.source_endpoint_label) [];
+      Node (part parent "graph/empty-direction") "task-graph/empty-direction" "" Roles.Decorative (Fact "→") [];
+      Node (part parent "graph/empty-target") "task-graph/empty-endpoint" "" Roles.Content (ReadOnly GraphAuthoring.target_endpoint_label) []];
+     create]]
+ |Some entries=>create :: map (graph_node snapshot s parent) entries
+ |None=>[read_only parent "unavailable" task_graphs_label "对话转发暂不可用。"]end.
+Definition graphs_page snapshot s parent compact :=
+ let work:=State.active_work(State.navigation_state s) in
+ let definitions:=rev (filter (workflow_scope work) (workflow_list "workflows" snapshot)) in
+ let create := Input.OpenEditor (Identity.WorkflowDefinition None work) (part parent "workflow/new") in
+ let create_workflow:=match definitions with
+   |[]=>declared parent Roles.PrimaryButton (primary "workflow/new" "创建工作流" create)
+   |_=>declared parent Roles.Button (secondary "workflow/new" "创建工作流" create)
+   end in
+ let relay:=declared parent Roles.Button
+   (secondary "conversation-relays" "对话转发" (Input.OpenInformation State.ConversationRelays (part parent "conversation-relays"))) in
  [browse_heading parent
    (page_region parent Composition.CollectionTitle Composition.HeadingPosition[title parent task_graphs_label])
    [page_region parent Composition.CollectionActions Composition.HeadingPosition
-     (create_workflow :: match graphs with Some []=>[]|_=>[create]end)];
+     (create_workflow :: match definitions with []=>[]|_=>[relay]end)];
   page_region parent Composition.TaskGraphEntries Composition.BodyPosition
-   (match graphs with
-    |Some []=>[region parent "task-graph/empty" "" Roles.Section
-      [group_title (part parent "empty-relay-heading") "暂无任务图";
-       information parent "task-graph/empty-description" Information.Description "用任务图自动转发对话回复。";
-       region parent "task-graph/empty-route" "转发方向" Roles.Section
-       [Node (part parent "graph/empty-source") "task-graph/empty-endpoint" "" Roles.Content (ReadOnly GraphAuthoring.source_endpoint_label) [];
-        Node (part parent "graph/empty-direction") "task-graph/empty-direction" "" Roles.Decorative (Fact "→") [];
-        Node (part parent "graph/empty-target") "task-graph/empty-endpoint" "" Roles.Content (ReadOnly GraphAuthoring.target_endpoint_label) []];
-       create]]
-    |Some entries=>map(graph_node snapshot s parent)entries
-    |None=>[read_only parent "unavailable" task_graphs_label "任务图暂不可用。"]end ++ map (workflow_section snapshot parent) definitions)%list].
+   (match definitions with
+    |[]=>relay_contents snapshot s parent
+    |_=>let key := part parent ("workflow-workspace/" ++ value_or "all" (option_map show_natural work)) in
+       let controls := part key "workflow-actions" in
+       [Node key "workflow-workspace" "工作流画布" Roles.Section
+         (WorkflowWorkspace (map (fun definition => (workflow_section_key definition, workflow_field "name" definition)) definitions))
+         (Node controls "workflow-actions" "" Roles.Content Region (map (workflow_controls controls) definitions) ::
+          map (workflow_section snapshot key compact) definitions)]
+    end)].

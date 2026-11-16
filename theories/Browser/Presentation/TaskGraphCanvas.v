@@ -1,4 +1,5 @@
 From Stdlib Require Import String List Bool NArith ZArith.
+From Selvedge.Foundation Require ListCount.
 From Selvedge.Programming Require Import Graphics.
 From Selvedge.Interaction.Experience Require Read.
 Import ListNotations.
@@ -9,6 +10,24 @@ Definition node_height : Z := 54.
 Definition inset : Z := 32.
 Definition column_gap : Z := 158.
 Definition row_gap : Z := 36.
+Record flow_geometry := FlowGeometry {
+  vertical : bool;
+  along : Z;
+  across : Z;
+  along_gap : Z;
+  across_gap : Z;
+  margin : Z
+}.
+Definition conversation_geometry :=
+ FlowGeometry false node_width node_height column_gap row_gap inset.
+Definition workflow_geometry (compact : bool) :=
+ if compact then FlowGeometry true 98 156 56 14 18
+ else FlowGeometry false 184 76 68 28 20.
+Definition workflow_preview_geometry (stacked : bool) :=
+ if stacked then FlowGeometry true 56 128 24 12 8
+ else FlowGeometry false 144 58 24 14 8.
+Definition card_width geometry := if vertical geometry then across geometry else along geometry.
+Definition card_height geometry := if vertical geometry then along geometry else across geometry.
 
 Definition connections (graph : Read.graph) : list (string * string) :=
   flat_map (fun node =>
@@ -47,12 +66,12 @@ Record positioned_node := PositionedNode {
 Definition extent item gap count :=
   Z.of_nat count * item + Z.of_nat (Nat.pred count) * gap.
 
-Definition position_nodes height (groups : list (list Read.graph_node)) :=
+Definition position_nodes geometry height (groups : list (list Read.graph_node)) :=
   flat_map (fun '(column, nodes) =>
-    let x := inset + Z.of_nat column * (node_width + column_gap) in
-    let y := inset + (height - extent node_height row_gap (List.length nodes)) / 2 in
+    let x := margin geometry + Z.of_nat column * (along geometry + along_gap geometry) in
+    let y := margin geometry + (height - extent (across geometry) (across_gap geometry) (List.length nodes)) / 2 in
     map (fun '(row, node) =>
-      PositionedNode node column x (y + Z.of_nat row * (node_height + row_gap)))
+      PositionedNode node column x (y + Z.of_nat row * (across geometry + across_gap geometry)))
       (combine (seq 0 (List.length nodes)) nodes))
     (combine (seq 0 (List.length groups)) groups).
 
@@ -68,32 +87,48 @@ Definition position_connection nodes (edge : string * string) :=
 Definition adjacent (edge : positioned_node * positioned_node) :=
   Nat.eqb (S (column (fst edge))) (column (snd edge)).
 
-Definition center_y node := top node + node_height / 2.
+Definition center_y geometry node := top node + across geometry / 2.
 
-Definition adjacent_curve {A} (edge : positioned_node * positioned_node) : Graphics.primitive A :=
+(* Route in the flow's own coordinates. Convert endpoints and arrowheads
+   together so both orientations enter the destination's near edge. *)
+Definition flow_curve {A} geometry x1 y1 a b c d x2 y2 (arrow : bool) tone : Graphics.primitive A :=
+ if vertical geometry then
+   Graphics.StrokePath
+     (String.append (Graphics.curve_path y1 x1 b a d c y2 x2 false)
+       (if arrow then " l -4 -8 m 4 8 l 4 -8"%string else ""%string)) tone
+ else Graphics.CubicCurve x1 y1 a b c d x2 y2 arrow tone.
+Definition flow_line {A} geometry x1 y1 x2 y2 tone : Graphics.primitive A :=
+ if vertical geometry then Graphics.Line y1 x1 y2 x2 tone
+ else Graphics.Line x1 y1 x2 y2 tone.
+
+Definition adjacent_curve {A} geometry (edge : positioned_node * positioned_node) y1 y2 : Graphics.primitive A :=
   let '(source, target) := edge in
-  let x1 := left source + node_width in
+  let x1 := left source + along geometry in
   let x2 := left target in
-  let y1 := center_y source in
-  let y2 := center_y target in
   let middle := (x1 + x2) / 2 in
-  Graphics.CubicCurve x1 y1 middle y1 middle y2 x2 y2 true Graphics.Neutral.
+  flow_curve geometry x1 y1 middle y1 middle y2 x2 y2 true Graphics.Neutral.
 
-Definition lane_spacing : Z := 8.
-
-Definition outside_curve {A} lane (edge : positioned_node * positioned_node) : list (Graphics.primitive A) :=
+Definition outside_curve {A} geometry lane index (spread : bool) shift nodes
+ (edge : positioned_node * positioned_node) y1 y2 : list (Graphics.primitive A) :=
   let '(source, target) := edge in
-  let x1 := left source + node_width in
+  let x1 := left source + along geometry in
   let x2 := left target in
-  let y1 := center_y source in
-  let y2 := center_y target in
-  let exit := x1 + inset / 2 in
-  let enter := x2 - inset / 2 in
-  (* Route skipped columns and feedback below the cards, leaving the source
-     on its right and entering the target on its left even for a self-loop. *)
-  [Graphics.CubicCurve x1 y1 exit y1 exit y1 exit lane false Graphics.Neutral;
-   Graphics.Line exit lane enter lane Graphics.Neutral;
-   Graphics.CubicCurve enter lane enter y2 enter y2 x2 y2 true Graphics.Neutral].
+  let offset := margin geometry / 2 + (if spread then 6 * Z.of_nat (index mod 4)%nat else 0) in
+  let exit := x1 + offset in
+  let enter := x2 - offset in
+  let tone := if spread then if Nat.even index then Graphics.Accent else Graphics.Success else Graphics.Neutral in
+  let above := lane <? top target + shift in
+  let side_clear := negb (existsb (fun node => Nat.eqb (column node) (column target) &&
+    (if above then top node <? top target else top target <? top node)) nodes) in
+  let start := flow_curve geometry x1 y1 exit y1 exit y1 exit lane false tone in
+  if spread && side_clear && (column source <? column target)%nat then
+    let x := x2 + along geometry / 2 in
+    let y := top target + shift + (if above then 0 else across geometry) in
+    let tail := y + (if above then -8 else 8) in
+    [start; flow_curve geometry exit lane x lane x lane x y false tone;
+      flow_line geometry (x - 4) tail x y tone; flow_line geometry (x + 4) tail x y tone]
+  else [start; flow_line geometry exit lane enter lane tone;
+        flow_curve geometry enter lane enter y2 enter y2 x2 y2 true tone].
 
 Record layout (A : Type) := Layout {
   nodes : list positioned_node;
@@ -103,19 +138,48 @@ Arguments Layout {A}.
 Arguments nodes {A}.
 Arguments edges {A}.
 
-Definition arrange_nodes {A} entries routes : layout A :=
+Definition port_coordinate geometry (spread : bool) (pairs : list (positioned_node * positioned_node)) index project node :=
+ if spread then
+  let same edge := String.eqb (Read.node_key (entry (project edge))) (Read.node_key (entry node)) in
+  let count := Z.of_nat (ListCount.count same pairs) in
+  let rank := Z.of_nat (ListCount.count same (firstn index pairs)) in
+  top node + 5 + (across geometry - 10) * (rank + 1) / (count + 1)
+ else center_y geometry node.
+Definition arrange_flow {A} geometry (spread : bool) entries routes : layout A :=
   let groups := columns (List.length entries) routes entries in
   let rows := fold_left (fun count group => Nat.max count (List.length group)) groups 0%nat in
-  let content_height := extent node_height row_gap rows in
-  let placed := position_nodes content_height groups in
-  let '(forward, outside) := partition adjacent (flat_map (position_connection placed) routes) in
-  let width := 2 * inset + extent node_width column_gap (List.length groups) in
-  let height := 2 * inset + content_height in
+  let content_height := extent (across geometry) (across_gap geometry) rows in
+  let placed := position_nodes geometry content_height groups in
+  let pairs := flat_map (position_connection placed) routes in
+  let outside_count := ListCount.count (fun entry=>negb (adjacent entry)) pairs in
+  let lane_spacing := if spread then 16 else 8 in
+  let reserved_above := if spread then lane_spacing * Z.of_nat (Nat.div2 (S outside_count)) else 0 in
+  let shift item := PositionedNode (entry item) (column item) (left item) (top item + reserved_above) in
+  let connections := map (fun '(index, (source, target)) =>
+    ((source, target),(reserved_above + port_coordinate geometry spread pairs index fst source,
+                      reserved_above + port_coordinate geometry spread pairs index snd target)))
+    (combine (seq 0 (List.length pairs)) pairs) in
+  let '(forward, outside) := partition (fun connection=>adjacent (fst connection)) connections in
+  let width := 2 * margin geometry + extent (along geometry) (along_gap geometry) (List.length groups) in
+  let height := 2 * margin geometry + content_height in
   let lanes := List.length outside in
-  let curves := map adjacent_curve forward ++
-    flat_map (fun '(index, edge) => outside_curve (height + Z.of_nat index * lane_spacing) edge)
+  let curves := map (fun '(edge,(y1,y2))=>adjacent_curve geometry edge y1 y2) forward ++
+    flat_map (fun '(index, (edge,(y1,y2))) =>
+      let lane := if spread && Nat.even index then
+        reserved_above - Z.of_nat (Nat.div2 index) * lane_spacing - lane_spacing / 2
+        else height + (if spread then reserved_above + Z.of_nat (Nat.div2 index) * lane_spacing
+          else Z.of_nat index * lane_spacing) in
+      outside_curve geometry lane index spread reserved_above placed edge y1 y2)
       (combine (seq 0 lanes) outside) in
-  Layout placed (Graphics.Plot (Z.to_pos width) (Z.to_pos (height + Z.of_nat lanes * lane_spacing)) curves).
+  let height := height + Z.of_nat lanes * lane_spacing in
+  let placed := map shift placed in
+  if vertical geometry then
+    Layout (map (fun item => PositionedNode (entry item) (column item) (top item) (left item)) placed)
+      (Graphics.Plot (Z.to_pos height) (Z.to_pos width) curves)
+  else Layout placed (Graphics.Plot (Z.to_pos width) (Z.to_pos height) curves).
+
+Definition arrange_nodes {A} entries routes : layout A :=
+ arrange_flow conversation_geometry false entries routes.
 
 Definition arrange {A} (graph : Read.graph) : layout A :=
   arrange_nodes (A:=A) (Read.graph_nodes graph) (connections graph).

@@ -709,12 +709,12 @@ export type Command =
   | {"op": "resolve_workspace"; "workspace"?: JsonValue | null; "project_id"?: DomainNatural | null}
   | {"op": "create_workflow"; "work_id"?: DomainNatural; "name": string; "nodes": Array<JsonValue>; "connections": Array<JsonValue>}
   | {"op": "update_workflow"; "workflow_id": DomainNatural; "name": string; "nodes": Array<JsonValue>; "connections": Array<JsonValue>}
-  | {"op": "start_workflow"; "workflow_id": DomainNatural; "entrance": string; "message": string}
+  | {"op": "start_workflow"; "workflow_id": DomainNatural; "entrance": string; "message": string; "browser_launch_id"?: string; "observed_at"?: string}
   | {"op": "list_workflows"; }
   | {"op": "read_workflow_instance"; "instance_id": DomainNatural}
   | {"op": "choose_workflow_connection"; "connection": string}
   | {"op": "configure_ticket_workflow"; "card_id": DomainNatural; "revision": DomainNatural; "observed_at"?: string; "workflow_id": DomainNatural; "entrance": string}
-  | {"op": "start_ticket_workflow"; "card_id": DomainNatural; "revision": DomainNatural; "observed_at"?: string};
+  | {"op": "start_ticket_workflow"; "card_id": DomainNatural; "revision": DomainNatural; "observed_at"?: string; "browser_launch_id"?: string};
 export function decodeCommand(input: unknown): Command {
   const source = decodeObject(input);
   switch (source["op"]) {
@@ -793,12 +793,12 @@ export function decodeCommand(input: unknown): Command {
     case "resolve_workspace": exactFields(source, ["op","workspace","project_id"]); return {"op": "resolve_workspace", ...(source["workspace"] === undefined ? {} : {"workspace": source["workspace"] === null ? null : decodeJson(source["workspace"])}), ...(source["project_id"] === undefined ? {} : {"project_id": source["project_id"] === null ? null : decodeNatural(source["project_id"])})};
     case "create_workflow": exactFields(source, ["op","work_id","name","nodes","connections"]); return {"op": "create_workflow", ...(source["work_id"] === undefined ? {} : {"work_id": decodeNatural(source["work_id"])}), "name": decodeText(source["name"]), "nodes": decodeArray(source["nodes"], item => decodeJson(item)), "connections": decodeArray(source["connections"], item => decodeJson(item))};
     case "update_workflow": exactFields(source, ["op","workflow_id","name","nodes","connections"]); return {"op": "update_workflow", "workflow_id": decodeNatural(source["workflow_id"]), "name": decodeText(source["name"]), "nodes": decodeArray(source["nodes"], item => decodeJson(item)), "connections": decodeArray(source["connections"], item => decodeJson(item))};
-    case "start_workflow": exactFields(source, ["op","workflow_id","entrance","message"]); return {"op": "start_workflow", "workflow_id": decodeNatural(source["workflow_id"]), "entrance": decodeText(source["entrance"]), "message": decodeText(source["message"])};
+    case "start_workflow": exactFields(source, ["op","workflow_id","entrance","message","browser_launch_id","observed_at"]); return {"op": "start_workflow", "workflow_id": decodeNatural(source["workflow_id"]), "entrance": decodeText(source["entrance"]), "message": decodeText(source["message"]), ...(source["browser_launch_id"] === undefined ? {} : {"browser_launch_id": decodeText(source["browser_launch_id"])}), ...(source["observed_at"] === undefined ? {} : {"observed_at": decodeText(source["observed_at"])})};
     case "list_workflows": exactFields(source, ["op"]); return {"op": "list_workflows"};
     case "read_workflow_instance": exactFields(source, ["op","instance_id"]); return {"op": "read_workflow_instance", "instance_id": decodeNatural(source["instance_id"])};
     case "choose_workflow_connection": exactFields(source, ["op","connection"]); return {"op": "choose_workflow_connection", "connection": decodeText(source["connection"])};
     case "configure_ticket_workflow": exactFields(source, ["op","card_id","revision","observed_at","workflow_id","entrance"]); return {"op": "configure_ticket_workflow", "card_id": decodeNatural(source["card_id"]), "revision": decodeNatural(source["revision"]), ...(source["observed_at"] === undefined ? {} : {"observed_at": decodeText(source["observed_at"])}), "workflow_id": decodeNatural(source["workflow_id"]), "entrance": decodeText(source["entrance"])};
-    case "start_ticket_workflow": exactFields(source, ["op","card_id","revision","observed_at"]); return {"op": "start_ticket_workflow", "card_id": decodeNatural(source["card_id"]), "revision": decodeNatural(source["revision"]), ...(source["observed_at"] === undefined ? {} : {"observed_at": decodeText(source["observed_at"])})};
+    case "start_ticket_workflow": exactFields(source, ["op","card_id","revision","observed_at","browser_launch_id"]); return {"op": "start_ticket_workflow", "card_id": decodeNatural(source["card_id"]), "revision": decodeNatural(source["revision"]), ...(source["observed_at"] === undefined ? {} : {"observed_at": decodeText(source["observed_at"])}), ...(source["browser_launch_id"] === undefined ? {} : {"browser_launch_id": decodeText(source["browser_launch_id"])})};
     // DEFENSE: External boundary values must name a declared Command variant.
     default: throw new TypeError('Unknown Command discriminant');
   }

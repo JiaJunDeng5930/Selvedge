@@ -4,7 +4,7 @@ From Selvedge.Programming Require Import Schema.
 From Selvedge.Foundation Require Import TextJson.
 From Selvedge.Foundation Require Utf8.
 From Selvedge.Kernel Require Domain Codec ModelCapabilities WorkspaceBackend Tasks Workspace TaskConstraints FeatureRequestAdmission.
-From Selvedge.Features Require Domain Board BoardFacts BoardParameters BoardDrafting Work Titles TaskGraph.
+From Selvedge.Features Require Domain Board BoardFacts BoardParameters BoardDrafting Work Titles TaskGraph Workflow.
 From Selvedge.Interaction Require Import Codec Identity Context.
 From Selvedge.Programming Require Import Resource.
 From Selvedge.Interaction Require Import CommandAssessment ModelSelection.
@@ -615,6 +615,23 @@ Definition body_requirements snapshot e (body:Draft.body):list(obstruction e):=
    if graph_declaration_valid body then [] else
    let '(code,reason):=graph_declaration_diagnostic snapshot graph parsed work in
    [requirement_obstruction e (Some Fields.TaskGraphDeclaration) code reason]
+ |Draft.WorkflowDefinitionBody _ _ source=>
+   match parse_json source with
+   |Some (JObject _ as value)=>
+     let name:=text "name" value in
+     required_name e Fields.TaskGraphDeclaration name (Workflow.bounded_key name)
+       "invalid_workflow_name" "请输入工作流名称。" "请缩短工作流名称。" ++
+     match find Workflow.node_model_missing (value_or [] (array_field "nodes" value)) with
+     |Some node=>[requirement_obstruction e (Some Fields.TaskGraphDeclaration) "workflow_node_model_required"
+       ("请为节点「"++text "key" node++"」选择模型。")]
+     |None=>[] end
+   |_=>[requirement_obstruction e (Some Fields.TaskGraphDeclaration) "invalid_workflow_json"
+     "请修正下方的 JSON 定义。修正后即可继续使用表单。"] end
+ |Draft.WorkflowStartBody _ source=>
+   let message:=bind (parse_json source) (string_field "message") in
+   failed_requirement e
+     (match message with Some text=>Tasks.content_nonempty [Selvedge.Kernel.Domain.TextPart text]|None=>false end)
+     (Some Fields.TaskGraphDeclaration) "empty_message" "请输入要发送到入口的消息。"
  |Draft.TitlePromptsBody _ _ task agent _=>
    failed_requirement e(Titles.valid_instructions task)(Some Fields.TaskTitlePrompt)"invalid_task_title_prompt" "请输入非空提示词，最多 4096 UTF-8 字节"++
    failed_requirement e(Titles.valid_instructions agent)(Some Fields.AgentTitlePrompt)"invalid_agent_title_prompt" "请输入非空提示词，最多 4096 UTF-8 字节"
@@ -632,6 +649,10 @@ Definition draft_requirements snapshot state e:list(obstruction e):=
  (match Draft.draft_feedback draft with
   |Draft.WorkspaceRejected revision reason=>failed_requirement e(negb(N.eqb revision(Draft.revision draft)))
     (Some Fields.WorkspaceDirectories)"workspace_observation_failed" reason|_=>[]end)++
+ (match Draft.draft_feedback draft with
+  |Draft.DuplicateWorkflowNodeName _ _=>[requirement_obstruction e (Some Fields.TaskGraphDeclaration)
+    "duplicate_workflow_node_name" Draft.duplicate_workflow_node_name]
+  |_=>[]end)++
  (match project_precondition snapshot state draft with Some(field,code,reason)=>[requirement_obstruction e field code reason]|None=>[]end)++
  failed_requirement e(negb(EC.editor_pending(EC.observed state)e))None "pending" "Wait for the current submission to finish."++
  (match FieldsObservation.draft_context draft with None=>[]|Some _=>

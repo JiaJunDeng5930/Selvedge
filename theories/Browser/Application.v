@@ -36,8 +36,12 @@ Module PNav:=Selvedge.Browser.Presentation.Navigation.
 Module CP:=Selvedge.Browser.Presentation.ActionPurpose.
 Module BM:=Selvedge.Browser.Scene.Model.
 Module UX:=Selvedge.Interaction.Experience.Model.
-Definition capacity environment:=match Layout.observe_capacity environment with
-|Some(navigation,details)=>Some(BM.Capacity navigation details)
+Definition capacity route environment:=match Layout.observe_capacity environment with
+|Some(navigation,details)=>
+ let graph_uses_drawer:=match route with
+ |Graphs=>Layout.short_landscape environment && Nat.ltb (Layout.viewport_width environment) 900
+ |_=>false end in
+ Some(BM.Capacity (navigation && negb graph_uses_drawer) details)
 |None=>Some(BM.Capacity false false)end.
 Definition environment request:=bind(field "environment" request)Observation.decode_environment.
 Definition state request:=bind(field "state" request)SC.decode_state.
@@ -303,9 +307,11 @@ Definition section_changed name fields before after :=
  changed_fields fields (state_section name before) (state_section name after).
 Definition navigation_without_layers context := without_fields ["layers";"generation"]
  (state_section "navigation" context).
+Definition current_route ctx :=
+ Session.location (Session.navigation_state (prepared_state ctx)).
 Definition shell_mode_changed before after :=
  match prepared_environment before,prepared_environment after with
- |Some a,Some b=>match capacity a,capacity b with
+ |Some a,Some b=>match capacity (current_route before) a,capacity (current_route after) b with
    |Some x,Some y=>negb(Bool.eqb (BM.navigation_beside_content x) (BM.navigation_beside_content y) &&
      Bool.eqb (BM.details_beside_timeline x) (BM.details_beside_timeline y) &&
      Bool.eqb (compact_picker a) (compact_picker b))
@@ -317,8 +323,6 @@ Definition layout_changed before after :=
     Nat.eqb (Layout.viewport_height a) (Layout.viewport_height b) &&
     Nat.eqb (Layout.root_font_size_milli a) (Layout.root_font_size_milli b))
  |_,_=>true end.
-Definition current_route ctx :=
- Session.location (Session.navigation_state (prepared_state ctx)).
 Definition context_route_changed before after :=
  negb(Json.equal (encode_route(current_route before)) (encode_route(current_route after))) ||
  section_changed "navigation" ["work"] before after.
@@ -362,6 +366,10 @@ Definition main_world_changed before after :=
  |Conversation task=>task_availability_changed task before after
  |Start|GraphConversation _ _=>world_fields_changed
    ["projects";"works";"profiles";"defaults";"worktrees";"graphs"] before after
+ |Graphs=>world_fields_changed ["works";"graphs";"tasks";"workflows";"workflow_instances"] before after
+ |Board=>world_fields_changed
+   ["board";"projects";"works";"worktrees";"graphs";"tasks";"profiles";
+    "workflows";"workflow_instances";"ticket_workflows"] before after
  |_=>world_fields_changed ["board";"projects";"works";"worktrees";"graphs";"tasks";"profiles"] before after
  end.
 Definition detail_actions_changed before after (view : task_view) (size : BM.capacity) :=
@@ -534,7 +542,7 @@ Definition overlay_projection_dirty before after incoming snapshot layer :=
  |V.SettingsOverlay|V.ConfigurationOverlay|V.PreviewOverlay|V.LoginOverlay=>
    snapshot || match incoming with Some (Input.ServiceInput _) |Some (Input.SpeechInput _) => true|_=>false end end.
 Definition planned_regions (context : prepared) : option region_plan :=
- controls<-prepared_controls context;; env<-prepared_environment context;; size<-capacity env;;
+ controls<-prepared_controls context;; env<-prepared_environment context;; size<-capacity (current_route context) env;;
  let previous:=previous_context context in
  let before:=value_or context previous in
  let first:=match previous with None=>true|_=>false end in
@@ -547,6 +555,7 @@ Definition planned_regions (context : prepared) : option region_plan :=
  let layout:=shell_mode_changed before context in
  let invalidate:=first || connected || layout in
  let main:=invalidate || (snapshot && main_world_changed before context) ||
+   (resized && match current_route context with Graphs=>true|_=>false end) ||
    context_route_changed before context || creation_changed before context ||
    main_local context incoming || negb online ||
    state_changed ["board"] before context ||
@@ -559,7 +568,7 @@ Definition planned_regions (context : prepared) : option region_plan :=
  let connection_notice_changed:=match connection_failure before,connection_failure context with
    |None,None=>false|Some previous,Some current=>negb(String.eqb previous current)|_,_=>true end in
  let notices:=invalidate || connection_notice_changed || section_changed "authoring" ["pending"] before context in
- let project part:=V.view_region part world current size in
+ let project part:=V.view_region part world current size (Layout.short_landscape env) in
  let base name nodes:=broad_change name (base_roots nodes) (cached_region controls name) in
  let nav_nodes:=if nav then project V.NavigationRegionPart else [] in
  let headers:=filter Document.is_header nav_nodes in
@@ -914,7 +923,7 @@ Definition stream_projection namespace source context next :=
       (fst coordinates)(snd coordinates)in
  if Navigation.task_visible current (Streams.stream_task(fst coordinates)) then
    edit<-projection;;
-   env<-prepared_environment next;; _<-capacity env;;
+   env<-prepared_environment next;; _<-capacity (current_route next) env;;
    match snd edit with
    |[]=>None
    |updates=>if stable_stream_context context next (fst edit)
