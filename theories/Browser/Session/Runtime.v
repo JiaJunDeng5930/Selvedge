@@ -10,7 +10,7 @@ From Selvedge.Browser.Session Require Configuration.
 From Selvedge.Browser.Session Require Import Input.
 From Selvedge.Programming Require Import Resource.
 From Selvedge.Browser.Session Require Import Services Speech ObjectActions.
-From Selvedge.Interaction Require Import Origin CommandAssessment.
+From Selvedge.Interaction Require Import Origin.
 From Selvedge.Browser Require Import Documents DocumentState.
 From Selvedge.Interaction.Submission Require Draft.
 From Selvedge.Browser.Session Require State Navigation Context Authoring Observation.
@@ -142,7 +142,7 @@ Definition complete namespace snapshot lagged ticket outcome state:=
    |None=>match Authoring.complete snapshot(SS.accepted_command pending)purpose outcome state with Some result=>result|None=>Authoring.keep state end end end end.
 Definition owns_action_panel subject panel :=
  match panel,subject with
- |SS.ObjectActionsPanel actual,_=>if CommandAssessment.object_subject_eq_dec actual subject then true else false
+ |SS.ObjectActionsPanel actual,_=>if Identity.object_subject_eq_dec actual subject then true else false
  |SS.CardDecisionPanel card _,CardActions source=>N.eqb card source
  |_,_=>false end.
 Definition menu_action snapshot subject key occurrence state:=

@@ -84,6 +84,20 @@ test('private identity publication and lost remote command receipts survive rest
   service = await Service.open(options);
   await service.remote.enable();
   await until(async () => (await service.remote.status()).connection.connected);
+
+  const submit = service.command.bind(service);
+  let statusQueries = 0;
+  service.command = (command, ...arguments_) => {
+    if (command.op === 'remote_status') statusQueries++;
+    return submit(command, ...arguments_);
+  };
+  assert.equal((await service.remote.enable()).enabled, true);
+  assert.equal(statusQueries, 0, 'Enabling an already enabled transport uses the command reply');
+  const unrelated = await service.command({ op: 'create_work', name: 'Unrelated local work' });
+  assert.equal(unrelated.reply.ok, true);
+  assert.equal(unrelated.durable, true);
+  assert.equal(statusQueries, 0, 'A durable commit outside remote authority needs no reconciliation query');
+
   await service.remote.pair();
   await until(() => service.remote.pending().some(request => request.request_id === pairing_id));
   assert.deepEqual(publishedGrants, []);

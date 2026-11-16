@@ -134,21 +134,22 @@ Definition remote_transport_states := map Variant.decoder_declaration remote_sta
 Definition remote_action tag fields `{DistinctNames ("kind" :: map field_name fields)} :=
  variant "kind" tag fields (map field_name fields).
 Definition remote_connect := remote_action "connect" [remote_generation].
-Definition remote_open := remote_action "open" [remote_generation].
+Definition remote_send_hello := remote_action "send_hello" [].
 Definition remote_retry := remote_action "retry" [remote_generation;Field "deadline" KNatural].
 Definition remote_heartbeat := remote_action "heartbeat" [remote_generation;Field "deadline" KNatural].
 Definition remote_ping := remote_action "ping" [].
 Definition remote_retire := remote_action "retire" [].
 Definition remote_mark_auth_failed := remote_action "auth_failed" [].
-Definition remote_transport_actions := [remote_connect;remote_open;remote_retry;remote_heartbeat;
+Definition remote_transport_actions := [remote_connect;remote_send_hello;remote_retry;remote_heartbeat;
  remote_ping;remote_retire;remote_mark_auth_failed].
 Definition remote_timed := [remote_generation;Field "now" KNatural].
 Definition remote_sampled := remote_timed ++ [Field "sample" KNatural].
 Definition remote_observation_decoders : list (Variant.decoder RT.observation) := [
  Variant.Decoder (remote_action "enable" []) (fun _ => Some RT.Enable);
  Variant.Decoder (remote_action "stop" []) (fun _ => Some RT.Stop);
- Variant.Decoder (remote_action "probe" (remote_sampled ++ [Field "status" KNatural]))
-   (fun v => Some (RT.Probe (head v) (head (tail (tail (tail v)))) (head (tail v)) (head (tail (tail v)))));
+ Variant.Decoder (remote_action "upgraded" [remote_generation]) (fun v => Some (RT.Upgraded (head v)));
+ Variant.Decoder (remote_action "handshake_refused" (remote_sampled ++ [Field "status" KNatural]))
+   (fun v => Some (RT.HandshakeRefused (head v) (head (tail (tail (tail v)))) (head (tail v)) (head (tail (tail v)))));
  Variant.Decoder (remote_action "lost" remote_sampled)
    (fun v => Some (RT.Lost (head v) (head (tail v)) (head (tail (tail v)))));
  Variant.Decoder (remote_action "rejected" [remote_generation]) (fun v => Some (RT.Rejected (head v)));
@@ -161,13 +162,16 @@ Definition remote_transport_observations := map Variant.decoder_declaration remo
 Definition remote_connector_actions := map RC.abi_variant RC.action_declarations.
 Definition remote_connector_states := map (fun value => RC.abi_variant (DeclarationFields.decoder_branch value)) RC.state_decoders.
 Definition remote_connector_observations := map (fun value => RC.abi_variant (DeclarationFields.decoder_branch value)) RC.event_decoders.
+Definition workspace_selection_body := [Field "value" KJson;Field "project_id" (KOptional KNatural)].
+Definition command_workspace_selection := variant "kind" "command" workspace_selection_body [].
+Definition task_workspace_selection := variant "kind" "task" workspace_selection_body [].
+Definition node_workspace_selection := variant "kind" "node" (workspace_selection_body ++ [Field "index" KNatural]) [].
 Definition unions := [Variant.declare_union "RemoteConnectorSessionAction" remote_connector_actions;Variant.declare_union "RemoteConnectorSessionState" remote_connector_states;Variant.declare_union "RemoteConnectorSessionObservation" remote_connector_observations;Variant.declare_union "CloudReadinessAction" cloud_readiness_actions;Variant.declare_union "RemoteTransportState" remote_transport_states;Variant.declare_union "RemoteTransportAction" remote_transport_actions;
  Variant.declare_union "RemoteTransportObservation" remote_transport_observations;
  Variant.declare_union "HttpPlan" http_plans;Variant.declare_union "BrowserObservationPlan" browser_plans;
+  Variant.declare_union "WorkspaceSelectionPlan" [command_workspace_selection;task_workspace_selection;node_workspace_selection];
  Variant.declare_union "DispatchAction" dispatch_actions;Variant.declare_union "AudioAction" audio_actions;Variant.declare_union "AudioTransportAction" audio_transport_actions].
-Definition workspace_command_fields := [Field "root_task" KBool;Field "worktree" KBool;Field "selections" (KArray KJson)].
-Definition workspace_selection_fields := [Field "value" KJson;Field "resolve_project" KBool].
-Definition workspace_settings_fields := [Field "project_id" (KOptional KNatural);Field "observe_workspace" KBool].
+Definition workspace_command_fields := [Field "worktree" KBool;Field "selections" (KArray KJson)].
 Definition http_remote_approval_fields := [Field "request_id" KText;Field "permissions" KJson].
 Definition http_permissions_fields := Selvedge.Features.Domain.rights_fields.
 Definition http_remote_revoke_fields := [Field "controller_id" KText].
@@ -178,8 +182,6 @@ Definition records : list (string * schema) := [
  ("CloudResourceTransition",CloudResources.transition_fields);
  ("RemoteTransportTransition",[Field "state" KJson;Field "actions" (KArray KJson)]);
  ("WorkspaceCommandPlan",workspace_command_fields);
- ("WorkspaceSelectionPlan",workspace_selection_fields);
- ("WorkspaceSettingsPlan",workspace_settings_fields);
  ("BrowserPath",[Field "path" KJson;Field "canonicalize" KBool]);
  ("DispatchTransition",[Field "state" KJson;Field "effects" (KArray KJson)]);
  ("AudioTransportBegin",[Field "token" KNatural;Field "effect" KJson]);

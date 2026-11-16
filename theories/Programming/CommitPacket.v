@@ -26,7 +26,15 @@ Definition finalize (before : world) (chosen : selected) : world * json :=
     boundary. Only an issued obligation or a different recovery image needs
     a row. A scheduler wakeup can be delivered without advancing the cursor. *)
 Definition needs_commit_effect (request : effect) :=
- match request with ContinueScheduling => false | _ => true end.
+ match request with
+ | ContinueScheduling => false
+ | ObserveContext _ _ _ | RequestModel _ | RequestReasoning _ _ _
+ | ExecuteTool _ _ _ _ _ _ _ | RequestApproval _ _ _ _ _
+ | CheckTool _ _ _ _ _ | CheckResult _ _ _ _ _ _ _
+ | ResetModelSession _ | CancelTask _ | CancelTicket _ _
+ | CreateWorktree _ _ _ _ | ArchiveWorktree _ _ _ _
+ | RequestFeature _ | CancelConnectionJob _ | MaintainContext _ => true
+ end.
 Definition needs_commit (same_image : world -> world -> bool) (before : world) (result : decision) :=
  existsb needs_commit_effect (decision_effects result) ||
  negb (same_image before (decision_world result)).

@@ -1,6 +1,6 @@
 From Selvedge.Programming Require Variant.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json TextJson.
+From Selvedge.Foundation Require Import Json TextJson RemoteIdentity.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Kernel Require Import HookRules Numbers Domain Codec State Observation Inputs Delivery RequestReceiver.
 From Selvedge.Kernel Require ModelDeclarations.
@@ -87,7 +87,8 @@ Definition input_events (source : option input) (before after : world) := match 
        (JObject [("ticket",number ticket);("kind",JString "model");("outcome",model_outcome_json outcome)])
      | None => [] end | None => [] end
  | Some Recover => event "recovered" None None JNull (environment_plugins (world_environment after))
- | Some (Configure _) => event "configured" None None (JArray (environment_plugins (world_environment after))) (environment_plugins (world_environment after))
+ | Some (Configure _) | Some (ConfigureCatalog _ _) =>
+   event "configured" None None (JArray (environment_plugins (world_environment after))) (environment_plugins (world_environment after))
  | _ => [] end.
 Definition effect_events (after : world) (output : effect) :=
  let emit id kind payload := match find_task id after with Some value => task_event id value kind None payload | None => [] end in
@@ -120,3 +121,15 @@ Definition envelope (durable admitted : bool) (source : option input) (before : 
  | notices => let enriched := enriched_envelope durable result notices in
    if Delivery.fits_json enriched then enriched else base
  end else base.
+
+(** The relay consumes only enabled transport grants. Native receipt changes
+    and the rights enforced by the local journal do not update its transport. *)
+Definition remote_transport_authority (value : world) :=
+ let state := Selvedge.Features.Domain.feature_remote (world_features value) in
+ if Selvedge.Features.Domain.remote_enabled state then
+   JArray (map (fun grant => JArray [JString (controller_text (Selvedge.Features.Domain.grant_controller grant));
+      number (epoch_number (Selvedge.Features.Domain.grant_epoch grant))])
+     (Selvedge.Features.Domain.remote_grants state))
+ else JNull.
+Definition remote_reconciliation_needed before after :=
+ negb (Json.equal (remote_transport_authority before) (remote_transport_authority after)).

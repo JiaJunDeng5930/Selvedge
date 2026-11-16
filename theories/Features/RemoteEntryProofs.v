@@ -58,7 +58,7 @@ Proof.
    rewrite Valid, Fresh, Space. reflexivity. }
  assert (Configuration : Remote.configuration_allowed
    (G.Cmd_stop stop_first_payload) JNull = true) by reflexivity.
- unfold Remote.execute_remote. rewrite Configuration, Authorize.
+ unfold Remote.execute_remote, Remote.execute_remote_with. rewrite Configuration, Authorize.
  cbn [stop_first_wire Remote.observation_command Remote.required_rights].
  assert (Decoded : G.decode stop_first_wire = Some (G.Cmd_stop stop_first_payload)) by reflexivity.
  unfold G.decode in Decoded.

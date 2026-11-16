@@ -132,7 +132,7 @@ test('format 28 upgrades through the normal handoff and preserves conversations 
     const db = new DatabaseSync(filename);
     try {
       assert.equal(db.prepare("SELECT value FROM meta WHERE key = 'format'").get().value, journalFormat);
-      assert.deepEqual(db.prepare('SELECT DISTINCT replay_version FROM journal ORDER BY replay_version').all().map(row => row.replay_version), [28, 30]);
+      assert.deepEqual(db.prepare('SELECT DISTINCT replay_version FROM journal ORDER BY replay_version').all().map(row => row.replay_version), [28, 31]);
     } finally { db.close(); }
   } finally { await initial.close(); }
 
@@ -203,6 +203,35 @@ test('an unsuccessful migration leaves the historical format intact', async t =>
   const before = await readFile(filename);
   await assert.rejects(Journal.open(filename), /Committed input incompatibility/);
   assert.deepEqual(await readFile(filename), before);
+});
+
+test('format 30 preserves versioned rows and restores an existing root', async t => {
+  const directory = await home(t);
+  const filename = path.join(directory, 'journal.sqlite');
+  const fixture = new URL('./fixtures/journal-format30-root.sqlite.gz', import.meta.url);
+  await writeFile(filename, gunzipSync(await readFile(fixture)), { mode: 0o600 });
+  const storedRows = () => {
+    const database = new DatabaseSync(filename);
+    try { return database.prepare('SELECT seq, input, observed_at, replay_version FROM journal ORDER BY seq').all(); }
+    finally { database.close(); }
+  };
+  const original = storedRows();
+  assert.ok(original.length > 0 && original.every(row => row.replay_version === 30));
+  const journal = await Journal.open(filename);
+  try {
+    assert.deepEqual(storedRows(), original);
+    const read = () => journal.execute({ kind: 'command', command: { op: 'read', task_id: 0 } });
+    assert.match(JSON.stringify((await read()).reply.result.messages), /Original format 30 conversation/);
+    const created = await journal.execute({ kind: 'command', command: { op: 'create_idle', profile: 'demo' } });
+    assert.equal(created.reply.ok, true, JSON.stringify(created.reply));
+    assert.equal(storedRows().at(-1).replay_version, 31);
+  } finally { await journal.close(); }
+  await rm(`${filename}.checkpoint`);
+  const restored = await Journal.open(filename);
+  try {
+    const { reply } = await restored.execute({ kind: 'command', command: { op: 'list' } });
+    assert.equal(reply.result.tasks.length, 2);
+  } finally { await restored.close(); }
 });
 
 test('an unsupported durable journal is rejected without conversion', async t => {

@@ -5,7 +5,7 @@ import path from 'node:path';
 import { shellQuote } from './cloud-environments.mjs';
 import { readControlRecord, writeControlRecord as saveReceipt, durableDirectory } from './control-records.mjs';
 import { canonicalWorkspace } from './sandbox.mjs';
-import { snapshotProject } from './project.mjs';
+import { snapshotWorkspaceGuidance } from './project.mjs';
 import { boundary } from './public/model-boundary.mjs';
 import { naturalKey } from './codec.mjs';
 import { runLocalResourceController } from './resource-runtime.ts';
@@ -55,10 +55,9 @@ export async function observeWorkspaceGit(primary, { signal, environment } = {})
     throw error;
   }
   try {
-    const root = await (environment?.filesystem.realpath ?? realpath)(primary);
-    if ((await git(root, ['rev-parse', '--is-inside-work-tree'], { signal, environment })).trim() !== 'true') return false;
-    await git(root, ['rev-parse', '--verify', 'HEAD^{commit}'], { signal, environment });
-    return true;
+    const [inside] = (await git(primary, ['rev-parse', '--is-inside-work-tree', '--verify', 'HEAD^{commit}'],
+      { signal, environment })).split('\n', 1);
+    return inside === 'true';
   } catch (error) {
     signal?.throwIfAborted();
     // DEFENSE: A selected path may disappear, Git may be absent, or Git may reject a nonrepository/unborn HEAD;
@@ -194,9 +193,11 @@ export async function createManagedWorktree(effect, { home, limits, signal } = {
     files = await locations(home, effect.task_id);
     root = files.active;
     const primary = await realpath(effect.source_root);
-    repository = await realpath((await git(primary, ['rev-parse', '--show-toplevel'], { signal })).trim());
+    const source = (await git(primary, ['rev-parse', '--show-toplevel', '--verify', 'HEAD^{commit}'], { signal })).trimEnd();
+    const split = source.lastIndexOf('\n');
+    repository = await realpath(source.slice(0, split));
     boundary('effect.worktree_path', { operation: 'source', home: files.home, primary, repository });
-    const commit = (await git(repository, ['rev-parse', '--verify', 'HEAD^{commit}'], { signal })).trim();
+    const commit = source.slice(split + 1);
     const configuration = await worktreeGitConfiguration(repository, signal);
     const patch = await git(repository, [...configuration, 'diff', '--binary', '--no-ext-diff', '--no-textconv', commit, '--'], { signal, encoding: 'buffer' });
     const untracked = (await git(repository, ['ls-files', '--others', '--exclude-standard', '-z'], { signal })).split('\0').filter(Boolean);
@@ -236,7 +237,7 @@ export async function createManagedWorktree(effect, { home, limits, signal } = {
         const workspace = await canonicalWorkspace(boundary('effect.worktree_workspace', {
           workspace: effect.workspace, previous: primary, next: nextPrimary, descendants: false,
         }));
-        const guidance = await snapshotProject(workspace.primary_root, limits, { signal });
+        const guidance = await snapshotWorkspaceGuidance(workspace.primary_root, limits, { signal });
         return { kind: 'local_created', root, workspace, guidance };
       },
     });
@@ -306,7 +307,7 @@ export async function reconcileManagedWorktree(entry, { home, limits } = {}) {
         }
         const workspace = await canonicalWorkspace(state.workspace);
         return { kind: 'local_observed', root: state.root, workspace,
-          guidance: await snapshotProject(workspace.primary_root, limits) };
+          guidance: await snapshotWorkspaceGuidance(workspace.primary_root, limits) };
       },
     });
     if (result.errors.length) throw result.errors[0];

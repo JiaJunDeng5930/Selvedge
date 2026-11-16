@@ -164,7 +164,9 @@ Definition prepared_world configuration value : option world := match configurat
  | _=>option_map (fun environment=>with_environment environment value) (Configuration.parse_environment configuration) end.
 Definition schedules (command : G.command) result := bool_default "ok" (decision_reply result) false &&
  match command with Selvedge.Generated.Commands.Cmd_create_idle _=>false | _=>true end.
-Definition execute_remote (execute:Scheduler.executor) prepared configuration request original value : bool*bool*decision :=
+Definition execute_remote_with (execute:Scheduler.executor)
+ (select : json -> G.command -> world -> option decision)
+ prepared configuration request original value : bool*bool*decision :=
  let query:=observation_command original in
  let denied code reason:=(negb query,false,reject code reason value) in
  (* Check even for queries, whose execution deliberately skips prepared worlds. *)
@@ -181,26 +183,29 @@ Definition execute_remote (execute:Scheduler.executor) prepared configuration re
          (fun rights=>prepared_rights rights granted) with
        | C.Rejected reason=>denied (C.refusal_code reason) (C.refusal_message reason)
        | C.Accepted _=>if query then let result:=execute command None value in
-         (false,false,Decision value (decision_reply result) []) else match prepared_world configuration value with
+         (false,false,Decision value (decision_reply result) []) else match select configuration command value with
          | None=>denied "invalid_input" "The prepared remote environment is malformed"
-         | Some prepared=>let result:=execute command None prepared in
-           let result:=record_result request value result in (true,schedules command result,result)
+         | Some result=>let result:=record_result request value result in (true,schedules command result,result)
          end end
        else denied "remote_intent_mismatch" "The prepared remote command must retain the original operation"
        (* DEFENSE: Native callers can submit same-name task graphs whose prepared nodes no longer create the root task named by the intent. *)
        else denied "invalid_input" "Remote environment observations are limited to task creation"
      | None=>denied "invalid_input" "The prepared remote command is malformed" end
  end else denied "invalid_input" "Remote environment observations are limited to task creation".
+Definition execute_remote (execute:Scheduler.executor) :=
+ execute_remote_with execute (fun configuration command value =>
+   option_map (execute command None) (prepared_world configuration value)).
+Definition request_coordinates :=
+ [Field "controller_id" KText;Field "grant_epoch" KNatural;Field "request_id" KText;Field "intent" KJson].
 Definition preparation_fields (prepared : bool) :=
  if prepared then [Field "command" KJson;Field "configuration" KJson] else [].
-Definition request_schema (prepared : bool) := List.app
- [Field "controller_id" KText;Field "grant_epoch" KNatural;Field "request_id" KText;Field "intent" KJson]
- (preparation_fields prepared).
-Definition request_from_values (prepared : bool) (values : Schema.fields (request_schema prepared)) :=
+Definition request_schema (prepared : bool) := List.app request_coordinates (preparation_fields prepared).
+Definition request_with_fields (extra : schema) (values : Schema.fields (request_coordinates ++ extra)%list) :=
  let controller := Schema.head values in let values := Schema.tail values in
  let epoch := Schema.head values in let values := Schema.tail values in
  let id := Schema.head values in let values := Schema.tail values in
  (Request (ControllerId controller) (GrantEpoch epoch) (RequestId id) (Schema.head values),Schema.tail values).
+Definition request_from_values prepared := request_with_fields (preparation_fields prepared).
 Definition complete_request (execute : Scheduler.executor) (prepared : bool) (request : request)
  (observations : Schema.fields (preparation_fields prepared)) value : bool * bool * decision :=
  match Selvedge.Generated.Commands.admit (intent request) with
@@ -213,6 +218,18 @@ Definition complete_request (execute : Scheduler.executor) (prepared : bool) (re
 Definition request_handler execute prepared fields :=
  let '(request,observations) := request_from_values prepared fields in
  Some (complete_request execute prepared request observations).
+Definition creation_fields := [Field "command" KJson; Field "creation_facts" KJson].
+Definition creation_input (execute : Scheduler.executor)
+ (select : json -> G.command -> world -> option decision) :=
+ InputRoute.object "remote_root_command" (request_coordinates ++ creation_fields)%list
+   (fun fields =>
+     let '(request, observed) := request_with_fields creation_fields fields in
+     Some (fun value =>
+       match G.admit (intent request) with
+       | Some admitted => execute_remote_with execute select (Schema.head observed)
+           (Schema.head (Schema.tail observed)) request (G.admitted_value admitted) value
+       | None => (false,false,reject "invalid_input" "Malformed original remote command" value)
+       end)).
 Definition completion_inputs (execute : Scheduler.executor) := [
  InputRoute.object "remote_check" [Field "controller_id" KText;Field "grant_epoch" KNatural]
    (fun fields => Some (fun value => (false,false,

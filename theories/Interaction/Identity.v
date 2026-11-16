@@ -67,6 +67,8 @@ Proof. repeat decide equality. Defined.
 Definition same_editor (a b : editor) : bool := if editor_eq_dec a b then true else false.
 Definition id_text id := match id with None => "new" | Some n => show_natural n end.
 Inductive object_subject := TaskActions(task:N)|ProjectActions(project:N)|CardActions(card:N)|GraphActions(graph:N).
+Definition object_subject_eq_dec : forall a b : object_subject, {a = b} + {a <> b}.
+Proof. decide equality; apply N.eq_dec. Defined.
 Definition object_identity subject := match subject with
  |TaskActions id=>("task",id)|ProjectActions id=>("project",id)|CardActions id=>("card",id)|GraphActions id=>("graph",id)end.
 Definition encode_object_subject subject := let '(kind,id):=object_identity subject in

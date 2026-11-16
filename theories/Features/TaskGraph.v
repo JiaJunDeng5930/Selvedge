@@ -296,7 +296,18 @@ Definition send_delivery (source:N) (item:delivery) : DecisionComposition.step :
  (decision_effects sent).
 Definition react_output (source:N) (output:string) : DecisionComposition.step := fun value effects =>
  DecisionComposition.each (pending_deliveries source output value) (send_delivery source) value effects.
+Definition has_delivery_rules graph :=
+ match graph with
+ | Some value => match Selvedge.Features.Domain.graph_rules value with [] => false | _ => true end
+ | None => false
+ end.
 Definition after_transition (before:world) : DecisionComposition.step := fun value effects =>
- DecisionComposition.each (indexed (fun id task=>(id,task)) 0 (world_tasks value))
- (fun pair=>DecisionComposition.each (new_outputs before (fst pair) (snd pair))
-   (react_output (fst pair))) value effects.
+ if existsb has_delivery_rules (registry value) then
+   DecisionComposition.each (indexed (fun id task=>(id,task)) 0 (world_tasks value))
+   (fun pair=>DecisionComposition.each (new_outputs before (fst pair) (snd pair))
+     (react_output (fst pair))) value effects
+ else DecisionComposition.unchanged value.
+Theorem after_transition_without_rules before value effects :
+ existsb has_delivery_rules (registry value) = false ->
+ after_transition before value effects = DecisionComposition.unchanged value.
+Proof. intro Empty. unfold after_transition. now rewrite Empty. Qed.

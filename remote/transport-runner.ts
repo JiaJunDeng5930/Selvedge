@@ -12,7 +12,7 @@ export interface TransportSettings {
 export interface TransportIO {
   install(state: RemoteTransportState): void;
   connect(generation: number): void;
-  open(generation: number): void;
+  sendHello(): void;
   retry(generation: number, deadline: number): void;
   heartbeat(generation: number, deadline: number): void;
   ping(): void;
@@ -32,7 +32,7 @@ export function observeTransport(state: RemoteTransportState, observation: Remot
     const action = decodeRemoteTransportAction(raw);
     switch (action.kind) {
       case 'connect': io.connect(action.generation); continue;
-      case 'open': io.open(action.generation); continue;
+      case 'send_hello': io.sendHello(); continue;
       case 'retry': io.retry(action.generation, action.deadline); continue;
       case 'heartbeat': io.heartbeat(action.generation, action.deadline); continue;
       case 'ping': io.ping(); continue;

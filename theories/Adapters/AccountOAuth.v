@@ -69,8 +69,3 @@ Definition code_grant_checks source := success (JObject [
 Definition record_read_failure source := success (JBool
   (boolean_field source "optional" && same (get source "code") (JString "ENOENT"))).
 Definition record_parse_failure (_ : json) := err "Invalid ChatGPT authentication record; sign in again".
-Definition candidate_read source :=
-  let read := get source "read" in
-  let action := if boolean_field read "ok" then "accept"
-    else if same (get (get read "error") "code") (JString "ENOENT") then "skip" else "fail" in
-  success (JString action).

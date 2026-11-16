@@ -399,16 +399,15 @@ Definition action_context e:=match e with Identity.NewTask _=>Creation|Identity.
 Definition action_unit_for state e:Model.action_unit e:=let draft:=EC.current_draft state e in
  ActionUnit(ActionIdentity(Draft.revision draft))(action_context e)
  (EC.editor_pending(EC.observed state)e).
-Definition card_save_consequence snapshot state (draft:Draft.draft) :=
+Definition card_save_consequence snapshot state card (draft:Draft.draft) :=
  let context:=EC.observed state in
- let owner:=CommandAssessment.DraftOwner(Draft.owner draft) in
  let revision:=Draft.revision draft in
- sequence<-natural_field "sequence" snapshot;;
+ facts<-field "card_save_facts" snapshot;;
  command<-Command.command(EC.current_time context)draft;;
- match find(CommandAssessment.owned_assessment owner)(EC.command_assessments context) with
+ match find(CommandAssessment.owned_assessment card)(EC.command_assessments context) with
  |Some(Loaded _ request observation)=>
-  if CommandAssessment.matches owner revision sequence command request &&
-     CommandAssessment.current_owned owner revision sequence observation then
+  if CommandAssessment.matches card revision command request &&
+     CommandAssessment.current card revision facts observation then
    match CommandAssessment.observed_admission observation with
    |CommandAssessment.Admitted=>CommandAssessment.observed_card_save_consequence observation
    |CommandAssessment.Refused _ _=>None end

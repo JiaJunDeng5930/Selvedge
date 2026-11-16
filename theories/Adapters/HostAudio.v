@@ -17,8 +17,6 @@ Definition session_step (source : json) :=
     else if String.eqb kind "delivered" then Some (AudioSession.ProgressDelivered (num observed "token"))
     else if String.eqb kind "creation_failed" then Some AudioSession.CreationFailed
     else if String.eqb kind "connected" then Some AudioSession.Connected
-    else if String.eqb kind "cursor" then let page := get observed "page" in
-      Some (AudioSession.InitialCursor (num page "after" + N.of_nat (List.length (items (get page "messages"))))%N)
     else if String.eqb kind "page" then
       let updates := Audio.task_progress Conversation.json_message_assistant Conversation.json_message_content (get observed "page") in
       Some (AudioSession.ProgressPage (num observed "token") (get observed "page") updates) else None in

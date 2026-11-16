@@ -3,7 +3,7 @@ From Selvedge.Foundation Require Import Json.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Features Require Import BoardFilter.
 From Selvedge.Browser Require Import NavigationIdentity.
-From Selvedge.Interaction Require Import Codec Identity CommandAssessment CardDecisions.
+From Selvedge.Interaction Require Import Codec Identity CardDecisions.
 From Selvedge.Browser.Session Require Import Input Services Speech ObjectActions.
 From Selvedge.Browser.Session Require State Navigation Authoring.
 From Selvedge.Interaction.Experience Require Model Activity.
@@ -52,7 +52,7 @@ Definition describe snapshot state input:P.purpose:=match input with
 |Input.OpenEditor owner trigger=>P.DialogTrigger(editor_purpose owner)(panel_open trigger state)
 |Input.Navigate route=>P.NavigateTo(route_symbol route)
 |Input.OpenObjectActions subject _=>P.MoreActions(match State.layers(State.navigation_state state)with
- |layer::_=>match State.layer_panel layer with State.ObjectActionsPanel actual=>if CommandAssessment.object_subject_eq_dec subject actual then true else false|_=>false end|[]=>false end)
+ |layer::_=>match State.layer_panel layer with State.ObjectActionsPanel actual=>if Identity.object_subject_eq_dec subject actual then true else false|_=>false end|[]=>false end)
 |Input.MenuAction subject key trigger=>match ObjectActions.resolve snapshot state subject key with
  |Some action=>match ObjectActions.command action with Some command=>command_purpose command|None=>match ObjectActions.action_operation action with
   ObjectActions.Editor owner=>P.DialogTrigger(editor_purpose owner)(editor_open owner state)
@@ -109,7 +109,7 @@ Definition describe snapshot state input:P.purpose:=match input with
    |_=>P.Connect false (Services.connection_failure connection) end
  |Services.OpenSettings=>P.ApplicationSettings(Services.settings_open(State.service_state state))
  |Services.CloseSettings|Services.ClosePreview=>P.Dismiss|Services.CloseDirectory=>P.NamedAction
- |Services.RetryUpload _|Services.RetryAssessment _=>P.RetryTransfer
+ |Services.RetryUpload _=>P.RetryTransfer
  |Services.CancelUpload _=>P.AbortOperation|Services.OpenPreview _ _=>P.PreviewFile|Services.Download _=>P.DownloadFile
  |Services.OpenDirectory _ _ trigger=>P.OpenPanel "folder"false
   (match Selvedge.Programming.Resource.resource_request(Services.directory(State.service_state state))with

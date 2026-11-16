@@ -57,10 +57,9 @@ export async function provisionRemote({ home, relayUrl, enrollmentToken, allowLo
     if (error.code !== 'remote_identity_missing') throw error;
     const proposed = { format: identityFormat, host_id: randomUUID(), host_token: randomBytes(32).toString('base64url'), relay_url };
     const filename = path.join(home, identityName);
-    await publishBytes(filename, Buffer.from(JSON.stringify(proposed) + '\n'), { mode: 'create-if-absent' });
-    // A concurrent initializer can win publication. Always admit the completed
-    // winner from disk before registering this installation's identity.
-    identity = await readIdentity(home, relay_url);
+    const publication = await publishBytes(filename, Buffer.from(JSON.stringify(proposed) + '\n'), { mode: 'create-if-absent' });
+    // Another initializer's file needs admission before its identity may register.
+    identity = publication === 'created' ? proposed : await readIdentity(home, relay_url);
   }
   let registered;
   try {
@@ -108,10 +107,7 @@ export class RemoteControl {
         const relayUrl = assertRelayUrl(service.config.remote.relay_url, { allowLoopback: options.allowLoopback === true });
         manager.#identity = await readIdentity(service.home, relayUrl);
       }
-      if (manager.#identity) {
-        if (options.deferConnect) await manager.#nativeStatus();
-        else await manager.#reconcile();
-      }
+      if (manager.#identity && !options.deferConnect) await manager.#reconcile();
       return manager;
     // DEFENSE: Opening a configured identity or starting its socket may fail; close already-acquired resources before propagating.
     } catch (error) {
@@ -124,12 +120,13 @@ export class RemoteControl {
     return unwrap(await this.#service.command({ op: 'remote_status' }));
   }
 
-  async status() {
-    const state = await this.#nativeStatus();
+  #statusView(state) {
     return { configured: Boolean(this.#identity), relay_url: this.#identity?.relay_url ?? null,
       host_id: this.#identity?.host_id ?? null, ...state,
       connection: this.#connector?.status() ?? { state: 'disabled' } };
   }
+
+  async status() { return this.#statusView(await this.#nativeStatus()); }
 
   #configured() {
     // DEFENSE: Local management requests can arrive after shutdown or before the owner has initialized remote control.
@@ -143,18 +140,22 @@ export class RemoteControl {
     if (!(await this.#nativeStatus()).enabled) throw remoteError('remote_disabled', 'Enable remote control before pairing a device');
   }
 
+  async #manage(command, afterCommit) {
+    const decision = await this.#service.command(command);
+    const result = unwrap(decision);
+    afterCommit?.();
+    // The synchronous commit notification has already started reconciliation.
+    if (decision.reconcileRemote) await this.#reconciling;
+    return result;
+  }
+
   async enable() {
     this.#configured();
-    unwrap(await this.#service.command({ op: 'remote_enable' }));
-    await this.reconcile();
-    return this.status();
+    return this.#statusView(await this.#manage({ op: 'remote_enable' }));
   }
 
   async disable() {
-    unwrap(await this.#service.command({ op: 'remote_disable' }));
-    this.#pairingStep('clear');
-    await this.reconcile();
-    return this.status();
+    return this.#statusView(await this.#manage({ op: 'remote_disable' }));
   }
 
   async pair() {
@@ -177,17 +178,11 @@ export class RemoteControl {
     const request = this.#pairingState.pending.find(request => request.request_id === request_id);
     // DEFENSE: A local approve request can name an expired, already-consumed, or nonexistent pairing request.
     if (!request) throw remoteError('remote_pairing_missing', 'This pairing request is unavailable or expired');
-    const result = unwrap(await this.#service.command({ op: 'remote_grant', controller_id: request.controller_id, permissions }));
-    this.#pairingStep('consume', { now: Date.now(), request_id });
-    await this.reconcile();
-    return result;
+    return this.#manage({ op: 'remote_grant', controller_id: request.controller_id, permissions },
+      () => this.#pairingStep('consume', { now: Date.now(), request_id }));
   }
 
-  async revoke(controller_id) {
-    const result = unwrap(await this.#service.command({ op: 'remote_revoke', controller_id }));
-    await this.reconcile();
-    return result;
-  }
+  revoke(controller_id) { return this.#manage({ op: 'remote_revoke', controller_id }); }
 
   reconcile() {
     if (this.#closed || !this.#identity) return Promise.resolve();

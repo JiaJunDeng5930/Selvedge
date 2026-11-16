@@ -19,7 +19,8 @@ async function until(condition) {
 test('remote transport retries an outage, detects missing pongs, and stops after rejected authentication', async t => {
   const directory = await home(t);
   const enrollmentToken = randomBytes(32).toString('base64url');
-  let probes = 0;
+  let handshakeRequests = 0;
+  let plainRequests = 0;
   let connections = 0;
   let pings = 0;
   let rejectAuthentication = false;
@@ -30,10 +31,13 @@ test('remote transport retries an outage, detects missing pongs, and stops after
         return Response.json({ host_id: body.host_id });
       }
       if (request.headers.get('upgrade') === 'websocket') {
+        handshakeRequests++;
+        if (rejectAuthentication) return new Response(null, { status: 401 });
+        if (handshakeRequests === 1) return new Response(null, { status: 503 });
         if (server.upgrade(request)) return;
       }
-      probes++;
-      return new Response(null, { status: rejectAuthentication ? 401 : probes === 1 ? 503 : 426 });
+      plainRequests++;
+      return new Response(null, { status: 426 });
     },
     websocket: {
       open() { connections++; rejectAuthentication = true; },
@@ -54,9 +58,10 @@ test('remote transport retries an outage, detects missing pongs, and stops after
   } });
   await service.remote.enable();
   await until(async () => (await service.remote.status()).connection.state === 'auth_failed');
+  assert.equal(plainRequests, 0, 'Only real WebSocket handshakes reach the host endpoint');
+  assert.equal(handshakeRequests, 3, 'Outage, accepted connection and credentials rejected on the next attempt');
   assert.equal(connections, 1);
   assert.ok(pings > 0, 'A real WebSocket carried the heartbeat before its deadline expired');
-  const stoppedAt = probes;
   await delay(100);
-  assert.equal(probes, stoppedAt, 'Rejected credentials stop further HTTP probes');
+  assert.equal(handshakeRequests, 3, 'Rejected credentials stop further connections');
 });

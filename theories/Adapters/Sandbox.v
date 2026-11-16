@@ -11,15 +11,15 @@ Definition launch_context (source : json) :=
     ("cwd",get bound "cwd");("projectOnly",get bound "projectOnly");("writableRoots",get bound "writableRoots");
     ("scratch",get source "scratch");("protectedRoots",get source "protectedRoots");
     ("managedWorktreeRoot",get source "managedWorktreeRoot");("runtimeReads",get source "runtimeReads")].
-Definition security_admission (source : json) :=
-  next (managed_worktree_admission (launch_context source))
-    (protected_workspace (launch_context source)).
+Definition security_admission (context : json) :=
+  next (managed_worktree_admission context) (protected_workspace context).
+Definition darwin (source : json) := String.eqb (str (get source "options") "platform") "darwin".
 Fixpoint numbered_bindings (descriptor : N) (entries : list json) :=
   match entries with [] => [] | entry::rest =>
     JObject [("root",get entry "root");("readonly",get entry "readonly");("descriptor",number descriptor)] :: numbered_bindings (N.succ descriptor) rest end.
-Definition expected_bindings (source : json) := JArray (numbered_bindings 4 (items (bindings (launch_context source)))).
 Definition linux_launch (source : json) :=
-  let context := launch_context source in let expected := expected_bindings source in
+  let context := launch_context source in
+  let expected := JArray (numbered_bindings 4 (items (get source "bindings"))) in
   success (JObject [("prefix",linux_prefix (set context "bindings" expected));("cwd",get context "cwd")]).
 Definition seatbelt_source (source : json) :=
   set (set (Seatbelt.seatbelt_input (launch_context source)) "protectedAncestors" (get source "protectedAncestors")) "readAncestors" (get source "readAncestors").
@@ -28,11 +28,12 @@ Definition darwin_launch (source : json) :=
   let profile := Seatbelt.seatbelt (seatbelt_source source) in
   success (JObject [("prefix",darwin_prefix (JObject [("profile",profile)]));("cwd",get context "cwd")]).
 Definition sandbox_prepare (source : json) :=
-  next (security_admission source)
-    (success (JObject [("bindings",bindings (launch_context source))])).
+  let context := launch_context source in
+  next (security_admission context)
+    (if darwin source then success JNull
+     else success (JObject [("bindings",bindings context)])).
 Definition sandbox_launch (source : json) :=
-  if String.eqb (str (get source "options") "platform") "darwin"
-  then darwin_launch source else linux_launch source.
+  if darwin source then darwin_launch source else linux_launch source.
 Definition unrestricted_launch (source : json) :=
   let cwd := get (Workspaces.execution_context (get source "workspace") (get source "plan")) "cwd" in
   success (JObject [("file",JString "/bin/bash");("prefix",JArray [JString "--noprofile";JString "--norc"]);("cwd",cwd)]).

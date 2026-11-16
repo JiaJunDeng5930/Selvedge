@@ -427,6 +427,10 @@ test('assisted card creation can fall back to manual save when no drafting model
 
 test('card save shows whether a model will start, wait, or remain manual', async t => {
   const { page, command, running, requests, finish } = await browserFixture(t);
+  let assessments = 0;
+  page.on('request', request => {
+    if (request.url().endsWith('/api/assess')) assessments++;
+  });
   const settings = automatic => command({ op: 'board_settings', automatic, draft_profile: 'interactive' });
   await settings(true);
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
@@ -455,6 +459,11 @@ test('card save shows whether a model will start, wait, or remain manual', async
   }
   assert.ok(prediction.y + prediction.height <= submit.y);
   await page.setViewportSize({ width: 1280, height: 900 });
+  const assessed = assessments;
+  const { task_id } = await command({ op: 'create_idle', profile: 'demo' });
+  await page.getByText(`Task #${task_id}`, { exact: true }).waitFor({ state: 'attached' });
+  await consequence(first, '只保存卡片。移到「待办」可自动排队。');
+  assert.equal(assessments, assessed, 'Unrelated commits retain the board preview without a request');
   const optionFields = ['状态', '优先级', '负责人', '所属项目']
     .map(name => first.getByRole('combobox', { name, exact: true }));
   await page.waitForFunction(ids => {

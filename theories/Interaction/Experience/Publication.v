@@ -2,7 +2,7 @@ From Selvedge.Features Require Workflow.
 From Stdlib Require Import String List NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Numbers Domain Codec Context State Tasks ContextUpdates Observation Workspace.
-From Selvedge.Kernel Require ContextTypes.
+From Selvedge.Kernel Require ContextTypes FeatureRequestAdmission.
 From Selvedge.Features Require BoardFacts CompactionCodec Observation.
 
 Module Features := Selvedge.Features.Observation.
@@ -113,6 +113,34 @@ Definition display_tool_json tool :=
  match tool_icon tool, tool_json tool with
  | Some source, JObject fields => JObject (fields ++ [("icon",JString source)])
  | _, value => value end.
+
+(** A card preview depends on the admitted board revision, queue, drafting
+    eligibility and linked execution activity. Use the same observation for
+    live publication and for the world actually used to assess a proposal. *)
+Definition card_save_facts (value : world) :=
+ let board := BoardFacts.registry value in
+ let cards := Selvedge.Features.Domain.board_cards board in
+ JObject [
+  ("automatic", JBool (Selvedge.Features.Domain.board_automatic board));
+  ("draft_profile", JString (Selvedge.Features.Domain.board_draft_profile board));
+  ("identity_available", JBool (N.ltb (N.of_nat (List.length cards)) 4294967295));
+  ("order", JArray (map number (Selvedge.Features.Domain.board_order board)));
+  ("cards", JArray (Features.present_values (fun id card => JArray [
+    number id;
+    number (Selvedge.Features.Domain.card_revision card);
+    JBool (BoardFacts.busy card value);
+    JBool (BoardFacts.has_workflow id value);
+    JBool (BoardFacts.workflow_in_progress id value)]) cards));
+  ("projects", JArray (map (fun item => number (fst item))
+    (filter (fun item => negb (project_deleted (snd item)))
+      (indexed (fun id project => (id,project)) 0 (world_projects value)))));
+  ("drafting_profiles", JArray (map (fun profile => JString (profile_key profile))
+    (filter FeatureRequestAdmission.ordinary_profile (environment_profiles (world_environment value)))))].
+
+Theorem card_save_facts_ignore_journal_cursor value cursor :
+ card_save_facts (with_sequence cursor value) = card_save_facts value.
+Proof. destruct value; reflexivity. Qed.
+
 Definition world_json (value : world) :=
  let features := world_features value in JObject [
  ("sequence", number (world_sequence value));
@@ -126,6 +154,7 @@ Definition world_json (value : world) :=
  ("works", JArray (indexed Features.work_json 0 (Selvedge.Features.Domain.feature_works features)));
  ("graphs", JArray (Features.present_values graph_snapshot (Selvedge.Features.Domain.feature_graphs features)));
  ("board", Selvedge.Features.Observation.board_json_in_world value);
+ ("card_save_facts", card_save_facts value);
  ("workflows", Workflow.definitions_json value);
  ("workflow_instances", Workflow.instances_json value);
  ("ticket_workflows", Workflow.ticket_bindings_json value);

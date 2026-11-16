@@ -456,7 +456,8 @@ Definition edit_actions {A e}(subject:UX.subject e)(value:edit_control A):list A
  end.
 
 Definition meaning_actions {A}(content:meaning A):list A:=match content with
-|SettingEntry _ _ action|ActionCommit _ _ action|SupportingControl _ _ _ action
+|ActionCommit _ _ action=>match press_control action with Some input=>[input]|None=>[]end
+|SettingEntry _ _ action|SupportingControl _ _ _ action
 |TaskHistoryCard _ _ action|PanelToggle _ action|WorkChoice _ _ action|SkillSuggestion _ action|Choice _ _ _ action|Activate action=>[control_input action]
 |EffortRange options=>map(fun entry=>control_input(snd entry))options
 |ActivityGroup _ _ _ behavior|LayerRegion behavior|NavigationRegion _ behavior=>[layer_dismissal behavior]

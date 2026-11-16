@@ -7,6 +7,8 @@ From Selvedge.Foundation Require Import SchemaJson TextJson Utf8 Numbers.
 From Selvedge.Programming Require ArgumentDeclaration DeclarationFields.
 From Selvedge.Kernel Require Import HookRules Numbers Domain Codec Inputs ContextUpdates Configuration Reasoning ApprovalProtocol ModelDeclarations CallbackDeclarations.
 From Selvedge.Generated Require Import Commands.
+From Selvedge.Kernel Require CreationFacts.
+From Selvedge.Features Require CompactionCodec.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -16,8 +18,31 @@ Definition Decoder (name : string) (description : schema) (construct : fields de
  InputRoute.object name description construct.
 Definition command_decoder := Decoder "command" [Field "command" KJson]
  (fun values => option_map UserCommand (Selvedge.Generated.Commands.decode (head values))).
+Definition root_command_decoder := Decoder "root_command" [Field "command" KJson; Field "creation_facts" KJson]
+ (fun values =>
+   let raw := head values in
+   if Selvedge.Kernel.Commands.root_task_creation raw then
+     match Selvedge.Generated.Commands.decode raw, CreationFacts.parse (head (tail values)) with
+     | Some command, Some facts => Some (RootCommand command facts)
+     | _,_ => None end
+   else None).
 Definition configure_decoder := Decoder "configure" Configuration.environment_schema
  (fun values => option_map Configure (Configuration.environment_of_fields values)).
+Definition decode_policy_update raw :=
+ match Schema.decode [Field "policy" KJson; Field "now" KNatural] raw with
+ | Some values => option_map (fun policy => (policy, head (tail values)))
+     (CompactionCodec.decode_policy (head values))
+ | None => None end.
+Definition configure_catalog_decoder := Decoder "configure_catalog"
+ [Field "catalog" KJson; Field "maintenance" (KOptional KJson)]
+ (fun values =>
+   match Configuration.parse_environment (head values) with
+   | None => None
+   | Some catalog => match head (tail values) with
+     | None => Some (ConfigureCatalog catalog None)
+     | Some raw => option_map (fun policy => ConfigureCatalog catalog (Some policy)) (decode_policy_update raw)
+     end
+   end).
 (** The callback language chooses its result branch before exposing values.
     Domain handlers receive exactly that branch's fields and never reconstruct
     a relationship between independent optional payloads and a status flag. *)
@@ -51,7 +76,7 @@ Definition callback_kinds := [
      (AfterCompleted (head address) (head (tail (tail address))) (head (tail address)) (HookRules.after_from_fields (fst values))));
  CallbackDecoder Approval (fun _ address values => Some (ApprovalCompleted (head address) (head (tail address))
      (ApprovalProtocol.from_callback (fst values))))].
-Definition decoders := [command_decoder;configure_decoder;
+Definition decoders := [command_decoder;root_command_decoder;configure_decoder;configure_catalog_decoder;
  Decoder "recover" [] (fun _ => Some Recover);Decoder "continue" [] (fun _ => Some Continue)].
 Definition inputs := (callback_kinds ++ decoders)%list.
 

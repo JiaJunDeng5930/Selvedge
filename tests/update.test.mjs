@@ -31,8 +31,8 @@ function reportedPids(output) {
   return [...output.matchAll(/^PID:\s*(\d+)\s*$/gm)].map(match => Number(match[1]));
 }
 
-function startUpdate(directory, state) {
-  const args = ['run', 'update', '--home', directory];
+function startUpdate(directory, state, config) {
+  const args = ['run', 'update', '--home', directory, ...(config ? ['--config', config] : [])];
   const child = spawn(process.execPath, args, { cwd: project, stdio: ['ignore', 'pipe', 'pipe'] });
   state.updateChildren.add(child);
   child.once('close', () => state.updateChildren.delete(child));
@@ -291,6 +291,15 @@ test('terminal update waits for a durable tool result and restarts the same task
   const firstService = managedService(initialResult.output);
   assert.equal(Number(new URL(firstService.url).port), port);
   await waitForService(firstService.url);
+
+  const invalidConfig = path.join(directory, 'invalid-config.json');
+  await writeFile(invalidConfig, '{');
+  const rejected = await finishUpdate(startUpdate(directory, serviceState, invalidConfig));
+  recordCurrentPid(serviceState, rejected.output);
+  assert.equal(rejected.code, 1, rejected.output);
+  assert.doesNotMatch(rejected.output, /Waiting for the running Selvedge/);
+  const runningAfterRejection = JSON.parse(await readFile(path.join(directory, 'server.json'), 'utf8'));
+  assert.equal(runningAfterRejection.pid, firstService.pid, 'Invalid configuration leaves the current listener installed');
 
   const client = await authenticatedClient(firstService.url);
   const created = await client.command({ op: 'create', profile: 'update_fixture',

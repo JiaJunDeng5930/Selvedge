@@ -186,7 +186,7 @@ Theorem disabled_remote_cannot_execute : forall execute prepared configuration r
  decision_world result = value /\ decision_effects result = [].
 Proof.
  intros execute prepared configuration request command value disabled.
- unfold Remote.execute_remote.
+ unfold Remote.execute_remote, Remote.execute_remote_with.
  destruct (Remote.configuration_allowed command configuration); [|split;reflexivity].
  unfold Remote.command_authority, Remote.with_command_rights.
  destruct (Remote.required_rights command); [|split;reflexivity].
@@ -208,7 +208,7 @@ Theorem prepared_remote_permissions_are_required :
 Proof.
  intros execute prepared configuration request original value admitted required issued
    Prepared Rights Granted Forbidden Fresh.
- unfold Remote.execute_remote.
+ unfold Remote.execute_remote, Remote.execute_remote_with.
  destruct (Remote.configuration_allowed original configuration); [|repeat split;reflexivity].
  destruct (Remote.command_authority original request (Remote.registry value))
    as [[granted [reply|]]|[code reason]] eqn:Authority.
@@ -266,7 +266,7 @@ Theorem remote_query_is_read_only : forall execute prepared configuration reques
  schedule=false /\ decision_world result=value /\ decision_effects result=[].
 Proof.
  intros execute prepared configuration request command value readonly.
- unfold Remote.execute_remote. rewrite readonly.
+ unfold Remote.execute_remote, Remote.execute_remote_with. rewrite readonly.
  cbn beta iota zeta delta [negb].
  destruct (Remote.configuration_allowed command configuration); [|repeat split;reflexivity].
  destruct (Remote.command_authority command request (Remote.registry value)) as [[granted [reply|]]|[code reason]];

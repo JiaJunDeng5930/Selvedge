@@ -154,14 +154,11 @@ Definition with_workspace_git value s := set workspace_git (fun _ => value) s.
 Definition with_cloud_repository value s := set cloud_repository (fun _ => value) s.
 Definition with_command_assessments values s := set command_assessments (fun _ => values) s.
 Definition owned_assessment := CommandAssessment.owned_assessment.
-Definition assessment_owned e := owned_assessment(CommandAssessment.DraftOwner e).
-Definition forget_owned_assessment owner s := with_command_assessments
-  (filter(fun r=>negb(owned_assessment owner r))(command_assessments s))s.
-Definition assessment_editor_owned e (resource:resource CommandAssessment.request CommandAssessment.observation):=match resource_request resource with
-|Some request=>match CommandAssessment.request_owner request with
- |CommandAssessment.DraftOwner owner|CommandAssessment.CandidateOwner owner _ _=>same_editor e owner
- |_=>false end|None=>false end.
-Definition forget_assessment e s:=with_command_assessments(filter(fun resource=>negb(assessment_editor_owned e resource))(command_assessments s))s.
+Definition forget_assessment e s :=
+ match e with
+ | Card owner => with_command_assessments
+    (filter (fun resource => negb (owned_assessment owner resource)) (command_assessments s)) s
+ | _ => s end.
 Definition preparation_owned e (resource:resource preparation directory_observation) :=match resource_request resource with
 |Some request=>same_editor e(Draft.owner(preparation_draft request))|None=>false end.
 Definition forget_preparation ticket s :=
@@ -172,7 +169,7 @@ Definition blocks e s := existsb(fun r=>match upload_owner r with Some owner=>sa
 Definition connection_ticket_matches (t:N) (observation:connection_observation) := connection_matches t observation.
 Definition forget_upload t s := with_uploads(filter(fun r=>negb(ticket_matches t r))(uploads s))s.
 Inductive service_input :=
-| CommandAssessed(ticket:N)(outcome:sum string CommandAssessment.observation) | RetryAssessment(owner:editor)
+| CommandAssessed(ticket:N)(outcome:sum string CommandAssessment.observation)
 | RestoreModelPreference(raw:string) | StorageProblem(message:string) | DismissStorageProblem
 | WorkspaceGitCompleted(ticket:N)(outcome:sum string bool)
 | CloudRepositoryCompleted(ticket:N)(outcome:sum string bool) | RefreshCloudRepository(owner:editor)
@@ -197,7 +194,7 @@ Inductive service_input :=
 | WriteDirectoryLocation(value:string) | VisitDirectory(path:string) | GoDirectory
 | DirectoryListed(ticket:N)(outcome:sum string json) | ChooseDirectory | CloseDirectory.
 Inductive service_effect :=
-| AssessCommand(ticket:N)(request:CommandAssessment.request)
+| AssessCommand(ticket sequence:N)(request:CommandAssessment.request)
 | Authenticate(ticket:N) | Reconnect(ticket:N)(milliseconds:N) | InvalidateSource
 | ReadConfiguration(ticket:N) | WriteConfiguration(ticket:N)(request:json)
 | SaveAppearance(value:appearance) | Upload(ticket:N)(request:upload_request) | AbortUpload(ticket:N)
@@ -208,16 +205,14 @@ Inductive service_effect :=
 Record service_result := ServiceResult { service_state:services; service_effects:list service_effect; attached:option(editor*attachment) }.
 Definition keep s := ServiceResult s [] None.
 Definition effects s es := ServiceResult s es None.
-Definition ensure_assessment owner revision sequence command s :=
-  let current:=match find(owned_assessment owner)(command_assessments s)with
-    |Some resource=>match resource_request resource with
-      |Some request=>CommandAssessment.matches owner revision sequence command request|None=>false end
-    |None=>false end in
+Definition ensure_assessment owner revision sequence facts command s :=
+  let current := existsb (CommandAssessment.already_observed owner revision sequence facts command)
+    (command_assessments s) in
   if current then keep s else
-    let ticket:=next_ticket s in let request:=CommandAssessment.Request owner revision sequence command in
+    let ticket:=next_ticket s in let request:=CommandAssessment.Request owner revision facts command in
     effects(with_next(N.succ ticket)(with_command_assessments
       (Loading ticket request::filter(fun resource=>negb(owned_assessment owner resource))(command_assessments s))s))
-      [AssessCommand ticket request].
+      [AssessCommand ticket sequence request].
 Definition release_preview s := match preview s with Loaded _ _ url=>[ReleasePreview url]|_=>[]end.
 Definition abort_uploads (resources:list(resource upload_request attachment)) :=
  flat_map(fun resource=>match resource with Loading ticket _=>[AbortUpload ticket]|_=>[]end)resources.
@@ -329,7 +324,6 @@ Definition service_step input s :=
           else Failed current request "The action assessment reply does not match its request"
         end else r|_=>r end in
       keep(with_command_assessments(map settle_assessment(command_assessments s))s)
-  | RetryAssessment e=>keep(forget_assessment e s)
   | WorkspaceGitCompleted t outcome => keep(with_workspace_git(settle t outcome(workspace_git s))s)
   | CloudRepositoryCompleted t outcome => keep(with_cloud_repository(settle t outcome(cloud_repository s))s)
   | RefreshCloudRepository owner => match resource_request(cloud_repository s)with
@@ -436,7 +430,8 @@ Definition decode_services j :=
 Definition encode_effect e :=
   let effect kind fields:=JObject(("type",JString kind)::fields)in
   match e with
-  | AssessCommand t request=>effect "assess_command"[("ticket",number t);("request",CommandAssessment.encode_request request)]
+  | AssessCommand t sequence request=>effect "assess_command"
+     [("ticket",number t);("request",CommandAssessment.encode_http_request sequence request)]
   | InvalidateSource=>effect "invalidate_source"[]
   | Authenticate t=>effect "authenticate"[("ticket",number t)]
   | Reconnect t delay=>effect "schedule_reconnect"[("ticket",number t);("milliseconds",number delay)]
@@ -473,7 +468,6 @@ Definition service_input_decoders : list (string * (json -> option service_input
   ("service_configuration_loaded", fun j => t<-natural_field "ticket" j;;outcome<-decode_configuration_outcome j;;Some(ConfigurationLoaded t outcome));
   ("service_configuration_written", fun j => t<-natural_field "ticket" j;;outcome<-decode_configuration_outcome j;;Some(ConfigurationWritten t outcome));
   ("command_assessed", fun j => t<-natural_field "ticket" j;;outcome<-decode_outcome CommandAssessment.decode_observation j;;Some(CommandAssessed t outcome));
-  ("retry_assessment", fun j => option_map RetryAssessment(bind(field "editor" j)decode_editor));
   ("workspace_git_completed", fun j => t<-natural_field "ticket" j;;outcome<-decode_outcome as_bool j;;Some(WorkspaceGitCompleted t outcome));
   ("cloud_repository_completed", fun j => t<-natural_field "ticket" j;;outcome<-decode_outcome as_bool j;;Some(CloudRepositoryCompleted t outcome));
   ("refresh_cloud_repository", fun j => owner<-bind(field "editor" j)decode_editor;;Some(RefreshCloudRepository owner));

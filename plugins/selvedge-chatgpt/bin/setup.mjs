@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { mkdir, open, readFile, writeFile, realpath } from 'node:fs/promises';
+import { mkdir, open, writeFile, realpath } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -49,13 +49,15 @@ async function packageConnection(id, directory) {
       const observed = await file.stat();
       // DEFENSE: A local source path can be replaced with a directory/device instead of a shipped regular file.
       if (!observed.isFile()) throw new Error(`Invalid deployment file: ${relative}`);
-      await writeFile(target, await file.readFile(), { flag: 'wx', mode: observed.mode & 0o777 });
+      let contents = await file.readFile();
+      if (relative === 'plugin.json') {
+        const manifest = JSON.parse(contents.toString('utf8'));
+        manifest.extensions['com.openai'].apps = './.app.json';
+        contents = JSON.stringify(manifest, null, 2) + '\n';
+      }
+      await writeFile(target, contents, { flag: 'wx', mode: observed.mode & 0o777 });
     } finally { await file.close(); }
   }
-  const filename = path.join(directory, 'plugin.json');
-  const manifest = JSON.parse(await readFile(filename, 'utf8'));
-  manifest.extensions['com.openai'].apps = './.app.json';
-  await writeFile(filename, JSON.stringify(manifest, null, 2) + '\n');
   await writeFile(path.join(directory, '.app.json'), JSON.stringify({ apps: { selvedge: { id, required: true } } }, null, 2) + '\n');
 }
 

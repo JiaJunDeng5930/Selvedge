@@ -2,7 +2,7 @@ import {
   decodeAudioAdmission, decodeHttpPlan, decodeHttpRemoteApprovalBody, decodeHttpRemoteRevokeBody,
   decodeHttpRemotePermissions, decodeHttpReplyStatus, decodeBrowserObservationPlan, decodeBrowserPath,
   decodeDispatchTransition, decodeDispatchAction, decodeAudioTransition, decodeAudioAction, decodeAudioTransportBegin, decodeAudioTransportAction,
-  decodeWorkspaceCommandPlan, decodeWorkspaceSelectionPlan, decodeWorkspaceSettingsPlan,
+  decodeWorkspaceCommandPlan, decodeWorkspaceSelectionPlan,
   type AudioAdmission, type JsonValue, type BrowserObservationPlan, type DomainNatural, type HttpRemotePermissions,
 } from './generated/model-schema.ts';
 
@@ -236,21 +236,8 @@ export function browseDirectoryLocation(plan: Extract<BrowserObservationPlan, {k
 export function workspaceCommandResult(input: unknown) {
   const plan = decodeWorkspaceCommandPlan(input);
   const selections = plan.selections.map(decodeWorkspaceSelectionPlan);
-  return { rootTask: plan.root_task, worktree: plan.worktree, observe: selections.length > 0 || plan.worktree, selections };
+  return { worktree: plan.worktree, observe: selections.length > 0 || plan.worktree, selections };
 }
-export async function interpretWorkspaceSettings(input: unknown, io: {
-  project(projectId: DomainNatural): Promise<boolean>;
-  observe(projectId: DomainNatural | null): Promise<unknown>;
-}): Promise<unknown> {
-  const plan = decodeWorkspaceSettingsPlan(input);
-  // Schema.KOptional interprets an omitted field as None, represented here by canonical null.
-  const projectId = plan.project_id ?? null;
-  if (projectId !== null) {
-    if (!await io.project(projectId)) return {};
-  } else if (!plan.observe_workspace) return {};
-  return io.observe(projectId);
-}
-
 export interface AudioTransportPrimitives {
   ready(): void;
   emit(event: JsonValue): Promise<void>;

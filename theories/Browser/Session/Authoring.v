@@ -764,15 +764,22 @@ Definition input_availability snapshot state input:EM.availability:=
 
 (** The card editor can describe the likely effect of saving. This observation
     does not participate in submission or in the service's command decision. *)
+Definition has_card_save_preview (draft : Draft.draft) :=
+ match Draft.contents draft with
+ | Draft.CardBody (Identity.BoardCard id) _ value assisted _ _ =>
+   (match id with None => assisted | Some _ => false end) ||
+   (match Selvedge.Features.Domain.draft_owner value with Selvedge.Features.Domain.ProfileOwner _ => true | _ => false end)
+ | _ => false end.
+
 Definition refresh_card_save snapshot input state:=match input with
- |Input.Submit ((Identity.Card _ | Identity.CardForConversation _) as owner) _=>
-  if SS.pending_editor owner state then keep state else
+ |Input.Submit ((Identity.Card card) as owner) _=>
   let draft:=SS.current_draft state owner in
-  match natural_field "sequence" snapshot,current_command state draft with
-  |Some sequence,Some command=>adopt_service
-     (Services.ensure_assessment(CommandAssessment.DraftOwner owner)(Draft.revision draft)
-       sequence command(SS.service_state state))state
-  |_,_=>keep state end
+  if has_card_save_preview draft then
+    match natural_field "sequence" snapshot, field "card_save_facts" snapshot, current_command state draft with
+    |Some sequence,Some facts,Some command=>adopt_service
+       (Services.ensure_assessment card (Draft.revision draft) sequence facts command (SS.service_state state)) state
+    |_,_,_=>keep state end
+  else keep state
  |_=>keep state end.
 Definition refresh snapshot inputs state:=
  fold_left(fun result input=>append result(refresh_card_save snapshot input(result_state result)))inputs(keep state).

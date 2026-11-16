@@ -18,7 +18,9 @@ export async function canonicalWorkspace(value, { filesystem = { realpath, stat 
   const roots = await Promise.all(value.roots.map(canonical));
   boundary('effect.workspace_distinct', { roots });
   const selected = boundary('effect.workspace_selection', { value, roots });
-  const primary = selected.canonicalize ? await canonical(selected.root) : selected.root;
+  const primary = selected.canonicalize
+    ? roots[value.roots.indexOf(selected.root)] ?? await canonical(selected.root)
+    : selected.root;
   return boundary('effect.workspace_selected', { roots, primary });
 }
 
@@ -125,7 +127,7 @@ export async function prepareSandbox(plan, {
       const handle = await open(binding.root, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
       handles.push(handle);
     }
-    const terminal = boundary('effect.sandbox_launch', { ...context, runtimeReads: observedRuntime });
+    const terminal = boundary('effect.sandbox_launch', { ...context, runtimeReads: observedRuntime, bindings: preparation.bindings });
     return { file, ...terminal, env: environment(scratch, projectOnly), descriptors: handles.map(handle => handle.fd), cleanup };
   // DEFENSE: Sandbox binary/policy preparation can fail after allocating scratch space and pinned descriptors.
   } catch (error) { await cleanup(); throw error; }

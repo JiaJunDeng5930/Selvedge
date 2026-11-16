@@ -16,10 +16,10 @@ function rejected(error, outcome) {
   return error;
 }
 
-const replayVersion = 30;
+const replayVersion = 31;
 export const journalFormat = `selvedge-rocq-journal-${replayVersion}`;
 const journalSchemaVersion = 2;
-const legacyVersions = new Map([['selvedge-rocq-journal-28', 28], ['selvedge-rocq-journal-29', 29]]);
+const legacyVersions = new Map([28, 29, 30].map(version => [`selvedge-rocq-journal-${version}`, version]));
 const checkpointInterval = 128;
 
 const schema = {
@@ -91,10 +91,7 @@ export class Journal extends EventEmitter {
       if (prepared) journal.#verifyPrefix(prepared);
       else await journal.#initializeReplay();
       await journal.#replay();
-      if (journal.sequence > 0) {
-        const snapshot = await journal.#kernel.request({ kind: 'command', command: { op: 'describe' } }).result;
-        journal.program = snapshot.program;
-      }
+      journal.program = await journal.#kernel.observe();
       if (upgrading) {
         journal.#database.exec(`PRAGMA user_version = ${journalSchemaVersion}; COMMIT`);
       }
@@ -115,7 +112,7 @@ export class Journal extends EventEmitter {
     if (![0, 1, journalSchemaVersion].includes(version)) {
       throw new Error(`Unsupported Selvedge SQLite journal schema version ${version}`);
     }
-    const upgrading = !readOnly && version !== journalSchemaVersion;
+    let upgrading = !readOnly && version !== journalSchemaVersion;
     if (upgrading) {
       this.#database.exec('BEGIN IMMEDIATE');
       if (version === 0 && !this.#database.prepare('SELECT 1 FROM sqlite_schema LIMIT 1').get()) {
@@ -135,15 +132,21 @@ export class Journal extends EventEmitter {
     if (format.value !== journalFormat) {
       const legacy = legacyVersions.get(format.value);
       // DEFENSE: Only journals whose historical replay is implemented can be upgraded.
-      if (!legacy || version === journalSchemaVersion) {
+      const hasRowVersions = version === journalSchemaVersion;
+      if (!legacy || hasRowVersions !== (legacy === 30)) {
         throw new Error(`Unsupported Selvedge Rocq journal format ${format.value}`);
       }
       if (readOnly) {
-        this.#replayVersionColumn = `${legacy} AS replay_version`;
+        if (!hasRowVersions) this.#replayVersionColumn = `${legacy} AS replay_version`;
       } else {
-        // Keep input bytes and cursor identities. The default marks the entire
-        // existing prefix, while all new rows supply their version explicitly.
-        this.#database.exec(`ALTER TABLE journal ADD COLUMN replay_version INTEGER NOT NULL DEFAULT ${legacy}`);
+        if (!upgrading) {
+          this.#database.exec('BEGIN IMMEDIATE');
+          upgrading = true;
+        }
+        // An unversioned prefix belongs entirely to the format in its header.
+        if (!hasRowVersions) {
+          this.#database.exec(`ALTER TABLE journal ADD COLUMN replay_version INTEGER NOT NULL DEFAULT ${legacy}`);
+        }
         this.#database.prepare("UPDATE meta SET value = ? WHERE key = 'format'").run(journalFormat);
       }
     } else if (version !== journalSchemaVersion && !upgrading) {
@@ -185,9 +188,7 @@ export class Journal extends EventEmitter {
 
   async #initializeReplay() {
     this.#kernel = new Kernel();
-    const initial = await this.#kernel.initialize();
-    this.description = initial.description;
-    this.program = initial.program;
+    this.description = await this.#kernel.initialize();
     await this.#restoreCheckpoint();
   }
 
@@ -260,7 +261,7 @@ export class Journal extends EventEmitter {
     return result;
   }
 
-  execute(input, observeRead) {
+  execute(input, observeRead, browserRequest) {
     // DEFENSE: Requests already in flight at shutdown can still reach the journal.
     if (this.#closing) return Promise.reject(rejected(new Error('Journal is closed'), 'rejected'));
     const result = this.#tail.then(async () => {
@@ -288,7 +289,6 @@ export class Journal extends EventEmitter {
         throw error;
       }
       if (!response.value.durable) {
-        this.program = response.program;
         const decision = { sequence: this.sequence, program: this.program, ...response.value };
         // Capture an authorized publication before the next input can replace this world.
         if (observeRead) observeRead(decision);
@@ -313,7 +313,7 @@ export class Journal extends EventEmitter {
       this.sequence = sequence;
       hashReplayRow(this.#prefix, { seq: sequence, input: inputText, replay_version: replayVersion });
       const committed = { sequence, program: this.program, ...response.value };
-      this.#publish('commit', committed);
+      this.#publish('commit', committed, browserRequest);
       return committed;
     });
     // DEFENSE: execute's caller receives the failure; queue cleanup must still reach close and later callers' explicit poisoned-world rejection.
@@ -327,10 +327,10 @@ export class Journal extends EventEmitter {
     return result;
   }
 
-  #publish(event, decision) {
+  #publish(event, decision, browserRequest) {
     // DEFENSE: A delivery observer can throw after selection; it cannot undo a committed result.
     for (const observer of this.listeners(event)) {
-      try { observer(decision); }
+      try { observer(decision, browserRequest); }
       catch (error) { this.emit('observerFailure', error); }
     }
   }
@@ -339,11 +339,17 @@ export class Journal extends EventEmitter {
     return this.#database.prepare('SELECT observed_at FROM journal WHERE seq = ?').get(sequence).observed_at;
   }
 
-  events(after, limit = 100) {
+  assertEventCursor(after) {
     integer(after, 'event cursor');
+    // DEFENSE: An authenticated subscription can request a cursor beyond its current journal.
+    if (after > this.sequence) throw new RangeError('Invalid event page');
+  }
+
+  events(after, limit = 100) {
+    this.assertEventCursor(after);
     integer(limit, 'event page size');
-    // DEFENSE: Authenticated HTTP clients can request an unknown cursor or a page outside the supported 1..100 range.
-    if (after > this.sequence || limit < 1 || limit > 100) throw new RangeError('Invalid event page');
+    // DEFENSE: An authenticated history request can ask for a page outside the supported 1..100 range.
+    if (limit < 1 || limit > 100) throw new RangeError('Invalid event page');
     return this.#database.prepare('SELECT seq FROM journal WHERE seq > ? ORDER BY seq LIMIT ?')
       .all(after, limit).map(row => ({ sequence: row.seq }));
   }

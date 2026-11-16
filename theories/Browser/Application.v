@@ -428,7 +428,7 @@ Definition observed_assessment_owner before incoming := match incoming with
   let assessments:=Services.command_assessments(Session.service_state(prepared_state before))in
   resource<-find (fun resource=>match resource with Loading current _=>N.eqb ticket current|_=>false end) assessments;;
   request<-resource_request resource;;
-  Some(CommandAssessment.request_owner request)
+  Some(Card (CommandAssessment.request_owner request))
  |_=>None end.
 Definition composer_input before incoming := match incoming with
  |Some input=>match SR.composer_editor input with
@@ -437,8 +437,7 @@ Definition composer_input before incoming := match incoming with
     |Input.ApplyAssignment owner _|Input.ActivityAssignment _ owner _
     |Input.AttachFiles owner _|Input.RemoveAttachment owner _|Input.Submit owner _
     |Input.RetryWorkspace owner _=>Some owner
-    |Input.ServiceInput (Services.CommandAssessed _ _)=>
-      match observed_assessment_owner before incoming with Some (CommandAssessment.DraftOwner owner)=>Some owner|_=>None end
+    |Input.ServiceInput (Services.CommandAssessed _ _)=>observed_assessment_owner before incoming
     |_=>None end end
  |None=>None end.
 Definition main_local context incoming := match incoming with

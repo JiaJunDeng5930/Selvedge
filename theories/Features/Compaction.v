@@ -4,6 +4,8 @@ From Selvedge.Programming Require InputRoute.
 From Selvedge.Programming Require CommandResult DecisionComposition.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json JsonObjects TextJson.
+From Selvedge.Foundation Require Comparison.
+From Selvedge.Programming Require Import Schema.
 From Selvedge.Programming Require Import Completion.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Generated Require Import Commands.
@@ -326,6 +328,51 @@ Definition retire_context_task (task : task) :=
 Definition retire_context_tasks (value : Selvedge.Kernel.State.world) :=
  Selvedge.Kernel.State.with_tasks (map retire_context_task
    (Selvedge.Kernel.State.world_tasks value)) value.
+Definition retire_affected_entry (affected : task -> bool) (id : N)
+ : DecisionComposition.step := fun value _ =>
+ match Selvedge.Kernel.State.find_task id value with
+ | Some task => if affected task then
+   let entry := current_entry id (registry value) in
+   let next := Selvedge.Kernel.State.put_task id (retire_context_task task) value in
+   DecisionComposition.Update
+     (store (with_entry id (recover_entry entry) (registry next)) next)
+     (map Selvedge.Kernel.State.MaintainContext (cancellations id entry ++ context_cancellations id task))
+   else DecisionComposition.unchanged value
+ | None => DecisionComposition.unchanged value end.
+Definition retire_affected affected (value : Selvedge.Kernel.State.world) :=
+ DecisionComposition.run
+   (DecisionComposition.each (map fst (maintenance_entries (registry value)))
+     (retire_affected_entry affected)) (acknowledged value []).
+Definition catalog_changed (before : Selvedge.Kernel.State.world) environment :=
+ retire_affected
+   (fun task => negb (Comparison.list String.eqb
+     (Capabilities.callable task (world_environment before)) (Capabilities.callable task environment)))
+   (with_environment environment before).
+Definition effective_policy (task : task) (current : policy) :=
+ let selected := find (fun target => String.eqb (target_key target) (profile_key (task_current_profile task)))
+   (policy_targets current) in
+ JObject [("target",match selected with Some target => target_json target | None => JNull end);
+   ("automatic", if policy_enabled current then
+     JArray [number (policy_background current);number (policy_blocking current);number (policy_idle_lead current)]
+     else JNull)].
+Definition configure_policy (replacement : policy) (now : N) (before : Selvedge.Kernel.State.world) :=
+ let old := registry before in
+ let prior := maintenance_policy old in
+ if Json.equal (policy_json prior) (policy_json replacement) then (false,false,acknowledged before [])
+ else
+   let next := store (MaintenanceState replacement (maintenance_entries old)
+     (N.max now (maintenance_now old)) (maintenance_timer old)) before in
+   (true,true,retire_affected
+     (fun task => negb (Json.equal (effective_policy task prior) (effective_policy task replacement))) next).
+Definition policy_input :=
+ InputRoute.object "configure_compaction_policy" [Schema.Field "policy" KJson;Schema.Field "now" KNatural]
+   (fun fields => option_map
+     (fun selected => configure_policy selected (Schema.head (Schema.tail fields)))
+     (decode_policy (Schema.head fields))).
+Theorem equal_policy_adds_no_clock_or_cancellation replacement now before :
+ Json.equal (policy_json (maintenance_policy (registry before))) (policy_json replacement) = true ->
+ configure_policy replacement now before = (false,false,acknowledged before []).
+Proof. intro Same. unfold configure_policy. now rewrite Same. Qed.
 Definition resolve (completion : completion) (value : Selvedge.Kernel.State.world) : option Selvedge.Kernel.State.decision :=
  match completion with
  | Configure policy now =>

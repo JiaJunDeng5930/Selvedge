@@ -63,6 +63,13 @@ test('the physical server authenticates observations, discovers skills before an
   assert.equal(page.status, 200);
   const headers = { cookie: page.headers.get('set-cookie').split(';')[0], origin: running.address };
   assert.equal((await fetch(`${running.address}/api/health`, { headers })).status, 200);
+  const journal = running.service.journal;
+  const readEventPage = journal.events.bind(journal);
+  let historyReads = 0;
+  journal.events = (...args) => { historyReads++; return readEventPage(...args); };
+  const outside = await fetch(`${running.address}/api/events?after=${journal.sequence + 1}`, { headers });
+  assert.equal(outside.status, 400);
+  await outside.json();
   const controller = new AbortController();
   const stream = await fetch(`${running.address}/api/events?after=0`, { headers, signal: controller.signal });
   const iterator = events(stream.body, running.service.limits.frame_bytes);
@@ -70,11 +77,15 @@ test('the physical server authenticates observations, discovers skills before an
     assert.equal(JSON.parse((await iterator.next()).value).type, 'stream-state');
     assert.deepEqual(JSON.parse((await iterator.next()).value),
       { type: 'commit', namespace: running.service.journal.namespace, sequence: running.service.journal.sequence });
+    assert.equal(historyReads, 0, 'A live notification subscription needs no historical event page');
   } finally {
     controller.abort();
     // DEFENSE: Aborting the live SSE read can reject iterator cleanup with AbortError.
     await iterator.return().catch(error => { if (error.name !== 'AbortError') throw error; });
   }
+  const history = await (await fetch(`${running.address}/api/event-page?after=0&limit=1`, { headers })).json();
+  assert.deepEqual(history, { ok: true, result: [{ sequence: 1 }] });
+  assert.equal(historyReads, 1);
   const cli = fileURLToPath(new URL('../host/cli.mjs', import.meta.url));
   const described = await promisify(execFile)(process.execPath, [cli, '--home', directory, 'describe']);
   assert.deepEqual(JSON.parse(described.stdout), running.service.description);

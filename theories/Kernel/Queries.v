@@ -1,5 +1,6 @@
 From Selvedge.Programming Require CommandDeclarations.
 From Selvedge.Programming Require CommandFields.
+From Selvedge.Programming Require ArgumentDeclaration InputRoute.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Programming Require Import Schema.
@@ -21,6 +22,32 @@ Definition read_task (id after : N) (size : Pagination.size Pagination.history_l
     ("messages", JArray (map (public_message_json id) (firstn (N.to_nat limit) (skipn (N.to_nat after) (task_history task)))))])
    else State.failure "invalid_page" "History cursor exceeds the current history"
  end.
+
+Definition read_audio_context (id : N) (value : world) :=
+ match find_task id value with
+ | None => State.failure "task_not_found" "The target task does not exist"
+ | Some task =>
+   let history := task_history task in
+   let cursor := List.length history in
+   let recent := skipn (cursor - N.to_nat Pagination.history_limit) history in
+   State.success (JObject [("cursor",number (N.of_nat cursor));
+     ("messages",JArray (map (public_message_json id) recent))])
+ end.
+
+Definition audio_history_input : InputRoute.t (world -> bool * bool * decision) :=
+ InputRoute.object "read_audio_context" [Field "task_id" KJson]
+  (fun fields => option_map (fun id value =>
+     (false,false,Decision value (read_audio_context (proj1_sig id) value) []))
+    (ArgumentDeclaration.decode CommandArguments.identity (Schema.head fields))).
+
+Theorem audio_history_reads_one_task id value task :
+ find_task id value = Some task ->
+ let history := task_history task in
+ let cursor := List.length history in
+ read_audio_context id value = State.success (JObject [("cursor",number (N.of_nat cursor));
+   ("messages",JArray (map (public_message_json id)
+     (skipn (cursor - N.to_nat Pagination.history_limit) history))) ]).
+Proof. intros found; unfold read_audio_context; now rewrite found. Qed.
 Definition describe := JObject [
  ("commands", JArray (map (fun command => let name := CommandFields.wire_name (Selvedge.Kernel.Commands.declared_wire command) in
  JObject [("name", JString name);

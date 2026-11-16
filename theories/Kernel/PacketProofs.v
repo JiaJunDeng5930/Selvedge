@@ -8,7 +8,7 @@ Import ListNotations.
 Open Scope string_scope.
 Local Opaque Packet.decode CommandHandlers.interpret DeferredCommit.select.
 
-Theorem live_configuration_preserves_maintenance_cancellations : forall environment value,
+Theorem historical_configuration_preserves_maintenance_cancellations : forall environment value,
  decision_effects (Packet.core_transition (Configure environment) value) =
  map MaintainContext (Selvedge.Features.Compaction.pending_cancellations value).
 Proof. reflexivity. Qed.
@@ -21,7 +21,8 @@ Proof.
  unfold Packet.transition_decoded in Transition.
  destruct (Packet.decode source) as [[input|complete]|]; cbn [Packet.core_input]; try reflexivity.
  destruct input; try discriminate.
- destruct (CommandHandlers.interpret command false); discriminate.
+ - destruct (CommandHandlers.interpret command false); discriminate.
+ - destruct (Packet.configure_catalog environment policy value); discriminate.
 Qed.
 
 Lemma a_nondurable_transition_selects_its_ordinary_commit : forall source value result,
@@ -77,6 +78,32 @@ Proof.
 Qed.
 
 Local Opaque DeferredCommit.select.
+
+From Selvedge.Kernel Require CreationFacts.
+
+Theorem observed_root_planning_retains_the_committed_environment facts command before :
+ world_environment (decision_world (Packet.observed_creation facts command before)) =
+ world_environment before.
+Proof. apply CreationFacts.select_preserves_committed_environment. Qed.
+
+Theorem refused_observed_root_planning_retains_no_observations facts command before code reason :
+ Packet.execute_domain command None (CreationFacts.observation_world facts before) =
+   State.reject code reason (CreationFacts.observation_world facts before) ->
+ Packet.observed_creation facts command before = State.reject code reason before.
+Proof. apply CreationFacts.a_refused_plan_retains_no_observations. Qed.
+
+Theorem selected_create_retains_the_committed_environment source request facts before :
+ Packet.decode source = Some (inl (RootCommand (Selvedge.Generated.Commands.Cmd_create request) facts)) ->
+ world_environment (decision_world (CommitPacket.selected_decision (Packet.select source before))) =
+   world_environment before.
+Proof.
+ intro Decoded. unfold Packet.select. rewrite Decoded.
+ unfold CommitPacket.choose, Delivery.deliver_with_status.
+ destruct (Delivery.fits true _).
+ - exact (CreationFacts.select_preserves_committed_environment facts
+     (CreationCommit.candidate request) before).
+ - reflexivity.
+Qed.
 
 (** Every ignored, nondurable callback uses this same finalization path. *)
 Theorem packet_keeps_an_ignored_nondurable_result : forall source value result,

@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { createChatGPTAudio } from './chatgpt-audio.mjs';
 import { realpath } from 'node:fs/promises';
 import { Journal, isDefiniteRejection, transactionOutcome } from './journal.mjs';
-import { naturalKey, sameNatural } from './public/json-tokens.mjs';
+import { naturalKey } from './public/json-tokens.mjs';
 import { dispatchEffect, performEffect, modelEffect, workspaceOperation, compactionOperation, workspaceEffect, clockDelay } from './effect-dispatch.ts';
 import { Mcp } from './mcp.mjs';
 import { Plugin } from './plugins.mjs';
@@ -110,8 +110,8 @@ export class Service extends EventEmitter {
         if (service.#heldStartup) service.#heldStartup.decisions.push(decision);
         else service.#scheduleContinuation();
       });
-      service.journal.on('commit', decision => {
-        service.notify({ type: 'commit', sequence: decision.sequence });
+      service.journal.on('commit', (decision, browserRequest) => {
+        service.notify({ type: 'commit', sequence: decision.sequence, browser_request_id: browserRequest });
         if (service.#heldStartup) service.#heldStartup.decisions.push(decision);
         else service.#deliverEffects(decision);
       });
@@ -146,11 +146,12 @@ export class Service extends EventEmitter {
             // DEFENSE: An unavailable-plugin callback may be queued when service shutdown or a journal failure begins.
             if (service.#closing || service.#failure) return;
             service.#pluginCatalog.delete(name);
-            await service.#configure();
+            await service.#publishCatalog();
           }).catch(error => service.#fatal(error));
         });
       }));
-      await service.#configure();
+      await service.#publishCatalog();
+      await service.#publishCompactionPolicy();
       const recovery = await service.journal.execute({ kind: 'recover' });
       // DEFENSE: Recovery resends pending model effects; their combined payload can exceed the complete-decision budget and leave recovery uncommitted.
       if (!recovery.reply.ok) throw new Error(`Recovery rejected: ${recovery.reply.error.message}`);
@@ -188,10 +189,12 @@ export class Service extends EventEmitter {
 
   notify(event) {
     event = { ...event, namespace: this.journal.namespace };
-    if (event.type !== 'tool_activity') {
-      this.#streams = boundary('browser.host_stream_step', { state: this.#streams, notice: event }).state;
-    }
     for (const observer of this.listeners('notice')) observer(event);
+  }
+
+  #publishStreamNotice(event) {
+    this.#streams = boundary('browser.host_stream_step', { state: this.#streams, notice: event }).state;
+    this.notify(event);
   }
 
   #fatal(error) {
@@ -203,20 +206,20 @@ export class Service extends EventEmitter {
     this.journal.abort(error);
   }
 
-  #configuration({ project = this.project, instructions = this.instructions } = {}) {
+  async #publishCatalog(maintenance) {
     // Configuration order, not process initialization speed, defines the chain.
     const extensions = Object.keys(this.config.plugins).flatMap(name => this.#pluginCatalog.has(name) ? [this.#pluginCatalog.get(name)] : []);
-    return { kind: 'configure', profiles: profileCatalog(this.config),
+    const catalog = { profiles: profileCatalog(this.config),
       tools: [...this.#catalog.values(), ...extensions.map(extension => extension.tools)].flat(),
       plugins: extensions.map(extension => extension.descriptor), max_fork: this.config.max_fork, max_descendants: this.config.max_descendants,
-      project, instructions };
-  }
-
-  async #configure() {
-    const decision = await this.journal.execute(this.#configuration());
+      project: this.project, instructions: this.instructions };
+    const decision = await this.journal.execute({ kind: 'configure_catalog', catalog, maintenance });
     // DEFENSE: Independently supplied MCP/plugin catalogs can conflict or exceed native configuration limits.
     if (!decision.reply.ok) throw new Error(`Catalog rejected: ${decision.reply.error.message}`);
-    const compaction = await this.journal.execute({ kind: 'compaction_configure', policy: compactionSettings(this.config), now: Date.now() });
+  }
+
+  async #publishCompactionPolicy() {
+    const compaction = await this.journal.execute({ kind: 'configure_compaction_policy', policy: compactionSettings(this.config), now: Date.now() });
     // DEFENSE: Account-advertised context windows can make configured compaction budgets invalid or too large for a complete decision.
     if (!compaction.reply.ok) throw new Error(`Compaction configuration rejected: ${compaction.reply.error.message}`);
   }
@@ -240,7 +243,7 @@ export class Service extends EventEmitter {
         catch (error) { this.#catalog.delete(name); this.notify({ type: 'diagnostic', message: `MCP ${name}: ${error.message}` }); }
       } else this.#catalog.delete(name);
       // DEFENSE: Shutdown can start while MCP rediscovery awaits the subprocess.
-      if (!this.#closing) await this.#configure();
+      if (!this.#closing) await this.#publishCatalog();
     }).catch(error => this.#fatal(error));
   }
 
@@ -260,8 +263,8 @@ export class Service extends EventEmitter {
     }
   }
 
-  #deliverEffects({ sequence, effects }) {
-    this.remote?.reconcile();
+  #deliverEffects({ sequence, effects, reconcileRemote }) {
+    if (reconcileRemote) this.remote?.reconcile();
     let ordinal = 0;
     for (const effect of effects) ordinal += this.#dispatch(effect, sequence, ordinal);
   }
@@ -452,7 +455,7 @@ export class Service extends EventEmitter {
     let input;
     let observation;
     const model = modelEffect(effect);
-    const cancelPreview = () => this.notify({ type: 'stream_cancel', task_id: effect.task_id, ticket: effect.ticket });
+    const cancelPreview = () => this.#publishStreamNotice({ type: 'stream_cancel', task_id: effect.task_id, ticket: effect.ticket });
     try {
       const performed = await performEffect(effect, {
         workspace: effect => this.#performWorkspace(effect, signal, handle),
@@ -476,7 +479,7 @@ export class Service extends EventEmitter {
           ? observeModelRequest(effect, this.config, this.home, this.limits, { signal })
           : requestCompaction(effect, this.config, this.home, this.limits, { signal }),
         model: async effect => {
-          this.notify({ type: 'stream_start', task_id: effect.task_id, ticket: effect.ticket });
+          this.#publishStreamNotice({ type: 'stream_start', task_id: effect.task_id, ticket: effect.ticket });
           signal.addEventListener('abort', cancelPreview, { once: true });
           return requestModel(effect, this.config, this.home, this.limits, {
             signal,
@@ -486,8 +489,8 @@ export class Service extends EventEmitter {
               return { now, current_time: new Date(now).toISOString(), started_at: this.journal.observedAt(effect.birth_sequence) };
             },
             onObservation: value => { observation = value; },
-            onDelta: (text, output_index) => this.notify({ type: 'delta', task_id: effect.task_id, ticket: effect.ticket, output_index, text }),
-            onSnapshot: (text, output_index) => this.notify({ type: 'snapshot', task_id: effect.task_id, ticket: effect.ticket, output_index, text }),
+            onDelta: (text, output_index) => this.#publishStreamNotice({ type: 'delta', task_id: effect.task_id, ticket: effect.ticket, output_index, text }),
+            onSnapshot: (text, output_index) => this.#publishStreamNotice({ type: 'snapshot', task_id: effect.task_id, ticket: effect.ticket, output_index, text }),
             onRetry: retry => this.notify({ type: 'retry', task_id: effect.task_id, ticket: effect.ticket, ...retry }),
           });
         },
@@ -545,7 +548,7 @@ export class Service extends EventEmitter {
         // DEFENSE: A provider activity clock can be rejected by native admission or the complete-decision budget.
         if (!activity.reply.ok) throw new Error(`Cache observation rejected: ${activity.reply.error.message}`);
       }
-      this.notify({ type: 'stream_end', task_id: effect.task_id, ticket: effect.ticket, sequence: result.sequence });
+      this.#publishStreamNotice({ type: 'stream_end', task_id: effect.task_id, ticket: effect.ticket, sequence: result.sequence });
     }
   }
 
@@ -604,20 +607,24 @@ export class Service extends EventEmitter {
     if (!resource) return {};
     // A child can retain this frozen resource after its owner selects another local workspace.
     // Read ownership by ID rather than re-resolving the owner's current execution binding.
-    const result = await this.journal.execute({ kind: 'command', command: { op: 'list_worktrees' } });
-    if (!result.reply.ok) throw new Error(`Task resource lookup rejected: ${result.reply.error.message}`);
-    const entry = result.reply.result.worktrees.find(entry => sameNatural(entry.task_id, resource.task_id));
-    // DEFENSE: A frozen effect can race managed-resource archival; never substitute the host filesystem.
-    if (!entry || entry.backend !== resource.backend || entry.status !== 'ready') {
+    const { reply } = await this.journal.execute({ kind: 'read_worktree_owner', task_id: resource.task_id });
+    // DEFENSE: A frozen effect must retain its exact committed workspace binding.
+    if (!reply.ok || reply.result.backend !== resource.backend) {
       throw new Error('The committed task workspace binding is unavailable');
     }
+    return this.#readyWorkspace(reply.result, signal);
+  }
+
+  async #readyWorkspace(entry, signal) {
+    // DEFENSE: A frozen effect or a requested observation can find an archived or unfinished resource.
+    if (entry.status !== 'ready') throw new Error('The committed task workspace binding is unavailable');
     return entry.backend === 'local' ? { managedWorktreeRoot: entry.root }
       : { environment: await taskWorkspaceEnvironment(entry, this.#workspaceOptions(signal)) };
   }
 
   async #taskWorkspace(taskId, signal) {
     const entry = await this.#worktree(taskId);
-    return entry ? this.#resourceWorkspace({ task_id: entry.task_id, backend: entry.backend }, signal) : {};
+    return entry ? this.#readyWorkspace(entry, signal) : {};
   }
 
   async #observationEnvironment(observation) {
@@ -677,20 +684,12 @@ export class Service extends EventEmitter {
     return this.journal.assess({ ...candidate, command }, { signal });
   }
 
-  async command(command) {
+  async command(command, browserRequest) {
     this.#admitSubmission(command);
     // DEFENSE: HTTP commands already in flight can reach the service after a fatal operation or shutdown.
     if (this.#failure) return Promise.reject(this.#failure);
     if (this.#closing) return Promise.reject(new Error('Service is stopping'));
-    if (hasRootTaskCreation(command)) {
-      // Keep each root's observed defaults adjacent to its command even when
-      // catalog refreshes and other root births arrive concurrently.
-      const next = this.#catalogTail.then(() => this.#createRoot(command));
-      // DEFENSE: A failed filesystem observation rejects this command's returned promise; it must not prevent later commands from reaching their own admission.
-      this.#catalogTail = next.catch(() => {});
-      return this.#trackSubmission(next);
-    }
-    return this.#trackSubmission(this.#submitCommand(command));
+    return this.#trackSubmission(this.#submitCommand(command, browserRequest));
   }
 
   /** Remote intent, authorization and receipt share the ordinary native commit. */
@@ -699,14 +698,7 @@ export class Service extends EventEmitter {
     // DEFENSE: Authenticated remote JSON-RPC commands can omit their params or required command/receipt fields; preserve absence for native rejection.
     const intent = cloneJson(request?.command);
     const envelope = { controller_id, grant_epoch, request_id: request?.request_id, intent };
-    const submit = () => this.#remoteSubmit(envelope);
-    if (hasRootTaskCreation(intent)) {
-      const next = this.#catalogTail.then(submit);
-      // DEFENSE: One rejected remote command is reported by its returned promise and must not poison the shared configuration queue.
-      this.#catalogTail = next.catch(() => {});
-      return this.#trackSubmission(next);
-    }
-    return this.#trackSubmission(submit());
+    return this.#trackSubmission(this.#remoteSubmit(envelope));
   }
 
   async #remoteSubmit(envelope) {
@@ -723,27 +715,21 @@ export class Service extends EventEmitter {
     if (!probe.reply.ok) return { sequence: probe.sequence, reply: probe.reply };
     if (probe.reply.result?.replayed) return { sequence: probe.sequence, reply: probe.reply.result.reply };
     let command;
-    let configuration;
     let rootFacts;
     try {
+      const localGuidance = hasRootTaskCreation(envelope.intent) ? new Map() : undefined;
       command = await observeBoardCommand(admitRawWorkspaceCommand(envelope.intent), this.home);
       command = await observeMessageImages(command, this.home);
-      command = await this.#observeCommandWorkspace(command);
-      if (hasRootTaskCreation(envelope.intent)) {
-        rootFacts = { project: await snapshotProject(this.cwd, this.limits), instructions: {
-          configured: this.config.instructions,
-          global: await snapshotGlobalInstructions(this.home, this.limits),
-        } };
-        configuration = this.#configuration(rootFacts);
-      }
+      command = await this.#observeCommandWorkspace(command, localGuidance);
+      if (localGuidance) rootFacts = await this.#observeCreationFacts(localGuidance);
     // DEFENSE: A remote command can name unreadable files or unavailable workspaces; distinguish observation failure from an already committed command.
     } catch (cause) { throw new CommandNotSubmitted(cause); }
     // DEFENSE: Shutdown or a journal failure can occur during the awaited filesystem observations.
     if (this.#failure) throw this.#failure;
     if (this.#closing) throw new Error('Service is stopping');
-    const result = await this.journal.execute({ kind: 'remote_command', ...envelope, command,
-      configuration: configuration ?? null });
-    if (rootFacts && result.reply.ok) Object.assign(this, rootFacts);
+    const result = await this.journal.execute(rootFacts
+      ? { kind: 'remote_root_command', ...envelope, command, creation_facts: rootFacts }
+      : { kind: 'remote_command', ...envelope, command, configuration: null });
     return { sequence: result.sequence, reply: result.reply };
   }
 
@@ -754,10 +740,10 @@ export class Service extends EventEmitter {
     return this.journal.execute({ kind: 'remote_check', controller_id, grant_epoch }, observe);
   }
 
-  async #observeCommandWorkspace(command) {
+  async #observeCommandWorkspace(command, localGuidance) {
     const plan = workspaceCommandPlan(command);
     // DEFENSE: A stale task command needs domain rejection, not an unrelated workspace lookup failure.
-    if (!plan.observe) return cloneJson(command);
+    if (!plan.observe) return command;
     // DEFENSE: A direct command or a retained draft can request an unconfigured cloud backend.
     if (plan.worktree && command.backend === 'tencent_cvm' && this.config.cloud?.backend !== command.backend) {
       throw new TypeError('Tencent Cloud CVM is not configured on this Selvedge host');
@@ -766,10 +752,18 @@ export class Service extends EventEmitter {
     // local repository observations cannot establish facts about that environment.
     if (command.task_id !== undefined) {
       const task = await this.#workspaceTask(command.task_id);
-      if (task.kind === 'cloud' || task.kind === 'unknown') return cloneJson(command);
+      if (task.kind === 'cloud' || task.kind === 'unknown') return command;
     }
     const selectedSettings = command.settings;
-    let observed = await observeWorkspaceCommand(command, this.limits, {
+    const projects = new Map();
+    const projectWorkspace = project_id => {
+      const key = naturalKey(project_id);
+      if (!projects.has(key)) projects.set(key,
+        this.journal.execute({ kind: 'command', command: { op: 'read_project', project_id } })
+          .then(({ reply }) => reply.ok ? reply.result.workspace : undefined));
+      return projects.get(key);
+    };
+    let observed = await observeWorkspaceCommand(plan, this.limits, {
       workspaceEnvironment: async selection => {
         const result = await this.journal.execute({ kind: 'command', command: { op: 'resolve_workspace', ...selection } });
         // DEFENSE: A selected cloud resource can be ambiguous, unavailable or archived before directory observation.
@@ -777,66 +771,63 @@ export class Service extends EventEmitter {
         const resource = result.reply.result.resource;
         return { resource, workspace_binding: result.reply.result.workspace_binding, ...await this.#resourceWorkspace(resource) };
       },
-      projectWorkspace: async project_id => {
-        const result = await this.journal.execute({ kind: 'command', command: { op: 'read_project', project_id } });
-        return result.reply.ok ? result.reply.result.workspace : undefined;
-      },
+      projectWorkspace, localGuidance,
     });
     if (plan.worktree) {
       if (!observed.settings?.workspace) {
-        observed = await observeWorkspaceCommand({ ...observed,
-          settings: { ...observed.settings, workspace: { roots: [this.cwd], primary_root: this.cwd } } }, this.limits);
+        const withWorkspace = { ...observed,
+          settings: { ...observed.settings, workspace: { roots: [this.cwd], primary_root: this.cwd } } };
+        observed = await observeWorkspaceCommand(workspaceCommandPlan(withWorkspace), this.limits, { localGuidance });
       }
       const primary = observed.settings.workspace.primary_root ?? observed.settings.workspace.roots[0];
-      // DEFENSE: A requested worktree workspace may not be a Git repository with a commit to check out.
-      if (!await observeWorkspaceGit(primary)) throw new TypeError('Create worktree requires a Git repository with an initial commit in the primary workspace');
       if (command.backend === 'tencent_cvm') {
         let projectPrimary = primary;
         if (selectedSettings?.project_id !== undefined && selectedSettings.project_id !== null) {
-          const project = await this.journal.execute({ kind: 'command', command: { op: 'read_project', project_id: selectedSettings.project_id } });
-          if (project.reply.ok) projectPrimary = project.reply.result.workspace.primary_root ?? project.reply.result.workspace.roots[0];
+          const workspace = await projectWorkspace(selectedSettings.project_id);
+          if (workspace) projectPrimary = workspace.primary_root ?? workspace.roots[0];
         }
-        // DEFENSE: A project without a GitHub remote cannot be cloned into a task cloud environment.
+        // DEFENSE: Cloud setup requires a committed GitHub source at the project's primary workspace.
         if (!await observeCloudRepository(projectPrimary)) throw new TypeError('Cloud task workspaces require a GitHub remote in the project primary workspace');
+      // DEFENSE: A requested local worktree workspace may lack a commit to check out.
+      } else if (!await observeWorkspaceGit(primary)) {
+        throw new TypeError('Create worktree requires a Git repository with an initial commit in the primary workspace');
       }
     }
     return observed;
   }
 
-  async #createRoot(command) {
-    try {
-      // DEFENSE: Root creation can wait behind catalog refresh while shutdown or another operation fails.
-      if (this.#failure) throw this.#failure;
-      if (this.#closing) throw new Error('Service is stopping');
-      const instructions = { configured: this.config.instructions,
-        global: await snapshotGlobalInstructions(this.home, this.limits) };
-      const project = await snapshotProject(this.cwd, this.limits);
-      const observed = await this.#observeCommandInput(command);
-      const previous = { project: this.project, instructions: this.instructions };
-      Object.assign(this, { project, instructions });
-      try { await this.#configure(); }
-      // DEFENSE: External catalog/configuration rejection must not publish this root's unaccepted observed defaults to later requests.
-      catch (error) { Object.assign(this, previous); throw error; }
-      return this.journal.execute({ kind: 'command', command: observed });
-    // DEFENSE: Unreadable guidance or invalid workspace observations occur before command submission; return that distinct outcome to the caller.
-    } catch (cause) { throw new CommandNotSubmitted(cause); }
+  async #observeCreationFacts(localGuidance) {
+    const [project, global] = await Promise.all([
+      localGuidance.get(this.cwd) ?? snapshotProject(this.cwd, this.limits),
+      snapshotGlobalInstructions(this.home, this.limits),
+    ]);
+    return { project, global };
   }
 
-  async #observeCommandInput(command) {
+  async #observeCommandInput(command, localGuidance) {
     try {
       const imagesObserved = await observeMessageImages(admitRawWorkspaceCommand(command), this.home);
       const boardObserved = await observeBoardCommand(imagesObserved, this.home);
-      return await this.#observeCommandWorkspace(boardObserved);
+      return await this.#observeCommandWorkspace(boardObserved, localGuidance);
     // DEFENSE: Client-supplied paths or image references can fail their trusted host observation before domain submission.
     } catch (cause) { throw new CommandNotSubmitted(cause); }
   }
 
-  async #submitCommand(command) {
-    const observed = await this.#observeCommandInput(command);
+  async #submitCommand(command, browserRequest) {
+    const localGuidance = hasRootTaskCreation(command) ? new Map() : undefined;
+    const observed = await this.#observeCommandInput(command, localGuidance);
+    let facts;
+    if (localGuidance) {
+      try { facts = await this.#observeCreationFacts(localGuidance); }
+      // DEFENSE: Unreadable guidance prevents collecting the observations for a new root.
+      catch (cause) { throw new CommandNotSubmitted(cause); }
+    }
     // DEFENSE: Shutdown or a fatal operation can occur while command filesystem observations are awaited.
     if (this.#failure) throw this.#failure;
     if (this.#closing) throw new Error('Service is stopping');
-    return this.journal.execute({ kind: 'command', command: observed });
+    return this.journal.execute(facts
+      ? { kind: 'root_command', command: observed, creation_facts: facts }
+      : { kind: 'command', command: observed }, undefined, browserRequest);
   }
 
   refreshAccounts() {
@@ -850,7 +841,7 @@ export class Service extends EventEmitter {
       if (this.#closing || this.#failure) throw new Error('Service is unavailable');
       const previous = this.config;
       this.config = discovered.config;
-      try { await this.#configure(); }
+      try { await this.#publishCatalog({ policy: compactionSettings(this.config), now: Date.now() }); }
       // DEFENSE: A newly discovered external catalog can fail native configuration; restore the last accepted host configuration.
       catch (error) { this.config = previous; throw error; }
       this.accounts = discovered.accounts;
@@ -883,25 +874,24 @@ export class Service extends EventEmitter {
   }
 
   async audioCreate({ browser_id, connection, task_id, sdp }, { signal } = {}) {
-    // DEFENSE: Browser requests can race a previous connect before its upstream call is ready; reserve ownership before awaiting the call.
-    const task = await this.command({ op: 'read', task_id });
-    const session_count = [...this.#audioSessions.values()].filter(session => session.control.owner === browser_id).length;
-    const plan = this.#audioAdmission('create', { browser_id, session_count, task_valid: task.reply.ok });
-    const id = randomUUID();
-    const generation = randomUUID();
-    const session = { id, task_id, generation, started: Date.now(), progress: Promise.resolve(), maximum: plan.session_max_ms,
-      control: boundary('control.audio.session_initial', { id, task_id, generation, browser_id, cursor: task.reply.result.cursor }) };
-    this.#audioSessions.set(id, session);
+    let session;
+    const read = this.journal.execute({ kind: 'read_audio_context', task_id }, ({ reply }) => {
+      // DEFENSE: Competing requests can read the same Task. Reserve the browser before the next read can finish.
+      const session_count = [...this.#audioSessions.values()].filter(session => session.control.owner === browser_id).length;
+      const plan = this.#audioAdmission('create', { browser_id, session_count, task_valid: reply.ok });
+      const id = randomUUID();
+      const generation = randomUUID();
+      session = { id, task_id, generation, started: Date.now(), progress: Promise.resolve(),
+        maximum: plan.session_max_ms, connectMaximum: plan.connect_timeout_ms,
+        control: boundary('control.audio.session_initial', { id, task_id, generation, browser_id, cursor: reply.result.cursor }) };
+      this.#audioSessions.set(id, session);
+    });
+    const { reply: { result: page } } = await this.#trackSubmission(read);
+    const { id, generation } = session;
     try {
-      const contextPlan = boundary('audio.initial_context_plan', { cursor: task.reply.result.cursor });
-      const observed = await this.command({ op: 'read', task_id, ...contextPlan });
-      if (!observed.reply.ok) throw new Error(observed.reply.error.message);
-      const page = observed.reply.result;
       const initial_items = boundary('audio.initial_context', { messages: page.messages });
-      await this.#applyAudio(session, { kind: 'cursor', page, generation });
       const result = await this.audio.createSession({ id, generation, connection, task_id, sdp, initial_items, signal });
       // DEFENSE: A page can disappear after receiving the SDP response but before opening its owner event stream.
-      session.connectMaximum = plan.connect_timeout_ms;
       await this.#applyAudio(session, { kind: 'connected', generation });
       return result;
     } catch (error) {
@@ -1053,8 +1043,8 @@ export class Service extends EventEmitter {
     return active.map(activity => this.#toolActivitySnapshot(activity, previewLimit));
   }
 
-  async browserCommand(command) {
-    const result = await this.command(command);
+  async browserCommand(command, browserRequest) {
+    const result = await this.command(command, browserRequest);
     return { namespace: this.journal.namespace, sequence: result.sequence, program: this.#browserProgram(result.program),
       reply: browserHistoryReply(command, result) };
   }

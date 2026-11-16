@@ -5,10 +5,12 @@
     properties, choices, and consequences. The browser chooses pages, controls,
     and focus. The terminal chooses command-line input and textual output.
 
-    A draft, a current world sequence, and a correlated service observation
-    supply the inputs to a business decision. Browser layout and navigation
-    supply no business facts. The production dependency check enforces this
-    direction for every transitive import of an Interaction module.
+    Card save previews depend on their proposal and the authoritative facts
+    used to assess it. A commit that only advances the journal cursor cannot
+    invalidate a preview. The cursor orders publication while a reply runs
+    ahead of the browser's snapshot. Browser layout and navigation supply no
+    business facts. The production dependency check enforces this direction
+    for every transitive import of an Interaction module.
 
     The observation, command and card-decision requirements bind the shared
     functions to the actual browser projections and authenticated HTTP
@@ -20,11 +22,14 @@ From Selvedge.Foundation Require Import Json.
 From Selvedge.Programming Require Import Resource.
 From Selvedge.Interaction Require Import Codec CommandAssessment.
 From Selvedge.Interaction Require UserCommand.
-From Selvedge.Interaction.Experience Require Model Observation ObservationProof.
+From Selvedge.Interaction.Experience Require Model Observation ObservationProof Publication.
 From Selvedge.Browser.Session Require State Authoring Services Input InputCodecs.
 From Selvedge.Browser.Session Require Import EditorContext.
 Open Scope string_scope.
 
+Export Publication(card_save_facts_ignore_journal_cursor).
+Export CommandAssessment(current_observation_retains_action_and_facts,
+  a_current_card_observation_needs_no_repeat).
 
 Theorem browser_direct_refusal_displays_the_shared_diagnostic snapshot state command reply diagnostic :
  UserCommand.feedback_of reply=Some(UserCommand.Refused diagnostic) ->

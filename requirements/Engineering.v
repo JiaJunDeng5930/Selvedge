@@ -29,6 +29,23 @@ From Selvedge.Foundation Require NumbersProofs BoundedIntegerCorrectness.
     UTF-8 mappings. Public execution checks exercise those translations and
     physical effects where pure contracts cannot establish the observation.
 
+    ** Give operations only their required authority
+
+    A request's observations, a domain object's retained state, and a service
+    configuration update have their own owners and lifetimes. Specify the
+    necessary inputs, changes and external effects of each operation, including
+    refusal. Reuse an existing constrained constructor or owner interface
+    whenever it establishes that scope. An added dependency or effect needs a
+    reachable scenario and a requirement that would fail without it.
+
+    Select a commit from the outcome, and attach persistence to recovery
+    obligations. Classify every new effect at the commit boundary. Passing a
+    global object or routing through a general configuration operation can
+    grant unrelated authority even when the final reply looks right. Prove
+    state and effect bounds at the interpreter that production calls. Use
+    public execution evidence for relevant physical work that a pure proof
+    cannot see, such as an additional SQL query or provider request.
+
     A reported runtime workload must finish its scheduled transitions before
     replay is measured. The benchmark supplies deterministic external replies
     and follows the kernel's continuation requests; pending maintenance cannot

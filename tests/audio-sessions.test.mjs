@@ -20,6 +20,7 @@ async function eventually(observe) {
 
 function transport(upgradeStatus = () => undefined) {
   const sockets = [];
+  const calls = [];
   class Socket extends EventTarget {
     readyState = 0;
     sent = [];
@@ -39,7 +40,7 @@ function transport(upgradeStatus = () => undefined) {
     provider(value) { this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(value) })); }
   }
   return {
-    sockets,
+    sockets, calls,
     options: {
       WebSocketImpl: Socket,
       authorityFactory: () => ({
@@ -47,7 +48,10 @@ function transport(upgradeStatus = () => undefined) {
         async authorize() { return { headers: {}, account_id: 'test-account' }; },
         async close() {},
       }),
-      fetchImpl: async () => new Response('v=0\r\n', { status: 201, headers: { location: 'https://api.openai.com/v1/live/rtc_test' } }),
+      fetchImpl: async (_url, request) => {
+        calls.push(JSON.parse(request.body));
+        return new Response('v=0\r\n', { status: 201, headers: { location: 'https://api.openai.com/v1/live/rtc_test' } });
+      },
     },
   };
 }
@@ -105,9 +109,14 @@ test('a stopped voice session cannot close or write to the same browser after re
   const input = { browser_id: 'browser', connection: 'audio-fixture', task_id, sdp: 'v=0' };
   const first = await service.audioCreate(input);
   await eventually(() => events.some(event => event.type === 'ready' && event.session_id === first.id));
+  wire.sockets[0].provider({ type: 'turn.done', turn: { role: 'user', id: 'earlier', transcript: 'Prior committed input' } });
+  await eventually(async () => (await read()).some(message => message.item_id === 'earlier'));
   await service.audioStop(first.id, input.browser_id);
   const second = await service.audioCreate(input);
   assert.notEqual(second.id, first.id);
+  assert.deepEqual(wire.calls[1].session.initial_items, [
+    { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Prior committed input' }] },
+  ]);
   await eventually(() => events.some(event => event.type === 'ready' && event.session_id === second.id));
   wire.sockets[0].provider({ type: 'output_transcript.added', item: { text: 'retired data' } });
   wire.sockets[0].close();

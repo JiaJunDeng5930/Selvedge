@@ -444,7 +444,7 @@ Definition editor_view snapshot (s:Session.state) e parent :=
  |WorkflowStart _,_|_,Draft.DuplicateWorkflowNodeName _ _=>[]
  |_,_=>commit_reason parent assessment end in
  let consequence:=if UX.action_pending unit then [] else match e with
- |Card _=>match Observe.card_save_consequence snapshot s draft with
+ |Card card=>match Observe.card_save_consequence snapshot s card draft with
   |Some BoardFacts.SaveLinked|None=>[]
   |Some value=>[information parent "card-save-consequence" Information.Description
    (match value with

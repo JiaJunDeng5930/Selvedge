@@ -20,7 +20,8 @@ Definition current s n := N.eqb (generation s) n && match s with
  | Connecting _ _ | Negotiating _ _ | Online _ _ => true | _ => false end.
 Inductive observation :=
 | Enable | Stop
-| Probe (generation status now sample : N)
+| Upgraded (generation : N)
+| HandshakeRefused (generation status now sample : N)
 | Lost (generation now sample : N)
 | Rejected (generation : N)
 | Negotiated (generation now : N)
@@ -28,7 +29,7 @@ Inductive observation :=
 | Heartbeat (generation now sample : N)
 | Retry (generation now : N).
 Inductive action :=
-| Connect (generation : N) | OpenSocket (generation : N)
+| Connect (generation : N) | SendHello
 | RetryAt (generation deadline : N) | HeartbeatAt (generation deadline : N)
 | Ping | Retire | MarkAuthenticationFailed.
 Definition attempt s := match s with Connecting _ n | Negotiating _ n | Retrying _ n _ => n | _ => 0 end.
@@ -53,14 +54,15 @@ Definition step cfg s event : state * list action := match event with
    else (s,[])
    | _ => (s,[]) end
  | _ =>
-   let n := match event with Probe n _ _ _ | Lost n _ _ | Rejected n |
+   let n := match event with Upgraded n | HandshakeRefused n _ _ _ | Lost n _ _ | Rejected n |
       Negotiated n _ | Pong n _ | Heartbeat n _ _ => n | _ => 0 end in
    if negb (current s n) then (s,[]) else
    match event with
-   | Probe _ status now sample => match s with Connecting g tries =>
+   | Upgraded _ => match s with Connecting g tries =>
+     (Negotiating g tries,[SendHello]) | _ => (s,[]) end
+   | HandshakeRefused _ status now sample => match s with Connecting g _ =>
      if N.eqb status 401 || N.eqb status 403 || N.eqb status 404 then
        (AuthenticationFailed (N.succ g),[Retire;MarkAuthenticationFailed])
-     else if N.eqb status 426 then (Negotiating g tries,[OpenSocket g])
      else retry cfg s now sample | _ => (s,[]) end
    | Rejected _ => (AuthenticationFailed (N.succ (generation s)),[Retire;MarkAuthenticationFailed])
    | Lost _ now sample => retry cfg s now sample
@@ -78,8 +80,12 @@ Theorem stale_transport_observation s cfg n now sample : current s n = false ->
 Proof. intros H; cbn; now rewrite H. Qed.
 Theorem failed_authentication_stops cfg g tries status now sample :
  status = 401 \/ status = 403 \/ status = 404 ->
- running (fst (step cfg (Connecting g tries) (Probe g status now sample))) = false.
+ running (fst (step cfg (Connecting g tries) (HandshakeRefused g status now sample))) = false.
 Proof.
  intros [H|[H|H]]; subst status; unfold step, current, generation;
  rewrite N.eqb_refl; reflexivity.
 Qed.
+
+Theorem current_upgrade_negotiates_on_the_existing_socket cfg g tries :
+ step cfg (Connecting g tries) (Upgraded g) = (Negotiating g tries,[SendHello]).
+Proof. unfold step, current, generation; now rewrite N.eqb_refl. Qed.

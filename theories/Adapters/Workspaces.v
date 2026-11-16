@@ -1,7 +1,7 @@
 From Selvedge.Kernel Require Import ModelResultDeclarations.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Utf8.
-From Selvedge.Programming Require Import Schema.
+From Selvedge.Foundation Require Import Utf8 OptionList.
+From Selvedge.Programming Require Import Schema Variant.
 From Selvedge.Kernel Require Import Commands Workspace.
 From Selvedge.Kernel Require CommandDeclarations.
 From Selvedge.Adapters Require Import Common Observation.
@@ -52,10 +52,18 @@ Definition workspace_bound (source : json) :=
   else err "A workspace root changed after it was committed; reselect the workspace before executing".
 
 Inductive selection_path := CommandWorkspace | TaskWorkspace | NodeWorkspace (index : nat).
-Record selection := Selection { selected_path : selection_path; selected_value : json; resolve_project : bool }.
-Record workspace_plan := WorkspacePlan { root_task : bool; worktree : bool; selections : list selection }.
+Record selection := Selection { selected_path : selection_path; selected_value : json; selected_project : option N }.
+Record workspace_plan := WorkspacePlan { worktree : bool; selections : list selection }.
+(* A supplied workspace takes precedence over project defaults. The option
+   outside the project coordinates represents whether there is anything to observe. *)
+Definition workspace_input (resolve : bool) (value : json) : option (option N) :=
+ if has value "workspace" then Some None
+ else if resolve && bound (get value "project_id") 0 9007199254740991
+      then option_map (@Some N) (natural (get value "project_id")) else None.
 Definition select_settings (path : selection_path) (resolve : bool) (value : json) :=
-  if is_object value then [Selection path value resolve] else [].
+  match workspace_input resolve value with
+  | Some project => [Selection path value project]
+  | None => [] end.
 Fixpoint graph_selections (index : nat) (nodes : list json) : list selection :=
   match nodes with [] => [] | node::rest =>
     (if is_object node && negb (has node "task_id")
@@ -64,31 +72,35 @@ Fixpoint graph_selections (index : nat) (nodes : list json) : list selection :=
 Definition plan (command : json) : workspace_plan :=
   let op := str command "op" in
   if existsb (String.eqb op) ["create";"create_idle";"fork";"create_work_task";"create_worktree_task";"create_workspace_task"] then
-    WorkspacePlan (Commands.root_task_creation command)
+    WorkspacePlan
       (String.eqb op "create_worktree_task" || String.eqb op "create_workspace_task" ||
         (existsb (String.eqb op) ["create_idle";"create_work_task"] && boolean_field command "create_worktree"))
       (select_settings TaskWorkspace true (get command "settings"))
   else if existsb (String.eqb op) ["create_project";"update_project"] then
-    WorkspacePlan false false (select_settings CommandWorkspace false command)
+    WorkspacePlan false (select_settings CommandWorkspace false command)
   else if existsb (String.eqb op) ["create_task_graph";"update_task_graph"] then
     let selected := graph_selections 0%nat (items (get command "nodes")) in
-    WorkspacePlan (Commands.root_task_creation command) false selected
-  else WorkspacePlan false false [].
+    WorkspacePlan false selected
+  else WorkspacePlan false [].
 Definition selection_json (selection : selection) :=
- Schema.encode ModelResultDeclarations.workspace_selection_fields
-   (Schema.of_tuple ModelResultDeclarations.workspace_selection_fields
-     [! selection.(selected_value); selection.(resolve_project) !]).
+ let value := selection.(selected_value) in let project := selection.(selected_project) in
+ Variant.encode_packet (match selection.(selected_path) with
+ | CommandWorkspace => Variant.pack ModelResultDeclarations.command_workspace_selection [! value;project !]
+ | TaskWorkspace => Variant.pack ModelResultDeclarations.task_workspace_selection [! value;project !]
+ | NodeWorkspace index => Variant.pack ModelResultDeclarations.node_workspace_selection [! value;project;N.of_nat index !]
+ end).
+Definition selection_decoders : list (Variant.decoder selection) := [
+ Variant.Decoder ModelResultDeclarations.command_workspace_selection (fun values =>
+   Some (Selection CommandWorkspace (Schema.head values) (Schema.head (Schema.tail values))));
+ Variant.Decoder ModelResultDeclarations.task_workspace_selection (fun values =>
+   Some (Selection TaskWorkspace (Schema.head values) (Schema.head (Schema.tail values))));
+ Variant.Decoder ModelResultDeclarations.node_workspace_selection (fun values =>
+   let index := Schema.head (Schema.tail (Schema.tail values)) in
+   Some (Selection (NodeWorkspace (N.to_nat index)) (Schema.head values) (Schema.head (Schema.tail values))))].
 Definition plan_json (plan : workspace_plan) :=
  Schema.encode ModelResultDeclarations.workspace_command_fields
    (Schema.of_tuple ModelResultDeclarations.workspace_command_fields
-     [! plan.(root_task); plan.(worktree); map selection_json plan.(selections) !]).
-Definition workspace_selection_plan (source : json) :=
- let value := get source "value" in
- (* DEFENSE: An explicitly supplied invalid workspace must not select project defaults. *)
- let project := if boolean_field source "resolve_project" && negb (has value "workspace") &&
-   bound (get value "project_id") 0 9007199254740991 then natural (get value "project_id") else None in
- success (Schema.encode ModelResultDeclarations.workspace_settings_fields
-   (Schema.of_tuple ModelResultDeclarations.workspace_settings_fields [! project; has value "workspace" !])).
+     [! plan.(worktree); map selection_json plan.(selections) !]).
 Definition observed_settings (selected observation : json) :=
   let workspace := if has observation "workspace" then set selected "workspace" (get observation "workspace") else selected in
   let selected := if has observation "workspace_binding" then set workspace "workspace_binding" (get observation "workspace_binding") else workspace in
@@ -107,8 +119,14 @@ Definition apply_observation (command : json) (entry : selection * json) :=
   | NodeWorkspace index => set command "nodes" (JArray (observed_nodes index (items (get command "nodes")) settings))
   end.
 Definition workspace_command_observed (source : json) :=
-  let command := get source "command" in
-  success (fold_left apply_observation (combine (plan command).(selections) (items (get source "observations"))) command).
+ let observation entry := option_map (fun selected => (selected,get entry "value"))
+   (Variant.decode_cases selection_decoders (get entry "selection")) in
+ match traverse observation (items (get source "observations")) with
+ | Some observations => success (fold_left apply_observation observations (get source "command"))
+ (* DEFENSE: A host result with a malformed selection cannot modify a command slot. *)
+ | None => type_error "Invalid workspace observation selection"
+ end.
+Definition root_task_creation source := success (JBool (Commands.root_task_creation (get source "command"))).
 
 (* Raw command admission precedes every observation, including cloud and unknown-task paths.
    Service-owned observations have no constructors in this public declaration. *)
