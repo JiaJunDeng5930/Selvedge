@@ -123,13 +123,10 @@ Proof.
  { change (Utf8.nonblank (proj1_sig text_value) || false = true).
    rewrite nonblank_text_has_content; reflexivity. }
  destruct Member as [Mode|[Mode|Impossible]]; try contradiction; subst mode.
- - assert (Delivered : Tasks.send_result id [TextPart text] value =
+ - assert (Delivered : Tasks.input_result Tasks.AppendInput id [TextPart text] value =
      CommandResult.Accepted (CommandResult.Change JNull
        (put_task id (TaskChange.apply (Tasks.receive_changes [TextPart text] task) task) value) [])).
-   { apply CommandResult.a_successful_decision_identifies_its_typed_change with (before:=value).
-     change (Tasks.send id [TextPart text] value =
-       accept JNull (put_task id (TaskChange.apply (Tasks.receive_changes [TextPart text] task) task) value) []).
-     rewrite TaskChangesProofs.send_expression,Found,IdleTask,Text,Available; reflexivity. }
+   { rewrite TaskChangesProofs.input_result_expression,Found,IdleTask,Text,Available; reflexivity. }
    unfold CommandExecution.speech_delegation; cbn zeta; fold session identity text; rewrite Found, Fresh.
    cbn [proj1_sig].
    change (String.eqb "send" "steer") with false; cbn [andb]; rewrite Delivered.

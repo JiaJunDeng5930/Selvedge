@@ -36,7 +36,6 @@ Definition handlers : list (string * (json -> json)) := [
   ("account.callback_ports",AccountOAuth.callback_ports);
   ("account.candidate_identity",AccountCatalog.candidate_identity);
   ("account.candidate_paths",AccountMaterialization.candidate_paths);
-  ("account.candidate_read",AccountOAuth.candidate_read);
   ("account.candidates",AccountMaterialization.candidates);
   ("account.catalog_failure",catalog_failure);
   ("account.catalog_fetch_failure",catalog_fetch_failure);

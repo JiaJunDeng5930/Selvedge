@@ -10,7 +10,3 @@ Proof.
  destruct value; cbv beta iota zeta delta -[decode_unbounded_natural show_natural].
  all: rewrite !unbounded_natural_print_parse; reflexivity.
 Qed.
-
-Theorem authorization_state_wire_roundtrips : forall value,
- authorization_of (authorization_json value) = Some value.
-Proof. destruct value; reflexivity. Qed.

@@ -186,5 +186,5 @@ Definition view_timeline snapshot state view : option (node Input.input) :=
  Some(Pages.task_timeline snapshot state view (task_parent view) task_record).
 Definition view_approvals snapshot state view : list (node Input.input) :=
  let task:=task_view_task view in
- Pages.approvals snapshot state task (task_parent view)
+ Pages.approvals state task (task_parent view)
    (value_or [] (Read.task_operations task snapshot)).

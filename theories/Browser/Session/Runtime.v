@@ -10,7 +10,7 @@ From Selvedge.Browser.Session Require Configuration.
 From Selvedge.Browser.Session Require Import Input.
 From Selvedge.Programming Require Import Resource.
 From Selvedge.Browser.Session Require Import Services Speech ObjectActions.
-From Selvedge.Interaction Require Import Origin CommandAssessment.
+From Selvedge.Interaction Require Import Origin.
 From Selvedge.Browser Require Import Documents DocumentState.
 From Selvedge.Interaction.Submission Require Draft.
 From Selvedge.Browser.Session Require State Navigation Context Authoring Observation.
@@ -60,75 +60,8 @@ Definition language_feedback namespace snapshot lagged owner path ticket success
  Authoring.changed(SS.with_interactive_state(IS.next_state decision)state)(map IT.encode_effect(IS.effects decision)).
 Definition language_failure namespace snapshot lagged owner path ticket message state:=
  language_feedback namespace snapshot lagged owner path ticket false message state.
-Definition language_admission_draft task revision text:=
- Draft.Draft revision(Draft.MessageBody task(Draft.Text text [])Fields.Send)Draft.Editing "" None.
 Definition language_send_command task text:=
  Schema.decode_command command_specs(JObject[("op",JString "send");("task_id",number task);("message",JString text)]).
-Definition forget_pending ticket state:=
- let authoring:=SS.authoring_state state in
- SS.with_authoring(set SS.awaiting(fun pending=>filter(fun current=>negb(N.eqb ticket(SS.ticket current)))pending)
-  authoring)state.
-Definition promote_language_admission pending editor owner path language_ticket state:=
- let authoring:=SS.authoring_state state in
- let awaiting:=map(fun current=>if N.eqb(SS.ticket pending)(SS.ticket current)then
-  SS.Pending(SS.ticket current)(SS.accepted_command current)(SS.LanguageSubmission editor owner path language_ticket)
-   (SS.request_received current)(SS.outcome_unknown current)else current)
-  (SS.awaiting authoring)in
- Authoring.changed(SS.with_authoring(set SS.awaiting(fun _=>awaiting)authoring)state)
-  [Authoring.emit "command"[("ticket",number(SS.ticket pending));("command",Schema.encode_command(SS.accepted_command pending))]].
-Definition pending_command_except ticket command state:=existsb(fun pending=>
- negb(N.eqb ticket(SS.ticket pending))&&CommandAssessment.same_command command(SS.accepted_command pending))
- (SS.awaiting(SS.authoring_state state)).
-Definition reject_language_admission namespace snapshot lagged pending owner path language_ticket message state:=
- language_failure namespace snapshot lagged owner path language_ticket message(forget_pending(SS.ticket pending)state).
-Definition continue_language_admission namespace snapshot lagged pending state:=
- match SS.purpose pending with
- |SS.LanguageAdmission task revision text owner path language_ticket=>
-  let editor:=Identity.Message task in
-  let draft:=language_admission_draft task revision text in
-  let ctx:=context namespace snapshot state in
-  match Documents.owning_task ctx owner(SS.document_retention state)with
-  |None=>reject_language_admission namespace snapshot lagged pending owner path language_ticket
-     "The interactive document has no current recipient."state
-  |Some actual=>if negb(N.eqb actual task)then
-      reject_language_admission namespace snapshot lagged pending owner path language_ticket
-       "The interactive document has no current recipient."state
-   else if negb(Documents.externally_allowed ctx owner(SS.document_retention state))then
-      reject_language_admission namespace snapshot lagged pending owner path language_ticket
-       "This interactive document is read only."state
-   else
-    let without_self:=forget_pending(SS.ticket pending)state in
-    match Authoring.submission_obstruction snapshot draft without_self with
-    |Some reason=>reject_language_admission namespace snapshot lagged pending owner path language_ticket reason state
-    |None=>match language_send_command task text with
-     |None=>reject_language_admission namespace snapshot lagged pending owner path language_ticket
-       "The draft is waiting for a valid command and workspace observation."state
-     |Some command=>if negb(CommandAssessment.same_command command(SS.accepted_command pending))then
-        reject_language_admission namespace snapshot lagged pending owner path language_ticket
-         "The interactive message is no longer current."state
-       else if pending_command_except(SS.ticket pending)command state then
-        reject_language_admission namespace snapshot lagged pending owner path language_ticket
-         "This command is already pending."state
-       else match natural_field "sequence" snapshot with
-        |None=>reject_language_admission namespace snapshot lagged pending owner path language_ticket
-          "The current state has not been observed."state
-        |Some _=>let assessment_owner:=CommandAssessment.DraftOwner editor in
-         let checked:=Authoring.ensure_request snapshot assessment_owner revision command state in
-         let checked_state:=Authoring.result_state checked in
-         match Authoring.assessed_command snapshot assessment_owner revision command checked_state with
-         |None=>Authoring.append checked(Authoring.keep checked_state)
-         |Some(inl reason)=>Authoring.append checked(reject_language_admission namespace snapshot lagged pending owner path language_ticket reason checked_state)
-         |Some(inr _)=>if Authoring.canonical_ready snapshot checked_state assessment_owner revision command
-           then Authoring.append checked(promote_language_admission pending editor owner path language_ticket checked_state)
-           else Authoring.append checked(reject_language_admission namespace snapshot lagged pending owner path language_ticket
-             "This action has not been admitted against the current state."checked_state)
-         end end end end end
- | _=>Authoring.keep state end.
-Definition continue_language_admissions namespace snapshot lagged state:=
- fold_left(fun result pending=>match SS.purpose pending with
-  |SS.LanguageAdmission _ _ _ _ _ _=>Authoring.append result
-    (continue_language_admission namespace snapshot lagged pending(Authoring.result_state result))
-  |_=>result end)(SS.awaiting(SS.authoring_state state))(Authoring.keep state).
 Definition interpret_language namespace snapshot lagged effect state:Authoring.result:=
  let ctx:=context namespace snapshot state in
  match effect with
@@ -153,27 +86,16 @@ Definition interpret_language namespace snapshot lagged effect state:Authoring.r
   |None=>Authoring.fail state "The interactive document has no current recipient."
   |Some task=>if Documents.externally_allowed ctx owner(SS.document_retention state)then
     let editor:=Identity.Message task in
-    let draft:=language_admission_draft task(Draft.revision(SS.current_draft state editor))text in
-    match Authoring.submission_obstruction snapshot draft state with
-    |Some reason=>language_failure namespace snapshot lagged owner path ticket reason state
-    |None=>match language_send_command task text with
-     |None=>Authoring.fail state "The interactive message is not a valid command."
-     |Some command=>if SS.pending_command command state then
-       language_failure namespace snapshot lagged owner path ticket "This command is already pending."state
-      else match natural_field "sequence" snapshot with
-       |None=>language_failure namespace snapshot lagged owner path ticket "The current state has not been observed."state
-       |Some _=>let assessment_owner:=CommandAssessment.DraftOwner editor in
-        let checked:=Authoring.ensure_request snapshot assessment_owner(Draft.revision draft)command state in
-        let checked_state:=Authoring.result_state checked in
-        match Authoring.assessed_command snapshot assessment_owner(Draft.revision draft)command checked_state with
-        |Some(inl reason)=>Authoring.append checked(language_failure namespace snapshot lagged owner path ticket reason checked_state)
-        |Some(inr _)=>if Authoring.canonical_ready snapshot checked_state assessment_owner(Draft.revision draft)command
-          then Authoring.append checked(Authoring.issue command(SS.LanguageSubmission editor owner path ticket)checked_state)
-          else Authoring.append checked(language_failure namespace snapshot lagged owner path ticket
-            "This action has not been admitted against the current state."checked_state)
-        |None=>Authoring.append checked(Authoring.reserve command
-          (SS.LanguageAdmission task(Draft.revision draft)text owner path ticket)checked_state)
-        end end end end
+    let refused:=language_failure namespace snapshot lagged owner path ticket in
+    if negb(Services.connected(SS.service_state state))then refused "Connect to continue."state
+    else if SS.pending_editor editor state then
+      refused "Wait for the current submission to finish."state
+    else match language_send_command task text with
+    |None=>refused "The interactive message is not a valid command."state
+    |Some command=>if SS.pending_command command state then
+       refused "This command is already pending."state
+      else Authoring.issue command(SS.LanguageSubmission editor owner path ticket)state
+    end
    else Authoring.fail state "This interactive document is read only."end
  |_=>Authoring.changed state[IT.encode_effect effect]end.
 Definition apply_language_decision namespace snapshot lagged decision state:=
@@ -220,7 +142,7 @@ Definition complete namespace snapshot lagged ticket outcome state:=
    |None=>match Authoring.complete snapshot(SS.accepted_command pending)purpose outcome state with Some result=>result|None=>Authoring.keep state end end end end.
 Definition owns_action_panel subject panel :=
  match panel,subject with
- |SS.ObjectActionsPanel actual,_=>if CommandAssessment.object_subject_eq_dec actual subject then true else false
+ |SS.ObjectActionsPanel actual,_=>if Identity.object_subject_eq_dec actual subject then true else false
  |SS.CardDecisionPanel card _,CardActions source=>N.eqb card source
  |_,_=>false end.
 Definition menu_action snapshot subject key occurrence state:=
@@ -276,7 +198,7 @@ Definition begin_new_voice snapshot owner state:=
  let state:=Authoring.ensure_draft snapshot owner state in
  let draft:=SS.current_draft state owner in
  match owner,Authoring.current_voice_command state draft with
- |Identity.NewTask _,Some command=>match Authoring.new_voice_availability snapshot state owner with
+ |Identity.NewTask _,Some command=>match Authoring.new_voice_availability state owner with
    |EM.Available=>Authoring.speech_step snapshot
      (Speech.BeginNewVoice owner(Draft.revision draft)(SS.generation(SS.navigation_state state))command)state
    |EM.Unavailable reason=>Authoring.fail state reason end
@@ -330,11 +252,8 @@ Definition core namespace snapshot lagged input state:Authoring.result:=match in
 |Input.ClearDiscarded task=>Authoring.keep(SS.with_retention
  (Documents.clear_discarded task(SS.document_retention state))state)
 |Input.MenuAction subject key occurrence=>menu_action snapshot subject key occurrence state
-|Input.RetryMenuAssessment subject key occurrence=>Authoring.keep(SS.with_services
- (Services.forget_owned_assessment(CommandAssessment.ObjectActionOwner subject key)(SS.service_state state))state)
-|Input.RetryCommandAssessment command=>Authoring.retry_command_assessment snapshot state command
-|Input.RequestCommand command=>Authoring.request_command snapshot state command
-|Input.Command command=>match Authoring.command_availability snapshot state command with
+|Input.RequestCommand command=>Authoring.request_command state command
+|Input.Command command=>match Authoring.command_availability state command with
  |EM.Available=>Authoring.issue command SS.DirectSubmission state
  |EM.Unavailable reason=>Authoring.fail state reason end
 |Input.SubmitHistorySearch after=>Authoring.adopt_navigation snapshot(Navigation.submit_search after state)
@@ -421,17 +340,6 @@ Definition prepares_authoring input before := match input with
  |_=>match composer_editor input with Some _=>false|None=>true end
  end.
 
-Definition continue_authoring input snapshot state := match input with
- |Input.ServiceInput(Services.CommandAssessed _ _)=>
-   let prepared:=Authoring.continue_preparations snapshot state in
-   Authoring.append prepared(Authoring.continue_admissions snapshot(Authoring.result_state prepared))
- |Input.Interactive _=>Authoring.continue_admissions snapshot state
- |_=>Authoring.keep state end.
-
-Definition resumes_language_admissions input := match input with
- |Input.ServiceInput(Services.CommandAssessed _ _)|Input.Interactive _=>true
- |_=>false end.
-
 Definition stream_document_viewers event before after := match event with
  |Some (Streams.Start key)|Some (Streams.Finish key)
  |Some (Streams.Delta key _ _)|Some (Streams.Snapshot key _ _)=>[Streams.stream_task key]
@@ -451,7 +359,7 @@ Definition step namespace snapshot lagged input state:=
  let prepare state:=if authoring then
    let skills:=Authoring.synchronize_skills snapshot state in
    Authoring.append skills(Authoring.prepare snapshot(Authoring.result_state skills))
-  else continue_authoring input snapshot state in
+  else Authoring.keep state in
  let decision:=Authoring.append decision(prepare(Authoring.result_state decision))in
  let next:=Authoring.result_state decision in
  let documents:=documents_changed input current next in
@@ -459,15 +367,12 @@ Definition step namespace snapshot lagged input state:=
   |[]=>None
   |viewers=>Documents.synchronize_stream_documents (context namespace snapshot current)
     (context namespace snapshot next) lagged viewers (SS.document_retention next) end in
- let (synchronized, changed_documents):=match retention with
-  |Some retained=>(Authoring.append decision(synchronize_language namespace snapshot lagged
-    (apply_document_retention namespace snapshot retained next)),true)
-  |None=>if documents then
-    (Authoring.append decision(synchronize_documents namespace snapshot lagged next),true) else (decision,false)
-  end in
- if authoring || changed_documents || resumes_language_admissions input then
-   Authoring.append synchronized(continue_language_admissions namespace snapshot lagged(Authoring.result_state synchronized))
- else synchronized.
+ match retention with
+ |Some retained=>Authoring.append decision(synchronize_language namespace snapshot lagged
+    (apply_document_retention namespace snapshot retained next))
+ |None=>if documents then
+    Authoring.append decision(synchronize_documents namespace snapshot lagged next) else decision
+ end.
 
 Definition admitted_document_step namespace snapshot lagged input retained state :=
  apply_language namespace snapshot lagged input (SS.with_retention retained state).

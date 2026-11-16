@@ -45,16 +45,6 @@ Proof.
  apply N.eqb_neq in Different. simpl. rewrite Different. reflexivity.
 Qed.
 
-Theorem refused_submission_emits_no_command snapshot draft trigger (state:SS.state) command reason:
- Authoring.current_command state draft=Some command ->
- EO.admission snapshot state(DraftOwner(Draft.owner draft))(Draft.revision draft)command=EM.Unavailable reason ->
- Authoring.result_effects(Authoring.issue_draft snapshot draft trigger state)=nil.
-Proof.
- intros Command Refused. unfold Authoring.issue_draft.
- destruct(Authoring.submission_obstruction snapshot draft state)as [obstruction|];[reflexivity|].
- rewrite Command. unfold Authoring.canonical_ready. rewrite Refused. reflexivity.
-Qed.
-
 Theorem live_setting_selection_preserves_the_message_draft snapshot owner assignment state draft:
  Draft.find_draft owner(SS.drafts(SS.authoring_state state))=Some draft ->
  EO.assignment_available snapshot state assignment=EM.Available ->
@@ -68,10 +58,7 @@ Proof.
  unfold Authoring.ensure_draft. rewrite Existing,Available.
  repeat rewrite Live.
  destruct(Values.candidate_command snapshot(SS.now state)(SS.current_draft state owner)assignment)as [command|];simpl;auto.
- destruct(Authoring.canonical_ready snapshot state
-  (EO.candidate_owner(Activity.assignment_subject assignment)
-   (Schema.encode_value(EM.subject_kind(Activity.assignment_subject assignment))(Activity.assignment_value assignment)))
-  (Draft.revision(SS.current_draft state owner))command);unfold Authoring.issue;destruct(SS.pending_command command state);reflexivity.
+ unfold Authoring.issue. destruct(SS.pending_command command state); reflexivity.
 Qed.
 
 Theorem a_pending_command_is_not_executed_twice command purpose state:

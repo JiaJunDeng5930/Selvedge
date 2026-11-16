@@ -147,10 +147,12 @@ function tokenCredential(tokens, metadata, previous) {
   return boundary('account.token', { ...source, metadata, expires, earliest });
 }
 
-async function resolveCredential(profile, home, { signal, rejectedToken, requestCredential } = {}) {
+async function resolveCredential(profile, home, { signal, optional = false, rejectedToken, requestCredential } = {}) {
   const filename = path.resolve(home, profile.auth_file);
-  return locked(filename, async () => {
-    const observed = credentialObservations(await readRecord(filename));
+  const observe = async () => {
+    const record = await readRecord(filename, optional);
+    if (record === null) return null;
+    const observed = credentialObservations(record);
     const current = boundary('account.credential', observed);
     boundary('account.issuer_admission', { value: current, issuer: profile.issuer });
     const binding = { value: current,
@@ -161,7 +163,15 @@ async function resolveCredential(profile, home, { signal, rejectedToken, request
       threshold: dateObservation(now + 300_000, true), now_date: dateObservation(now, true) };
     // DEFENSE: A sign-in can replace the account while an earlier request awaits
     // its 401. Admit that request's principal before deciding reuse or refresh.
-    if (boundary('account.refresh', source) === 'keep') return current;
+    return { current, refresh: boundary('account.refresh', source) !== 'keep' };
+  };
+  const observed = await observe();
+  if (!observed?.refresh) return observed?.current ?? null;
+  return locked(filename, async () => {
+    // DEFENSE: Another process can refresh or replace this credential while acquiring the write lock.
+    const latest = await observe();
+    if (!latest?.refresh) return latest?.current ?? null;
+    const { current } = latest;
     const metadata = await discovery(profile, signal);
     const config = configuration(metadata, profile, signal);
     const tokens = await grant(() => oidc.refreshTokenGrant(config, current.refresh_token), signal);
@@ -185,9 +195,9 @@ function authorizationView(credential, connection, home) {
   };
 }
 
-export async function authorize(profile, home, { signal } = {}) {
-  const credential = await resolveCredential(profile, home, { signal });
-  return authorizationView(credential, profile, home);
+export async function authorize(profile, home, options) {
+  const credential = await resolveCredential(profile, home, options);
+  return credential === null ? null : authorizationView(credential, profile, home);
 }
 
 async function listenForCallback(server, ports) {

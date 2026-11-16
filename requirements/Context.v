@@ -312,7 +312,7 @@ Export ContextSelectionProofs(selecting_a_summary_preserves_each_original_image)
     search without renumbering history after filtering. *)
 From Selvedge.Kernel Require Queries PacketProofs SearchProofs.
 Export Queries(read_task).
-Export PacketProofs(actual_query_preserves_world_and_emits_no_effect).
+Export PacketProofs(journal_query_preserves_world_and_emits_no_effect).
 Export SearchProofs(rejected_scope_contributes_no_history, rejected_scope_contributes_no_titles,
   a_matching_visible_record_has_its_original_position,
   a_delivered_prefix_leaves_exactly_the_next_page).

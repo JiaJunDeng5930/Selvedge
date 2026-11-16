@@ -2,9 +2,8 @@ import { realpath } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { canonicalWorkspace } from './sandbox.mjs';
-import { cloneJson } from './codec.mjs';
 import { boundary } from './public/model-boundary.mjs';
-import { workspaceCommandResult, interpretWorkspaceSettings } from './model-api.ts';
+import { workspaceCommandResult } from './model-api.ts';
 import { readBoundedRegularSnapshot } from './file-io.mjs';
 
 const contextDefinitions = boundary('config.context_definitions', {});
@@ -56,6 +55,10 @@ function contextSnapshot(filename, bytes) {
 /** Observe guidance before a birth command; the journal owns the snapshot. */
 export async function snapshotProject(cwd, limits, options) {
   const workspace = await (options?.filesystem?.realpath ?? realpath)(cwd);
+  return snapshotWorkspaceGuidance(workspace, limits, options);
+}
+
+export async function snapshotWorkspaceGuidance(workspace, limits, options) {
   const snapshot = await snapshotGuidance(workspace, 'project_guidance', limits, options);
   return { workspace, path: snapshot?.path ?? '', revision: snapshot?.revision ?? 'absent', instructions: snapshot?.content ?? '' };
 }
@@ -69,50 +72,50 @@ export async function snapshotGlobalInstructions(home, limits, options) {
  * selection and fork inheritance remain in the native command resolver.
  */
 export function workspaceCommandPlan(command) {
-  return workspaceCommandResult(boundary('effect.workspace_command', { command }));
+  return { command, ...workspaceCommandResult(boundary('effect.workspace_command', { command })) };
 }
 
 export function admitRawWorkspaceCommand(command) {
   return boundary('effect.workspace_command_raw', { command });
 }
 
-export async function observeWorkspaceCommand(command, limits, { projectWorkspace, workspaceEnvironment } = {}) {
-  command = cloneJson(command);
-  const plan = workspaceCommandPlan(command);
-  const observations = await Promise.all(plan.selections.map(selection =>
-    observeWorkspaceSettings(selection.value, limits,
-      selection.resolve_project ? projectWorkspace : undefined, workspaceEnvironment)));
+export async function observeWorkspaceCommand({ command, selections }, limits, options = {}) {
+  if (!selections.length) return command;
+  const observations = await Promise.all(selections.map(async selection => ({ selection,
+    value: await observeWorkspaceSettings(selection, limits, options),
+  })));
   return boundary('effect.workspace_command_observed', { command, observations });
 }
 
 export function hasRootTaskCreation(command) {
-  return workspaceCommandPlan(command).rootTask;
+  return boundary('effect.root_task_creation', { command });
 }
 
-async function observeWorkspaceSettings(selected, limits, projectWorkspace, workspaceEnvironment) {
-  return interpretWorkspaceSettings(boundary('effect.workspace_settings', { value: selected, resolve_project: Boolean(projectWorkspace) }), {
-    project: async projectId => {
-      const workspace = await projectWorkspace(projectId);
-      // DEFENSE: A public project ID can name a deleted or unavailable Project; preserve it for native command rejection.
-      if (workspace === undefined) return false;
-      selected = { ...selected, workspace };
-      return true;
-    },
-    observe: async projectId => {
-      const resolution = await workspaceEnvironment?.(projectId === null
-        ? { workspace: selected.workspace } : { project_id: projectId });
-      const environment = resolution?.environment;
-      try {
-        const canonical = await canonicalWorkspace(selected.workspace, { filesystem: environment?.filesystem });
-        if (environment) boundary('effect.workspace_environment_bound', { workspace: canonical, root: environment.root });
-        const observed = { workspace: { roots: canonical.roots } };
-        if (resolution) observed.workspace_binding = resolution.workspace_binding;
-        if (canonical.primary_root !== null) {
-          observed.workspace.primary_root = canonical.primary_root;
-          observed.guidance = await snapshotProject(canonical.primary_root, limits, { filesystem: environment?.filesystem });
-        }
-        return observed;
-      } finally { await environment?.filesystem.close(); }
-    },
-  });
+function observedGuidance(root, limits, filesystem, localGuidance) {
+  // Only observations of the same canonical directory on the host share a snapshot.
+  if (filesystem || !localGuidance) return snapshotWorkspaceGuidance(root, limits, { filesystem });
+  const cached = localGuidance.get(root);
+  if (cached) return cached;
+  const snapshot = snapshotWorkspaceGuidance(root, limits);
+  localGuidance.set(root, snapshot);
+  return snapshot;
+}
+
+async function observeWorkspaceSettings({ value, project_id }, limits, { projectWorkspace, workspaceEnvironment, localGuidance }) {
+  const workspace = project_id === null ? value.workspace : await projectWorkspace(project_id);
+  // DEFENSE: A public project ID can name a deleted or unavailable Project; preserve it for native command rejection.
+  if (workspace === undefined) return {};
+  const resolution = await workspaceEnvironment?.(project_id === null ? { workspace } : { project_id });
+  const environment = resolution?.environment;
+  try {
+    const canonical = await canonicalWorkspace(workspace, { filesystem: environment?.filesystem });
+    if (environment) boundary('effect.workspace_environment_bound', { workspace: canonical, root: environment.root });
+    const observed = { workspace: { roots: canonical.roots } };
+    if (resolution) observed.workspace_binding = resolution.workspace_binding;
+    if (canonical.primary_root !== null) {
+      observed.workspace.primary_root = canonical.primary_root;
+      observed.guidance = await observedGuidance(canonical.primary_root, limits, environment?.filesystem, localGuidance);
+    }
+    return observed;
+  } finally { await environment?.filesystem.close(); }
 }

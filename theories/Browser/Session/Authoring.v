@@ -64,7 +64,7 @@ Definition reopen_draft snapshot owner state:=
      else fresh in SS.save_draft fresh state
    |None=>state end end.
 Definition pending_for_editor owner pending:=match SS.purpose pending with
-|SS.DraftSubmission draft _ _ _|SS.DraftAdmission draft _ _ _ _|SS.LiveConfiguration draft _ _|SS.ProjectPreference draft _ _ _ _=>
+|SS.DraftSubmission draft _ _ _|SS.LiveConfiguration draft _ _|SS.ProjectPreference draft _ _ _ _=>
  same_editor owner(Draft.owner draft)
 |_=>false end.
 (** Dismissing an editor ends its draft and owned browser requests. The
@@ -98,107 +98,57 @@ Definition issue command purpose state:=
  changed(SS.with_authoring authoring state)
  [emit "command"[("ticket",number ticket);("command",Schema.encode_command command);
   ("read_only",JBool(match purpose with SS.SearchSubmission _ _ _ _=>true|_=>false end))]].
-Definition reserve command purpose state:=
- if SS.pending_command command state then fail state "This command is already pending."else
- let authoring:=SS.authoring_state state in let ticket:=SS.next authoring in
- let authoring:=set SS.next(fun _=>N.succ ticket)
- (set SS.awaiting(fun pending=>pending++[SS.Pending ticket command purpose false None])authoring)in
- keep(SS.with_authoring authoring state).
 Definition current_preparation draft state:=find(SO.matching_directory draft)(Services.preparations(SS.service_state state)).
-Definition preparation_request snapshot draft intent trigger state:=
- Services.Preparation draft(SS.generation(SS.navigation_state state))(SS.next_layer state)trigger intent
- (match intent with Services.CommitPrepared=>SO.worktree_preference snapshot state draft|Services.PreviewContext=>None end).
-Definition ensure_workspace snapshot draft intent trigger state:=match Draft.explicit_workspace draft with
+Definition ensure_workspace draft state:=match Draft.explicit_workspace draft with
 |None=>keep state
 |Some workspace=>match current_preparation draft state with
  |Some(Resource.Loaded _ _ _)|Some(Resource.Loading _ _)=>keep state
  |Some(Resource.Failed _ _ _)=>keep state
  |_=>let services:=SS.service_state state in let ticket:=Services.next_ticket services in
-  let request:=preparation_request snapshot draft intent trigger state in
+  let request:=Services.Preparation draft in
   let services:=Services.with_next(N.succ ticket)(Services.with_preparations
-   (Resource.Loading ticket request::filter(fun resource=>negb(Services.replaceable_preparation(Draft.owner draft)resource))(Services.preparations services))services)in
+   (Resource.Loading ticket request::filter(fun resource=>negb(Services.preparation_owned(Draft.owner draft)resource))(Services.preparations services))services)in
   changed(SS.with_services services state)
    [Services.encode_effect(Services.ObserveDirectories ticket(Selvedge.Kernel.Codec.workspace_json workspace)(Draft.owner draft))]end end.
-Definition current_command state draft:=match Draft.explicit_workspace draft with
-|None=>Command.command(SS.now state)draft
-|Some _=>match current_preparation draft state with
+Definition current_command state draft:=match current_preparation draft state with
  |Some(Resource.Loaded _ _ observation)=>Command.observed_command(SS.now state)draft
    (Services.observed_workspace observation,Services.observed_guidance observation)
- |_=>None end end.
-Definition current_voice_command state draft:=match Draft.explicit_workspace draft with
-|None=>Command.voice_command draft
-|Some _=>match current_preparation draft state with
+ |_=>Command.command(SS.now state)draft end.
+Definition current_voice_command state draft:=match current_preparation draft state with
  |Some(Resource.Loaded _ _ observation)=>Command.observed_voice_command draft(Services.observed_workspace observation,Services.observed_guidance observation)
- |_=>None end end.
-Definition voice_owner (command:SS.public_command):=CommandAssessment.DirectOwner(CommandAssessment.command_identity command).
-Definition new_voice_availability snapshot (state:SS.state) owner:=let draft:=SS.current_draft state owner in
- match SO.worktree_submission_problem snapshot state draft with
- |Some problem=>EM.Unavailable(EO.run_environment_git_message problem)
- |None=>match current_voice_command state draft with
-   |Some command=>EO.admission snapshot state(voice_owner command)(Draft.revision draft)command
-   |None=>EM.Unavailable "Create the cloud task before starting voice, or finish observing its workspace."end end.
-Definition canonical_ready snapshot (state:SS.state) owner revision command:=
- match EO.admission snapshot state owner revision command with EM.Available=>true|EM.Unavailable _=>false end.
-Definition command_owner snapshot state command:=match ObjectActions.descriptor_for_command snapshot state command with
-|Some(subject,action)=>ObjectActions.action_owner subject action
-|None=>CommandAssessment.DirectOwner(CommandAssessment.command_identity command)end.
-Definition command_availability snapshot (state:SS.state) command:EM.availability:=
- if SS.pending_command command state then EM.Unavailable "This command is already pending." else
- EO.admission snapshot state(command_owner snapshot state command)(ObjectActions.assessment_revision state)command.
-Definition direct_command_admission snapshot (state:SS.state) command:=
- EO.checked_admission snapshot state(command_owner snapshot state command)(ObjectActions.assessment_revision state)command.
-Definition request_command snapshot state command:=
+ |_=>Command.voice_command draft end.
+Definition command_availability (state:SS.state) command:EM.availability:=
+ if SS.pending_command command state then EM.Unavailable "This command is already pending."
+ else if Services.connected(SS.service_state state)then EM.Available
+ else EM.Unavailable "Connect to continue.".
+Definition new_voice_availability (state:SS.state) owner:=
+ match current_voice_command state (SS.current_draft state owner) with
+ |Some command=>command_availability state command
+ |None=>EM.Unavailable "Create the cloud task before starting voice."end.
+Definition request_command state command:=
  if negb(Services.connected(SS.service_state state))then fail state "正在重新连接服务…" else
  if match SS.workflow_start_card command with
  |Some card=>match SS.pending_ticket_start card state with Some _=>true|None=>false end
  |None=>false end then fail state "正在等待这张卡片的启动回执。" else
- match direct_command_admission snapshot state command with
- |Some EM.Available=>issue command SS.DirectSubmission state
- |Some (EM.Unavailable reason)=>fail state reason
- |None=>reserve command SS.DirectAdmission state
- end.
-Definition assessment_failure snapshot state owner revision command :=
- match natural_field "sequence" snapshot,
-       find(Services.owned_assessment owner)(Services.command_assessments(SS.service_state state)) with
- |Some sequence,Some(Resource.Failed _ request reason)=>
-   if CommandAssessment.matches owner revision sequence command request then Some reason else None
- |_,_=>None end.
-Definition command_assessment_failure snapshot state command :=
- assessment_failure snapshot state (command_owner snapshot state command)
-   (ObjectActions.assessment_revision state) command.
+ issue command SS.DirectSubmission state.
 Definition submission_obstruction snapshot draft state:option string:=
  if negb(Services.connected(SS.service_state state))then Some "Connect to continue."else
- match EO.project_precondition snapshot state draft with
- |Some(_,_,reason)=>Some reason
- |None=>let owner:=Draft.owner draft in
-  match EO.run_environment_obstruction snapshot state owner draft with
-  |Some cause=>Some(EM.obstruction_message cause)
-  |None=>if SS.pending_editor owner state || Services.preparing owner(SS.service_state state) || Services.blocks owner(SS.service_state state)then
-    Some "Wait for the current submission or file transfer to finish."else None end end.
+ let owner:=Draft.owner draft in
+ if SS.pending_editor owner state || Services.blocks owner(SS.service_state state)then
+  Some "Wait for the current submission or file transfer to finish."else
+ match EO.draft_requirements snapshot state owner with
+ |cause::_=>Some(EM.obstruction_message cause)
+ |[]=>None end.
 Definition issue_draft snapshot draft trigger state:=
  match submission_obstruction snapshot draft state with
  |Some reason=>fail state reason
- |None=>let owner:=Draft.owner draft in
- match current_command state draft with
- |None=>fail state "The draft is waiting for a valid command and workspace observation."
- |Some command=>if canonical_ready snapshot state(CommandAssessment.DraftOwner owner)(Draft.revision draft)command
-  then match SO.worktree_preference snapshot state draft with
-  |None=>issue command(SS.DraftSubmission draft(SS.generation(SS.navigation_state state))(SS.next_layer state)trigger)state
-  |Some update=>if canonical_ready snapshot state(CommandAssessment.DirectOwner(CommandAssessment.command_identity update))
-      (SS.generation(SS.navigation_state state))update
-    then issue update(SS.ProjectPreference draft command(SS.generation(SS.navigation_state state))(SS.next_layer state)trigger)state
-    else fail state "The project worktree preference has not been admitted against the current state."end
-  else fail state "This action has not been admitted against the current state."end end.
-Definition capture_workspace snapshot draft trigger state:=
- match submission_obstruction snapshot draft state with
- |Some reason=>fail state reason
- |None=>match current_preparation draft state with
-  |Some(Resource.Loading ticket _)=>
-   let request:=preparation_request snapshot draft Services.CommitPrepared trigger state in
-   keep(SS.with_services(Services.with_preparations(map(fun resource=>match resource with
-    |Resource.Loading actual _=>if N.eqb ticket actual then Resource.Loading actual request else resource
-    |_=>resource end)(Services.preparations(SS.service_state state)))(SS.service_state state))state)
-  |_=>ensure_workspace snapshot draft Services.CommitPrepared trigger state end end.
+ |None=>match current_command state draft with
+ |None=>fail state "The draft does not form a valid command."
+ |Some command=>
+  let generation:=SS.generation(SS.navigation_state state)in let layer:=SS.next_layer state in
+  match SO.worktree_preference snapshot state draft with
+  |None=>issue command(SS.DraftSubmission draft generation layer trigger)state
+  |Some update=>issue update(SS.ProjectPreference draft command generation layer trigger)state end end end.
 Definition submit snapshot owner trigger state:=
  let state:=ensure_draft snapshot owner state in
  match Draft.find_draft owner(SS.drafts(SS.authoring_state state))with
@@ -208,27 +158,7 @@ Definition submit snapshot owner trigger state:=
    |Identity.WorkflowStart _,Draft.Rejected _ _=>
      let draft:=Draft.with_feedback Draft.Editing draft in (draft,SS.save_draft draft state)
    |_,_=>(draft,state) end in
-  match Draft.explicit_workspace draft,current_preparation draft state with
-  |Some _,None|Some _,Some(Resource.Loading _ _)=>capture_workspace snapshot draft trigger state
-  |Some _,Some(Resource.Failed _ _ reason)=>fail state reason
- |_,_=>match owner with
-   |Identity.WorkflowStart _=>
-    match submission_obstruction snapshot draft state, EO.body_requirements snapshot owner(Draft.contents draft), current_command state draft with
-    |None,[],Some command=>issue command
-      (SS.DraftSubmission draft(SS.generation(SS.navigation_state state))(SS.next_layer state)trigger)state
-    |Some reason,_,_=>fail state reason
-    |_,cause::_,_=>fail state(EM.obstruction_message cause)
-    |_,[],None=>fail state "请选择入口并输入启动消息。" end
-   |Identity.NewTask _|Identity.Message _=>
-    if EO.awaits_only_admission(EO.observe_assessment snapshot state owner) then
-     match submission_obstruction snapshot draft state,current_command state draft with
-     |Some reason,_=>fail state reason
-     |None,Some command=>reserve command
-       (SS.DraftAdmission draft(SO.worktree_preference snapshot state draft)
-         (SS.generation(SS.navigation_state state))(SS.next_layer state)trigger)state
-     |None,None=>fail state "The draft is waiting for a valid command and workspace observation." end
-    else issue_draft snapshot draft trigger state
-   |_=>issue_draft snapshot draft trigger state end end end.
+  issue_draft snapshot draft trigger state end.
 Definition set_mention owner mention state:=SS.with_authoring
  (set SS.mentions(fun values=>(owner,mention)::filter(fun value=>negb(same_editor owner(fst value)))values)
   (SS.authoring_state state))state.
@@ -514,9 +444,8 @@ Definition apply_field snapshot (owner:editor) (assignment:Activity.assignment o
  let field:=EM.subject_declaration(Activity.assignment_subject assignment)in
  if Parameters.live_configuration owner field then
  match Values.candidate_command snapshot(SS.now state)current assignment with
- |Some command=>if canonical_ready snapshot state(EO.candidate_owner(Activity.assignment_subject assignment)
-    (Schema.encode_value(EM.subject_kind(Activity.assignment_subject assignment))(Activity.assignment_value assignment)))(Draft.revision current)command
-   then issue command(SS.LiveConfiguration current None(match field with Fields.ModelProfile|Fields.ReasoningEffort=>true|_=>false end))state else fail state "This configuration change has not been admitted against the current state."
+ |Some command=>issue command
+   (SS.LiveConfiguration current None(match field with Fields.ModelProfile|Fields.ReasoningEffort=>true|_=>false end))state
  |None=>fail state "This configuration change is not valid."end
  else match Values.apply_assignment snapshot current assignment with
  |None=>fail state "The field value is not valid for this object."
@@ -542,14 +471,15 @@ Definition apply_activity snapshot occurrence (owner:editor) (assignment:Activit
  |Some(actual,request)=>if same_editor owner actual then
  let current:=SS.current_draft state owner in
  if Parameters.live_configuration owner(EM.subject_declaration(Activity.assignment_subject assignment))then
- match Values.candidate_command snapshot(SS.now state)current assignment with
- |None=>fail state "This choice cannot form a configuration command."
- |Some command=>let incoming:=Schema.encode_value(EM.subject_kind(Activity.assignment_subject assignment))(Activity.assignment_value assignment)in
-  if canonical_ready snapshot state(EO.candidate_owner(Activity.assignment_subject assignment)incoming)(Draft.revision current)command then
+ match EO.assignment_available snapshot state assignment with
+ |EM.Unavailable reason=>fail state reason
+ |EM.Available=>match Values.candidate_command snapshot(SS.now state)current assignment with
+  |None=>fail state "This choice cannot form a configuration command."
+  |Some command=>
     let navigation:=SS.navigation_state state in
     let navigation:=set SS.layers(fun layers=>match layers with []=>[]|layer::rest=>set SS.layer_pending(fun _=>true)(set SS.layer_feedback(fun _=>None)layer)::rest end)navigation in
     issue command(SS.LiveConfiguration current(Some occurrence)(match EM.subject_declaration(Activity.assignment_subject assignment)with Fields.ModelProfile|Fields.ReasoningEffort=>true|_=>false end))(SS.with_navigation navigation state)
-  else fail state "This configuration choice has not been admitted against the current state."end
+  end end
  else let updated:=apply_field snapshot owner assignment state in
  match result_error updated with
  |Some _=>updated
@@ -713,8 +643,8 @@ Definition step snapshot input state:option result:=match input with
 |Input.Submit owner trigger=>Some(submit snapshot owner trigger state)
 |Input.RetryWorkspace owner trigger=>let draft:=Draft.with_feedback Draft.Editing(SS.current_draft state owner)in
  let state:=SS.save_draft draft state in
- let services:=Services.with_preparations(filter(fun resource=>negb(Services.replaceable_preparation owner resource))(Services.preparations(SS.service_state state)))(SS.service_state state)in
- Some(capture_workspace snapshot draft trigger(SS.with_services services state))
+ let services:=Services.with_preparations(filter(fun resource=>negb(Services.preparation_owned owner resource))(Services.preparations(SS.service_state state)))(SS.service_state state)in
+ Some(ensure_workspace draft (SS.with_services services state))
 |Input.DirectoriesCompleted ticket outcome=>Some(directories_completed snapshot ticket outcome state)
 |Input.ServiceInput input=>Some(service_step snapshot input state)
 |Input.SpeechInput input=>Some(speech_step snapshot input state)
@@ -802,132 +732,13 @@ Definition ensure_cloud_repository snapshot state:=
   changed(SS.with_services(Services.with_next(N.succ ticket)
     (Services.with_cloud_repository(Resource.Loading ticket(checked_owner,path))services))state)
     [Services.encode_effect(Services.ObserveCloudRepository ticket path)]end.
-Definition ensure_request snapshot owner revision command state:=match natural_field "sequence" snapshot with
-|None=>keep state
-|Some sequence=>adopt_service(Services.ensure_assessment owner revision sequence command(SS.service_state state))state end.
-Definition retry_command_assessment snapshot state command:=
- match command_assessment_failure snapshot state command with
- |None=>keep state
- |Some _=>
-   let owner:=command_owner snapshot state command in
-   let current:=SS.with_services(Services.forget_owned_assessment owner(SS.service_state state))state in
-   ensure_request snapshot owner (ObjectActions.assessment_revision state) command current
- end.
-Definition preparation_owner ticket command:=CommandAssessment.PreparationOwner ticket(CommandAssessment.command_identity command).
-Definition assessed_command snapshot owner revision command state:option(sum string unit):=
- match natural_field "sequence" snapshot with
- |None=>None
- |Some sequence=>match find(Services.owned_assessment owner)(Services.command_assessments(SS.service_state state))with
-  |Some(Resource.Loaded _ request observation)=>
-   if CommandAssessment.matches owner revision sequence command request && CommandAssessment.current_owned owner revision sequence observation
-   then Some(match CommandAssessment.observed_admission observation with
-    |CommandAssessment.Admitted=>inr tt|CommandAssessment.Refused _ reason=>inl reason end)else None
-  |Some(Resource.Failed _ request reason)=>if CommandAssessment.matches owner revision sequence command request then Some(inl reason)else None
-  |_=>None end end.
-Definition preparation_finished ticket state:=SS.with_services(Services.forget_preparation ticket(SS.service_state state))state.
-Definition preparation_failed ticket request reason state:=
- let captured:=Services.preparation_draft request in
- let state:=preparation_finished ticket state in
- let state:=if draft_current captured state then SS.save_draft(Draft.with_feedback(Draft.Rejected(Draft.revision captured)(JString reason))captured)state else state in
- fail state reason.
-Definition issue_prepared ticket request command state:=
- let captured:=Services.preparation_draft request in
- let generation:=Services.preparation_generation request in
- let layer:=Services.preparation_layer request in
- let trigger:=Services.preparation_trigger request in
- let purpose:=match Services.preparation_preference request with
- |None=>SS.DraftSubmission captured generation layer trigger
- |Some _=>SS.ProjectPreference captured command generation layer trigger end in
- issue(match Services.preparation_preference request with Some update=>update|None=>command end)
-  purpose(preparation_finished ticket state).
-Definition continue_preparation snapshot ticket request observation state:=
- let captured:=Services.preparation_draft request in
- match Command.observed_command(SS.now state)captured(Services.observed_workspace observation,Services.observed_guidance observation)with
- |None=>preparation_failed ticket request "The prepared draft does not form a valid command."state
- |Some command=>
-  let revision:=Draft.revision captured in
-  let checked:=ensure_request snapshot(preparation_owner ticket command)revision command state in
-  let checked:=match Services.preparation_preference request with
-   |None=>checked
-   |Some update=>append checked(ensure_request snapshot(preparation_owner ticket update)revision update(result_state checked))end in
-  let state:=result_state checked in
-  let ready:=match assessed_command snapshot(preparation_owner ticket command)revision command state with
-   |None=>keep state
-   |Some(inl reason)=>preparation_failed ticket request reason state
-   |Some(inr _)=>match Services.preparation_preference request with
-    |None=>issue_prepared ticket request command state
-    |Some update=>match assessed_command snapshot(preparation_owner ticket update)revision update state with
-     |None=>keep state
-     |Some(inl reason)=>preparation_failed ticket request reason state
-     |Some(inr _)=>issue_prepared ticket request command state end end end in
-  append checked ready end.
-Definition continue_preparations snapshot state:=fold_left(fun result resource=>match resource with
- |Resource.Loaded ticket request observation=>match Services.preparation_intent_of request with
-  |Services.CommitPrepared=>append result(continue_preparation snapshot ticket request observation(result_state result))
-  |Services.PreviewContext=>result end
- |_=>result end)(Services.preparations(SS.service_state state))(keep state).
-Definition release_admission (pending:SS.pending) state:=
- SS.with_authoring(set SS.awaiting
-   (filter(fun value=>negb(N.eqb(SS.ticket value)(SS.ticket pending))))(SS.authoring_state state))state.
-Definition continue_direct_admission snapshot (pending:SS.pending) state:=
- let command:=SS.accepted_command pending in
- let revision:=SS.ticket pending in
- let owner:=preparation_owner revision command in
- let checked:=ensure_request snapshot owner revision command state in
- let observed:=result_state checked in
- match assessed_command snapshot owner revision command observed with
- |None=>checked
- |Some verdict=>
-   let released:=SS.with_services(Services.forget_owned_assessment owner(SS.service_state observed))
-     (release_admission pending observed)in
-   append checked(match verdict with
-   |inl reason=>alert_diagnostic released (JString reason)
-   |inr _=>issue command SS.DirectSubmission released end)
- end.
-Definition continue_admission snapshot (pending:SS.pending) state:=
- match SS.purpose pending with
- |SS.DirectAdmission=>continue_direct_admission snapshot pending state
- |SS.DraftAdmission captured preference navigation layer trigger=>
-  let command:=SS.accepted_command pending in
-  let owner:=CommandAssessment.DraftOwner(Draft.owner captured) in
-  let revision:=Draft.revision captured in
-  let checked:=ensure_request snapshot owner revision command state in
-  let preference_owner update:=CommandAssessment.DirectOwner(CommandAssessment.command_identity update) in
-  let checked:=match preference with
-   |Some update=>append checked(ensure_request snapshot(preference_owner update)navigation update(result_state checked))
-   |None=>checked end in
-  let observed:=result_state checked in
-  let ready:=match assessed_command snapshot owner revision command observed with
-   |Some(inr _)=>match preference with
-    |Some update=>assessed_command snapshot(preference_owner update)navigation update observed
-    |None=>Some(inr tt) end
-   |other=>other end in
-  match ready with
-  |None=>checked
-  |Some verdict=>
-    let released:=release_admission pending observed in
-    append checked(match verdict with
-    |inl reason=>
-      let rejected:=if draft_current captured released
-       then SS.save_draft(Draft.with_feedback(Draft.Rejected revision(JString reason))captured)released else released in
-      fail rejected reason
-    |inr _=>match preference with
-      |Some update=>issue update(SS.ProjectPreference captured command navigation layer trigger)released
-      |None=>issue command(SS.DraftSubmission captured navigation layer trigger)released end end)
-  end
- |_=>keep state end.
-Definition continue_admissions snapshot state:=
- fold_left(fun result pending=>append result(continue_admission snapshot pending(result_state result)))
-  (SS.awaiting(SS.authoring_state state))(keep state).
 Definition prepare snapshot state:=
  let state:=resolve_creation_model snapshot state in
  let prepared:=fold_left(fun result owner=>let state:=ensure_draft snapshot owner(result_state result)in
- append result(ensure_workspace snapshot(SS.current_draft state owner)Services.PreviewContext "" state))
+ append result(ensure_workspace (SS.current_draft state owner) state))
  (visible_editors state)(keep state)in
  let prepared:=append prepared(ensure_workspace_git snapshot(result_state prepared))in
- let prepared:=append prepared(ensure_cloud_repository snapshot(result_state prepared))in
- let prepared:=append prepared(continue_preparations snapshot(result_state prepared))in
- append prepared(continue_admissions snapshot(result_state prepared)).
+ append prepared(ensure_cloud_repository snapshot(result_state prepared)).
 Definition input_command snapshot state input:option SS.public_command:=
  let raw:=match input with
  |Input.BoardProfile profile=>match field "board" snapshot with
@@ -941,13 +752,6 @@ Definition input_command snapshot state input:option SS.public_command:=
  |None=>match Navigation.step snapshot input state with
   |Some decision=>fold_right(fun effect rest=>match effect with Navigation.Issue command _=>Some command|_=>rest end)None(Navigation.result_effects decision)
   |None=>None end end.
-Definition command_input_availability snapshot state command:EM.availability:=
- if SS.pending_command command state then EM.Unavailable "This command is already pending."else
- command_availability snapshot state command.
-Definition confirmation_availability snapshot state command:EM.availability:=
- if SS.pending_command command state then EM.Unavailable "This command is already pending."else
- if Services.connected(SS.service_state state)then command_availability snapshot state command
- else EM.Unavailable "Connect to continue.".
 Definition placement_pending input state := match input with
  |Input.CardPlaced card _ _ _ _=>SS.pending_placement card state|_=>false end.
 Definition input_availability snapshot state input:EM.availability:=
@@ -955,36 +759,27 @@ Definition input_availability snapshot state input:EM.availability:=
  |None=>EM.Available|Some reason=>EM.Unavailable reason end|_=>
  if placement_pending input state then EM.Unavailable "This task movement is pending." else
  match input_command snapshot state input with
- |Some command=>match input with
-  |Input.Confirm=>confirmation_availability snapshot state command
-  |_=>command_input_availability snapshot state command end
+ |Some command=>command_availability state command
  |None=>EM.Available end end.
-Definition refresh_input snapshot input state:=match input with
-|Input.SubmitHistorySearch _=>keep state
-|Input.BeginVoiceNew owner=>let draft:=SS.current_draft state owner in
- match current_voice_command state draft with Some command=>ensure_request snapshot(voice_owner command)(Draft.revision draft)command state|None=>keep state end
-|Input.Submit (Identity.WorkflowStart _) _=>keep state
-|Input.Submit owner _=>let draft:=SS.current_draft state owner in
- if SS.pending_editor owner state then keep state else
- let checked:=match current_command state draft with Some command=>ensure_request snapshot(CommandAssessment.DraftOwner owner)(Draft.revision draft)command state|None=>keep state end in
- match SO.worktree_preference snapshot state draft with
- |Some update=>append checked(ensure_request snapshot(CommandAssessment.DirectOwner(CommandAssessment.command_identity update))
-   (SS.generation(SS.navigation_state state))update(result_state checked))
- |None=>checked end
-|Input.ActivityAssignment _ owner assignment|Input.ApplyAssignment owner assignment=>
- let current:=SS.current_draft state owner in
- if Parameters.live_configuration owner(EM.subject_declaration(Activity.assignment_subject assignment))then
- match Values.candidate_command snapshot(SS.now state)current assignment with
- |Some command=>ensure_request snapshot(EO.candidate_owner(Activity.assignment_subject assignment)
- (Schema.encode_value(EM.subject_kind(Activity.assignment_subject assignment))(Activity.assignment_value assignment)))(Draft.revision current)command state|None=>keep state end else keep state
-|Input.MenuAction subject key _|Input.RetryMenuAssessment subject key _=>match ObjectActions.resolve snapshot state subject key with
- |Some action=>match ObjectActions.command action with Some command=>ensure_request snapshot(ObjectActions.action_owner subject action)(ObjectActions.action_revision state subject)command state|None=>keep state end|None=>keep state end
-|Input.Command command|Input.Confirmation command _ _ _=>ensure_request snapshot(command_owner snapshot state command)(ObjectActions.assessment_revision state)command state
-|Input.RequestCommand command=>if SS.pending_command command state then keep state else
- ensure_request snapshot(command_owner snapshot state command)(ObjectActions.assessment_revision state)command state
-|Input.Confirm=>match SS.layers(SS.navigation_state state)with
- |layer::_=>match SS.layer_panel layer with SS.Confirmation command _ _=>ensure_request snapshot(command_owner snapshot state command)(ObjectActions.assessment_revision state)command state|_=>keep state end|[]=>keep state end
-|_=>match input_command snapshot state input with
- |Some command=>ensure_request snapshot(command_owner snapshot state command)(ObjectActions.assessment_revision state)command state
- |None=>keep state end end.
-Definition refresh snapshot inputs state:=fold_left(fun result input=>append result(refresh_input snapshot input(result_state result)))inputs(keep state).
+
+(** The card editor can describe the likely effect of saving. This observation
+    does not participate in submission or in the service's command decision. *)
+Definition has_card_save_preview (draft : Draft.draft) :=
+ match Draft.contents draft with
+ | Draft.CardBody (Identity.BoardCard id) _ value assisted _ _ =>
+   (match id with None => assisted | Some _ => false end) ||
+   (match Selvedge.Features.Domain.draft_owner value with Selvedge.Features.Domain.ProfileOwner _ => true | _ => false end)
+ | _ => false end.
+
+Definition refresh_card_save snapshot input state:=match input with
+ |Input.Submit ((Identity.Card card) as owner) _=>
+  let draft:=SS.current_draft state owner in
+  if has_card_save_preview draft then
+    match natural_field "sequence" snapshot, field "card_save_facts" snapshot, current_command state draft with
+    |Some sequence,Some facts,Some command=>adopt_service
+       (Services.ensure_assessment card (Draft.revision draft) sequence facts command (SS.service_state state)) state
+    |_,_,_=>keep state end
+  else keep state
+ |_=>keep state end.
+Definition refresh snapshot inputs state:=
+ fold_left(fun result input=>append result(refresh_card_save snapshot input(result_state result)))inputs(keep state).

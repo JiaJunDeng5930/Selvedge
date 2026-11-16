@@ -60,16 +60,13 @@ Record navigation := Navigation {
 Definition side_task n:=fold_right(fun layer rest=>match layer_panel layer with
 |SideConversationPanel task=>Some task|_=>rest end)None(layers n).
 Inductive pending_purpose := DraftSubmission (snapshot : draft) (navigation_generation layer_generation : N) (trigger : string)
-| DraftAdmission (snapshot : draft) (preference : option public_command) (navigation_generation layer_generation : N) (trigger : string)
 | ConfirmationSubmission (navigation_generation occurrence : N)
 | LiveConfiguration (snapshot : draft) (view_occurrence : option N) (remember_model:bool)
 | ProjectPreference (snapshot : draft) (prepared : public_command) (navigation_generation layer_generation : N) (trigger : string)
 | DirectSubmission
-| DirectAdmission
 | MenuSubmission (occurrence : N)
 | SideCreation (parent navigation_generation layer_generation:N)(trigger:string)
 | SearchSubmission(query:string)(project work:option N)(search_ticket:N)
-| LanguageAdmission (task revision : N) (text : string) (owner : Selvedge.Interaction.Interactive.Types.owner) (path : string) (ticket : N)
 | LanguageSubmission (editor : Identity.editor) (owner : Selvedge.Interaction.Interactive.Types.owner) (path : string) (ticket : N).
 Record pending := Pending { ticket : N; accepted_command : public_command; purpose : pending_purpose;
   request_received : bool; outcome_unknown : option string }.
@@ -126,8 +123,7 @@ Record state := State {
   next_layer : N
 }.
 Definition pending_editor owner state:=existsb(fun pending=>match purpose pending with
-|DraftSubmission value _ _ _|DraftAdmission value _ _ _ _|LiveConfiguration value _ _|ProjectPreference value _ _ _ _=>same_editor owner(Draft.owner value)
-|LanguageAdmission task _ _ _ _ _=>same_editor owner(Identity.Message task)
+|DraftSubmission value _ _ _|LiveConfiguration value _ _|ProjectPreference value _ _ _ _=>same_editor owner(Draft.owner value)
 |LanguageSubmission editor _ _ _=>same_editor owner editor
 |_=>false end)(awaiting(authoring_state state)).
 Definition pending_command command state:=existsb(fun pending=>CommandAssessment.same_command command(accepted_command pending))(awaiting(authoring_state state)).
@@ -138,9 +134,6 @@ Definition workflow_start_card (command : public_command) :=
 Definition pending_ticket_start card state :=
  find (fun pending=>match workflow_start_card (accepted_command pending) with
   |Some owner=>N.eqb owner card|None=>false end)(awaiting(authoring_state state)).
-Definition checking_command command state:=existsb(fun pending=>match purpose pending with
- |DirectAdmission=>CommandAssessment.same_command command(accepted_command pending)
- |_=>false end)(awaiting(authoring_state state)).
 Definition pending_search state:=existsb(fun pending=>match purpose pending with
  |SearchSubmission _ _ _ _=>true|_=>false end)(awaiting(authoring_state state)).
 Definition pending_placement card state:=existsb(fun pending=>

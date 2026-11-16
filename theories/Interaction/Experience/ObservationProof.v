@@ -50,36 +50,6 @@ Proof.
  rewrite directory_segment_separator,directory_named_segment;[reflexivity|exact Free|exact Nonempty].
 Qed.
 
-(** A live candidate can be available only with the assessment issued for this
-    action and current world.  Command comparison deliberately ignores the
-    observed_at transport field, as in the canonical assessment contract. *)
-Theorem available_admission_has_current_authority snapshot state owner revision command:
- admission snapshot state owner revision command=Available ->
- exists sequence ticket request observation,
-  natural_field "sequence" snapshot=Some sequence /\
-  find(CommandAssessment.owned_assessment owner)(EditorContext.command_assessments(EditorContext.observed state))=
-    Some(Loaded ticket request observation) /\
-  CommandAssessment.matches owner revision sequence command request=true /\
-  CommandAssessment.observed_owner observation=owner /\
-  CommandAssessment.observed_revision observation=revision /\
-  CommandAssessment.observed_sequence observation=sequence /\
-  CommandAssessment.observed_admission observation=CommandAssessment.Admitted.
-Proof.
- unfold admission,checked_admission.
- destruct(natural_field "sequence" snapshot)as[sequence|]eqn:Sequence;try discriminate.
- destruct(find(CommandAssessment.owned_assessment owner)(EditorContext.command_assessments(EditorContext.observed state)))
-  as[resource|]eqn:Found;try discriminate.
- destruct resource as[|ticket request|ticket request observation|ticket request reason];try discriminate.
- - destruct(CommandAssessment.matches owner revision sequence command request &&
-    CommandAssessment.current_owned owner revision sequence observation)eqn:Current;try discriminate.
-   destruct(CommandAssessment.observed_admission observation)eqn:Admitted;try discriminate.
-   intros _. apply Bool.andb_true_iff in Current as[Matches Owned].
-   apply CommandAssessment.current_observation_retains_action_and_world in Owned.
-   destruct Owned as[Owner[Revision World]]. exists sequence,ticket,request,observation.
-   repeat split;assumption.
- - destruct(CommandAssessment.matches owner revision sequence command request);discriminate.
-Qed.
-
 Theorem available_assignment_is_editable snapshot state e(assignment:assignment e):
  assignment_available snapshot state assignment=Available ->
  Parameters.editable e(subject_declaration(assignment_subject assignment))=true.
@@ -91,21 +61,20 @@ Proof.
  exact(fun _=>proj1 Shape).
 Qed.
 
-Theorem available_live_assignment_has_current_authority snapshot state e(assignment:assignment e):
+Theorem available_live_assignment_forms_a_connected_command snapshot state e(assignment:assignment e):
  Parameters.live_configuration e(subject_declaration(assignment_subject assignment))=true ->
  assignment_available snapshot state assignment=Available ->
  exists command,
   Values.candidate_command snapshot(EditorContext.current_time(EditorContext.observed state))(EditorContext.current_draft state e)assignment=Some command /\
-  admission snapshot state(candidate_owner(assignment_subject assignment)
-    (Schema.encode_value(subject_kind(assignment_subject assignment))(assignment_value assignment)))
-    (Draft.revision(EditorContext.current_draft state e))command=Available.
+  EditorContext.connected(EditorContext.observed state)=true.
 Proof.
  intros Live. unfold assignment_available,assignment_availability.
  destruct(reviewer_assignment_reason snapshot(Draft.contents(EditorContext.current_draft state e))assignment);try discriminate.
  destruct(assignment_shape_available snapshot state assignment);try discriminate.
  rewrite Live. destruct(Values.candidate_command snapshot(EditorContext.current_time(EditorContext.observed state))(EditorContext.current_draft state e)assignment)
   as[command|]eqn:Command;try discriminate.
- intros Accepted. exists command. split;[reflexivity|exact Accepted].
+ destruct (EditorContext.connected(EditorContext.observed state)); try discriminate.
+ intros _. exists command. split; reflexivity.
 Qed.
 
 Theorem included_choice_shortcut_preserves_membership e(subject:subject e) options choice incoming:

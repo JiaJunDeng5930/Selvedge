@@ -237,21 +237,25 @@ Definition input_changes (mode : input_mode) (contents : content) (task : task) 
 Definition input_effects (mode : input_mode) (id : N) (task : task) :=
  match mode with AppendInput => [] | ReplaceInput => inference_effects id task end.
 Definition receive_input {before : world} (reference : TaskScope.task_reference before)
- (_ : input_admission reference) (mode : input_mode) (contents : content) :=
+ (mode : input_mode) (contents : content) :=
  let current := TaskScope.selected reference in
  CommandResult.Change JNull
    (TaskChange.interpret (TaskChange.Plan before reference (input_changes mode contents current)))
    (input_effects mode (TaskScope.owner reference) current).
-Definition input_result (mode : input_mode) (id : N) (contents : content) (before : world) :=
+Definition input_command_result (requires_workspace : bool) (mode : input_mode) (id : N) (contents : content) (before : world) :=
  match TaskScope.select id before with
  | None => CommandResult.refuse "task_not_found" "The target task does not exist"
  | Some target => match task_lifecycle (TaskScope.selected target) with
    | Archived _ => CommandResult.refuse "invalid_arguments" "Archived tasks cannot accept input"
    | _ => if content_nonempty contents then
-      CommandResult.map (fun admitted => receive_input target admitted mode contents) (admit_input target)
+      let input := receive_input target mode contents in
+      if requires_workspace then CommandResult.map (fun _ => input) (admit_input target)
+      else CommandResult.Accepted input
      else CommandResult.refuse "invalid_arguments" input_required_message
    end end.
-Definition send_result := input_result AppendInput.
+Definition input_result := input_command_result true.
+Definition send_result id contents value :=
+ input_command_result (world_legacy_send_admission value) AppendInput id contents value.
 Definition send (id : N) (contents : content) (value : world) :=
  CommandResult.decide value (send_result id contents value).
 Definition steer_result := input_result ReplaceInput.

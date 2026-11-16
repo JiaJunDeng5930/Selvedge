@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json TextJson.
+From Selvedge.Foundation Require Import Json JsonProofs TextJson.
 From Selvedge.Adapters Require Import WebStreamProofs Common WebCommon WebResources WebStore WebContinuation Web.
 Import ListNotations.
 Open Scope string_scope.
@@ -194,3 +194,29 @@ Proof.
    exists (retire_candidate records (option_map (fun ticket => owner ++ ":" ++ name_or_number ticket) ticket)).
  split; [unfold retire_existing; now rewrite metadata|apply retire_candidate_is_newest_match].
 Qed.
+
+
+Theorem web_repeated_identity_has_no_write current id :
+ response_identity id = true ->
+ truthy (response_id current) = true ->
+ same (response_id current) id = true ->
+ store_identify current id = WebStore.read_only.
+Proof.
+ destruct current; intros Valid Present Same; cbn [response_id] in Present; try discriminate;
+ unfold store_identify, bind_identity; rewrite Valid; cbn [negb];
+ rewrite Same; unfold write_changes; now rewrite JsonProofs.equal_is_reflexive.
+Qed.
+
+Theorem web_completed_response_is_not_written_again id body response :
+ parsed_matches (JString body) (JObject response) = true ->
+ bind_identity (CommittedResponse id body) (member response "id") = inr (CommittedResponse id body) ->
+ store_finish (CommittedResponse id body) response = WebStore.read_only.
+Proof.
+ intros Matches Identified. unfold store_finish, commit_response.
+ rewrite Identified, Matches. unfold write_changes. now rewrite JsonProofs.equal_is_reflexive.
+Qed.
+
+Theorem web_repeated_rejection_or_retirement_has_no_write :
+ store_reject RejectedResponse = WebStore.read_only /\
+ store_retire Cancelled = WebStore.read_only.
+Proof. split; reflexivity. Qed.

@@ -76,7 +76,7 @@ Local Lemma accepted_input_preserves_other_tasks : forall mode target contents b
  find_task other (CommandResult.change_world delivered) = find_task other before.
 Proof.
  intros mode target contents before delivered other Different.
- unfold Tasks.input_result.
+ unfold Tasks.input_result, Tasks.input_command_result. cbn beta iota zeta.
  pattern (TaskScope.select target before).
  apply TaskScopeProofs.selected_reference_elimination.
  - intros reference Owner.

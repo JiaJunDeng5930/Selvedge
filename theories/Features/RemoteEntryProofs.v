@@ -46,20 +46,19 @@ Proof.
  assert (Permissions : RemoteProofs.granted_permissions Remote.control_rights (F.grant_rights issued)).
  { unfold RemoteProofs.granted_permissions, Remote.control_rights; cbn.
    repeat split; intros; try discriminate; assumption. }
- pose proof (RemoteProofs.current_grant_admits_fresh_remote_request
-   Remote.control_rights request (Remote.registry value) issued
-   Enabled Valid Granted Epoch Permissions Fresh Space) as Admitted.
- assert (Checked : Remote.check Remote.control_rights (Remote.controller request)
-   (Remote.epoch request) (Remote.registry value) = C.Accepted tt).
- { unfold Remote.authorize in Admitted.
-   destruct (Remote.check Remote.control_rights (Remote.controller request)
-     (Remote.epoch request) (Remote.registry value)) as [[]|reason]; try discriminate; reflexivity. }
- assert (Authorize : Remote.authorize_command (G.Cmd_stop stop_first_payload)
-   request (Remote.registry value) = C.Accepted None).
- { exact Admitted. }
+ apply RemoteProofs.declared_permissions_are_allowed in Permissions.
+ assert (Checked : Remote.prepared_rights Remote.control_rights (F.grant_rights issued)=C.Accepted tt).
+ { unfold Remote.prepared_rights. now rewrite Permissions. }
+ assert (Authorize : Remote.command_authority (G.Cmd_stop stop_first_payload)
+   request (Remote.registry value) = C.Accepted (F.grant_rights issued,None)).
+ { unfold Remote.command_authority, Remote.with_command_rights, Remote.required_rights, Remote.check_grant.
+   rewrite Enabled. cbn [negb]. rewrite Granted, Epoch, N.eqb_refl. cbn [negb].
+   rewrite Permissions. cbn [C.bind Remote.control_rights F.may_read].
+   unfold Remote.admit_receipt, RemoteProofs.request_valid in *.
+   rewrite Valid, Fresh, Space. reflexivity. }
  assert (Configuration : Remote.configuration_allowed
    (G.Cmd_stop stop_first_payload) JNull = true) by reflexivity.
- unfold Remote.execute_remote. rewrite Configuration, Authorize.
+ unfold Remote.execute_remote, Remote.execute_remote_with. rewrite Configuration, Authorize.
  cbn [stop_first_wire Remote.observation_command Remote.required_rights].
  assert (Decoded : G.decode stop_first_wire = Some (G.Cmd_stop stop_first_payload)) by reflexivity.
  unfold G.decode in Decoded.

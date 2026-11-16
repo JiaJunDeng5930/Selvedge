@@ -5,7 +5,8 @@
     from which it was issued. Execution must retain the admitted environment
     and recovery must preserve authority even when a physical outcome is lost. *)
 
-From Selvedge.Features Require WorktreeProofs WorktreeCompletionProofs.
+From Selvedge.Features Require Worktree WorktreeProofs WorktreeCompletionProofs.
+Export Worktree(owner_observation_reads_one_owned_worktree).
 Export WorktreeProofs(reusing_a_binding_never_provisions_another_resource,
   admitted_scheduler_requires_ready_binding,
   a_live_pending_binding_holds_its_owner,
@@ -29,9 +30,10 @@ Export WorktreeCompletionProofs(received_creation_binds_or_stops,
     and [a_live_pending_binding_holds_its_owner] protect every borrower, including
     one whose owner's setup failed or has not completed.
 
-    The actual execution effect freezes the resource identity. The host resolves
-    its physical receipt; it does not infer cloud ownership from a path or
-    today's Task state. A missing binding fails rather than executing locally.
+    The actual execution effect freezes the resource identity. The host reads
+    its owned receipt by that identity. An interactive observation with an
+    effective binding already has the receipt it needs. A missing binding
+    fails rather than executing locally.
     Process input, filesystem observations and image snapshots use this same
     binding. Project observations without a Task binding remain local.
     Cloud commands use the primary root in their captured workspace.
@@ -54,6 +56,14 @@ Export WorktreeCompletionProofs(received_creation_binds_or_stops,
     before the next request captures history, as
     [successful_setup_commits_queued_input_before_request_capture] requires.
 
+    Command preparation uses one workspace selection plan. An observation
+    carries the selected slot, so applying it preserves the distinction between
+    project settings, task settings, and a particular graph node. The host can
+    share a Project workspace observation among consumers of the same command.
+    A readiness result supports admission and feedback. Checkout observes the
+    repository and commit at execution, when those facts select the source that
+    will actually be copied or cloned.
+
     When a Project is selected, its primary root must match the source selected
     for cloud preparation. [mismatched_cloud_project_is_rejected] requires
     refusal when they differ, because cloning another source would change the
@@ -69,7 +79,8 @@ Export WorktreeCompletionProofs(received_creation_binds_or_stops,
     can evolve without changing the bound environment or execution permissions. *)
 
 From Selvedge.Host Require CloudResourceProofs ResourceProofs.
-From Selvedge.Adapters Require CloudWorkspacesProofs.
+From Selvedge.Adapters Require CloudWorkspacesProofs WorkspacesProofs.
+Export WorkspacesProofs(observed_workspace_selection_retains_its_slot).
 Export CloudWorkspacesProofs(admitted_receipt_preserves_expected_fields,
   a_matching_receipt_restores_the_admitted_connection).
 Export CloudResourceProofs(recovery_trace_never_regains_allocation,

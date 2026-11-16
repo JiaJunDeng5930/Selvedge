@@ -150,8 +150,9 @@ Definition workspace_available (space:workspace) (value:world) := forallb
  match Selvedge.Features.Domain.worktree_root tree with Some root=>negb (existsb (fun path => String.eqb root path || String.prefix (String.append root "/") path) (workspace_roots space)) | None=>true end end)
  (Selvedge.Features.Domain.feature_worktrees (world_features value)).
 
-(** A pending workspace can retain queued work. A failed creation has no retry
-    path for execution, so new input must select another task. *)
+(** Steering, speech delegation and side returns require a workspace that
+    has not failed permanently. Ordinary message submission can still record
+    input for a task whose execution is blocked. *)
 Definition input_available (current : task) (before : world) :=
  match resolve (task_current_settings current) before with
  | Some tree => match Selvedge.Features.Domain.worktree_phase tree with

@@ -194,7 +194,9 @@ Export CompletionProofs(consumed_once, wrong_ticket_is_ignored,
     uncertain outcomes and permits later input to resume. Archive ends ordinary
     input. Steering replaces current inference work while retaining independent
     operations and queued follow-ups. An idle inference phase therefore does
-    not imply an empty operation list.
+    not imply an empty operation list. A failed worktree creation blocks
+    execution but does not prevent ordinary messages from being recorded.
+    The scheduler still requires the task's workspace to be ready.
 
     A Task permitted to run with admitted context observation must issue it
     before inference. A frozen Task without a ready result must leave selection

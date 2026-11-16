@@ -10,12 +10,12 @@ import { waitForJournalOwnership } from './update-handoff.mjs';
 const launch = JSON.parse(await readFile(new URL('../launch.json', import.meta.url), 'utf8'));
 const configuration = fileURLToPath(new URL('../configuration.json', import.meta.url));
 const publication = fileURLToPath(new URL('../ready.json', import.meta.url));
+const source = launch.useSavedConfig ? JSON.parse(await readFile(configuration, 'utf8')) : undefined;
+const settings = await loadConfig({ home: launch.home, filename: launch.filename, source });
 const journal = process.send ? await Journal.open(path.join(launch.home, 'journal.sqlite'),
   { waitForOwnership: waitForJournalOwnership }) : undefined;
 let server;
 try {
-  const source = launch.useSavedConfig ? JSON.parse(await readFile(configuration, 'utf8')) : undefined;
-  const settings = await loadConfig({ home: launch.home, filename: launch.filename, source });
   if (!launch.useSavedConfig) await writeAtomic(configuration, settings.source);
   server = await startServer({ ...settings, journal, cwd: launch.cwd, listenPort: launch.listenPort, listenHost: launch.listenHost,
     release: { ...launch.release, publish: instance => writeAtomic(publication, instance) } });

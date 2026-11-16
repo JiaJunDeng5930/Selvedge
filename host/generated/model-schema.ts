@@ -236,7 +236,7 @@ export function decodeRemoteTransportState(input: unknown): RemoteTransportState
 
 export type RemoteTransportAction =
   | {"kind": "connect"; "generation": number}
-  | {"kind": "open"; "generation": number}
+  | {"kind": "send_hello"; }
   | {"kind": "retry"; "generation": number; "deadline": number}
   | {"kind": "heartbeat"; "generation": number; "deadline": number}
   | {"kind": "ping"; }
@@ -246,7 +246,7 @@ export function decodeRemoteTransportAction(input: unknown): RemoteTransportActi
   const source = decodeObject(input);
   switch (source["kind"]) {
     case "connect": exactFields(source, ["kind","generation"]); return {"kind": "connect", "generation": decodeSafeNatural(source["generation"])};
-    case "open": exactFields(source, ["kind","generation"]); return {"kind": "open", "generation": decodeSafeNatural(source["generation"])};
+    case "send_hello": exactFields(source, ["kind"]); return {"kind": "send_hello"};
     case "retry": exactFields(source, ["kind","generation","deadline"]); return {"kind": "retry", "generation": decodeSafeNatural(source["generation"]), "deadline": decodeSafeNatural(source["deadline"])};
     case "heartbeat": exactFields(source, ["kind","generation","deadline"]); return {"kind": "heartbeat", "generation": decodeSafeNatural(source["generation"]), "deadline": decodeSafeNatural(source["deadline"])};
     case "ping": exactFields(source, ["kind"]); return {"kind": "ping"};
@@ -260,7 +260,8 @@ export function decodeRemoteTransportAction(input: unknown): RemoteTransportActi
 export type RemoteTransportObservation =
   | {"kind": "enable"; }
   | {"kind": "stop"; }
-  | {"kind": "probe"; "generation": number; "now": number; "sample": number; "status": number}
+  | {"kind": "upgraded"; "generation": number}
+  | {"kind": "handshake_refused"; "generation": number; "now": number; "sample": number; "status": number}
   | {"kind": "lost"; "generation": number; "now": number; "sample": number}
   | {"kind": "rejected"; "generation": number}
   | {"kind": "negotiated"; "generation": number; "now": number}
@@ -272,7 +273,8 @@ export function decodeRemoteTransportObservation(input: unknown): RemoteTranspor
   switch (source["kind"]) {
     case "enable": exactFields(source, ["kind"]); return {"kind": "enable"};
     case "stop": exactFields(source, ["kind"]); return {"kind": "stop"};
-    case "probe": exactFields(source, ["kind","generation","now","sample","status"]); return {"kind": "probe", "generation": decodeSafeNatural(source["generation"]), "now": decodeSafeNatural(source["now"]), "sample": decodeSafeNatural(source["sample"]), "status": decodeSafeNatural(source["status"])};
+    case "upgraded": exactFields(source, ["kind","generation"]); return {"kind": "upgraded", "generation": decodeSafeNatural(source["generation"])};
+    case "handshake_refused": exactFields(source, ["kind","generation","now","sample","status"]); return {"kind": "handshake_refused", "generation": decodeSafeNatural(source["generation"]), "now": decodeSafeNatural(source["now"]), "sample": decodeSafeNatural(source["sample"]), "status": decodeSafeNatural(source["status"])};
     case "lost": exactFields(source, ["kind","generation","now","sample"]); return {"kind": "lost", "generation": decodeSafeNatural(source["generation"]), "now": decodeSafeNatural(source["now"]), "sample": decodeSafeNatural(source["sample"])};
     case "rejected": exactFields(source, ["kind","generation"]); return {"kind": "rejected", "generation": decodeSafeNatural(source["generation"])};
     case "negotiated": exactFields(source, ["kind","generation","now"]); return {"kind": "negotiated", "generation": decodeSafeNatural(source["generation"]), "now": decodeSafeNatural(source["now"])};
@@ -284,40 +286,6 @@ export function decodeRemoteTransportObservation(input: unknown): RemoteTranspor
   }
 }
 
-export type RemoteAuthorizationState =
-  | {"phase": "first"; }
-  | {"phase": "second"; }
-  | {"phase": "third"; }
-  | {"phase": "last"; };
-export function decodeRemoteAuthorizationState(input: unknown): RemoteAuthorizationState {
-  const source = decodeObject(input);
-  switch (source["phase"]) {
-    case "first": exactFields(source, ["phase"]); return {"phase": "first"};
-    case "second": exactFields(source, ["phase"]); return {"phase": "second"};
-    case "third": exactFields(source, ["phase"]); return {"phase": "third"};
-    case "last": exactFields(source, ["phase"]); return {"phase": "last"};
-    // DEFENSE: External boundary values must name a declared RemoteAuthorizationState variant.
-    default: throw new TypeError('Unknown RemoteAuthorizationState discriminant');
-  }
-}
-
-export type RemoteAuthorizationAction =
-  | {"kind": "check"; }
-  | {"kind": "capture"; }
-  | {"kind": "deny"; }
-  | {"kind": "disconnect"; };
-export function decodeRemoteAuthorizationAction(input: unknown): RemoteAuthorizationAction {
-  const source = decodeObject(input);
-  switch (source["kind"]) {
-    case "check": exactFields(source, ["kind"]); return {"kind": "check"};
-    case "capture": exactFields(source, ["kind"]); return {"kind": "capture"};
-    case "deny": exactFields(source, ["kind"]); return {"kind": "deny"};
-    case "disconnect": exactFields(source, ["kind"]); return {"kind": "disconnect"};
-    // DEFENSE: External boundary values must name a declared RemoteAuthorizationAction variant.
-    default: throw new TypeError('Unknown RemoteAuthorizationAction discriminant');
-  }
-}
-
 export type HttpPlan =
   | {"action": "respond"; "status": number; "value": JsonValue}
   | {"action": "throw"; "kind": "TypeError" | "RangeError"; "message": string}
@@ -325,9 +293,7 @@ export type HttpPlan =
   | {"action": "observe_host"; }
   | {"action": "parse_url"; }
   | {"action": "observe_connection_authorization"; }
-  | {"action": "connection_method_origin"; }
   | {"action": "observe_local_authorization"; }
-  | {"action": "local_origin"; }
   | {"action": "asset"; }
   | {"action": "audio_capabilities"; }
   | {"action": "audio_transcribe"; }
@@ -366,9 +332,7 @@ export function decodeHttpPlan(input: unknown): HttpPlan {
     case "observe_host": exactFields(source, ["action"]); return {"action": "observe_host"};
     case "parse_url": exactFields(source, ["action"]); return {"action": "parse_url"};
     case "observe_connection_authorization": exactFields(source, ["action"]); return {"action": "observe_connection_authorization"};
-    case "connection_method_origin": exactFields(source, ["action"]); return {"action": "connection_method_origin"};
     case "observe_local_authorization": exactFields(source, ["action"]); return {"action": "observe_local_authorization"};
-    case "local_origin": exactFields(source, ["action"]); return {"action": "local_origin"};
     case "asset": exactFields(source, ["action"]); return {"action": "asset"};
     case "audio_capabilities": exactFields(source, ["action"]); return {"action": "audio_capabilities"};
     case "audio_transcribe": exactFields(source, ["action"]); return {"action": "audio_transcribe"};
@@ -421,6 +385,21 @@ export function decodeBrowserObservationPlan(input: unknown): BrowserObservation
     case "skill-catalog": exactFields(source, ["kind","workspace","task_id"]); return {"kind": "skill-catalog", "workspace": decodeJson(source["workspace"]), ...(source["task_id"] === undefined ? {} : {"task_id": decodeJson(source["task_id"])})};
     // DEFENSE: External boundary values must name a declared BrowserObservationPlan variant.
     default: throw new TypeError('Unknown BrowserObservationPlan discriminant');
+  }
+}
+
+export type WorkspaceSelectionPlan =
+  | {"kind": "command"; "value": JsonValue; "project_id"?: DomainNatural | null}
+  | {"kind": "task"; "value": JsonValue; "project_id"?: DomainNatural | null}
+  | {"kind": "node"; "value": JsonValue; "project_id"?: DomainNatural | null; "index": DomainNatural};
+export function decodeWorkspaceSelectionPlan(input: unknown): WorkspaceSelectionPlan {
+  const source = decodeObject(input);
+  switch (source["kind"]) {
+    case "command": exactFields(source, ["kind","value","project_id"]); return {"kind": "command", "value": decodeJson(source["value"]), ...(source["project_id"] === undefined ? {} : {"project_id": source["project_id"] === null ? null : decodeNatural(source["project_id"])})};
+    case "task": exactFields(source, ["kind","value","project_id"]); return {"kind": "task", "value": decodeJson(source["value"]), ...(source["project_id"] === undefined ? {} : {"project_id": source["project_id"] === null ? null : decodeNatural(source["project_id"])})};
+    case "node": exactFields(source, ["kind","value","project_id","index"]); return {"kind": "node", "value": decodeJson(source["value"]), ...(source["project_id"] === undefined ? {} : {"project_id": source["project_id"] === null ? null : decodeNatural(source["project_id"])}), "index": decodeNatural(source["index"])};
+    // DEFENSE: External boundary values must name a declared WorkspaceSelectionPlan variant.
+    default: throw new TypeError('Unknown WorkspaceSelectionPlan discriminant');
   }
 }
 
@@ -510,24 +489,9 @@ export function decodeRemoteTransportTransition(input: unknown): RemoteTransport
  const source = decodeObject(input); exactFields(source, ["state","actions"]); return {"state": decodeJson(source["state"]), "actions": decodeArray(source["actions"], item => decodeJson(item))};
 }
 
-export type RemoteAuthorizationTransition = {"state": JsonValue; "action": JsonValue};
-export function decodeRemoteAuthorizationTransition(input: unknown): RemoteAuthorizationTransition {
- const source = decodeObject(input); exactFields(source, ["state","action"]); return {"state": decodeJson(source["state"]), "action": decodeJson(source["action"])};
-}
-
-export type WorkspaceCommandPlan = {"root_task": boolean; "worktree": boolean; "selections": Array<JsonValue>};
+export type WorkspaceCommandPlan = {"worktree": boolean; "selections": Array<JsonValue>};
 export function decodeWorkspaceCommandPlan(input: unknown): WorkspaceCommandPlan {
- const source = decodeObject(input); exactFields(source, ["root_task","worktree","selections"]); return {"root_task": decodeBoolean(source["root_task"]), "worktree": decodeBoolean(source["worktree"]), "selections": decodeArray(source["selections"], item => decodeJson(item))};
-}
-
-export type WorkspaceSelectionPlan = {"value": JsonValue; "resolve_project": boolean};
-export function decodeWorkspaceSelectionPlan(input: unknown): WorkspaceSelectionPlan {
- const source = decodeObject(input); exactFields(source, ["value","resolve_project"]); return {"value": decodeJson(source["value"]), "resolve_project": decodeBoolean(source["resolve_project"])};
-}
-
-export type WorkspaceSettingsPlan = {"project_id"?: DomainNatural | null; "observe_workspace": boolean};
-export function decodeWorkspaceSettingsPlan(input: unknown): WorkspaceSettingsPlan {
- const source = decodeObject(input); exactFields(source, ["project_id","observe_workspace"]); return {...(source["project_id"] === undefined ? {} : {"project_id": source["project_id"] === null ? null : decodeNatural(source["project_id"])}), "observe_workspace": decodeBoolean(source["observe_workspace"])};
+ const source = decodeObject(input); exactFields(source, ["worktree","selections"]); return {"worktree": decodeBoolean(source["worktree"]), "selections": decodeArray(source["selections"], item => decodeJson(item))};
 }
 
 export type BrowserPath = {"path": JsonValue; "canonicalize": boolean};

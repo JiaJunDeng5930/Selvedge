@@ -8,16 +8,19 @@ From Selvedge.Kernel Require Import Numbers Domain Codec State Inputs InputDecod
  Callbacks HookCallbacks Scheduler Recovery Observation Notifications Delivery Limits.
 From Selvedge.Kernel Require Import CommandHandlers ForkCommit.
 From Selvedge.Kernel Require CreationCommit NativeForkCommit TerminalSettlement.
+From Selvedge.Kernel Require CreationFacts.
 From Selvedge.Kernel Require DeferredCommit.
 From Selvedge.Kernel Require BoardCommit ConnectionCommit CompactionCommit TitleCommit RequestDelivery.
 From Selvedge.Features Require Import Runtime.
 From Selvedge.Features Require Board BoardFacts.
+From Selvedge.Features Require Remote Compaction Worktree.
 From Selvedge.Interaction Require UserCommand.
 From Selvedge.Interaction.Experience Require Publication.
 Import ListNotations.
 Open Scope string_scope.
 Definition initial := State.initial.
 Definition world_json := Publication.world_json.
+Definition remote_reconciliation_needed := Notifications.remote_reconciliation_needed.
 Definition query := CommandHandlers.query.
 Definition command_schedules (command : Selvedge.Generated.Commands.command) (result : decision) :=
  bool_default "ok" (decision_reply result) false &&
@@ -42,15 +45,19 @@ Definition card_save_consequence (command:Selvedge.Generated.Commands.command) (
 (* Assess against the worker's authoritative immutable world. The hypothetical
    decision is discarded: no world, scheduler work or IO effect is committed. *)
 Definition assess (source : json) (value : world) : json :=
- let '(candidate,consequence) := match Selvedge.Generated.Commands.admit (value_or_null "command" source) with
+ let '(candidate,consequence,facts) := match Selvedge.Generated.Commands.admit (value_or_null "command" source) with
  | Some admitted => let command:=Selvedge.Generated.Commands.admitted_value admitted in
    let result:=execute_domain command None value in
-   (decision_reply result,card_save_consequence command result)
- | None => (State.failure "invalid_input" (InputDecoder.command_diagnostic (value_or_null "command" source)),None)
+   let facts := match command with
+     | Cmd_create_card _ | Cmd_update_card _ => Publication.card_save_facts value
+     | _ => JNull end in
+   (decision_reply result,card_save_consequence command result,facts)
+ | None => (State.failure "invalid_input" (InputDecoder.command_diagnostic (value_or_null "command" source)),None,JNull)
  end in
  let '(admitted, refusal) := UserCommand.assessment candidate in
  JObject [("editor",value_or_null "editor" source);("revision",value_or_null "revision" source);
    ("sequence",number (world_sequence value));("admitted",JBool admitted);
+   ("card_save_facts",facts);
    ("refusal",refusal);("card_save_consequence",match consequence with
    |Some value=>JString(BoardFacts.save_consequence_name value)|None=>JNull end)].
 Definition schedule_command (command : Selvedge.Generated.Commands.command) (value : world) (result : decision) :=
@@ -61,12 +68,26 @@ Definition mutation_transition (command : Selvedge.Generated.Commands.command)
  (run : option Tasks.native_call -> world -> decision) (value : world) :=
  let result := schedule_command command value (run None value) in
  (true,command_schedules command result,Some (UserCommand command),result).
+Definition observed_creation facts command (value : world) :=
+ CreationFacts.select facts (execute_domain command None) value.
+Definition remote_creation raw command (value : world) :=
+ option_map (fun facts => observed_creation facts command value) (CreationFacts.parse raw).
+Definition configure_catalog environment policy before :=
+ let catalog := Compaction.catalog_changed before environment in
+ match policy with
+ | None => (false,catalog)
+ | Some (replacement,now) =>
+   let '(_,schedules,maintenance) := Compaction.configure_policy replacement now (decision_world catalog) in
+   (schedules,DecisionComposition.follow catalog maintenance)
+ end.
 Definition core_transition (source : Inputs.input) (value : world) :=
  match source with
  | UserCommand command => execute_command command None value
+ | RootCommand command facts => schedule_command command value (observed_creation facts command value)
  | Configure environment =>
    let result := Selvedge.Features.Runtime.reconfigure (with_environment environment value) in
    Decision (decision_world result) (success JNull) (decision_effects result)
+ | ConfigureCatalog environment policy => snd (configure_catalog environment policy value)
  | ContextCompleted id ticket observations diagnostic => Selvedge.Features.Runtime.after_context_transition value (Some (id,ticket))
    (Callbacks.context_completed id ticket observations diagnostic value)
  | ModelCompleted id ticket outcome => Selvedge.Features.Runtime.after_transition value (Callbacks.model_completed id ticket outcome value)
@@ -82,7 +103,8 @@ Definition input_route := (Inputs.input + (world -> bool * bool * decision))%typ
 Definition input_routes := DeclarationRegistry.declare (@InputRoute.identity input_route)
  (List.map (InputRoute.map (@inl Inputs.input (world -> bool * bool * decision))) InputDecoder.inputs ++
   List.map (InputRoute.map (@inr Inputs.input (world -> bool * bool * decision)))
-    (Selvedge.Features.Runtime.completion_inputs execute_domain)).
+    (Queries.audio_history_input :: Worktree.owner_input :: Remote.creation_input execute_domain remote_creation :: Compaction.policy_input ::
+       Selvedge.Features.Runtime.completion_inputs execute_domain)).
 Definition decode := InputRoute.decode input_routes.
 Definition core_input (decoded : option input_route) := match decoded with
  | Some (inl input) => Some input | _ => None end.
@@ -92,6 +114,12 @@ Definition transition_decoded (decoded : option input_route) (source : json) (va
  | Some (inl (UserCommand command)) => match CommandHandlers.interpret command false with
    | CommandHandlers.Observation run => (false,false,Some (UserCommand command),Decision value (run None value) [])
    | CommandHandlers.Mutation run => mutation_transition command run value end
+ | Some (inl (RootCommand command facts as input)) =>
+   let result := core_transition input value in
+   (true,command_schedules command result,Some input,result)
+ | Some (inl (ConfigureCatalog environment policy as input)) =>
+   let '(schedules,result) := configure_catalog environment policy value in
+   (true,schedules,Some input,if schedules then Selvedge.Features.Runtime.after_transition value result else result)
  | Some (inl input) => (true,match input with Configure _ => false | _ => true end,Some input,core_transition input value)
  | Some (inr complete) =>
    let '(durable,schedules,result) := complete value in
@@ -103,7 +131,7 @@ Definition transition_decoded (decoded : option input_route) (source : json) (va
  end.
 Definition callback_input (source : option Inputs.input) :=
  match source with
- | Some (UserCommand _) | Some (Configure _) | Some Recover | Some Continue => false
+ | Some (UserCommand _) | Some (RootCommand _ _) | Some (Configure _) | Some (ConfigureCatalog _ _) | Some Recover | Some Continue => false
  | _ => true end.
 Definition preparation (schedules : bool) (source : option Inputs.input) : DecisionComposition.transformation :=
  if schedules then
@@ -155,6 +183,9 @@ Definition select_change (decoded : option Inputs.input) (value : world)
 Definition select (source : json) (value : world) : CommitPacket.selected :=
  let received := decode source in
  match received with
+ | Some (inl (RootCommand (Cmd_create request) facts as input)) =>
+   CommitPacket.choose true (Some input) (Delivery.deliver_with_status true
+     (CreationFacts.select facts (CreationCommit.candidate request) value) value)
  | Some (inl (UserCommand command)) => match CommandHandlers.interpret command false with
    | CommandHandlers.Observation run =>
      DeferredCommit.select false (Some (UserCommand command)) value (Decision value (run None value) [])
@@ -173,3 +204,20 @@ Definition replay (source : json) (value : world) : world * bool :=
    let chosen := select source value in
    (CommitPacket.finalize_world value chosen, CommitPacket.selected_durable chosen)
  else (value, false).
+
+
+(** Live execution and new rows use the same materiality decision. Legacy
+    rows keep their cursor, even when their old decision was a no-op. *)
+Definition journal_packet same_image (source : json) (value : world) : world * json :=
+ if Delivery.fits_json source then
+   CommitPacket.journal_finalize same_image value (select source value)
+ else (value,Observation.envelope false (reject "invalid_input" "The complete input exceeds the native frame bound" value)).
+Definition journal_replay same_image (source : json) (value : world) : world * bool :=
+ if Delivery.fits_json source then
+   let chosen := CommitPacket.select_journal same_image value (select source value) in
+   (CommitPacket.finalize_world value chosen, CommitPacket.selected_durable chosen)
+ else (value, false).
+Definition replay_format_28 source value :=
+ let replayed := with_legacy_send_admission true value in
+ let '(next, durable) := replay source replayed in
+ (with_legacy_send_admission (world_legacy_send_admission value) next, durable).

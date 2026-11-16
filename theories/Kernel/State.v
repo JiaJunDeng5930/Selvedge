@@ -14,9 +14,13 @@ Record world := World {
  world_next_ticket : N;
  world_environment : environment;
  world_projects : list project;
- world_features : Selvedge.Features.Domain.state
+ world_features : Selvedge.Features.Domain.state;
+ world_legacy_send_admission : bool
 }.
-Definition initial := World 0 [] 0 empty_environment [] Selvedge.Features.Domain.initial.
+Definition initial := World 0 [] 0 empty_environment [] Selvedge.Features.Domain.initial false.
+(* Only replay of format 28 selects its historical message admission rule. *)
+Definition with_legacy_send_admission (legacy : bool) (value : world) :=
+ set world_legacy_send_admission (fun _ => legacy) value.
 Definition with_sequence (replacement : N) (value : world) :=
  set world_sequence (fun _ => replacement) value.
 Definition with_tasks (replacement : list task) (value : world) :=

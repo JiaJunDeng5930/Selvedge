@@ -16,7 +16,7 @@ Open Scope string_scope.
 
 (** The shared card decision model supplies the choices, the observed card
     revision and the proposal. The browser decides which choices to present
-    and requests assessment for the same proposal it can submit. A drag uses
+    and submits the proposal for the selected choice. A drag uses
     the shared move command construction. The service still checks the current
     world when the command is submitted. *)
 Theorem browser_card_choice_uses_published_opportunity snapshot state card decision key action :
@@ -31,7 +31,7 @@ Theorem browser_card_choice_uses_published_opportunity snapshot state card decis
     ObjectActions.action_operation action = ObjectActions.NativeCommand accepted /\
     ObjectActions.action_confirmation action = None /\
     ObjectActions.action_status action =
-      ObjectActions.availability snapshot state (CardActions card) action /\
+      ObjectActions.availability state action /\
     Schema.decode_command K.command_specs
       (G.encode (CardDecisions.proposal opportunity now selected)) = Some accepted.
 Proof.
@@ -64,10 +64,7 @@ Theorem browser_selector_dispatch_uses_current_choice namespace snapshot lagged 
   exists accepted,
     ObjectActions.command action = Some accepted /\
     ObjectActions.action_status action =
-      ObjectActions.availability snapshot state (CardActions card) action /\
-    Authoring.refresh_input snapshot (Input.MenuAction (CardActions card) key (State.layer_occurrence layer)) state =
-      Authoring.ensure_request snapshot (ObjectActions.action_owner (CardActions card) action)
-        (State.layer_occurrence layer) accepted state /\
+      ObjectActions.availability state action /\
     let result := Runtime.core namespace snapshot lagged
       (Input.MenuAction (CardActions card) key (State.layer_occurrence layer)) state in
     match ObjectActions.action_status action with
@@ -87,15 +84,13 @@ Proof.
   assert (Command : ObjectActions.command action = Some accepted).
   { unfold ObjectActions.command. now rewrite Operation. }
   exists accepted. repeat split; try assumption.
-  - cbn [Authoring.refresh_input]. rewrite Resolved, Command.
-    unfold ObjectActions.action_revision. now rewrite Layers, Panel, N.eqb_refl.
-  - cbn [Runtime.core]. unfold Runtime.menu_action. rewrite Layers, Panel.
+  cbn [Runtime.core]. unfold Runtime.menu_action. rewrite Layers, Panel.
     unfold Runtime.owns_action_panel. repeat rewrite N.eqb_refl.
     simpl. rewrite Resolved, Operation, Confirmation.
     now destruct (ObjectActions.action_status action).
 Qed.
 
-Export ObjectActionsProof (available_native_has_current_admission).
+Export ObjectActionsProof (available_native_has_a_connected_idle_command).
 
 Theorem browser_drop_uses_shared_move_proposal snapshot state card revision now stage target :
   Authoring.input_command snapshot state (Input.CardPlaced card revision now stage target) =

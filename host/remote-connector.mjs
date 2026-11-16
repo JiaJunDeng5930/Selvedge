@@ -1,4 +1,5 @@
-import { initialTransport, observeTransport, transportRunning, initialConnectorSession, observeConnectorSession, interpretConnectorFrame, interpretConnectorCapture, interpretConnectorDelivery, enqueueRemoteOperation, authorizeRemoteCapture } from '../remote/transport-runner.ts';
+import WebSocket from 'ws';
+import { initialTransport, observeTransport, transportRunning, initialConnectorSession, observeConnectorSession, interpretConnectorFrame, interpretConnectorCapture, interpretConnectorDelivery, enqueueRemoteOperation } from '../remote/transport-runner.ts';
 import { stringifyJson } from './public/json-tokens.mjs';
 import {
   REMOTE_PROTOCOL_VERSION, MAX_REMOTE_FRAME_BYTES,
@@ -26,16 +27,14 @@ export class RemoteConnector {
       heartbeat: this.#settings.heartbeatMs, heartbeat_timeout: this.#settings.heartbeatTimeoutMs,
     }, {
       install: state => { this.#transport = state; },
-      connect: generation => { void this.#connect(generation); },
-      open: generation => this.#openSocket(generation),
+      connect: generation => this.#connect(generation),
+      sendHello: () => this.#send(this.#session, { type: 'hello', version: REMOTE_PROTOCOL_VERSION }),
       retry: (generation, deadline) => this.#scheduleRetry(generation, deadline),
       heartbeat: (generation, deadline) => this.#scheduleHeartbeat(generation, deadline),
       ping: () => this.#send(this.#session, { type: 'ping' }),
       retire: () => {
         clearTimeout(this.#retryTimer);
         this.#retryTimer = undefined;
-        this.#probe?.abort();
-        this.#probe = undefined;
         this.#retireSession();
       },
       authenticationFailed: () => {
@@ -51,7 +50,6 @@ export class RemoteConnector {
   }
   #session;
   #retryTimer;
-  #probe;
   #lastError;
   #grantTail = Promise.resolve();
   #settings;
@@ -118,46 +116,30 @@ export class RemoteConnector {
     return next;
   }
 
-  async #connect(generation) {
+  #connect(generation) {
     this.#step('install', { generation });
-    const probe = new AbortController();
-    this.#probe = probe;
-    const timeout = setTimeout(() => probe.abort(), CONNECT_TIMEOUT_MS);
-    timeout.unref();
-    try {
-      // Bun's failed WebSocket handshake hides HTTP status. Probe the same
-      // authenticated route and let the controller classify the observation.
-      const response = await fetch(this.#hostUrl, {
-        headers: { authorization: `Bearer ${this.#hostToken}` }, redirect: 'error', signal: probe.signal,
-      });
-      await response.body?.cancel();
-      this.#observe('probe', { generation, status: response.status, now: Date.now(), sample: this.#sample() });
-    // DEFENSE: A network or aborted probe supplies a failed physical attempt; the controller rejects stale observations.
-    } catch {
-      this.#lastError = 'connection_unavailable';
-      this.#observe('lost', { generation, now: Date.now(), sample: this.#sample() });
-    } finally {
-      clearTimeout(timeout);
-      if (this.#probe === probe) this.#probe = undefined;
-    }
-  }
-
-  #openSocket(generation) {
     const url = new URL(this.#hostUrl);
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-    const socket = new WebSocket(url.href, { headers: { authorization: `Bearer ${this.#hostToken}` } });
+    const socket = new WebSocket(url.href, { headers: { authorization: `Bearer ${this.#hostToken}` },
+      followRedirects: false, perMessageDeflate: false, maxPayload: MAX_REMOTE_FRAME_BYTES });
     const session = { socket, generation, connections: new Map() };
     this.#session = session;
     session.timeout = setTimeout(() => this.#disconnect(session, 'negotiation_timeout'), CONNECT_TIMEOUT_MS);
     session.timeout.unref();
-    socket.addEventListener('open', () => {
-      if (this.#current(session)) this.#send(session, { type: 'hello', version: REMOTE_PROTOCOL_VERSION });
+    socket.on('unexpected-response', (_request, response) => {
+      // DEFENSE: An HTTP refusal during the upgrade reports the actual status without starting another request.
+      if (!this.#current(session)) return;
+      this.#lastError = 'connection_unavailable';
+      this.#observe('handshake_refused', { generation, status: response.statusCode, now: Date.now(), sample: this.#sample() });
     });
-    socket.addEventListener('message', event => this.#receive(session, event.data));
-    socket.addEventListener('close', event => {
+    socket.on('open', () => this.#observe('upgraded', { generation }));
+    socket.on('message', (data, binary) => this.#receive(session, binary ? data : data.toString('utf8')));
+    // DEFENSE: A socket can emit an error before close, which must settle the active attempt once.
+    socket.on('error', () => this.#disconnect(session, 'connection_unavailable'));
+    socket.on('close', code => {
       // DEFENSE: A retired socket can deliver its close event after its replacement starts.
       if (!this.#current(session)) return;
-      if (event.code === 1008) this.#observe('rejected', { generation });
+      if (code === 1008) this.#observe('rejected', { generation });
       else this.#disconnect(session, 'connection_closed');
     });
   }
@@ -277,15 +259,14 @@ export class RemoteConnector {
     });
   }
 
-  #authorize(session, connection, authorized) {
-    return authorizeRemoteCapture({
-      check: () => this.#service.remoteCheck(connection.controllerId, connection.grantEpoch),
-      active: () => this.#current(session) && connection.active,
-      currentSequence: () => this.#service.browserSnapshot().sequence,
-      capture: authorized,
-      deny: () => { this.#step('capture', { generation: session.generation, connection_id: connection.id, method: 'unsubscribe' }); },
-      disconnect: () => this.#disconnect(session, 'authorization_revision_changed'),
+  async #authorize(session, connection, capture) {
+    let allowed = false;
+    await this.#service.remoteCheck(connection.controllerId, connection.grantEpoch, result => {
+      allowed = this.#current(session) && connection.active && result.reply.ok;
+      if (allowed) capture();
+      else this.#step('capture', { generation: session.generation, connection_id: connection.id, method: 'unsubscribe' });
     });
+    return allowed;
   }
 
   #snapshot() {

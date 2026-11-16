@@ -84,7 +84,7 @@ test('desktop and landscape composer menus open on the same side of their trigge
   }
 });
 
-test('an explicit send shows the captured new message in a temporary conversation before admission', { timeout: 90_000 }, async t => {
+test('an explicit send shows the captured new message in a temporary conversation before the command receipt', { timeout: 90_000 }, async t => {
   const fixture = await browserFixture(t);
   const { page } = fixture;
   const model = page.getByRole('button', { name: /^Model:/ });
@@ -98,8 +98,7 @@ test('an explicit send shows the captured new message in a temporary conversatio
     await option.click();
     if (await picker.isVisible()) await page.keyboard.press('Escape');
   }
-  const assessmentStarted = Promise.withResolvers();
-  const admit = Promise.withResolvers();
+  const assessments = [];
   const commandStarted = Promise.withResolvers();
   const submit = Promise.withResolvers();
   const resumeSnapshots = Promise.withResolvers();
@@ -111,9 +110,10 @@ test('an explicit send shows the captured new message in a temporary conversatio
     return command?.op === 'create' && messageText(command) === text;
   };
   await page.route('**/api/assess', async route => {
-    if (isMessage(route.request(), sent)) {
-      assessmentStarted.resolve();
-      await admit.promise;
+    const operation = route.request().postDataJSON()?.command?.op;
+    if (isMessage(route.request(), sent) || operation === 'send') {
+      assessments.push(operation);
+      return route.abort();
     }
     await route.continue();
   });
@@ -142,9 +142,8 @@ test('an explicit send shows the captured new message in a temporary conversatio
     await send.and(page.locator(':enabled')).waitFor();
     await draft.press('End');
     await page.keyboard.insertText('!');
-    await assessmentStarted.promise;
     assert.equal(await send.isEnabled(), true);
-    assert.equal(await status.count(), 0, 'Typing and admission show no sending message before an explicit click');
+    assert.equal(await status.count(), 0, 'Typing shows no sending message before an explicit click');
     await send.click();
     const pending = page.getByRole('button', { name: '正在提交消息…', exact: true });
     const captured = reader.getByText(sent, { exact: true });
@@ -154,8 +153,6 @@ test('an explicit send shows the captured new message in a temporary conversatio
     assert.equal(await draft.isVisible(), false);
     assert.equal(await send.isVisible(), false);
     assert.ok(insideViewport(await progress.boundingBox(), page.viewportSize()));
-    assert.deepEqual(submissions, []);
-    admit.resolve();
     await commandStarted.promise;
     assert.equal(await captured.isVisible(), true);
     assert.equal(await progress.isVisible(), true);
@@ -214,8 +211,8 @@ test('an explicit send shows the captured new message in a temporary conversatio
     await reader.getByText(message, { exact: true }).waitFor();
     await status.waitFor({ state: 'hidden' });
     assert.equal(await replyPlaceholders.count(), 0);
+    assert.deepEqual(assessments, []);
   } finally {
-    admit.resolve();
     submit.resolve();
     resumeSnapshots.resolve();
   }
@@ -234,21 +231,17 @@ test('a refused new conversation restores its draft and a late receipt respects 
     releaseReceipt.resolve();
   });
   let createdCount = 0;
-  await page.route('**/api/assess', async route => {
-    const request = route.request().postDataJSON();
-    const message = request?.command?.message;
-    if (request?.command?.op !== 'create' || (typeof message === 'string' ? message : message?.[0]?.text) !== refused)
-      return route.continue();
-    const response = await route.fetch();
-    const observation = await response.json();
-    await releaseRefusal.promise;
-    await route.fulfill({ response, json: {
-      ...observation, admitted: false, refusal: { code: 'test_refusal', message: refusal },
-    } });
-  });
   await page.route('**/api/browser/command', async route => {
     const request = route.request().postDataJSON()?.command;
     if (request?.op !== 'create') return route.continue();
+    const message = typeof request.message === 'string' ? request.message : request.message?.[0]?.text;
+    if (message === refused) {
+      await releaseRefusal.promise;
+      const state = await page.request.get(new URL('/api/browser/state', page.url()).href).then(response => response.json());
+      return route.fulfill({ status: 400, json: {
+        ...state, reply: { ok: false, error: { code: 'test_refusal', message: refusal } },
+      } });
+    }
     createdCount++;
     const response = await route.fetch();
     const { reply } = await response.json();
@@ -267,7 +260,7 @@ test('a refused new conversation restores its draft and a late receipt respects 
   releaseRefusal.resolve();
   await draft.waitFor();
   assert.equal(await draft.inputValue(), refused);
-  await main.getByText(refusal, { exact: true }).first().waitFor();
+  await main.getByText(refusal).first().waitFor();
   assert.equal(createdCount, 0);
 
   await draft.fill(later);

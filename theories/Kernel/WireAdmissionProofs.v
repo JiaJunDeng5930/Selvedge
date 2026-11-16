@@ -19,7 +19,7 @@ Theorem completion_rejects_non_root_configuration : forall execute value request
 Proof.
  intros execute value request admitted prepared configuration Admitted NonNull Root.
  unfold Remote.complete_request; rewrite Admitted; cbn beta iota zeta delta [Schema.head Schema.tail Schema.of_tuple].
- unfold Remote.execute_remote, Remote.configuration_allowed.
+ unfold Remote.execute_remote, Remote.execute_remote_with, Remote.configuration_allowed.
  destruct configuration; try (exfalso; apply NonNull; reflexivity);
    rewrite Root; eexists; eexists; reflexivity.
 Qed.

@@ -8,7 +8,7 @@ Import ListNotations.
 Open Scope string_scope.
 Local Opaque Packet.decode CommandHandlers.interpret DeferredCommit.select.
 
-Theorem live_configuration_preserves_maintenance_cancellations : forall environment value,
+Theorem historical_configuration_preserves_maintenance_cancellations : forall environment value,
  decision_effects (Packet.core_transition (Configure environment) value) =
  map MaintainContext (Selvedge.Features.Compaction.pending_cancellations value).
 Proof. reflexivity. Qed.
@@ -21,7 +21,8 @@ Proof.
  unfold Packet.transition_decoded in Transition.
  destruct (Packet.decode source) as [[input|complete]|]; cbn [Packet.core_input]; try reflexivity.
  destruct input; try discriminate.
- destruct (CommandHandlers.interpret command false); discriminate.
+ - destruct (CommandHandlers.interpret command false); discriminate.
+ - destruct (Packet.configure_catalog environment policy value); discriminate.
 Qed.
 
 Lemma a_nondurable_transition_selects_its_ordinary_commit : forall source value result,
@@ -78,6 +79,32 @@ Qed.
 
 Local Opaque DeferredCommit.select.
 
+From Selvedge.Kernel Require CreationFacts.
+
+Theorem observed_root_planning_retains_the_committed_environment facts command before :
+ world_environment (decision_world (Packet.observed_creation facts command before)) =
+ world_environment before.
+Proof. apply CreationFacts.select_preserves_committed_environment. Qed.
+
+Theorem refused_observed_root_planning_retains_no_observations facts command before code reason :
+ Packet.execute_domain command None (CreationFacts.observation_world facts before) =
+   State.reject code reason (CreationFacts.observation_world facts before) ->
+ Packet.observed_creation facts command before = State.reject code reason before.
+Proof. apply CreationFacts.a_refused_plan_retains_no_observations. Qed.
+
+Theorem selected_create_retains_the_committed_environment source request facts before :
+ Packet.decode source = Some (inl (RootCommand (Selvedge.Generated.Commands.Cmd_create request) facts)) ->
+ world_environment (decision_world (CommitPacket.selected_decision (Packet.select source before))) =
+   world_environment before.
+Proof.
+ intro Decoded. unfold Packet.select. rewrite Decoded.
+ unfold CommitPacket.choose, Delivery.deliver_with_status.
+ destruct (Delivery.fits true _).
+ - exact (CreationFacts.select_preserves_committed_environment facts
+     (CreationCommit.candidate request) before).
+ - reflexivity.
+Qed.
+
 (** Every ignored, nondurable callback uses this same finalization path. *)
 Theorem packet_keeps_an_ignored_nondurable_result : forall source value result,
  Packet.transition_decoded (Packet.decode source) source value=(false,false,None,result) ->
@@ -108,4 +135,76 @@ Proof.
  destruct (durable && admitted); [|reflexivity].
  destruct (Notifications.batch input value result) as [|notice rest]; [reflexivity|].
  destruct (Delivery.fits_json _); reflexivity.
+Qed.
+
+(** Replay of the current journal commits the same world and cursor decision
+    as its actual live entry. An uncommitted reply is not a replay record. *)
+Theorem journal_replay_agrees_with_live_commit same_image source value :
+ Packet.journal_replay same_image source value =
+ (fst (Packet.journal_packet same_image source value),
+  match field "durable" (snd (Packet.journal_packet same_image source value)) with
+  | Some (JBool durable) => durable | _ => false end).
+Proof.
+ unfold Packet.journal_replay, Packet.journal_packet.
+ destruct (Delivery.fits_json source); [|reflexivity].
+ unfold CommitPacket.journal_finalize, CommitPacket.finalize.
+ cbn [fst snd]. rewrite NotificationsProofs.notification_envelopes_preserve_the_durability_flag.
+ reflexivity.
+Qed.
+
+Theorem journal_never_commits_an_unchanged_refusal same_image source before code reason :
+ same_image before before = true ->
+ Delivery.fits_json source = true ->
+ CommitPacket.selected_decision (Packet.select source before) = State.reject code reason before ->
+ Packet.journal_replay same_image source before = (before,false).
+Proof.
+ intros Same Fits Refused. unfold Packet.journal_replay. rewrite Fits.
+ unfold CommitPacket.select_journal, CommitPacket.needs_commit. rewrite Refused.
+ cbn [State.reject State.decision_effects State.decision_world existsb orb].
+ rewrite Same. cbn [negb].
+ destruct (CommitPacket.selected_durable (Packet.select source before)); [|reflexivity].
+ unfold Delivery.deliver_with_status. destruct (Delivery.fits false _); reflexivity.
+Qed.
+
+Local Transparent DeferredCommit.select.
+Theorem journal_query_preserves_world_and_emits_no_effect same_image source command reply value :
+ same_image value value = true ->
+ Packet.decode source = Some (inl (UserCommand command)) ->
+ Packet.query command None value = Some reply ->
+ fst (Packet.journal_packet same_image source value) = value /\
+ field "effects" (snd (Packet.journal_packet same_image source value)) = Some (JArray []) /\
+ field "durable" (snd (Packet.journal_packet same_image source value)) = Some (JBool false).
+Proof.
+ intros Same Decoded Query.
+ unfold Packet.journal_packet. destruct (Delivery.fits_json source); [|repeat split; reflexivity].
+ unfold Packet.select. rewrite Decoded.
+ unfold Packet.query, CommandHandlers.query in Query.
+ cbn [CommandHandlers.task_origin] in Query.
+ destruct (CommandHandlers.interpret command false) as [observe|mutate]; [|discriminate].
+ unfold CommitPacket.journal_finalize.
+ assert (Unchanged : CommitPacket.select_journal same_image value
+     (DeferredCommit.select false (Some (UserCommand command)) value (Decision value (observe None value) [])) =
+     DeferredCommit.select false (Some (UserCommand command)) value (Decision value (observe None value) [])).
+ { unfold CommitPacket.select_journal, CommitPacket.needs_commit, DeferredCommit.select,
+     CommitPacket.choose, DeferredCommit.admit_with_status, Delivery.deliver_with_status.
+   destruct (Delivery.fits false (Dispatch.retain_live_effects (Decision value (observe None value) [])));
+   cbn [Dispatch.retain_live_effects State.reject CommitPacket.selected_decision CommitPacket.selected_durable
+     CommitPacket.selected_admitted CommitPacket.selected_source snd fst decision_world decision_effects existsb orb];
+   rewrite Same; reflexivity. }
+ rewrite Unchanged.
+ apply DeferredCommitProofs.a_noncommitting_unchanged_candidate_has_no_effect; reflexivity.
+Qed.
+Local Opaque DeferredCommit.select.
+
+Theorem historical_send_uses_the_written_admission_rule before task contents :
+ let historical := with_legacy_send_admission true before in
+ Tasks.send_result task contents historical = Tasks.input_result Tasks.AppendInput task contents historical.
+Proof. reflexivity. Qed.
+
+Theorem historical_replay_does_not_retain_its_execution_mode source before :
+ world_legacy_send_admission (fst (Packet.replay_format_28 source before)) =
+ world_legacy_send_admission before.
+Proof.
+ unfold Packet.replay_format_28.
+ destruct (Packet.replay source (with_legacy_send_admission true before)); reflexivity.
 Qed.

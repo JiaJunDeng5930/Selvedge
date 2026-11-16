@@ -353,7 +353,7 @@ async function replaceWorkspace(page, environment, directory) {
   await environment.waitFor();
 }
 
-test('an unavailable Git worktree preserves Local intent and a stale Git reply cannot authorize another draft', { timeout: 60000 }, async t => {
+test('a Git preview preserves Local intent while submission uses the selected workspace', { timeout: 60000 }, async t => {
   const fixture = await browserFixture(t);
   const { page, root, command } = fixture;
   const source = path.join(root, 'Git primary');
@@ -375,7 +375,7 @@ test('an unavailable Git worktree preserves Local intent and a stale Git reply c
   await message.fill('Keep my selected run environment.');
   await required.waitFor();
   assert.equal(await required.count(), 1, 'The composer exposes the reason with the gear menu closed');
-  assert.equal(await start.isDisabled(), true);
+  await ready.waitFor();
   const environment = await openCreationEnvironment(page);
   const worktree = checked => environment.getByRole('menuitemcheckbox', { name: '新建工作树', exact: true, checked });
   const menuReason = environment.getByRole('status').filter({ hasText: repositoryRequired });
@@ -414,7 +414,7 @@ test('an unavailable Git worktree preserves Local intent and a stale Git reply c
   await worktree(true).waitFor();
   await page.keyboard.press('Escape');
   await environment.waitFor({ state: 'hidden' });
-  assert.equal(await start.isDisabled(), true);
+  await ready.waitFor();
   await startWork(page);
   const newerMessage = 'Retain the newer default-workspace draft.';
   await message.fill(newerMessage);
@@ -432,8 +432,15 @@ test('an unavailable Git worktree preserves Local intent and a stale Git reply c
   await page.keyboard.press('Escape');
   await environment.waitFor({ state: 'hidden' });
   assert.equal(await message.inputValue(), newerMessage);
-  assert.equal(await start.isDisabled(), true, 'An old Git success cannot authorize a worktree in the newer non-Git draft');
   await required.waitFor();
+  const refused = commandResponse(page, 'create_work_task');
+  await ready.click();
+  const responseToNewerDraft = await refused;
+  assert.equal(responseToNewerDraft.status(), 400);
+  assert.match((await responseToNewerDraft.json()).error.message, /Git repository with an initial commit/);
+  await message.waitFor();
+  assert.equal(await message.inputValue(), newerMessage);
+  assert.deepEqual((await command({ op: 'list_worktrees' })).worktrees, []);
   await openCreationEnvironment(page);
   await worktree(true).click();
   await worktree(false).waitFor();

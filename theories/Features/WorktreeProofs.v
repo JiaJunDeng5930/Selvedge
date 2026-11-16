@@ -26,12 +26,12 @@ Theorem store_changes_only_worktree_registry : forall tree value,
    (set F.feature_worktrees (fun _ => F.feature_worktrees (world_features value))
       (world_features (Worktree.store tree value))) (Worktree.store tree value) = value.
 Proof.
- intros tree [sequence tasks ticket environment projects features].
+ intros tree [sequence tasks ticket environment projects features legacy].
  destruct features; reflexivity.
 Qed.
 Lemma store_preserves_tasks : forall tree value,
  world_tasks (Worktree.store tree value) = world_tasks value.
-Proof. intros tree [sequence tasks ticket environment projects features]; destruct features; reflexivity. Qed.
+Proof. intros tree [sequence tasks ticket environment projects features legacy]; destruct features; reflexivity. Qed.
 Lemma completing_bindings_preserves_the_owner : forall owner space guidance value task,
  find_task owner value = Some task ->
  find_task owner (Worktree.complete_bindings owner space guidance value) = Some task.
@@ -327,7 +327,7 @@ Theorem planned_birth_changes_only_tasks_and_worktrees : forall before (plan:Wor
      (fun _ => F.feature_worktrees (world_features current)) (world_features result)) result) = current.
 Proof.
  intros before [start resource admitted] current.
- destruct resource; destruct current as [sequence tasks ticket environment projects features];
+ destruct resource; destruct current as [sequence tasks ticket environment projects features legacy];
  destruct features; reflexivity.
 Qed.
 Theorem an_observed_binding_takes_priority_over_automatic_worktree_preference :

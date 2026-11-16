@@ -6,13 +6,11 @@ import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
-import { gunzipSync } from 'node:zlib';
 import { defaultConfig } from '../host/config.mjs';
 import { asyncToolResult, home, responsesServer } from './support.mjs';
 
 const project = fileURLToPath(new URL('../', import.meta.url));
 const toolFixture = fileURLToPath(new URL('./fixtures/update-tool.mjs', import.meta.url));
-const legacyJournal = new URL('./fixtures/journal-format28-unversioned.sqlite.gz', import.meta.url);
 const callId = 'update-handoff-tool';
 const toolName = 'mcp__update__record_update';
 const waiting = [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Waiting for the local operation.' }] }];
@@ -33,8 +31,8 @@ function reportedPids(output) {
   return [...output.matchAll(/^PID:\s*(\d+)\s*$/gm)].map(match => Number(match[1]));
 }
 
-function startUpdate(directory, state) {
-  const args = ['run', 'update', '--home', directory];
+function startUpdate(directory, state, config) {
+  const args = ['run', 'update', '--home', directory, ...(config ? ['--config', config] : [])];
   const child = spawn(process.execPath, args, { cwd: project, stdio: ['ignore', 'pipe', 'pipe'] });
   state.updateChildren.add(child);
   child.once('close', () => state.updateChildren.delete(child));
@@ -285,8 +283,6 @@ test('terminal update waits for a durable tool result and restarts the same task
     },
   };
   await writeFile(configPath, JSON.stringify(config));
-  // Captured through the public CLI from revision 3e764dfe, before managed updates added the journal schema marker.
-  await writeFile(path.join(directory, 'journal.sqlite'), gunzipSync(await readFile(legacyJournal)));
 
   const initial = startUpdate(directory, serviceState);
   const initialResult = await finishUpdate(initial);
@@ -296,10 +292,16 @@ test('terminal update waits for a durable tool result and restarts the same task
   assert.equal(Number(new URL(firstService.url).port), port);
   await waitForService(firstService.url);
 
+  const invalidConfig = path.join(directory, 'invalid-config.json');
+  await writeFile(invalidConfig, '{');
+  const rejected = await finishUpdate(startUpdate(directory, serviceState, invalidConfig));
+  recordCurrentPid(serviceState, rejected.output);
+  assert.equal(rejected.code, 1, rejected.output);
+  assert.doesNotMatch(rejected.output, /Waiting for the running Selvedge/);
+  const runningAfterRejection = JSON.parse(await readFile(path.join(directory, 'server.json'), 'utf8'));
+  assert.equal(runningAfterRejection.pid, firstService.pid, 'Invalid configuration leaves the current listener installed');
+
   const client = await authenticatedClient(firstService.url);
-  const migrated = await client.command({ op: 'read', task_id: 0 });
-  assert.equal(migrated.task.phase, 'idle');
-  assert.ok(JSON.stringify(migrated.messages).includes('History recorded before managed updates.'));
   const created = await client.command({ op: 'create', profile: 'update_fixture',
     message: 'Record the requested local update receipt.' });
   const taskId = created.task_id;

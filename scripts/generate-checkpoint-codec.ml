@@ -115,6 +115,20 @@ let rec codec_name direction = function
       else
         "(fun reader -> " ^ String.concat "" (List.map (fun (name, item) -> "let " ^ name ^ " = " ^ codec_name "read" item ^ " reader in ") items) ^ pattern ^ ")"
 
+let conjunction = function [] -> "true" | tests -> String.concat " && " tests
+
+let rec comparison = function
+  | Primitive name -> "Wire.same_" ^ name
+  | List item -> "(Wire.same_list " ^ comparison item ^ ")"
+  | Option item -> "(Wire.same_option " ^ comparison item ^ ")"
+  | Ref index -> "same_" ^ string_of_int index
+  | Tuple items ->
+      let left, right = List.mapi (fun index _ -> "left" ^ string_of_int index) items,
+        List.mapi (fun index _ -> "right" ^ string_of_int index) items in
+      "(fun " ^ tuple left ^ " " ^ tuple right ^ " -> " ^
+      conjunction (List.map2 (fun item (a, b) -> comparison item ^ " " ^ a ^ " " ^ b)
+        items (List.combine left right)) ^ ")"
+
 let adapter_functions version =
   let _, (_, encode, decode) = List.find (fun (_, (candidate, _, _)) -> candidate = version) adapters in
   encode, decode
@@ -143,6 +157,24 @@ let read_body = function
   | Adapter (version, shape) -> let _, decode = adapter_functions version in
       "match " ^ decode ^ " (" ^ codec_name "read" shape ^ " reader) with Some value -> value | None -> raise Wire.Invalid_checkpoint"
 
+let same_body shape =
+  let compare = match shape with
+  | Record (owner, fields) -> conjunction (List.map (fun (name, item) ->
+      let field = qualified owner name in comparison item ^ " left." ^ field ^ " right." ^ field) fields)
+  | Variant (owner, cases) ->
+      let paired (name, items) =
+        let names prefix = List.mapi (fun index _ -> prefix ^ string_of_int index) items in
+        let left = names "a" and right = names "b" in
+        "| " ^ ctor owner name left ^ ", " ^ ctor owner name right ^ " -> " ^
+        conjunction (List.map2 (fun item (a, b) -> comparison item ^ " " ^ a ^ " " ^ b)
+          items (List.combine left right)) in
+      "match left, right with " ^ String.concat " " (List.map paired cases) ^
+      (if List.length cases = 1 then "" else " | _ -> false")
+  | Adapter (version, shape) ->
+      let encode, _ = adapter_functions version in
+      comparison shape ^ " (" ^ encode ^ " left) (" ^ encode ^ " right)" in
+  "left == right || (" ^ compare ^ ")"
+
 let schema_text = function
   | Record (_, fields) -> "record " ^ String.concat "," (List.map (fun (name, item) -> name ^ ":" ^ shape_text item) fields)
   | Variant (_, cases) -> "variant " ^ String.concat "," (List.map (fun (name, items) -> name ^ shape_text (Tuple items)) cases)
@@ -167,5 +199,7 @@ let () =
       Printf.fprintf output "%s %s_%d %s = %s\n" (if index = 0 then "let rec" else "and") direction index arguments (body node)) nodes in
     emit "write" "output value" write_body;
     emit "read" "reader" read_body;
+    emit "same" "left right" same_body;
+    Printf.fprintf output "let same_image = %s\n" (comparison root);
     Printf.fprintf output "let encode value = let output = Buffer.create 4096 in %s output value; Buffer.contents output\n" (codec_name "write" root);
     Printf.fprintf output "let decode bytes = let reader = Wire.start bytes in\n  try let value = %s reader in\n  (* DEFENSE: Additional bytes cannot belong to this world image. *)\n  if Wire.remaining reader = 0 then Some value else None\n  with Wire.Invalid_checkpoint -> None\n" (codec_name "read" root))

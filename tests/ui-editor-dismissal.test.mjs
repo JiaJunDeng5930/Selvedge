@@ -308,7 +308,6 @@ test('closing Project and title prompt editors discards their unsaved drafts thr
   const titleModel = titlePrompts.getByLabel('对话标题模型', { exact: true });
   const nav = page.getByRole('navigation', { name: 'Global navigation', exact: true });
   const readSettings = () => command({ op: 'read_title_settings' });
-  const assessment = editor => editor.locator('[data-semantic-key="assessment"]');
   const save = editor => editor.getByRole('button', { name: '保存', exact: true });
   const reset = (field, name) => field.locator('xpath=ancestor::*[@data-semantic-key="title-prompt"]')
     .getByRole('button', { name, exact: true });
@@ -340,39 +339,26 @@ test('closing Project and title prompt editors discards their unsaved drafts thr
       task_prompt: saved.task_prompt, agent_prompt: saved.agent_prompt, agent_profile: saved.agent_profile,
       ...changes });
     await field.fill('Edited after another settings update');
-    await assessment(editor).getByText('Title settings changed; reopen the settings before saving', { exact: true }).waitFor();
-    assert.equal(await save(editor).isDisabled(), true);
+    const submission = page.waitForResponse(response => response.url().endsWith('/api/browser/command')
+      && response.request().postDataJSON()?.command?.op === 'configure_title_settings');
+    await save(editor).click();
+    const response = await submission;
+    const refused = await response.json();
+    assert.equal(refused.reply?.error?.code, 'title_settings_conflict', JSON.stringify(refused));
+    await editor.getByRole('alert').filter({ hasText: 'Title settings changed; reopen the settings before saving' }).waitFor();
+    assert.equal(await field.inputValue(), 'Edited after another settings update');
   }
 
   const initial = await readSettings();
   assert.notEqual(initial.task_prompt, initial.agent_prompt);
   assert.match(initial.task_prompt, /When asked for a description/);
-  const held = Promise.withResolvers();
-  const requested = Promise.withResolvers();
-  const checking = titlePrompts.getByText('正在检查操作…', { exact: true })
-    .and(titlePrompts.locator(':not(.visually-hidden)'));
   const saving = titlePrompts.locator('[data-surface-role="dialog-actions"]')
     .getByRole('status').filter({ hasText: '正在提交…' });
-  await page.route('**/api/assess', async route => {
-    if (route.request().postDataJSON()?.command?.op === 'configure_title_settings') {
-      requested.resolve();
-      await held.promise;
-    }
-    await route.continue();
-  });
-  try {
-    await openTitlePrompts();
-    assert.equal(await conversationPrompt.inputValue(), initial.agent_prompt);
-    assert.equal(await titlePrompts.getByRole('textbox', { name: '整理规则', exact: true }).count(), 0);
-    assert.equal(await restoreConversation.count(), 0);
-    await requested.promise;
-    assert.equal(await save(titlePrompts).isDisabled(), true);
-    assert.equal(await save(titlePrompts).getAttribute('title'), '正在检查操作…');
-    assert.equal(await checking.count(), 0);
-    assert.equal(await saving.count(), 0);
-  } finally {
-    held.resolve();
-  }
+  await openTitlePrompts();
+  assert.equal(await conversationPrompt.inputValue(), initial.agent_prompt);
+  assert.equal(await titlePrompts.getByRole('textbox', { name: '整理规则', exact: true }).count(), 0);
+  assert.equal(await restoreConversation.count(), 0);
+  assert.equal(await saving.count(), 0);
   await conversationPrompt.fill('Unsaved conversation title prompt');
   await close(titlePrompts);
   await editTitlePrompts.waitFor();

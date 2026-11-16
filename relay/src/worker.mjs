@@ -113,9 +113,10 @@ export class RemoteHostRelay {
     this.grants = new Map();
     this.generation = 0;
     ctx.blockConcurrencyWhile(async () => {
-      this.hostDigest = (await ctx.storage.get('host_digest')) ?? null;
-      this.grants = new Map((await ctx.storage.get('grants')) ?? []);
-      this.generation = (await ctx.storage.get('generation')) ?? 0;
+      const state = await ctx.storage.get(['host_digest', 'grants', 'generation']);
+      this.hostDigest = state.get('host_digest') ?? null;
+      this.grants = new Map(state.get('grants') ?? []);
+      this.generation = state.get('generation') ?? 0;
     });
   }
 
@@ -132,10 +133,10 @@ export class RemoteHostRelay {
     return this.controllers().find(socket => socket.deserializeAttachment().connection_id === connectionId);
   }
 
-  controllerCurrent(state) {
+  controllerCurrent(state, hostReady) {
     return remoteControl('delivery', { connection: state,
       generation: this.generation, grants: this.grantSnapshot(),
-      host_ready: Boolean(this.host()) });
+      host_ready: hostReady });
   }
 
   grantSnapshot() { return [...this.grants].map(([controller_id, grant_epoch]) => ({ controller_id, grant_epoch })); }
@@ -146,7 +147,8 @@ export class RemoteHostRelay {
     try {
       const url = new URL(request.url);
       if (url.pathname === '/register') {
-        const body = await readJson(request);
+        // The worker constructs this private request from the admitted registration body.
+        const body = await request.json();
         const nextDigest = await digest(body.host_token);
         // DEFENSE: Another enrollment must not replace a registered host's credential.
         if (this.hostDigest && !sameDigest(this.hostDigest, nextDigest)) return failure('host_already_registered', 409);
@@ -176,7 +178,7 @@ export class RemoteHostRelay {
     if (!sameDigest(await digest(secret), this.hostDigest)) {
       return failure('unauthorized', 401);
     }
-    // DEFENSE: The connector probes authentication over HTTP before upgrading; report the required transport explicitly.
+    // DEFENSE: A caller may use ordinary HTTP despite the endpoint requiring an upgrade.
     if (!upgrade(request)) return failure('websocket_required', 426);
     // DEFENSE: Persist the generation before accepting its socket so a replaced
     // host cannot forward delayed responses after a Durable Object restart.
@@ -283,17 +285,22 @@ export class RemoteHostRelay {
           socket.serializeAttachment(this.step(state, { kind: 'hello' }).state);
           return;
         }
-        await this.hostFrame(socket, frame);
-      } else if (this.controllerCurrent(state)) {
+        await this.hostFrame(socket, state, frame);
+      } else {
+        const host = this.host();
+        // DEFENSE: A queued controller frame may outlive its grant, host generation, or socket retirement.
+        if (!this.controllerCurrent(state, Boolean(host))) {
+          socket.close(1008, 'Remote grant unavailable');
+          return;
+        }
         const frame = parseRemoteFrame(message, request => {
           const admitted = remoteControl('relay_request', { connection: state, request });
           // DEFENSE: A controller may send an unknown method or malformed RPC parameters.
           if (admitted === null) throw protocolError('Controller request rejected by relay session');
           return admitted;
         });
-        send(this.host(), frame);
-      // DEFENSE: A queued controller frame may outlive its grant, host generation, or socket retirement.
-      } else socket.close(1008, 'Remote grant unavailable');
+        send(host, frame);
+      }
     // DEFENSE: Malformed peer frames and failed storage/socket effects retire this connection without retrying the command.
     } catch (error) {
       this.disconnect(socket);
@@ -303,25 +310,29 @@ export class RemoteHostRelay {
     }
   }
 
-  async hostFrame(socket, frame) {
+  async hostFrame(socket, observed, frame) {
     switch (frame.type) {
       case 'grants': {
         const next = new Map(frame.grants.map(grant => [grant.controller_id, grant.grant_epoch]));
-        await this.ctx.storage.put('grants', [...next]);
-        // DEFENSE: Storage writes and hashing yield; a replaced host must not publish stale grants or pairing codes.
-        if (this.host(false) !== socket) return;
-        this.grants = next;
-        const current = socket.deserializeAttachment();
-        socket.serializeAttachment(this.step(current, { kind: 'grants', grants: this.grantSnapshot() }).state);
+        let current = observed;
+        if (this.grants.size !== next.size || frame.grants.some(grant => this.grants.get(grant.controller_id) !== grant.grant_epoch)) {
+          await this.ctx.storage.put('grants', [...next]);
+          // DEFENSE: A replaced host must not publish stale grants after the storage write yields.
+          if (this.host(false) !== socket) return;
+          this.grants = next;
+          current = socket.deserializeAttachment();
+        }
+        const installed = this.step(current, { kind: 'grants', grants: frame.grants }).state;
+        socket.serializeAttachment(installed);
         for (const controller of this.controllers()) {
           const attachment = controller.deserializeAttachment();
           // DEFENSE: A grant update can revoke an already connected controller; close its socket immediately.
-          if (!this.controllerCurrent(attachment)) controller.close(1008, 'Remote grant revoked');
+          if (!this.controllerCurrent(attachment, installed.synced)) controller.close(1008, 'Remote grant revoked');
         }
         break;
       }
       case 'pairing': {
-        const pending = this.step(socket.deserializeAttachment(), { kind: 'pairing_begin' }).state;
+        const pending = this.step(observed, { kind: 'pairing_begin' }).state;
         socket.serializeAttachment(pending);
         const revision = pending.pairing_revision;
         const codeDigest = await digest(frame.code);
@@ -337,7 +348,7 @@ export class RemoteHostRelay {
       case 'event': {
         const controller = this.controller(frame.connection_id);
         // DEFENSE: A host reply can arrive after controller disconnect, revocation, or host replacement.
-        if (!controller || !this.controllerCurrent(controller.deserializeAttachment())) return;
+        if (!controller || !this.controllerCurrent(controller.deserializeAttachment(), observed.synced)) return;
         send(controller, frame.type === 'response'
           ? frame.response : { type: 'event', event: frame.event });
         break;

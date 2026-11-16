@@ -5,6 +5,10 @@ From Selvedge.Kernel Require Import Domain Inputs State Observation Notification
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
+Theorem unchanged_remote_transport_authority_needs_no_reconciliation before after :
+ remote_transport_authority before = remote_transport_authority after ->
+ remote_reconciliation_needed before after = false.
+Proof. unfold remote_reconciliation_needed. intros Equal. now rewrite Equal, equal_is_reflexive. Qed.
 Theorem unchanged_commands_have_no_notifications : forall command before reply,
  Notifications.envelope true true (Some (UserCommand command)) before
    (Decision before reply []) = Observation.envelope true (Decision before reply []).

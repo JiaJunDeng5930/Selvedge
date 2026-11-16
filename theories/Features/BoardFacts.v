@@ -10,13 +10,15 @@ Definition registry (value:world) := Selvedge.Features.Domain.feature_board (wor
 Definition title_has_content := Codec.nonempty.
 Definition title_within_limit (title:string) := BoardParameters.limited title 2000.
 Definition description_within_limit (description:string) := BoardParameters.limited description 400000.
-Definition valid_draft (draft:Selvedge.Features.Domain.card_draft) (value:world) :=
+Definition valid_metadata (draft:Selvedge.Features.Domain.card_draft) (value:world) :=
  title_has_content (Selvedge.Features.Domain.draft_title draft) &&
  title_within_limit (Selvedge.Features.Domain.draft_title draft) &&
  description_within_limit (Selvedge.Features.Domain.draft_description draft) &&
  Nat.leb (List.length (Selvedge.Features.Domain.draft_labels draft)) 32 && forallb (fun label=>Codec.nonempty label && BoardParameters.limited label 128) (Selvedge.Features.Domain.draft_labels draft) &&
- Nat.leb (List.length (Selvedge.Features.Domain.draft_attachments draft)) 4 &&
  (match Selvedge.Features.Domain.draft_project draft with None=>true | Some id=>match registry_at id (world_projects value) with Some project=>negb (project_deleted project) | None=>false end end).
+Definition attachment_limit (draft:Selvedge.Features.Domain.card_draft) :=
+ Nat.leb (List.length (Selvedge.Features.Domain.draft_attachments draft)) 4.
+Definition valid_draft draft value := valid_metadata draft value && attachment_limit draft.
 Definition revised (draft:Selvedge.Features.Domain.card_draft) (now:BoardClock.t) (card:Selvedge.Features.Domain.card) := (set Selvedge.Features.Domain.card_updated_at (fun _=>now) (set Selvedge.Features.Domain.card_contents (fun _=>draft) (set Selvedge.Features.Domain.card_revision (fun _=>(N.succ (Selvedge.Features.Domain.card_revision card))) (card)))).
 Definition linked_task (card:Selvedge.Features.Domain.card) (value:world) := match Selvedge.Features.Domain.card_task card with Some id=>Selvedge.Kernel.State.find_task id value | None=>None end.
 Definition busy_task := Selvedge.Kernel.Domain.task_busy.

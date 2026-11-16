@@ -66,7 +66,7 @@ Inductive access_contract (required : F.rights) (controller : string) (epoch : N
 Theorem check_satisfies_complete_access_contract : forall required controller epoch state,
  access_contract required controller epoch state (Remote.check required controller epoch state).
 Proof.
- intros required controller epoch state; unfold Remote.check.
+ intros required controller epoch state; unfold Remote.check, Remote.check_grant.
  destruct (F.remote_enabled state) eqn:Enabled; cbn [negb].
  - destruct (Remote.find_grant controller state) as [issued|] eqn:Found.
    + destruct (N.eqb epoch (F.grant_epoch issued)) eqn:Generation; cbn [negb].
@@ -110,7 +110,7 @@ Inductive authorization_contract (required : F.rights) (request : Remote.request
 Theorem authorize_satisfies_complete_request_contract : forall required request state,
  authorization_contract required request state (Remote.authorize required request state).
 Proof.
- intros required request state; unfold Remote.authorize.
+ intros required request state; unfold Remote.authorize, Remote.admit_receipt.
  remember (Remote.check required (Remote.controller request) (Remote.epoch request) state)
    as checked eqn:Checked.
  assert (Access : access_contract required (Remote.controller request) (Remote.epoch request) state checked).
@@ -144,14 +144,40 @@ Proof.
  intros required request state issued Enabled Valid Granted Epoch Allowed Fresh Space.
  apply declared_permissions_are_allowed in Allowed.
  unfold request_valid in Valid.
- unfold Remote.authorize, Remote.check. rewrite Enabled. cbn.
+ unfold Remote.authorize, Remote.check, Remote.check_grant, Remote.admit_receipt. rewrite Enabled. cbn.
  rewrite Granted, Epoch, N.eqb_refl, Allowed. cbn [C.bind]. rewrite Valid. cbn.
  now rewrite Fresh, Space.
 Qed.
 
 Lemma remote_registry_store : forall remote value,
  Remote.registry (Remote.store remote value) = remote.
-Proof. intros remote [seq tasks ticket env projects features]. destruct features; reflexivity. Qed.
+Proof. intros remote [seq tasks ticket env projects features legacy]. destruct features; reflexivity. Qed.
+
+Lemma authorize_command_mutation command request state required :
+ Remote.required_rights command=Some required -> F.may_read required=false ->
+ Remote.authorize_command command request state=Remote.authorize required request state.
+Proof.
+ intros Required Mutation. unfold Remote.authorize_command, Remote.command_authority,
+   Remote.with_command_rights, Remote.authorize, Remote.check. rewrite Required.
+ destruct (Remote.check_grant required (Remote.controller request) (Remote.epoch request) state);
+   cbn [C.map C.bind]; [now rewrite Mutation; destruct (Remote.admit_receipt request state)|reflexivity].
+Qed.
+
+Lemma command_authority_retains_grant command request state granted receipt issued :
+ Remote.command_authority command request state=C.Accepted (granted,receipt) ->
+ Remote.find_grant (Remote.controller request) state=Some issued ->
+ granted=F.grant_rights issued.
+Proof.
+ intros Authority Found. unfold Remote.command_authority, Remote.with_command_rights in Authority.
+ destruct (Remote.required_rights command); [|discriminate].
+ unfold Remote.check_grant in Authority.
+ destruct (F.remote_enabled state); cbn [negb C.bind] in Authority; [|discriminate].
+ rewrite Found in Authority.
+ destruct (N.eqb (Remote.epoch request) (F.grant_epoch issued)); cbn [negb C.bind] in Authority; [|discriminate].
+ destruct (Remote.rights_allow r (F.grant_rights issued)); cbn [C.bind] in Authority; [|discriminate].
+ destruct (F.may_read r); [now inversion Authority|].
+ destruct (Remote.admit_receipt request state); now inversion Authority.
+Qed.
 
 (** Disabled native grants cannot reach the command interpreter. *)
 Theorem disabled_remote_cannot_execute : forall execute prepared configuration request command value,
@@ -160,13 +186,11 @@ Theorem disabled_remote_cannot_execute : forall execute prepared configuration r
  decision_world result = value /\ decision_effects result = [].
 Proof.
  intros execute prepared configuration request command value disabled.
- unfold Remote.execute_remote.
+ unfold Remote.execute_remote, Remote.execute_remote_with.
  destruct (Remote.configuration_allowed command configuration); [|split;reflexivity].
- unfold Remote.authorize_command, Remote.with_command_rights.
- destruct (Remote.required_rights command) as [rights|] eqn:required; [|split;reflexivity].
- destruct (F.may_read rights); cbn beta iota zeta delta [andb negb].
- - unfold Remote.check. rewrite disabled. split;reflexivity.
- - unfold Remote.authorize, Remote.check. rewrite disabled. split;reflexivity.
+ unfold Remote.command_authority, Remote.with_command_rights.
+ destruct (Remote.required_rights command); [|split;reflexivity].
+ unfold Remote.check_grant. rewrite disabled. split;reflexivity.
 Qed.
 
 (** Preparation can introduce permission-requiring settings. A fresh request
@@ -184,30 +208,27 @@ Theorem prepared_remote_permissions_are_required :
 Proof.
  intros execute prepared configuration request original value admitted required issued
    Prepared Rights Granted Forbidden Fresh.
- unfold Remote.execute_remote.
+ unfold Remote.execute_remote, Remote.execute_remote_with.
  destruct (Remote.configuration_allowed original configuration); [|repeat split;reflexivity].
- remember (Remote.authorize_command original request (Remote.registry value)) as authorization eqn:Authorized.
- destruct authorization as [[reply|]|[code reason]].
- - exfalso. unfold Remote.authorize_command, Remote.with_command_rights in Authorized.
+ destruct (Remote.command_authority original request (Remote.registry value))
+   as [[granted [reply|]]|[code reason]] eqn:Authority.
+ - exfalso. unfold Remote.command_authority, Remote.with_command_rights in Authority.
    destruct (Remote.required_rights original) as [original_rights|]; [|discriminate].
-   destruct (F.may_read original_rights).
-   + unfold C.map, C.bind in Authorized.
-     destruct (Remote.check original_rights (Remote.controller request)
-       (Remote.epoch request) (Remote.registry value)); discriminate.
-   + pose proof (authorize_satisfies_complete_request_contract original_rights request
-       (Remote.registry value)) as Access.
-     rewrite <- Authorized in Access. inversion Access; subst; congruence.
+   destruct (Remote.check_grant original_rights (Remote.controller request) (Remote.epoch request)
+      (Remote.registry value)) as [current|]; cbn [C.bind] in Authority; [|discriminate].
+   destruct (F.may_read original_rights); [discriminate|].
+   unfold Remote.admit_receipt in Authority.
+   rewrite Fresh in Authority.
+   destruct (negb (Remote.identifier_valid (Remote.request_id request) && Remote.payload_valid (Remote.intent request)));
+     [discriminate|].
+   destruct (N.of_nat (List.length (F.remote_receipts (Remote.registry value))) <? 1024); discriminate.
  - rewrite Prepared; cbn beta iota zeta.
    destruct (Remote.configuration_allowed (G.admitted_value admitted) configuration); [|repeat split;reflexivity].
    destruct (String.eqb (command_name (G.declared_command original))
      (command_name (G.declared_command (G.admitted_value admitted)))); [|repeat split;reflexivity].
    unfold Remote.with_command_rights. rewrite Rights.
-   unfold Remote.check.
-   destruct (F.remote_enabled (Remote.registry value)); cbn [negb]; [|repeat split;reflexivity].
-   rewrite Granted.
-   destruct (N.eqb (Remote.epoch request) (F.grant_epoch issued)); cbn [negb].
-   + rewrite Forbidden. repeat split;reflexivity.
-   + repeat split;reflexivity.
+   apply command_authority_retains_grant with (issued:=issued) in Authority; [|exact Granted].
+   unfold Remote.prepared_rights. rewrite Authority, Forbidden. repeat split; reflexivity.
  - repeat split;reflexivity.
 Qed.
 
@@ -245,10 +266,10 @@ Theorem remote_query_is_read_only : forall execute prepared configuration reques
  schedule=false /\ decision_world result=value /\ decision_effects result=[].
 Proof.
  intros execute prepared configuration request command value readonly.
- unfold Remote.execute_remote. rewrite readonly.
+ unfold Remote.execute_remote, Remote.execute_remote_with. rewrite readonly.
  cbn beta iota zeta delta [negb].
  destruct (Remote.configuration_allowed command configuration); [|repeat split;reflexivity].
- destruct (Remote.authorize_command command request (Remote.registry value)) as [[reply|]|[code reason]];
+ destruct (Remote.command_authority command request (Remote.registry value)) as [[granted [reply|]]|[code reason]];
    try (repeat split;reflexivity).
  destruct (G.admit prepared) as [admitted|]; [|repeat split;reflexivity].
  set (prepared_command := G.admitted_value admitted).
@@ -257,8 +278,7 @@ Proof.
  destruct (String.eqb (command_name (G.declared_command command)) (command_name (G.declared_command prepared_command)));
    [|repeat split;reflexivity].
  destruct (Remote.with_command_rights prepared_command
-   (fun rights=>Remote.check rights (Remote.controller request) (Remote.epoch request)
-     (Remote.registry value))); repeat split;reflexivity.
+   (fun rights=>Remote.prepared_rights rights granted)); repeat split;reflexivity.
 Qed.
 
 (** A successful public grant replaces its controller's authority and receipts.
@@ -337,13 +357,13 @@ Proof.
  unfold request_valid in Valid.
  assert (Checked : Remote.check required (Remote.controller request) (Remote.epoch request)
      (Remote.registry before) = C.Accepted tt).
- { unfold Remote.check. rewrite Enabled. cbn.
+ { unfold Remote.check, Remote.check_grant. rewrite Enabled. cbn.
    now rewrite Granted, Epoch, N.eqb_refl, Allowed. }
  rewrite recorded_remote_registry by exact Bounded.
  set (retained := Remote.retain request (decision_reply candidate) (Remote.registry before)).
  assert (StillChecked : Remote.check required (Remote.controller request) (Remote.epoch request)
      retained = C.Accepted tt) by exact Checked.
- unfold Remote.authorize. rewrite StillChecked. cbn [C.bind]. rewrite Valid. cbn [negb].
+ unfold Remote.authorize, Remote.admit_receipt. rewrite StillChecked. cbn [C.bind]. rewrite Valid. cbn [negb].
  cbn [retained Remote.retain Remote.key_matches].
  unfold Remote.key_matches. cbn.
  rewrite !String.eqb_refl, N.eqb_refl. cbn.
@@ -382,8 +402,7 @@ Proof.
  { unfold after. eapply retained_remote_result_is_replayable; eassumption. }
  assert (Authorized : Remote.authorize_command (G.admitted_value admitted) request (Remote.registry after) =
      C.Accepted (Some (decision_reply candidate))).
- { unfold Remote.authorize_command, Remote.with_command_rights.
-   rewrite Rights. cbn. now rewrite Mutation. }
+ { rewrite (authorize_command_mutation _ _ _ _ Rights Mutation). exact Replay. }
  unfold Remote.complete_request. rewrite Admitted; cbn beta iota zeta. now rewrite Authorized.
 Qed.
 

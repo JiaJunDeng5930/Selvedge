@@ -61,7 +61,8 @@ Definition operations := [
      WebStore.store_finish request.(stored_response) response));
  method "web.store_reject" [required "record" D.RawObject]
    (fun record => with_request (JObject record) (fun request => WebStore.store_reject request.(stored_response)));
- method "web.store_retire" [] WebStore.store_retire;
+ method "web.store_retire" [required "record" D.RawObject]
+   (fun record => with_request (JObject record) (fun request => WebStore.store_retire request.(stored_retirement)));
  method "web.store_prepare" [raw "record";required "request" (D.OpenObject WebStore.request_fields);raw "previous";required "new_key" (D.Value Schema.KText)]
    (fun record request previous key => with_stored (missing record) (fun record =>
     with_stored (missing previous) (fun previous => WebStore.store_prepare record (WebStore.request_value request) previous key)));

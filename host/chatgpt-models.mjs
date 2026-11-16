@@ -1,4 +1,3 @@
-import { access } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { accountConnection, authorize, defaultChatGPTAccount } from './chatgpt-account.mjs';
@@ -21,12 +20,7 @@ function connectionIdentity(profile) {
   return boundary('account.connection_identity', { profile, models_url: modelsURL(profile.endpoint) });
 }
 
-function modelCacheFile(profile, home) {
-  return boundary('account.model_cache_path', { resolved: path.resolve(home, profile.auth_file), hash: hash(connectionIdentity(profile)) });
-}
-
-async function readCache(profile, home, account, now) {
-  const filename = modelCacheFile(profile, home);
+async function readCache(filename, account, connection, now) {
   let contents;
   try {
     const snapshot = await readBoundedRegularSnapshot(filename, { maximumBytes: 1048576, noFollow: false });
@@ -36,19 +30,21 @@ async function readCache(profile, home, account, now) {
     return boundary('account.cache_error', { code: error.code });
   }
   const cache = boundary('account.cache_decode', { text: contents });
-  return boundary('account.cache', { value: cache, account,
-    elapsed: cacheAge(cache?.fetched_at, now),
-    connection: connectionIdentity(profile) });
+  return boundary('account.cache', { value: cache, account, connection, elapsed: cacheAge(cache?.fetched_at, now) });
 }
 
 /** Discovery never performs interactive login and never reads a different app's credentials. */
-export async function discoverAccount(profile, home, { signal, force = false } = {}) {
-  const now = Date.now();
+export async function discoverAccount(profile, home, { signal, force = false, optional = false } = {}) {
   const lifetime = signal ? AbortSignal.any([signal, AbortSignal.timeout(profile.timeout_ms)]) : AbortSignal.timeout(profile.timeout_ms);
-  let authorization = await authorize(profile, home, { signal: lifetime });
-  const cached = await readCache(profile, home, authorization.account_id, now);
+  let authorization = await authorize(profile, home, { signal: lifetime, optional });
+  if (authorization === null) return null;
+  const now = Date.now();
+  const connection = connectionIdentity(profile);
+  const filename = boundary('account.model_cache_path', { resolved: path.resolve(home, profile.auth_file), hash: hash(connection) });
+  const cached = await readCache(filename, authorization.account_id, connection, now);
   if (boundary('account.cache_fresh', { force, cached })) return boundary('account.catalog_result', { authorization: { account_id: authorization.account_id }, cached, cached_result: true, stale: false });
-  const fetchCatalog = () => requestJson(modelCatalogURL(profile.endpoint), {
+  const endpoint = modelCatalogURL(profile.endpoint);
+  const fetchCatalog = () => requestJson(endpoint, {
     method: 'GET', headers: authorization.headers, signal: lifetime, maximum,
   });
   let response;
@@ -63,12 +59,14 @@ export async function discoverAccount(profile, home, { signal, force = false } =
     throw new Error(boundary('account.catalog_fetch_failure', {}), { cause: error });
   }
   // DEFENSE: A catalog HTTP 401 can follow server-side token rejection; refresh once before reporting the repeated rejection.
-  if (boundary('account.catalog_transport', { status: response.status, ok: response.ok }) === 'refresh') {
+  let outcome = boundary('account.catalog_transport', { status: response.status, ok: response.ok });
+  if (outcome === 'refresh') {
     authorization = await authorization.refreshAfterRejection({ signal: lifetime });
     response = await fetchCatalog();
+    outcome = boundary('account.catalog_transport', { status: response.status, ok: response.ok });
   }
   // DEFENSE: Non-success catalog HTTP responses cannot be admitted as model data.
-  if (boundary('account.catalog_transport', { status: response.status, ok: response.ok }) !== 'success') {
+  if (outcome !== 'success') {
     // DEFENSE: HTTP 429/5xx may use the admitted cache during automatic discovery; forced refresh must surface the failure.
     if (boundary('account.cache_fallback', { force, cached, status: response.status })) {
       return boundary('account.catalog_result', { authorization: { account_id: authorization.account_id }, cached, cached_result: true, stale: true });
@@ -76,8 +74,8 @@ export async function discoverAccount(profile, home, { signal, force = false } =
     boundary('account.catalog_failure', { status: response.status });
   }
   const models = boundary('account.discovery_catalog', { value: response.value });
-  await writeAtomic(modelCacheFile(profile, home), boundary('account.cache_record', {
-    account: authorization.account_id, connection: connectionIdentity(profile), fetched_at: new Date(now).toISOString(), models,
+  await writeAtomic(filename, boundary('account.cache_record', {
+    account: authorization.account_id, connection, fetched_at: new Date(now).toISOString(), models,
   }));
   return boundary('account.catalog_result', { authorization: { account_id: authorization.account_id }, models, cached_result: false, stale: false });
 }
@@ -99,22 +97,12 @@ export async function withAccountModels(config, home, { signal, force = false, o
   const discoveries = [];
   for (const candidate of candidates) {
     const filename = path.resolve(home, candidate.auth_file);
-    let read, readFailure;
-    try { await access(filename); read = { ok: true }; }
-    // DEFENSE: Automatic discovery observes credentials that may be absent or unreadable; native admission distinguishes ENOENT from an access failure.
-    catch (error) {
-      readFailure = error;
-      read = { ok: false, error: { code: error.code } };
-    }
-    const selected = boundary('account.candidate_read', { read });
-    // DEFENSE: A connection without a credential file has not been signed in and contributes no discovered models.
-    if (selected === 'skip') continue;
-    // DEFENSE: Credential access failures other than ENOENT must remain visible rather than acting like a signed-out connection.
-    if (selected === 'fail') throw readFailure;
     const profile = candidate;
     let result, namespace, connection, profiles, summary, diagnostic;
     try {
-      result = await discoverAccount(profile, home, { signal, force });
+      result = await discoverAccount(profile, home, { signal, force, optional: true });
+      // A connection without a credential file has not been signed in.
+      if (result === null) continue;
       namespace = boundary('account.account_namespace', { hash: hash(boundary('account.candidate_identity', { resolved: result.account_id, connection: connectionIdentity(profile) })) });
       connection = accountConnection(profile);
       ({ profiles, summary, diagnostic } = boundary('account.materialize', { config, result, namespace,

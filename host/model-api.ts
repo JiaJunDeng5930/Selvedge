@@ -2,7 +2,7 @@ import {
   decodeAudioAdmission, decodeHttpPlan, decodeHttpRemoteApprovalBody, decodeHttpRemoteRevokeBody,
   decodeHttpRemotePermissions, decodeHttpReplyStatus, decodeBrowserObservationPlan, decodeBrowserPath,
   decodeDispatchTransition, decodeDispatchAction, decodeAudioTransition, decodeAudioAction, decodeAudioTransportBegin, decodeAudioTransportAction,
-  decodeWorkspaceCommandPlan, decodeWorkspaceSelectionPlan, decodeWorkspaceSettingsPlan,
+  decodeWorkspaceCommandPlan, decodeWorkspaceSelectionPlan,
   type AudioAdmission, type JsonValue, type BrowserObservationPlan, type DomainNatural, type HttpRemotePermissions,
 } from './generated/model-schema.ts';
 
@@ -29,9 +29,7 @@ export interface HttpPrimitives {
   observe_host(): unknown;
   parse_url(): unknown;
   observe_connection_authorization(): unknown;
-  connection_method_origin(): unknown;
   observe_local_authorization(): unknown;
-  local_origin(): unknown;
   asset(): Promise<void> | void;
   audio_capabilities(): Promise<void> | void;
   audio_transcribe(): Promise<void> | void;
@@ -77,9 +75,7 @@ export async function interpretHttpPlan(input: unknown, frameBytes: number, io: 
     case 'observe_host': return io.observe_host();
     case 'parse_url': return io.parse_url();
     case 'observe_connection_authorization': return io.observe_connection_authorization();
-    case 'connection_method_origin': return io.connection_method_origin();
     case 'observe_local_authorization': return io.observe_local_authorization();
-    case 'local_origin': return io.local_origin();
     case 'asset': await io.asset(); return null;
     case 'audio_capabilities': await io.audio_capabilities(); return null;
     case 'audio_transcribe': await io.audio_transcribe(); return null;
@@ -240,21 +236,8 @@ export function browseDirectoryLocation(plan: Extract<BrowserObservationPlan, {k
 export function workspaceCommandResult(input: unknown) {
   const plan = decodeWorkspaceCommandPlan(input);
   const selections = plan.selections.map(decodeWorkspaceSelectionPlan);
-  return { rootTask: plan.root_task, worktree: plan.worktree, observe: selections.length > 0 || plan.worktree, selections };
+  return { worktree: plan.worktree, observe: selections.length > 0 || plan.worktree, selections };
 }
-export async function interpretWorkspaceSettings(input: unknown, io: {
-  project(projectId: DomainNatural): Promise<boolean>;
-  observe(projectId: DomainNatural | null): Promise<unknown>;
-}): Promise<unknown> {
-  const plan = decodeWorkspaceSettingsPlan(input);
-  // Schema.KOptional interprets an omitted field as None, represented here by canonical null.
-  const projectId = plan.project_id ?? null;
-  if (projectId !== null) {
-    if (!await io.project(projectId)) return {};
-  } else if (!plan.observe_workspace) return {};
-  return io.observe(projectId);
-}
-
 export interface AudioTransportPrimitives {
   ready(): void;
   emit(event: JsonValue): Promise<void>;

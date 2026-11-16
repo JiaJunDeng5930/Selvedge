@@ -26,10 +26,10 @@ const updateSessionKey = 'selvedge-update-session';
 const files = new Map();
 const transfers = new Map();
 const workflowReceipts = new Map();
+const browserCommandReplies = new Map();
 const assessments = new Map();
-const interactiveAssessments = new Map();
-const candidateAssessments = new Map();
-const drainingAssessments = new Set();
+const pendingAssessments = new Map();
+let drainingAssessments = false;
 const resources = new Set();
 const timers = new Set();
 const readings = new Map();
@@ -145,9 +145,9 @@ function taskObservation(effect, fields) {
   return effect.task_id === undefined ? fields : { ...fields, task_id: effect.task_id };
 }
 
-const requestScope = () => ({ namespace: publication.namespace, sequence: publication.sequence, ticket: state.services.connection.ticket });
+const requestScope = () => ({ namespace: publication.namespace, ticket: state.services.connection.ticket });
 const ownsRequestFailure = scope => publicationEvent('request_failure', { expected_namespace: scope.namespace,
-  expected_sequence: scope.sequence, ticket: scope.ticket, connection: state.services.connection });
+  ticket: scope.ticket, connection: state.services.connection });
 const authorizationRevoked = error => error.status === 401 || error.status === 403;
 function observeRequestFailure(error, scope) {
   if (authorizationRevoked(error) && ownsRequestFailure(scope))
@@ -182,21 +182,33 @@ async function request(url, options = {}, binary = false) {
     throw error;
   }
 }
-const post = (url, value, signal) => request(url, { method: 'POST', signal,
-  headers: { 'content-type': 'application/json' }, body: stringifyJson(value) });
+const post = (url, value, signal, headers) => request(url, { method: 'POST', signal,
+  headers: { 'content-type': 'application/json', ...headers }, body: stringifyJson(value) });
 
-async function requestCommand(command, signal) {
+async function requestCommand(command, signal, returnsCommit = false) {
   const expected = publication.namespace;
-  let body;
-  try { body = await post('/api/browser/command', { command }, signal); }
-  catch (error) {
-    // DEFENSE: A rejected committed command still returns its authoritative world and reply with a non-2xx status.
-    if (error.body && Object.hasOwn(error.body, 'program') && Object.hasOwn(error.body, 'reply')) body = error.body;
-    else throw error;
+  const requestId = returnsCommit ? randomBrowserIdentifier() : null;
+  const receipt = returnsCommit ? Promise.withResolvers() : null;
+  if (receipt) browserCommandReplies.set(requestId, receipt.promise);
+  try {
+    let body;
+    try {
+      const headers = receipt ? { 'x-selvedge-browser-request-id': requestId } : undefined;
+      body = await post('/api/browser/command', { command }, signal, headers);
+    } catch (error) {
+      // DEFENSE: A rejected committed command still returns its authoritative world and reply with a non-2xx status.
+      if (error.body && Object.hasOwn(error.body, 'program') && Object.hasOwn(error.body, 'reply')) body = error.body;
+      else throw error;
+    }
+    if (!publicationEvent('completion', { expected_namespace: expected, incoming_namespace: body.namespace })) return;
+    snapshot(body, expected);
+    return body.reply;
+  } finally {
+    if (receipt) {
+      browserCommandReplies.delete(requestId);
+      receipt.resolve();
+    }
   }
-  if (!publicationEvent('completion', { expected_namespace: expected, incoming_namespace: body.namespace })) return;
-  snapshot(body, expected);
-  return body.reply;
 }
 
 function publicationEvent(event, values = {}) {
@@ -250,9 +262,9 @@ function retireDocumentViews() {
   suspendedPrefixFocus = null;
   for (const controller of assessments.values()) controller.abort();
   assessments.clear();
-  interactiveAssessments.clear();
-  candidateAssessments.clear();
+  pendingAssessments.clear();
   workflowReceipts.clear();
+  browserCommandReplies.clear();
   for (const resource of resources) URL.revokeObjectURL(resource);
   resources.clear();
 }
@@ -1246,6 +1258,7 @@ async function authenticate(effect) {
       },
       current: () => !disposed && connection === controller && !controller.signal.aborted,
       namespace: () => publication.namespace,
+      commandReply: requestId => browserCommandReplies.get(requestId),
       refreshNeeded(notice) {
         return publicationEvent('refresh', { source_namespace: notice.namespace,
           source_sequence: notice.sequence, sources_fresh: sourceFresh, connection: state.services.connection });
@@ -1360,7 +1373,7 @@ async function completeCommand(effect) {
   }, 35_000) : null;
   if (receiptTimer !== null) timers.add(receiptTimer);
   try {
-    const value = await requestCommand(command, effect.read_only ? readDeadline() : undefined);
+    const value = await requestCommand(command, effect.read_only ? readDeadline() : undefined, !effect.read_only);
     if (publication.namespace === namespace && value !== undefined &&
         (launch === null || workflowReceipts.delete(launch)))
       dispatch({ type: 'completed', ticket: effect.ticket, ok: true, value });
@@ -1399,29 +1412,19 @@ function assessCommand(effect) {
   assessments.get(key)?.abort();
   const controller = new AbortController();
   assessments.set(key, controller);
-  const queue = effect.request.editor.kind === 'candidate' ? candidateAssessments : interactiveAssessments;
-  queue.set(key, { effect, namespace, key, controller });
-  if (!drainingAssessments.has(queue)) return drainAssessments(queue);
+  pendingAssessments.set(key, { effect, namespace, key, controller });
+  if (!drainingAssessments) return drainAssessments();
 }
-async function drainAssessments(queue) {
-  drainingAssessments.add(queue);
+async function drainAssessments() {
+  drainingAssessments = true;
   try {
-    // The service serializes these checks. Give the visible actions and the
-    // candidate list one request each, leaving connections for state and SSE.
-    while (!disposed && queue.size) {
-      await new Promise(resolve => setTimeout(resolve, 0));
-      const next = [...queue].find(([, job]) => job.effect.request.editor.kind === 'preparation') ?? queue.entries().next().value;
-      if (disposed || !next) return;
-      const [key, job] = next;
-      queue.delete(key);
-      // A queued check belongs to the snapshot against which it was issued.
-      if (!sameGeneration(job.effect.request.sequence, publication.sequence)) {
-        if (assessments.get(key) === job.controller) assessments.delete(key);
-        continue;
-      }
+    // Keep one preview request in flight. A newer draft replaces its queued proposal.
+    while (!disposed && pendingAssessments.size) {
+      const [key, job] = pendingAssessments.entries().next().value;
+      pendingAssessments.delete(key);
       await performAssessment(job);
     }
-  } finally { drainingAssessments.delete(queue); }
+  } finally { drainingAssessments = false; }
 }
 async function performAssessment({ effect, namespace, key, controller }) {
   try {
@@ -1677,8 +1680,7 @@ window.addEventListener('pagehide', () => {
   for (const entry of codeBlocks.values()) for (const physical of entry.views.values()) physical.renderer?.dispose();
   for (const controller of transfers.values()) controller.abort();
   for (const controller of assessments.values()) controller.abort();
-  interactiveAssessments.clear();
-  candidateAssessments.clear();
+  pendingAssessments.clear();
   for (const node of readingMeasurements.keys()) retireReadingMeasurement(node);
   retireHistoryLocation();
   window.removeEventListener('pointerup', endReadingPointer, true);

@@ -26,14 +26,16 @@ async function git(primary, arguments_, { signal } = {}) {
 /** Observe a GitHub source without copying local files, credentials or Git configuration. */
 export async function observeCloudRepository(primary, { signal } = {}) {
   try {
-    const repository = await realpath(await git(primary, ['rev-parse', '--show-toplevel'], { signal }));
+    const source = await git(primary, ['rev-parse', '--show-toplevel', '--verify', 'HEAD^{commit}'], { signal });
+    const split = source.lastIndexOf('\n');
+    const repository = await realpath(source.slice(0, split));
+    const commit = source.slice(split + 1);
     const observedNames = (await git(repository, ['remote'], { signal })).split('\n').filter(Boolean).sort((a, b) => a.localeCompare(b));
     const names = boundary('effect.cloud_remote_names', { names: observedNames });
     for (const name of names) {
       const remote = await git(repository, ['remote', 'get-url', name], { signal });
       const url = boundary('effect.cloud_repository', { remote });
       if (url === null) continue;
-      const commit = await git(repository, ['rev-parse', '--verify', 'HEAD^{commit}'], { signal });
       return { url, commit, repository };
     }
     return null;

@@ -401,21 +401,9 @@ test('keyboard users can read unavailable action reasons, choice context and col
 test('execution controls appear beside active work and stay out of conversation details', { timeout: 60000 }, async t => {
   const fixture = await browserFixture(t);
   const { page, command } = fixture;
-  const releaseAssessment = Promise.withResolvers();
   const releaseInterrupt = Promise.withResolvers();
-  const assessmentStarted = Promise.withResolvers();
   const interruptStarted = Promise.withResolvers();
-  t.after(() => {
-    releaseAssessment.resolve();
-    releaseInterrupt.resolve();
-  });
-  await page.route('**/api/assess', async route => {
-    if (route.request().postDataJSON()?.command?.op === 'interrupt') {
-      assessmentStarted.resolve();
-      await releaseAssessment.promise;
-    }
-    await route.continue();
-  });
+  t.after(() => releaseInterrupt.resolve());
   await page.route('**/api/browser/command', async route => {
     if (route.request().postDataJSON()?.command?.op === 'interrupt') {
       interruptStarted.resolve();
@@ -427,12 +415,7 @@ test('execution controls appear beside active work and stay out of conversation 
   await selectTask(fixture, task_id);
   const main = page.getByRole('main');
   const stop = main.getByRole('button', { name: '停止当前执行', exact: true });
-  const reader = main.getByRole('region', { name: 'Conversation', exact: true });
-  await reader.getByRole('status').filter({ hasText: /正在(准备|生成)回复/ }).waitFor();
-  await assessmentStarted.promise;
   assert.equal(await main.getByText('Working', { exact: true }).count(), 0);
-  assert.equal(await stop.isVisible(), false);
-  releaseAssessment.resolve();
   await stop.and(main.getByRole('button', { disabled: false })).waitFor();
   await main.getByRole('button', { name: '任务详情', exact: true }).click();
   const details = page.getByRole('complementary', { name: '任务详情', exact: true });

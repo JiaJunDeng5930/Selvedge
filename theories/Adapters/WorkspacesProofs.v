@@ -1,17 +1,22 @@
-From Stdlib Require Import String List Bool.
-From Selvedge.Foundation Require Import JsonProofs JsonObjectsProofs.
+From Stdlib Require Import String List Bool NArith.
+From Selvedge.Foundation Require Import JsonProofs JsonObjectsProofs Numbers BoundedInteger BoundedIntegerCorrectness.
+From Selvedge.Programming Require Variant.
 From Selvedge.Adapters Require Import Common Observation Workspaces.
 Import ListNotations.
 Open Scope string_scope.
 
-Theorem supplied_workspace_prevents_project_resolution : forall source,
-  has (get source "value") "workspace" = true ->
-  JsonObjects.equivalent (workspace_selection_plan source) (success (JObject [
-    ("project_id", JNull); ("observe_workspace", JBool true)])) = true.
+Theorem observed_workspace_selection_retains_its_slot value :
+  Variant.decode_cases selection_decoders (selection_json value) = Some value.
 Proof.
-  intros source supplied; unfold workspace_selection_plan.
-  rewrite supplied; cbn [negb]; rewrite andb_false_r; apply equivalent_is_reflexive.
+  destruct value as [[| |index] value [project|]];
+    cbv beta iota zeta delta -[decode_unbounded_natural show_natural N.to_nat N.of_nat];
+    rewrite ?unbounded_natural_print_parse, ?Nat2N.id; reflexivity.
 Qed.
+
+Theorem supplied_workspace_prevents_project_resolution : forall path value resolve,
+  has value "workspace" = true ->
+  select_settings path resolve value = [Selection path value None].
+Proof. intros path value resolve supplied; unfold select_settings, workspace_input. now rewrite supplied. Qed.
 
 Theorem workspace_binding_matches_committed_paths : forall source,
   workspace_bound source = success (execution_context (get source "workspace") (get source "plan")) <->

@@ -65,26 +65,26 @@ Definition creating_conversation_page parent (message:Draft.text) : list(node In
         [Node(part pending "message-text")"message-text" "" Roles.Content (ReadOnly text)[]]])++
       [information pending "pending-first-reply" Information.Status "正在提交消息…"])]]].
 Definition approval_availability value:=match ObjectActions.action_status value with
-|ObjectActions.Available=>Available|ObjectActions.InFlight=>Busy "This action is pending"|ObjectActions.Awaiting=>Unavailable "Checking action availability"
-|ObjectActions.Unavailable reason|ObjectActions.AssessmentFailed reason=>Unavailable reason end.
+|ObjectActions.Available=>Available|ObjectActions.InFlight=>Busy "This action is pending"
+|ObjectActions.Unavailable reason=>Unavailable reason end.
 Definition approval_argument_label name := match name with
 | "command" => "Command" | "justification" => "Reason" | other => other end.
 Definition approval_arguments {A} parent operation:list(node A):=match Read.operation_arguments operation with
 |Some(JObject arguments)=>map(fun '(name,value)=>read_only parent("argument/"++name)(approval_argument_label name)
  (match value with JString value=>value|_=>TextJson.render_json value end))arguments
 |Some value=>[read_only parent "arguments" "Arguments"(TextJson.render_json value)]|None=>[]end.
-Definition operation_cancel_control snapshot s task parent id :=
- match ObjectActions.cancellation_action snapshot s task id with
+Definition operation_cancel_control s task parent id :=
+ match ObjectActions.cancellation_action s task id with
  |Some action=>match ObjectActions.command action with
   |Some command=>[declared parent Roles.Button(Control(ObjectActions.action_key action)(ObjectActions.action_label action)Secondary
     (Input.Command command)(approval_availability action))]|None=>[]end
  |None=>[]end.
-Definition approval_node snapshot s task parent operation :=
+Definition approval_node s task parent operation :=
  let id:=Read.operation_id operation in
  let key:=part parent("approval/"++show_natural id)in
  let human:=Read.operation_human operation in
  let status:=if human then"Approval required"else"Automatic review"in
- let decisions:=if human then flat_map(fun allow=>match ObjectActions.approval_action snapshot s task id allow with
+ let decisions:=if human then flat_map(fun allow=>match ObjectActions.approval_action s task id allow with
     |Some action=>match ObjectActions.command action with
      |Some command=>[declared key(if allow then Roles.PrimaryButton else Roles.Button)
        (Control(ObjectActions.action_key action)(ObjectActions.action_label action)Secondary(Input.Command command)(approval_availability action))]
@@ -99,10 +99,10 @@ Definition approval_node snapshot s task parent operation :=
       if human then [] else [read_only key "reviewer" "Reviewer model"
        (value_or "Reviewer observation unavailable"(Read.operation_reviewer operation))])]
    ++ [region key "approval-actions" "Approval decision" Roles.Toolbar
-       (decisions++operation_cancel_control snapshot s task key id)])%list.
-Definition approvals snapshot s task parent operations :=
+       (decisions++operation_cancel_control s task key id)])%list.
+Definition approvals s task parent operations :=
  match Read.pending_approvals operations with []=>[]|pending=>[page_region parent Composition.ApprovalDecisions Composition.DockPosition
-  [region parent "approval-queue" "Approvals"Roles.ApprovalQueue(map(approval_node snapshot s task parent)pending)]]end.
+  [region parent "approval-queue" "Approvals"Roles.ApprovalQueue(map(approval_node s task parent)pending)]]end.
 Definition reader_disclosures task s :=State.disclosures(SessionNavigation.reader_for s task).
 Definition reading_actions := AuditReading.ReadingActions Input.SetDisclosure Input.Interactive Input.RetainedOutput.
 Definition worktree_feedback {A} snapshot task parent:list(node A):=match Read.task_workspace task snapshot with
@@ -166,12 +166,7 @@ Definition run_control snapshot s (task:Read.task) parent key :=
  |Some action=>match ObjectActions.command action with
   |Some command=>let control:=Control key (ObjectActions.action_label action) Secondary
     (Input.Command command)(approval_availability action)in
-   (* Keep the action eligible for automatic admission while concealing an
-      interrupt that cannot yet be used. A submitted interrupt remains visible. *)
-   [if String.eqb key "interrupt" then match ObjectActions.action_status action with
-    |ObjectActions.Available|ObjectActions.InFlight=>declared parent Roles.Button control
-    |_=>Node(part parent key)"interrupt-unavailable"(control_label control) Roles.Button (Activate control)[]end
-    else declared parent Roles.Button control]
+   [declared parent Roles.Button control]
   |None=>[]end
  |None=>[]end.
 Definition task_run_controls snapshot s (task:Read.task) parent :=
@@ -258,7 +253,7 @@ Definition task_contents snapshot s view parent task hide_details :=
  let operations:=value_or[](Read.task_operations id snapshot)in
  ((match view with PrimaryTask _=>[task_header snapshot s view parent task hide_details]|SideTask _=>[]end) ++
  [task_timeline snapshot s view parent task] ++
- approvals snapshot s id parent operations ++
+ approvals s id parent operations ++
  match task_composer snapshot s view parent task with Some composer=>[composer]|None=>[]end)%list.
 Definition conversation_page_with_details snapshot s view parent hide_details :=
  match find_task(NavigationIdentity.task_view_task view)snapshot with

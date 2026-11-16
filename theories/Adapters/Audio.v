@@ -108,8 +108,6 @@ Definition context (source : json) :=
       ("channel",get source "channel");
       ("content",JArray [JObject [("type",JString "input_text");("text",get source "text")]])] ++
       optional (negb (is_null id)) "delegation_item_id" id)).
-Definition initial_context_plan (source : json) :=
-  success (JObject [("after",number (num source "cursor" - 100));("limit",number 100)]).
 Definition initial_message (role : string) (content : json) := JObject [("type",JString "message");("role",JString role);
   ("content",JArray [JObject [("type",JString (if String.eqb role "assistant" then "output_text" else "input_text"));("text",content)]])].
 Definition initial_history_item (assistant : json -> bool) (content : json -> json) (message : json) : list json :=
@@ -150,7 +148,6 @@ Definition call (transport : json -> json) (assistant : json -> bool) (content :
   else if String.eqb operation "audio.session_request" then session_request source
   else if String.eqb operation "audio.session_response" then session_response source
   else if String.eqb operation "audio.context" then context source
-  else if String.eqb operation "audio.initial_context_plan" then initial_context_plan source
   else if String.eqb operation "audio.initial_context" then initial_context assistant content source
   else if String.eqb operation "audio.login_target" then login_target source
   else if String.eqb operation "audio.device_login_target" then device_login_target source

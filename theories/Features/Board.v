@@ -1,7 +1,7 @@
-From Selvedge.Programming Require Callback.
+From Selvedge.Programming Require Callback ArgumentDeclaration.
 From Selvedge.Programming Require InputRoute.
 From Selvedge.Programming Require CommandResult DecisionComposition.
-From Stdlib Require Import String Ascii List Bool NArith.
+From Stdlib Require Import String Ascii List Bool NArith PeanoNat.
 From Selvedge.Foundation Require Import Json Utf8.
 From Selvedge.Programming Require Import Schema Completion.
 From Selvedge.Kernel Require Import Numbers Domain State Codec Tasks Workspace CommandExecution.
@@ -75,21 +75,32 @@ Definition normalized_draft (assisted:bool) (draft:Selvedge.Features.Domain.card
        | _=>Utf8.render_chunks trimmed end in
      set Selvedge.Features.Domain.draft_title (fun _=>title) draft
    end else draft.
-Definition parsed_drafting_target parsed assisted value (now : BoardClock.t)
- (Valid : valid_draft (normalized_draft assisted parsed) value &&
+Lemma normalized_attachments assisted draft :
+ BoardFacts.attachment_limit (normalized_draft assisted draft) =
+ BoardFacts.attachment_limit draft.
+Proof.
+ destruct assisted; [|reflexivity].
+ unfold normalized_draft. destruct (Utf8.chunks (Selvedge.Features.Domain.draft_title draft)); reflexivity.
+Qed.
+Definition parsed_drafting_target parsed assisted value (now : BoardParameters.clock)
+ (Attachments : BoardFacts.attachment_limit parsed = true)
+ (Valid : BoardFacts.valid_metadata (normalized_draft assisted parsed) value &&
    Nat.ltb (BD.live_count value) 512 && N.ltb (BD.fresh_id value) 4294967295 = true)
  : BD.drafting_target value.
 Proof.
  apply andb_true_iff in Valid as [DraftCapacity Identity].
- apply andb_true_iff in DraftCapacity as [Draft Capacity].
+ apply andb_true_iff in DraftCapacity as [Metadata Capacity].
+ assert (Draft : valid_draft (normalized_draft assisted parsed) value = true).
+ { unfold valid_draft, BoardFacts.valid_draft. now rewrite Metadata, normalized_attachments, Attachments. }
  exact (BD.fresh_target value (normalized_draft assisted parsed) now Draft Capacity Identity).
 Defined.
-Definition create_card_result (input:patch) (observed:BoardParameters.clock) (assisted:bool) (profile:string) (value:world) :=
+Definition create_card_result (input:patch) (observed:BoardParameters.clock) (assisted:bool) (profile:string) (value:world)
+ (Attachments : BoardFacts.attachment_limit (apply_patch input empty_draft) = true) :=
  let parsed:=apply_patch input empty_draft in let draft:=normalized_draft assisted parsed in
- let valid:=valid_draft draft value in
+ let valid:=BoardFacts.valid_metadata draft value in
  CommandResult.require (valid && Nat.ltb (BD.live_count value) 512 && N.ltb (BD.fresh_id value) 4294967295)
  (fun Valid => if assisted then request_text_result
-   (parsed_drafting_target parsed assisted value observed Valid) profile
+   (parsed_drafting_target parsed assisted value observed Attachments Valid) profile
    else CommandResult.Accepted (save_change (BD.fresh_id value) (BD.fresh_card draft observed) value))
  "invalid_card" (if valid then "看板已达容量上限。" else "请检查卡片内容和所属项目。").
 Definition retains_assignment (input:patch) (card:Selvedge.Features.Domain.card) :=
@@ -138,8 +149,8 @@ Definition link_result (id revision:N) (observed:BoardParameters.clock) (target:
  else CommandResult.refuse "conversation_already_linked" "A card can link one conversation, and a conversation can belong to only one card" end).
 Definition link id revision observed target value :=
  CommandResult.decide value (link_result id revision observed target value).
-Definition create_card_with_task_result input observed assisted profile task value :=
- let creation:=create_card_result input observed assisted profile value in
+Definition create_card_with_task_result input observed assisted profile task value attachments :=
+ let creation:=create_card_result input observed assisted profile value attachments in
  match task with
  |None=>creation
  |Some target=>CommandResult.bind creation (fun created=>
@@ -202,8 +213,17 @@ Definition regenerate_result (id revision:N) (observed:BoardParameters.clock) (p
  "card_locked" "An archived or already-generating card cannot start another title request").
 Definition regenerate (id revision:N) (observed:BoardParameters.clock) (profile:string) (value:world) :=
  CommandResult.decide value (regenerate_result id revision observed profile value).
-Definition handle_create_card_result (p:Selvedge.Generated.Commands.create_card_payload) (caller:option N) (value:world) :CommandResult.result CommandResult.change :=
- create_card_with_task_result (Patch (Selvedge.Generated.Commands.create_card_title p) (Selvedge.Generated.Commands.create_card_description p) (option_map stage_of_values (Selvedge.Generated.Commands.create_card_status_admitted p)) (option_map priority_of_values (Selvedge.Generated.Commands.create_card_priority_admitted p)) (option_map owner_of_values (Selvedge.Generated.Commands.create_card_assignee_admitted p)) (option_map project_of_values (Selvedge.Generated.Commands.create_card_project_admitted p)) (Selvedge.Generated.Commands.create_card_labels p) (option_map attachments_of_values (Selvedge.Generated.Commands.create_card_attachments_admitted p))) (observed_clock (Selvedge.Generated.Commands.create_card_observed_at_admitted p)) (retained (Selvedge.Generated.Commands.create_card_assisted p) false) (retained (Selvedge.Generated.Commands.create_card_draft_profile p) "") (Selvedge.Generated.Commands.create_card_task_id p) value.
+Definition handle_create_card_result (p:Selvedge.Generated.Commands.create_card_payload) (caller:option N) (value:world) :CommandResult.result CommandResult.change .
+Proof.
+ refine (create_card_with_task_result (Patch (Selvedge.Generated.Commands.create_card_title p) (Selvedge.Generated.Commands.create_card_description p) (option_map stage_of_values (Selvedge.Generated.Commands.create_card_status_admitted p)) (option_map priority_of_values (Selvedge.Generated.Commands.create_card_priority_admitted p)) (option_map owner_of_values (Selvedge.Generated.Commands.create_card_assignee_admitted p)) (option_map project_of_values (Selvedge.Generated.Commands.create_card_project_admitted p)) (Selvedge.Generated.Commands.create_card_labels p) (option_map attachments_of_values (Selvedge.Generated.Commands.create_card_attachments_admitted p))) (observed_clock (Selvedge.Generated.Commands.create_card_observed_at_admitted p)) (retained (Selvedge.Generated.Commands.create_card_assisted p) false) (retained (Selvedge.Generated.Commands.create_card_draft_profile p) "") (Selvedge.Generated.Commands.create_card_task_id p) value _).
+ unfold BoardFacts.attachment_limit.
+ cbn [apply_patch Selvedge.Features.Domain.draft_attachments].
+ destruct (Selvedge.Generated.Commands.create_card_attachments_admitted p) as [[attachments Within]|]; [|reflexivity].
+ cbn [patch_attachments option_map retained]. unfold attachments_of_values. cbn [proj1_sig]. rewrite length_map.
+ rewrite Nat.leb_compare, Nat2N.inj_compare, <- N.leb_compare.
+ unfold ArgumentDeclaration.in_bounds in Within.
+ apply andb_true_iff in Within as [_ Upper]. exact Upper.
+Defined.
 Definition handle_create_card (p:Selvedge.Generated.Commands.create_card_payload) (caller:option N) (value:world) :decision :=
  CommandResult.decide value (handle_create_card_result p caller value).
 Definition handle_update_card (p:Selvedge.Generated.Commands.update_card_payload) (caller:option N) (value:world) :decision :=

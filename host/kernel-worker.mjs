@@ -2,10 +2,14 @@ import { parentPort } from 'node:worker_threads';
 import * as model from '../.build/kernel-model.mjs';
 
 let world = model.initial();
-let projectedWorld;
-let projection;
-parentPort.on('message', ({ text: input, snapshot, operation }) => {
+let projectedWorld = world;
+parentPort.on('message', ({ text: input, operation, replayVersion }) => {
   try {
+    if (operation === 'observe') {
+      parentPort.postMessage({ programText: model.observe(world) });
+      projectedWorld = world;
+      return;
+    }
     if (operation === 'captureCheckpoint') {
       parentPort.postMessage({ checkpoint: { schema: model.checkpointSchema, data: model.checkpoint(world) } });
       return;
@@ -16,8 +20,8 @@ parentPort.on('message', ({ text: input, snapshot, operation }) => {
       parentPort.postMessage(restored !== null);
       return;
     }
-    const run = operation === 'assess' ? model.assess : operation === 'replay' ? model.replay : model.packet;
-    const output = run(input, world);
+    const output = operation === 'replay' ? model.replay(replayVersion, input, world)
+      : operation === 'assess' ? model.assess(input, world) : model.packet(input, world);
     if (output.inputError) {
       parentPort.postMessage({ inputError: output.inputError });
       return;
@@ -31,15 +35,13 @@ parentPort.on('message', ({ text: input, snapshot, operation }) => {
       parentPort.postMessage(output.durable);
       return;
     }
-    const text = output.envelope;
-    if (snapshot) {
-      // Extracted worlds are immutable; the same opaque handle has the same projection.
-      if (world !== projectedWorld) {
-        projection = model.observe(world);
-        projectedWorld = world;
-      }
-      parentPort.postMessage({ text, programText: projection });
-    } else parentPort.postMessage({ text });
+    const receipt = { text: output.envelope, reconcileRemote: output.reconcileRemote };
+    // The journal already owns the projection of this immutable world handle.
+    if (world === projectedWorld) parentPort.postMessage(receipt);
+    else {
+      parentPort.postMessage({ ...receipt, programText: model.observe(world) });
+      projectedWorld = world;
+    }
   // DEFENSE: Extracted transitions can throw OCaml exception arrays; they must be failures even without a JavaScript message.
   } catch (error) {
     parentPort.postMessage({ error: error instanceof Error ? error.message : String(error) });

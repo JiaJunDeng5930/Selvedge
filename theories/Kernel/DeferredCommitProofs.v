@@ -63,7 +63,7 @@ Proof.
  rewrite Live; unfold Delivery.deliver_with_status; rewrite Budget; reflexivity.
 Qed.
 
-Theorem a_business_refusal_commits_its_exact_receipt : forall command before code message,
+Theorem historical_selection_advances_the_cursor_for_a_refusal : forall command before code message,
  Delivery.fits true (reject code message before) = true ->
  (CommitPacket.finalize before (DeferredCommit.select true (Some (UserCommand command)) before (reject code message before))) =
  (with_sequence (N.succ (world_sequence before)) before,Observation.envelope true (reject code message before)).

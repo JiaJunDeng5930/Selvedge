@@ -295,16 +295,16 @@ Theorem actual_delivery_reaches_idle_task : forall source item result task,
 Proof.
  intros source item result task found available idle nonempty.
  unfold DecisionComposition.run, DecisionComposition.transform, DecisionComposition.maintain, TaskGraph.send_delivery; cbn [DecisionComposition.updated_world DecisionComposition.appended_effects].
- rewrite TaskChangesProofs.send_expression. cbv beta zeta. rewrite found, idle, nonempty, available. cbn.
- cbn [decision_world].
+ rewrite TaskChangesProofs.send_expression. cbv beta zeta. rewrite found, idle, nonempty, available.
  assert (tasks_same : forall id graph receipt value,
    K.find_task id (TaskGraph.record_receipt graph receipt value)=K.find_task id value).
  { intros. unfold K.find_task. now rewrite recording_receipt_preserves_tasks. }
- rewrite tasks_same.
- exists (TaskChange.apply (Tasks.receive_changes [TextPart (TaskGraph.delivery_text item)] task) task).
- split; [now apply find_put_task with task|].
- destruct task as [contract profile settings lifecycle history queued lineage handoff consumed].
- cbn [task_lifecycle] in idle; subst lifecycle; split; reflexivity.
+ destruct (world_legacy_send_admission (decision_world result)); cbn; cbn [decision_world].
+ all: rewrite tasks_same.
+ all: exists (TaskChange.apply (Tasks.receive_changes [TextPart (delivery_text item)] task) task); split.
+ all: try solve [now apply find_put_task with task].
+ all: destruct task as [contract profile settings lifecycle history queued lineage handoff consumed];
+   cbn [task_lifecycle] in idle; subst lifecycle; split; reflexivity.
 Qed.
 
 (** Preparation is different from failure: a live binding can accept its next

@@ -80,6 +80,20 @@ Definition handle_list_worktrees (payload:Selvedge.Generated.Commands.list_workt
  Selvedge.Kernel.State.success (JObject [("worktrees",JArray (map Observation.worktree_json (Selvedge.Features.Domain.feature_worktrees (world_features value))))]).
 Definition handle_read_worktree (payload:Selvedge.Generated.Commands.read_worktree_payload) (caller:option N) (value:world) :json :=
  match Selvedge.Kernel.State.find_task (Selvedge.Generated.Commands.read_worktree_task_id payload) value with None=>Selvedge.Kernel.State.failure "task_not_found" "Task does not exist." | Some _=>match effective (Selvedge.Generated.Commands.read_worktree_task_id payload) value with Some tree=>Selvedge.Kernel.State.success (Observation.worktree_json tree) | None=>Selvedge.Kernel.State.failure "not_found" "Task worktree does not exist." end end.
+Definition owner_observation owner value :=
+ let reply := match lookup owner value with
+ | Some tree => Selvedge.Kernel.State.success (Observation.worktree_json tree)
+ | None => Selvedge.Kernel.State.failure "not_found" "Task worktree does not exist."
+ end in (false,false,Decision value reply []).
+Definition owner_input : InputRoute.t (world -> bool * bool * decision) :=
+ InputRoute.object "read_worktree_owner" [Field "task_id" KNatural]
+  (fun fields => Some (owner_observation (Schema.head fields))).
+
+Theorem owner_observation_reads_one_owned_worktree owner value tree :
+ lookup owner value = Some tree ->
+ owner_observation owner value =
+  (false,false,Decision value (Selvedge.Kernel.State.success (Observation.worktree_json tree)) []).
+Proof. intros found; unfold owner_observation; now rewrite found. Qed.
 Definition archive_tree (tree:Selvedge.Features.Domain.worktree) (value:world) :decision :=
  let id:=Selvedge.Features.Domain.worktree_task tree in let source:=Selvedge.Features.Domain.worktree_source tree in
  match Selvedge.Features.Domain.worktree_root tree with None=>Selvedge.Kernel.State.accept JNull value [] | Some root=>

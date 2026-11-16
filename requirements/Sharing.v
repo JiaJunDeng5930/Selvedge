@@ -197,12 +197,14 @@ Export RemoteEntryProofs(current_control_grant_executes_actual_remote_stop).
     have different scopes. Connection jobs and remote commands
     reuse the existing scheduler. *)
 
-From Selvedge.Host Require RemoteTransportProofs
+From Selvedge.Host Require RemoteTransport RemoteTransportProofs
   RemoteConnectorSessionProofs RemoteRelaySessionProofs.
 Export RemoteConnectorSession(retirement_discards_session).
-Export RemoteTransportProofs(authorization_retry_decreases,
-  rejected_identity_ignores_async_observations,
+Export RemoteTransportProofs(rejected_identity_ignores_async_observations,
   current_retry_rearms_or_connects).
+Export RemoteTransport(failed_authentication_stops, current_upgrade_negotiates_on_the_existing_socket).
+From Selvedge.Kernel Require NotificationsProofs.
+Export NotificationsProofs(unchanged_remote_transport_authority_needs_no_reconciliation).
 Export RemoteConnectorSessionProofs(subscription_capture_records_the_current_notice_cutoff,
   notice_delivery_matches_the_current_subscription,
   notice_queue_admission_matches_subscription, enqueued_work_respects_capacity,
@@ -243,7 +245,7 @@ Export RemoteRelaySessionProofs(successful_consumption_removes_ticket,
     frames may proceed. [host_frame_admission_matches_negotiation] constrains
     the predicate used by that query, which needs no state-transition wrapper.
 
-    Closed transport states distinguish probing, negotiation, online operation,
+    Closed transport states distinguish an opening handshake, negotiation, online operation,
     scheduled retry and rejected identity. Randomness, status and clock values
     are observations, not host permission to reconnect. Authorization checks
     retain their bounded sequence comparison; capture requires equality with
@@ -264,12 +266,13 @@ Export RemoteRelaySessionProofs(successful_consumption_removes_ticket,
     observation. Phase-marking actions that only update that copy are likewise
     unnecessary. Rejected authentication still removes the notice listener;
     that action releases a physical subscription.
-    Recovery depends on actual probes, socket traffic and cessation after
-    rejected authentication; a separate history of intermediate status
-    notifications adds no delivery or recovery guarantee. The native WebSocket
-    client's error event is followed by close, which already reports that
-    failure; an empty error listener adds no observation or recovery action.
-    See https://websockets.spec.whatwg.org/#feedback-from-the-protocol .
+    Each connection attempt sends exactly one WebSocket upgrade. Its actual HTTP
+    refusal provides the authentication or retry observation, and an accepted
+    upgrade sends hello on that same socket. [failed_authentication_stops] and
+    [current_upgrade_negotiates_on_the_existing_socket] constrain the model.
+    The host uses the installed ws client's [unexpected-response] event to
+    read the HTTP status, with loopback transport tests observing real traffic.
+    See https://github.com/websockets/ws/blob/master/doc/ws.md#event-unexpected-response .
     Relay refusal retains
     the protocol's HTTP and WebSocket status semantics, without fixing an
     application diagnostic's spelling when no client consumes it.
@@ -315,6 +318,11 @@ Export RemoteRelaySessionProofs(successful_consumption_removes_ticket,
     the grants it actually uses for tickets and forwarding. The installed
     connector phase also supplies readiness to its physical interpreter;
     a second socket readiness flag would duplicate that state.
+    Reconciliation after a durable commit requires a change in relay authority.
+    The private kernel metadata records only effective transport grants and
+    transport enablement; unrelated task commits and local receipt changes
+    do not trigger a second native status request. Reconnection still obtains
+    current grants for the new socket.
     The connector synchronously clears its physical socket owner before closing
     that socket. Object identity therefore excludes old physical callbacks,
     including pairing callbacks, without a second native generation query.
@@ -325,7 +333,7 @@ Export RemoteRelaySessionProofs(successful_consumption_removes_ticket,
     cursor. Ordering therefore needs a cursor only in the ready session;
     retaining it after retirement or advancing it while offline adds no
     delivery guarantee.
-    Native clock, probe and queue observations still carry their generations
+    Native clock, handshake and queue observations still carry their generations
     for semantic admission. Connector start, pair and close request their
     physical effects synchronously; their return does not promise delivery.
     Retry jitter uses the host's bounded random sample directly. The sole

@@ -25,18 +25,7 @@ async function editorFixture(t) {
   return fixture;
 }
 
-async function disconnectAndAdmit(page, operation, disconnect) {
-  const assessment = page.waitForResponse(response => response.url().endsWith('/api/assess')
-    && response.request().method() === 'POST'
-    && response.request().postDataJSON()?.command?.op === operation);
-  disconnect();
-  const response = await assessment;
-  assert.equal(response.status(), 200, await response.text());
-  const result = await response.json();
-  assert.equal(result.admitted, true, 'The browser must receive a fresh, accepted assessment after disconnect');
-}
-
-test('a disconnected service keeps the editor Submit unavailable after fresh admission', { timeout: 60000 }, async t => {
+test('a disconnected service keeps the draft and disables Submit', { timeout: 60000 }, async t => {
   const fixture = await editorFixture(t);
   const { page, running } = fixture;
   const submit = page.getByRole('button', { name: 'Start task', exact: true });
@@ -56,7 +45,7 @@ test('a disconnected service keeps the editor Submit unavailable after fresh adm
   page.on('request', request => {
     if (request.url().endsWith('/api/browser/command') && request.method() === 'POST') commands++;
   });
-  await disconnectAndAdmit(page, 'create', () => running.disconnect());
+  running.disconnect();
   await page.getByRole('button', { name: 'Start task', exact: true, disabled: true }).waitFor();
   assert.equal(commands, 0, 'The disabled Submit control must not dispatch a command');
   const notice = page.getByRole('region', { name: '服务连接', exact: true });
@@ -74,7 +63,7 @@ test('a disconnected service keeps the editor Submit unavailable after fresh adm
   assert.equal(await draft.inputValue(), text);
 });
 
-test('an open confirmation stays unavailable after disconnect and fresh admission', { timeout: 60000 }, async t => {
+test('an open confirmation stays unavailable after disconnect', { timeout: 60000 }, async t => {
   const fixture = await projectFixture(t);
   const { page, running } = fixture;
   await page.getByRole('main').getByRole('button', { name: '项目操作', exact: true }).click();
@@ -87,7 +76,7 @@ test('an open confirmation stays unavailable after disconnect and fresh admissio
   page.on('request', request => {
     if (request.url().endsWith('/api/browser/command') && request.method() === 'POST') commands++;
   });
-  await disconnectAndAdmit(page, 'delete_project', () => running.disconnect());
+  running.disconnect();
   await page.getByRole('dialog').getByRole('button', { name: 'Confirm', exact: true, disabled: true }).waitFor();
   assert.equal(commands, 0, 'The disabled Confirm control must not dispatch a command');
 });

@@ -126,18 +126,28 @@ export async function startServer(options) {
     response.write(frame);
   }
 
-  function sendEvent(response, event) {
+  function eventFrame(event) {
     const id = event.type === 'commit' ? `id: ${event.sequence}\n` : '';
-    writeSseFrame(response, `${id}data: ${stringifyJson(event)}\n\n`);
+    return Buffer.from(`${id}data: ${stringifyJson(event)}\n\n`);
+  }
+
+  function sendEvent(response, event) {
+    writeSseFrame(response, eventFrame(event));
+  }
+
+  function broadcastNotice(event) {
+    if (clients.size === 0) return;
+    const frame = eventFrame(event);
+    for (const client of clients) writeSseFrame(client, frame);
   }
 
   function sendUpdate(response) {
-    writeSseFrame(response, `data: ${stringifyJson({ type: 'selvedge-update', ...update })}\n\n`);
+    sendEvent(response, { type: 'selvedge-update', ...update });
   }
 
   function updateStatus(status) {
     update = status;
-    for (const client of clients) sendUpdate(client);
+    broadcastNotice({ type: 'selvedge-update', ...update });
   }
 
   function requestSignal(request, response) {
@@ -229,17 +239,11 @@ export async function startServer(options) {
         observe_connection_authorization: () => {
           connectionId = url.pathname.slice('/api/chatgpt/'.length);
           source.authorized = connectionAuthorized(connections, connectionId, request.headers.authorization);
-          return decide('http.connection_authorization');
-        },
-        connection_method_origin: () => {
-          return decide('http.connection_method_origin');
+          return decide('http.authorization');
         },
         observe_local_authorization: () => {
           source.authorized = authorized(request);
-          return decide('http.local_authorization');
-        },
-        local_origin: () => {
-          return decide('http.local_origin');
+          return decide('http.authorization');
         },
         observe_content_type: target => {
           source.target = target;
@@ -341,7 +345,7 @@ export async function startServer(options) {
         events: async () => {
           const supplied = request.headers['last-event-id'] ?? url.searchParams.get('after');
           const after = supplied === null || supplied === undefined ? service.journal.sequence : Number(supplied);
-          service.journal.events(after, 1); // Validate before sending response headers.
+          service.journal.assertEventCursor(after);
           response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
           response.flushHeaders();
           clients.add(response);
@@ -411,9 +415,12 @@ export async function startServer(options) {
             // committed instance can confirm the workflow actually started.
             const notice = { type: 'workflow_request_received', launch_id: command.browser_launch_id,
               namespace: service.journal.namespace };
-            for (const client of clients) sendEvent(client, notice);
+            broadcastNotice(notice);
           }
-          const result = await service.browserCommand(command);
+          const requestId = request.headers['x-selvedge-browser-request-id'];
+          // DEFENSE: The optional client marker belongs only to a single direct response.
+          const browserRequest = typeof requestId === 'string' && /^[0-9a-f]{32}$/.test(requestId) ? requestId : undefined;
+          const result = await service.browserCommand(command, browserRequest);
           browserJson(request, response, httpReplyStatus(boundary('http.reply_status', { reply: result.reply })), result);
           return;
         },
@@ -450,7 +457,7 @@ export async function startServer(options) {
   }
 
   service.on('notice', event => {
-    for (const client of clients) sendEvent(client, event);
+    broadcastNotice(event);
     // DEFENSE: A fatal journal/Worker failure requires server shutdown; report filesystem/listener cleanup errors rather than dropping them.
     if (event.type === 'fatal') setImmediate(() => close().catch(error => {
       service.notify({ type: 'diagnostic', message: `Server shutdown failed: ${error.message}` });

@@ -125,7 +125,7 @@ Definition progress_failed (s : session_state) (token : N) (message : string) :=
     (next,Publish (JObject [("type",JString "error");("message",JString message)]) :: actions) else (s,[])
   | None => (s,[]) end.
 Inductive observation := Event (event : json) | JournalAck (token reply : json) | JournalFailed (message : string) | Stop | ProgressRequested
-  | ProgressPage (token : N) (page : json) (updates : list json) | ProgressDelivered (token : N) | ProgressFailed (token : N) (message : string) | CreationFailed | InitialCursor (after : N) | Connected.
+  | ProgressPage (token : N) (page : json) (updates : list json) | ProgressDelivered (token : N) | ProgressFailed (token : N) (message : string) | CreationFailed | Connected.
 Definition step (s : session_state) (observed_generation : json) (observed : observation) : session_state * list primitive :=
   if negb (equal (generation s) observed_generation) then (s,[]) else match phase s with Closed => (s,[]) | _ =>
   match observed with
@@ -139,8 +139,6 @@ Definition step (s : session_state) (observed_generation : json) (observed : obs
   | CreationFailed => (with_phase s Closed,[Release])
   | ProgressPage token page updates => match phase s with Ready => progress s token page updates | _ => (s,[]) end
   | Connected => match phase s with Connecting => (s,[ArmConnect]) | _ => (s,[]) end
-  | InitialCursor after => (SessionState (session_id s) (task_id s) (owner s) (generation s) (phase s) after
-      (sequence s) (journal_pending s) (delegations s) (progress_pending s) (progress_dirty s),[])
   end end.
 Theorem stale_session_is_inert : forall s observed_generation observed,
   equal (generation s) observed_generation = false -> step s observed_generation observed = (s,[]).

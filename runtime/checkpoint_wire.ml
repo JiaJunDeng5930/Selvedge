@@ -56,3 +56,17 @@ let read_list read reader =
     if count = 0 then List.rev values
     else loop (count - 1) (read reader :: values) in
   loop length []
+
+let same_string = String.equal
+let same_char left right = left = right
+let same_big_int = Big_int_Z.eq_big_int
+let same_bool left right = left = right
+let same_unit () () = true
+let same_option same left right =
+  left == right || match left, right with
+  | Some a, Some b -> same a b
+  | _ -> false
+let rec same_list same left right =
+  left == right || match left, right with
+  | a :: aa, b :: bb -> same a b && same_list same aa bb
+  | _ -> false

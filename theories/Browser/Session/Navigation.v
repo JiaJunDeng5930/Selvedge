@@ -275,18 +275,10 @@ Definition creating_conversation state : option Draft.text :=
   else None in
  match State.location navigation with
  |Start=>
-  let captured:=OptionList.find_map(fun entry=>match State.purpose entry with
+  OptionList.find_map(fun entry=>match State.purpose entry with
    |State.DraftSubmission draft generation layer _
-   |State.DraftAdmission draft _ generation layer _
    |State.ProjectPreference draft _ generation layer _=>pending draft generation layer
-   |_=>None end)(State.awaiting(State.authoring_state state))in
-  match captured with Some _=>captured|None=>
-   OptionList.find_map(fun resource=>
-    match Services.captured_preparation resource,resource_request resource with
-    |true,Some request=>pending (Services.preparation_draft request)
-      (Services.preparation_generation request) (Services.preparation_layer request)
-    |_,_=>None end)(Services.preparations(State.service_state state))
-  end
+   |_=>None end)(State.awaiting(State.authoring_state state))
  |_=>None end.
 Definition create_work snapshot state:=
  match State.layers(State.navigation_state state)with

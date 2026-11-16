@@ -7,9 +7,8 @@
 
 From Stdlib Require Import List NArith.
 From Selvedge.Kernel Require PacketProofs.
-Export PacketProofs(actual_query_preserves_world_and_emits_no_effect,
-  live_configuration_preserves_maintenance_cancellations,
-  replay_recovers_the_packet_world_and_durability).
+Export PacketProofs(journal_query_preserves_world_and_emits_no_effect,
+  historical_configuration_preserves_maintenance_cancellations).
 Import ListNotations.
 
 (** ** Acknowledgement controls publication
@@ -31,22 +30,25 @@ Import ListNotations.
     Recovery and new commands use the kernel
     built for this service; binding the Worker directly to that bundle keeps
     execution semantics independent of a private caller-supplied module path.
-    [actual_query_preserves_world_and_emits_no_effect] constrains that actual
-    packet entry. Public restart tests cover ordered replay and retained state;
-    SQLite supplies transaction durability. Exclusive writer ownership and the
-    acknowledged transaction establish journal authority. An authenticated
-    audit history would require an independent trust anchor and is outside this
-    restart contract. Persistent formats distinguish changes that would
-    reinterpret accepted work during replay: retained domain state, history or
-    receipts, and the admission or scheduling decisions that establish them.
-    A changed reply can affect output-budget admission and therefore scheduling.
-    Domain refusals of admitted mutations are also stored, so admission changes
-    must be followed through the actual durable input paths.
-    A transient refusal diagnostic needs no new format when refusal precedes
-    state changes and receipt retention, both replies fit the output budget,
-    and durability and cursor progression remain the same.
-    The current-format check must reject such earlier journals before replay,
-    retaining their bytes rather than converting or partially applying them.
+    Once a transition fits the transport budget, a journal row is necessary
+    exactly when the restorable world changes or the decision issues an
+    obligation owned by the physical runtime. A refusal without a retained
+    receipt, a stale callback, and a repeated observation leave the world and
+    cursor intact. A remote refusal can still record its required receipt.
+    A scheduler wakeup with unchanged state can run locally because recovery
+    derives runnable work from the retained world. The materiality and
+    transient-safety theorems constrain the selection used by the live packet
+    and by replay of new rows. The checkpoint generator derives comparison
+    from the same typed shape and dependent projections as the recovery image.
+    Its execution, SQLite durability and Worker delivery remain runtime
+    premises exercised by their boundaries.
+
+    Earlier rows may include no-ops and refusals. Upgrading formats 28 and 29
+    annotates their replay rules while retaining the exact input bytes and
+    sequence. Format 28 applies worktree admission to historical ordinary
+    sends, including sends from graph and workflow transitions. The
+    current-format change is committed only after successful replay. An
+    unsupported format stops without interpreting its inputs.
 
     The journal may cache the extracted world at an acknowledged sequence.
     Publication replaces one checkpoint after the journal commit; a cache
@@ -96,7 +98,30 @@ Import ListNotations.
     input once. [tests/service.test.mjs] covers successful publication through
     the public service and event stream. *)
 
-From Selvedge.Adapters Require RpcProofs ApiProofs.
+From Selvedge.Programming Require CommitPacket.
+Export CommitPacket(journal_selection_retains_exactly_the_recovery_obligations,
+  journal_transients_preserve_the_world_and_only_wake_the_scheduler,
+  journal_material_changes_keep_the_original_decision).
+Export PacketProofs(journal_replay_agrees_with_live_commit,
+  journal_never_commits_an_unchanged_refusal,
+  observed_root_planning_retains_the_committed_environment,
+  refused_observed_root_planning_retains_no_observations,
+  selected_create_retains_the_committed_environment,
+  historical_send_uses_the_written_admission_rule,
+  historical_replay_does_not_retain_its_execution_mode).
+
+(** Root creation receives observations with its request. The configured
+    catalog is its read authority; it owes no catalog or maintenance update.
+    Actual catalog changes retire maintenance only for tasks whose callable
+    tools changed. A policy refresh that admits the same policy has no
+    maintenance or clock transition. *)
+From Selvedge.Features Require Compaction TaskGraph.
+Export Compaction(equal_policy_adds_no_clock_or_cancellation).
+Export TaskGraph(after_transition_without_rules).
+
+From Selvedge.Adapters Require RpcProofs ApiProofs WebProofs.
+Export WebProofs(web_repeated_identity_has_no_write, web_completed_response_is_not_written_again,
+  web_repeated_rejection_or_retirement_has_no_write).
 Export RpcProofs(correlation_matches_the_pending_numeric_value).
 Export ApiProofs(public_unissued_rpc_response_preserves_pending_requests,
   public_issued_plain_rpc_result_resolves_its_pending_request,
@@ -109,9 +134,10 @@ Export ApiProofs(public_unissued_rpc_response_preserves_pending_requests,
 (** ** Planned updates leave a recoverable boundary
 
     A development update builds a separate release while the current service
-    runs. The candidate replays a read-only snapshot with its own kernel while
-    the current release serves requests. It closes the read transaction before
-    requesting handoff. Before yielding journal ownership, the host stops
+    runs. The candidate loads and admits the settings it will use, and replays a
+    read-only snapshot with its own kernel while the current release serves requests.
+    An invalid configuration leaves that listener installed. The candidate
+    closes the read transaction before requesting handoff. Before yielding journal ownership, the host stops
     issuing scheduler continuations and lets admitted physical operations settle
     through the ordinary durable callback path. Waiting for user input is already
     a recoverable task state. Retaining the old release and a pre-start journal
@@ -300,7 +326,7 @@ Export ProcessAdapterProofs(output_append_keeps_latest_output,
 From Selvedge.Adapters Require AudioProofs.
 Export Selvedge.Adapters.AudioProofs(audio_capability_matches_account_authority,
   initial_context_constructs_protocol_messages).
-From Selvedge.Kernel Require SpeechProofs.
+From Selvedge.Kernel Require Queries SpeechProofs.
 From Selvedge.Host Require AudioProofs AudioSession AudioTransport AudioConnection.
 Export SpeechProofs(a_new_transcript_changes_only_the_task_history,
   transcript_commands_never_request_scheduling,
@@ -314,6 +340,7 @@ Export AudioSession(stale_session_is_inert,
 Export AudioTransport(stale_ack_is_inert, begin_has_one_owner,
   draining_transport_rejects_new_arrivals).
 Export AudioConnection(step).
+Export Queries(audio_history_reads_one_task).
 
 (** ** Voice does not collapse speech into task execution
 
@@ -338,8 +365,10 @@ Export AudioConnection(step).
 
     The Service admits the Task and creates the session identity before building
     its request. [initial_context_constructs_protocol_messages] guarantees that
-    its committed history projection constructs valid voice messages. The request
-    uses a bounded recent conversation page. Model compaction retains those
+    its committed history projection constructs valid voice messages.
+    [audio_history_reads_one_task] selects a bounded recent conversation page
+    and its cursor from one journal observation. The observer reserves session
+    ownership before the next queued read can finish. Model compaction retains those
     original records; its replacement artifact describes a provider window,
     not another spoken message or a string summary for audio initialization.
     The request retains those constructed values directly instead of revalidating them or

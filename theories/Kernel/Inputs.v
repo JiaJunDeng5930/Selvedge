@@ -3,6 +3,8 @@ From Selvedge.Foundation Require Import Json ModelWire.
 From Selvedge.Kernel Require Export ApprovalProtocol.
 From Selvedge.Kernel Require Import Numbers Domain ContextTypes Reasoning.
 From Selvedge.Generated Require Import Commands.
+From Selvedge.Kernel Require CreationFacts.
+From Selvedge.Features Require CompactionTypes.
 Import ListNotations.
 Open Scope string_scope.
 Inductive model_outcome := ModelSuccess (items : ModelWire.batch)
@@ -16,7 +18,9 @@ Definition model_outcome_from_items (items : list ModelWire.value) :=
  | None => ModelFailure duplicate_model_identity end.
 Inductive input :=
 | UserCommand (command : Selvedge.Generated.Commands.command)
+| RootCommand (command : Selvedge.Generated.Commands.command) (facts : CreationFacts.t)
 | Configure (environment : environment)
+| ConfigureCatalog (environment : environment) (policy : option (CompactionTypes.policy * N))
 | ContextCompleted (task_id ticket : N) (observations : option (list context_observation)) (diagnostic : string)
 | ModelCompleted (task_id ticket : N) (outcome : model_outcome)
 | ReasoningCompleted (task_id ticket : N) (outcome : Reasoning.outcome)

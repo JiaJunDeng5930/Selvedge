@@ -104,31 +104,41 @@ Definition rights_allow required granted :=
 Record request := Request { controller:controller_id; epoch:RemoteIdentity.grant_epoch; request_id:RemoteIdentity.request_id; intent:json }.
 Definition key_matches request receipt := String.eqb (controller request) (Selvedge.Features.Domain.remote_controller receipt) &&
  N.eqb (epoch request) (Selvedge.Features.Domain.remote_epoch receipt) && String.eqb (request_id request) (Selvedge.Features.Domain.remote_request receipt).
-Definition check required controller epoch state : C.result unit :=
+Definition check_grant required controller epoch state : C.result F.rights :=
  if negb (Selvedge.Features.Domain.remote_enabled state) then C.refuse "remote_disabled" "Remote control is disabled on this host"
  else match find_grant controller state with
  | None=>C.refuse "remote_controller_revoked" "This controller has no active local grant"
  | Some grant=>if negb (N.eqb epoch (Selvedge.Features.Domain.grant_epoch grant)) then C.refuse "remote_grant_expired" "This device grant generation is no longer current"
-   else if rights_allow required (Selvedge.Features.Domain.grant_rights grant) then C.Accepted tt
+   else if rights_allow required (Selvedge.Features.Domain.grant_rights grant) then C.Accepted (F.grant_rights grant)
    else C.refuse "remote_permission_denied" "This device grant does not permit this operation"
  end.
-Definition authorize required request state : C.result (option json) :=
- C.bind (check required (controller request) (epoch request) state) (fun _ =>
-   if negb (identifier_valid (request_id request) && payload_valid (intent request))
-   then C.refuse "remote_invalid_request" "Remote request identity or intent exceeds the current protocol bounds" else
-   match find (key_matches request) (Selvedge.Features.Domain.remote_receipts state) with
-   | Some receipt=>if JsonObjects.equivalent (intent request) (Selvedge.Features.Domain.remote_intent receipt) then C.Accepted (Some (Selvedge.Features.Domain.remote_reply receipt))
-     else C.refuse "remote_request_conflict" "This request ID was already committed with different intent"
-   | None=>if N.of_nat (List.length (Selvedge.Features.Domain.remote_receipts state)) <? 1024 then C.Accepted None
-     else C.refuse "remote_receipts_full" "Retained command receipts are full; revoke or replace this device grant before issuing a new request"
-   end).
+Definition check required controller epoch state :=
+ C.map (fun _=>tt) (check_grant required controller epoch state).
+Definition admit_receipt request state : C.result (option json) :=
+ if negb (identifier_valid (request_id request) && payload_valid (intent request))
+ then C.refuse "remote_invalid_request" "Remote request identity or intent exceeds the current protocol bounds" else
+ match find (key_matches request) (F.remote_receipts state) with
+ | Some receipt=>if JsonObjects.equivalent (intent request) (F.remote_intent receipt) then C.Accepted (Some (F.remote_reply receipt))
+   else C.refuse "remote_request_conflict" "This request ID was already committed with different intent"
+ | None=>if N.of_nat (List.length (F.remote_receipts state)) <? 1024 then C.Accepted None
+   else C.refuse "remote_receipts_full" "Retained command receipts are full; revoke or replace this device grant before issuing a new request"
+ end.
+Definition authorize required request state :=
+ C.bind (check required (controller request) (epoch request) state) (fun _=>admit_receipt request state).
 Definition observation_command command := match required_rights command with Some rights=>Selvedge.Features.Domain.may_read rights | None=>false end.
 Definition with_command_rights {A} command (decide : F.rights -> C.result A) := match required_rights command with
  | None=>C.refuse "remote_command_forbidden" "Remote access cannot invoke this local management command"
  | Some rights=>decide rights end.
-Definition authorize_command command request state := with_command_rights command
- (fun rights=>if F.may_read rights then C.map (fun _=>None) (check rights (controller request) (epoch request) state)
-   else authorize rights request state).
+Definition command_authority command request state : C.result (F.rights * option json) :=
+ with_command_rights command (fun required=>
+   C.bind (check_grant required (controller request) (epoch request) state)
+    (fun granted=>if F.may_read required then C.Accepted (granted,None)
+      else C.map (fun receipt=>(granted,receipt)) (admit_receipt request state))).
+Definition authorize_command command request state :=
+ C.map snd (command_authority command request state).
+Definition prepared_rights required granted : C.result unit :=
+ if rights_allow required granted then C.Accepted tt
+ else C.refuse "remote_permission_denied" "This device grant does not permit this operation".
 Definition probe_reply authorization value := match authorization with
  | C.Rejected reason=>C.reject value reason
  | C.Accepted None=>accept JNull value []
@@ -154,43 +164,48 @@ Definition prepared_world configuration value : option world := match configurat
  | _=>option_map (fun environment=>with_environment environment value) (Configuration.parse_environment configuration) end.
 Definition schedules (command : G.command) result := bool_default "ok" (decision_reply result) false &&
  match command with Selvedge.Generated.Commands.Cmd_create_idle _=>false | _=>true end.
-Definition execute_remote (execute:Scheduler.executor) prepared configuration request original value : bool*bool*decision :=
+Definition execute_remote_with (execute:Scheduler.executor)
+ (select : json -> G.command -> world -> option decision)
+ prepared configuration request original value : bool*bool*decision :=
  let query:=observation_command original in
  let denied code reason:=(negb query,false,reject code reason value) in
  (* Check even for queries, whose execution deliberately skips prepared worlds. *)
- if configuration_allowed original configuration then match authorize_command original request (registry value) with
+ if configuration_allowed original configuration then match command_authority original request (registry value) with
  | C.Rejected reason=>denied (C.refusal_code reason) (C.refusal_message reason)
- | C.Accepted (Some reply)=>(negb query,false,Decision value reply [])
- | C.Accepted None=>match Selvedge.Generated.Commands.admit prepared with
+ | C.Accepted (_,Some reply)=>(negb query,false,Decision value reply [])
+ | C.Accepted (granted,None)=>match Selvedge.Generated.Commands.admit prepared with
      | Some admitted=>let command:=Selvedge.Generated.Commands.admitted_value admitted in if configuration_allowed command configuration then
        (* DEFENSE: A native prepared command can name another operation; only the original operation may execute. *)
        if String.eqb (command_name (Selvedge.Generated.Commands.declared_command original)) (command_name (Selvedge.Generated.Commands.declared_command command)) then
-       (* The immutable request and receipt were admitted above. Preparation can
-          add fields requiring configuration rights, which still need admission. *)
+       (* Preparation can add configuration rights. The device and epoch
+          were already admitted against this same immutable registry. *)
        match with_command_rights command
-         (fun rights=>check rights (controller request) (epoch request) (registry value)) with
+         (fun rights=>prepared_rights rights granted) with
        | C.Rejected reason=>denied (C.refusal_code reason) (C.refusal_message reason)
        | C.Accepted _=>if query then let result:=execute command None value in
-         (false,false,Decision value (decision_reply result) []) else match prepared_world configuration value with
+         (false,false,Decision value (decision_reply result) []) else match select configuration command value with
          | None=>denied "invalid_input" "The prepared remote environment is malformed"
-         | Some prepared=>let result:=execute command None prepared in
-           let result:=record_result request value result in (true,schedules command result,result)
+         | Some result=>let result:=record_result request value result in (true,schedules command result,result)
          end end
        else denied "remote_intent_mismatch" "The prepared remote command must retain the original operation"
        (* DEFENSE: Native callers can submit same-name task graphs whose prepared nodes no longer create the root task named by the intent. *)
        else denied "invalid_input" "Remote environment observations are limited to task creation"
      | None=>denied "invalid_input" "The prepared remote command is malformed" end
  end else denied "invalid_input" "Remote environment observations are limited to task creation".
+Definition execute_remote (execute:Scheduler.executor) :=
+ execute_remote_with execute (fun configuration command value =>
+   option_map (execute command None) (prepared_world configuration value)).
+Definition request_coordinates :=
+ [Field "controller_id" KText;Field "grant_epoch" KNatural;Field "request_id" KText;Field "intent" KJson].
 Definition preparation_fields (prepared : bool) :=
  if prepared then [Field "command" KJson;Field "configuration" KJson] else [].
-Definition request_schema (prepared : bool) := List.app
- [Field "controller_id" KText;Field "grant_epoch" KNatural;Field "request_id" KText;Field "intent" KJson]
- (preparation_fields prepared).
-Definition request_from_values (prepared : bool) (values : Schema.fields (request_schema prepared)) :=
+Definition request_schema (prepared : bool) := List.app request_coordinates (preparation_fields prepared).
+Definition request_with_fields (extra : schema) (values : Schema.fields (request_coordinates ++ extra)%list) :=
  let controller := Schema.head values in let values := Schema.tail values in
  let epoch := Schema.head values in let values := Schema.tail values in
  let id := Schema.head values in let values := Schema.tail values in
  (Request (ControllerId controller) (GrantEpoch epoch) (RequestId id) (Schema.head values),Schema.tail values).
+Definition request_from_values prepared := request_with_fields (preparation_fields prepared).
 Definition complete_request (execute : Scheduler.executor) (prepared : bool) (request : request)
  (observations : Schema.fields (preparation_fields prepared)) value : bool * bool * decision :=
  match Selvedge.Generated.Commands.admit (intent request) with
@@ -203,6 +218,18 @@ Definition complete_request (execute : Scheduler.executor) (prepared : bool) (re
 Definition request_handler execute prepared fields :=
  let '(request,observations) := request_from_values prepared fields in
  Some (complete_request execute prepared request observations).
+Definition creation_fields := [Field "command" KJson; Field "creation_facts" KJson].
+Definition creation_input (execute : Scheduler.executor)
+ (select : json -> G.command -> world -> option decision) :=
+ InputRoute.object "remote_root_command" (request_coordinates ++ creation_fields)%list
+   (fun fields =>
+     let '(request, observed) := request_with_fields creation_fields fields in
+     Some (fun value =>
+       match G.admit (intent request) with
+       | Some admitted => execute_remote_with execute select (Schema.head observed)
+           (Schema.head (Schema.tail observed)) request (G.admitted_value admitted) value
+       | None => (false,false,reject "invalid_input" "Malformed original remote command" value)
+       end)).
 Definition completion_inputs (execute : Scheduler.executor) := [
  InputRoute.object "remote_check" [Field "controller_id" KText;Field "grant_epoch" KNatural]
    (fun fields => Some (fun value => (false,false,

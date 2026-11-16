@@ -10,8 +10,8 @@ vocabulary. Each publication installs its controls alongside its DOM effects.
 
 Browser views take business facts and decisions from [Interaction](../Interaction/README.md).
 Cards expose move and link choices through focused selectors, and drop targets
-use the same move proposals. Native controls still require the service's current
-assessment, correlated to the object, action and world sequence.
+use the same move proposals. A card save preview retains the assessed proposal
+and its board facts. The ordinary command submission owns admission.
 
 Resource tickets reject unrelated IO completions, draft revisions preserve edits
 made after submission, and navigation generations preserve selection after the

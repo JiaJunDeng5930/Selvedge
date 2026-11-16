@@ -68,11 +68,11 @@ Definition publication_call source :=
  |Some state,Some "present"=>success(publication_json(Publication.present state))
  |Some state,Some "pending"=>success(JBool(Publication.pending state))
  |Some state,Some "request_failure"=>match string_field "expected_namespace" source,
- binary_field "expected_sequence" source,binary_field "ticket" source,field "connection" source with
- |Some expected,Some seq,Some ticket,Some raw=>match Services.decode_connection raw with
- |Some connection=>success(JBool(Publication.admit_request_failure expected seq ticket connection state))
+ binary_field "ticket" source,field "connection" source with
+ |Some expected,Some ticket,Some raw=>match Services.decode_connection raw with
+ |Some connection=>success(JBool(Publication.admit_request_failure expected ticket connection state))
  |None=>invalid "Request failure requires its connection" end
- |_,_,_,_=>success(JBool false)end
+ |_,_,_=>success(JBool false)end
  |Some state,Some "semantic_pending"=>success(JBool(Publication.semantic_pending state))
  |Some state,Some "observe"=>match string_field "observed_namespace" source,binary_field "observed_sequence" source with
   |Some namespace,Some sequence=>success(publication_json(Publication.observe namespace sequence state))
@@ -118,9 +118,9 @@ Definition snapshot_call source :=
  match binary_field "authentication_ticket" source,
    (match field "connection" source with
     |Some value=>Services.decode_connection value|None=>None end) with
- |Some ticket,Some connection=>snapshot_receipt Publication.Authentication
-   (Publication.admit_authenticated_snapshot ticket connection expected incoming seq state)
-   (Publication.admit_authentication ticket connection expected incoming state) source
+ |Some ticket,Some connection=>
+   let '(accepted,authenticated):=Publication.admit_authenticated_snapshot ticket connection expected incoming seq state in
+   snapshot_receipt Publication.Authentication accepted authenticated source
  |_,_=>invalid "Authenticated snapshot requires its current connection and request ticket" end
  else snapshot_receipt Publication.ExistingSession
    (Publication.admit_snapshot Publication.ExistingSession expected incoming seq state) false source

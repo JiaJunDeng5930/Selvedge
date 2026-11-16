@@ -9,28 +9,17 @@ Open Scope string_scope.
 Open Scope N_scope.
 
 Theorem public_browser_command_delivers_unwrapped_payload source original command :
- open_valid source = true -> host_valid source = true -> Http.authorized source = true ->
- local_origin_valid source = true ->
- str source "method" = "POST" -> str source "pathname" = "/api/browser/command" ->
  str source "target" = "browser_command" ->
- starts (str source "content_type") "application/json" = true ->
  as_string (get source "text") = Some original ->
  TextJson.parse_input_json original = TextJson.InputAccepted (JObject [("command", command)]) ->
  Api.call "http.body" source =
  Json.success (JObject [("action", JString "browser_command"); ("body", command)]).
 Proof.
- intros opened host authorization origin method pathname target mime text parsed.
- assert (local : connection_path source = false).
- { unfold connection_path; rewrite pathname; reflexivity. }
- assert (route : body_target source = ModelResultDeclarations.http_body_target_named "browser_command").
- { unfold body_target, audio_target, audio_kind, selected_route, matches_route.
-   rewrite method, pathname; reflexivity. }
+ intros target text parsed.
  change (Http.call "http.body" source =
    Json.success (JObject [("action", JString "browser_command"); ("body", command)])).
- unfold Http.call; cbn; unfold request_guard, open_host_guard.
- rewrite opened, host, authorization, local, origin; cbn.
- unfold body_stage; rewrite route; cbn; rewrite target; cbn.
- rewrite mime; cbn; rewrite text, parsed; reflexivity.
+ unfold Http.call; cbn; unfold body_stage.
+ rewrite target; cbn; rewrite text, parsed; reflexivity.
 Qed.
 
 Theorem public_command_admission_uses_shared_gate command :
