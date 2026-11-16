@@ -136,6 +136,134 @@ test('opening conversation details preserves the desktop reading position and co
   assertDesktopGutter(await measure());
 });
 
+test('reading follows new output after the reader scrolls back to the bottom', async t => {
+  const fixture = await browserFixture(t);
+  const { page, command, profile, running } = fixture;
+  const { task_id } = await command({ op: 'create', profile, message: 'Give me a long first reply.' });
+  await modelRequest(fixture, 0);
+  fixture.finish(0, { text: Array.from({ length: 30 }, (_, index) => `Paragraph ${index + 1} of the first reply.`).join('\n\n') });
+  await taskIdle(running.service, task_id);
+  await (await conversationEntry(fixture, task_id)).click();
+
+  const reading = page.locator('[data-reading-root]');
+  await reading.press('Home');
+  await page.getByRole('button', { name: 'Return to latest', exact: true }).waitFor();
+  await page.waitForFunction(() => document.querySelector('[data-reading-root]').scrollTop <= 2);
+  const atBottom = () => page.waitForFunction(() => {
+    const node = document.querySelector('[data-reading-root]');
+    return node.scrollHeight - node.clientHeight - node.scrollTop <= 2;
+  }, undefined, { timeout: 3000 });
+  await reading.hover();
+  await page.mouse.wheel(0, await reading.evaluate(node => node.scrollHeight));
+  await atBottom();
+  await reading.press('End');
+
+  await command({ op: 'send', task_id, message: 'Keep reading the latest output.' });
+  await modelRequest(fixture, 1);
+  const lines = Array.from({ length: 18 }, (_, index) => `Fresh output ${index + 1}.`);
+  fixture.emit(1, `${lines.join('\n\n')}\n\n`);
+  await reading.getByText(lines.at(-1), { exact: true }).waitFor();
+  await atBottom();
+  fixture.finish(1, { text: `${lines.join('\n\n')}\n\nAll the new output is visible.` });
+  await reading.getByText('All the new output is visible.', { exact: true }).waitFor();
+  await atBottom();
+});
+
+test('a small wheel movement from the latest reply keeps the reader near the latest processing card', async t => {
+  const fixture = await browserFixture(t);
+  const { page, command, profile, running } = fixture;
+  const { task_id } = await command({ op: 'create', profile, message: 'Run the first check.', settings: {
+    approval: { mode: 'full-access' },
+  } });
+  const reply = turn => Array.from({ length: 18 }, (_, index) =>
+    `Check ${turn}, paragraph ${index + 1}.`).join('\n\n');
+  for (const turn of [1, 2]) {
+    if (turn === 2) await command({ op: 'send', task_id, message: 'Run the second check.' });
+    const index = 2 * (turn - 1);
+    await modelRequest(fixture, index);
+    fixture.finish(index, { output: [{
+      type: 'function_call', call_id: `check-${turn}`, name: 'bash',
+      arguments: JSON.stringify({ command: `printf 'check ${turn}'` }),
+    }] });
+    await modelRequest(fixture, index + 1);
+    fixture.finish(index + 1, { text: reply(turn) });
+    await taskIdle(running.service, task_id);
+  }
+  await (await conversationEntry(fixture, task_id)).click();
+  const reading = page.getByRole('region', { name: 'Conversation', exact: true });
+  await reading.getByText('Check 2, paragraph 18.', { exact: true }).waitFor();
+  const secondProcess = reading.getByRole('button', { name: '处理完成', exact: true }).nth(1);
+  const viewport = page.viewportSize();
+  const wheelDistance = 40;
+  // Put the top edge of the viewport inside the second card after one wheel step.
+  const heightChange = await secondProcess.evaluate((button, distance) => {
+    const root = button.closest('[data-reading-root]');
+    return root.scrollHeight - root.clientHeight - root.scrollTop
+      + root.getBoundingClientRect().top - button.getBoundingClientRect().top - distance - 16;
+  }, wheelDistance);
+  await page.setViewportSize({ ...viewport, height: viewport.height + Math.round(heightChange) });
+  await page.waitForFunction(() => {
+    const root = document.querySelector('[data-reading-root]');
+    return root.scrollHeight - root.clientHeight - root.scrollTop <= 2;
+  });
+  await reading.hover({ position: { x: 5, y: 120 } });
+  const before = await reading.evaluate(root => root.scrollTop);
+  await page.mouse.wheel(0, -wheelDistance);
+  await page.getByRole('button', { name: 'Return to latest', exact: true }).waitFor();
+  const after = await reading.evaluate(async root => {
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    return root.scrollTop;
+  });
+  assert.ok(Math.abs(before - after - wheelDistance) <= 2, `Reader moved from ${before} to ${after}`);
+});
+
+test('expanding recent tool output keeps the reader at the end and scrolls independently', async t => {
+  const fixture = await browserFixture(t);
+  const { page, command, profile, running } = fixture;
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  const { task_id } = await command({ op: 'create', profile, message: 'Produce scrollable command output.', settings: {
+    approval: { mode: 'full-access' },
+  } });
+  await modelRequest(fixture, 0);
+  fixture.finish(0, { text: Array.from({ length: 30 }, (_, index) => `Earlier paragraph ${index + 1}.`).join('\n\n') });
+  await taskIdle(running.service, task_id);
+  await command({ op: 'send', task_id, message: 'Now run the command.' });
+  await modelRequest(fixture, 1);
+  fixture.finish(1, { output: [{
+    type: 'function_call', call_id: 'scrollable-command', name: 'bash',
+    arguments: JSON.stringify({ command: "for i in $(seq 1 32); do printf '%s\\n' \"line $i\"; done" }),
+  }] });
+  await modelRequest(fixture, 2);
+  fixture.finish(2, { text: 'The command has finished.' });
+  await taskIdle(running.service, task_id);
+  await (await conversationEntry(fixture, task_id)).click();
+
+  const reading = page.locator('[data-reading-root]');
+  const atBottom = () => reading.evaluate(node => node.scrollHeight - node.clientHeight - node.scrollTop <= 2);
+  await reading.getByText('The command has finished.', { exact: true }).waitFor();
+  assert.equal(await atBottom(), true);
+  await reading.getByRole('button', { name: '处理完成', exact: true }).click();
+  await reading.locator('[data-tool-call-toggle]').click();
+  const stdout = reading.locator('[data-tool-output]');
+  await stdout.waitFor();
+  await stdout.evaluate(async node => {
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    const process = node.closest('[data-task-process]');
+    const transitions = process.getAnimations({ subtree: true })
+      .filter(animation => animation.effect.getComputedTiming().endTime !== Infinity);
+    await Promise.allSettled(transitions.map(animation => animation.finished));
+  });
+  assert.equal(await atBottom(), true);
+
+  await stdout.hover();
+  await page.mouse.wheel(0, 80);
+  await page.waitForFunction(() => document.querySelector('[data-tool-output]').scrollTop > 0);
+  await stdout.press('PageUp');
+  const latest = page.getByRole('button', { name: 'Return to latest', exact: true });
+  assert.equal(await latest.count(), 0);
+  assert.equal(await atBottom(), true);
+});
+
 test('conversation rows keep one resting dot and identify execution that needs attention', async t => {
   const fixture = await browserFixture(t);
   const { page, command, profile, running } = fixture;

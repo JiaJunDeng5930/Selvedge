@@ -9,6 +9,13 @@ const svgTags = new Set(['svg', 'path', 'line', 'polyline', 'rect', 'circle', 't
 const svgNamespace = 'http://www.w3.org/2000/svg';
 const listenerGroup = { keyboardFocus: 1, actions: 2, field: 4, pointer: 8, reading: 16, files: 32 };
 const requiredEditorOptions = 'data-editor-options-required';
+const departingSurfaces = new WeakSet();
+
+// The motion controller removes this trailing physical copy when its exit ends.
+export function appendDepartingSurface(parent, copy) {
+  departingSurfaces.add(copy);
+  parent.append(copy);
+}
 
 function unmount(node) {
   if (node.nodeType === 1) {
@@ -69,7 +76,7 @@ function reconcile(parent, children, retired) {
   if (current.length === 0 && children.length <= 32) { parent.append(...children); return; }
   const retained = new Set(children);
   // Remove replaced text before ordering so unchanged editor ancestors never move.
-  for (const child of Array.from(parent.childNodes)) if (!retained.has(child)) {
+  for (const child of Array.from(parent.childNodes)) if (!retained.has(child) && !departingSurfaces.has(child)) {
     retired?.add(child);
     unmount(child);
   }

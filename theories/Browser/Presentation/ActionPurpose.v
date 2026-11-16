@@ -104,10 +104,10 @@ Definition describe snapshot state input:P.purpose:=match input with
 |Input.RetryMenuAssessment _ _ _|Input.RetryCommandAssessment _=>P.RetryTransfer
 |Input.ServiceInput input=>match input with
  |Services.Connect|Services.RetryConnection _=>
-   match Services.connection(State.service_state state)with
+   let connection:=Services.connection(State.service_state state)in
+   match connection with
    |Services.ConnectionLoading _=>P.Connect true None
-   |Services.ConnectionFailed _ reason|Services.ConnectionRevoked _ reason=>P.Connect false (Some reason)
-   |_=>P.Connect false None end
+   |_=>P.Connect false (Services.connection_failure connection) end
  |Services.OpenSettings=>P.ApplicationSettings(Services.settings_open(State.service_state state))
  |Services.CloseSettings|Services.ClosePreview=>P.Dismiss|Services.CloseDirectory=>P.NamedAction
  |Services.RetryUpload _|Services.RetryAssessment _=>P.RetryTransfer

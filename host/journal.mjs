@@ -1,11 +1,12 @@
 import { DatabaseSync } from 'node:sqlite';
 import { EventEmitter } from 'node:events';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { chmod } from 'node:fs/promises';
 import path from 'node:path';
 import { Kernel, isKernelInputRejection } from './kernel.mjs';
 import { integer } from './codec.mjs';
 import { durableDirectory } from './control-records.mjs';
+import { JournalCheckpoint } from './journal-checkpoint.mjs';
 
 const outcomes = new WeakMap();
 export const transactionOutcome = error => outcomes.get(error) ?? 'unknown';
@@ -17,11 +18,16 @@ function rejected(error, outcome) {
 
 export const journalFormat = 'selvedge-rocq-journal-28';
 const journalSchemaVersion = 1;
+const checkpointInterval = 128;
 
 const schema = {
   meta: 'CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT',
   journal: 'CREATE TABLE journal (seq INTEGER PRIMARY KEY CHECK (seq > 0), input TEXT NOT NULL, observed_at INTEGER NOT NULL) STRICT',
 };
+
+function hashReplayRow(hash, row) {
+  hash.update(`${row.seq}:${Buffer.byteLength(row.input)}:`).update(row.input);
+}
 
 function closeJournalDatabase(database) {
   // DEFENSE: Failed startup can reach cleanup before either SQLite handle was opened.
@@ -57,24 +63,40 @@ export class Journal extends EventEmitter {
   #database;
   #lock;
   #kernel;
+  #checkpoint;
+  #checkpointAttemptSequence = 0;
+  #prefix = createHash('sha256');
   #tail = Promise.resolve();
   #failure;
   #closing = false;
 
-  static async open(filename) {
+  static async open(filename, { waitForOwnership } = {}) {
     const journal = new Journal();
     journal.sequence = 0;
+    journal.#checkpoint = new JournalCheckpoint(filename, journalFormat);
     try {
+      let prepared;
+      if (waitForOwnership) {
+        prepared = await journal.#preload(filename);
+        await waitForOwnership();
+      }
       journal.#lock = await acquireJournalOwnership(filename);
       journal.#database = new DatabaseSync(filename, { timeout: 1000 });
       journal.#database.exec('PRAGMA synchronous=FULL');
       const upgrading = journal.#prepareReplay();
       await chmod(filename, 0o600);
+      if (prepared) journal.#verifyPrefix(prepared);
+      else await journal.#initializeReplay();
       await journal.#replay();
+      if (journal.sequence > 0) {
+        const snapshot = await journal.#kernel.request({ kind: 'command', command: { op: 'describe' } }).result;
+        journal.program = snapshot.program;
+      }
       if (upgrading) {
         journal.#database.exec(`PRAGMA user_version = ${journalSchemaVersion}; COMMIT`);
       }
       journal.#database.exec('PRAGMA journal_mode=WAL');
+      await journal.#maintainCheckpoint();
       return journal;
     // DEFENSE: Filesystem, SQLite or replay failures during open must release resources already acquired.
     } catch (error) {
@@ -83,10 +105,10 @@ export class Journal extends EventEmitter {
     }
   }
 
-  #prepareReplay() {
+  #prepareReplay(readOnly = false) {
     const version = this.#database.prepare('PRAGMA user_version').get().user_version;
     // DEFENSE: A different release or an external SQLite writer can set an unsupported storage version.
-    if (version !== 0 && version !== journalSchemaVersion) {
+    if (version !== journalSchemaVersion && (readOnly || version !== 0)) {
       throw new Error(`Unsupported Selvedge SQLite journal schema version ${version}`);
     }
     if (version === 0) {
@@ -115,22 +137,84 @@ export class Journal extends EventEmitter {
     return version === 0;
   }
 
-  async #replay() {
+  async #preload(filename) {
+    this.#database = new DatabaseSync(filename, { readOnly: true, timeout: 1000 });
+    try {
+      this.#database.exec('BEGIN');
+      this.#prepareReplay(true);
+      await this.#initializeReplay();
+      await this.#replay();
+      return { namespace: this.namespace, digest: this.#prefix.copy().digest('hex') };
+    } finally {
+      closeJournalDatabase(this.#database);
+      this.#database = undefined;
+    }
+  }
+
+  #readPrefix(sequence) {
+    const hash = createHash('sha256');
+    for (const row of this.#database.prepare('SELECT seq, input FROM journal WHERE seq <= ? ORDER BY seq').iterate(sequence)) {
+      hashReplayRow(hash, row);
+    }
+    return hash;
+  }
+
+  #verifyPrefix(prepared) {
+    // DEFENSE: A journal replaced during the handoff can have a different history at the same cursor.
+    if (this.namespace !== prepared.namespace || this.#readPrefix(this.sequence).digest('hex') !== prepared.digest) {
+      throw new Error('The committed journal prefix changed during update preparation');
+    }
+  }
+
+  async #initializeReplay() {
     this.#kernel = new Kernel();
     const initial = await this.#kernel.initialize();
     this.description = initial.description;
     this.program = initial.program;
-    for (const row of this.#database.prepare('SELECT seq, input FROM journal ORDER BY seq').iterate()) {
+    await this.#restoreCheckpoint();
+  }
+
+  async #restoreCheckpoint() {
+    let image;
+    try { image = await this.#checkpoint.read(this.namespace); }
+    catch (error) {
+      // DEFENSE: Cache-specific filesystem failures leave the committed input journal available.
+      console.warn(`Journal checkpoint could not be read: ${error.message}`);
+      return;
+    }
+    if (!image) return;
+    const prefix = this.#readPrefix(image.sequence);
+    // DEFENSE: A restored SQLite backup can be older than its sidecar checkpoint.
+    if (prefix.copy().digest('hex') !== image.prefix) return;
+    if (!await this.#kernel.restoreCheckpoint(image)) return;
+    this.sequence = image.sequence;
+    this.#checkpointAttemptSequence = image.sequence;
+    this.#prefix = prefix;
+  }
+
+  async #maintainCheckpoint() {
+    if (this.sequence === 0 || (this.#checkpointAttemptSequence !== 0 &&
+      this.sequence - this.#checkpointAttemptSequence < checkpointInterval)) return;
+    this.#checkpointAttemptSequence = this.sequence;
+    // The journal queue still owns the Worker at the acknowledged sequence.
+    const image = await this.#kernel.captureCheckpoint();
+    try {
+      await this.#checkpoint.write(this.namespace, this.sequence, this.#prefix.copy().digest('hex'), image);
+    } catch (error) {
+      // DEFENSE: The optional cache can fail to publish after the authoritative SQLite commit succeeded.
+      console.warn(`Journal checkpoint could not be written: ${error.message}`);
+    }
+  }
+
+  async #replay() {
+    for (const row of this.#database.prepare('SELECT seq, input FROM journal WHERE seq > ? ORDER BY seq').iterate(this.sequence)) {
       const durable = await this.#kernel.replay(row.input);
       // DEFENSE: A stored input that the current kernel no longer admits cannot restore committed work.
       if (!durable) {
         throw new Error(`Committed input incompatibility at sequence ${row.seq}: current kernel rejected replay`);
       }
+      hashReplayRow(this.#prefix, row);
       this.sequence = row.seq;
-    }
-    if (this.sequence > 0) {
-      const snapshot = await this.#kernel.request({ kind: 'command', command: { op: 'describe' } }).result;
-      this.program = snapshot.program;
     }
   }
 
@@ -205,6 +289,7 @@ export class Journal extends EventEmitter {
       }
       this.program = response.program;
       this.sequence = sequence;
+      hashReplayRow(this.#prefix, { seq: sequence, input: inputText });
       const committed = { sequence, program: this.program, ...response.value };
       // DEFENSE: A delivery observer can throw after COMMIT; report the delivery failure without making the durable input appear uncommitted.
       for (const observer of this.listeners('commit')) {
@@ -214,7 +299,13 @@ export class Journal extends EventEmitter {
       return committed;
     });
     // DEFENSE: execute's caller receives the failure; queue cleanup must still reach close and later callers' explicit poisoned-world rejection.
-    this.#tail = result.catch(() => {});
+    this.#tail = result.then(async decision => {
+      if (decision.durable) {
+        try { await this.#maintainCheckpoint(); }
+        // DEFENSE: A crashed Worker cannot continue from its last commit even if capture exposed the failure.
+        catch (error) { this.#poison(error); }
+      }
+    }, () => {});
     return result;
   }
 

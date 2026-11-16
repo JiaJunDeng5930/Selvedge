@@ -77,12 +77,19 @@ Inductive connection_observation :=
 | ConnectionLoading (ticket:N)
 | ConnectionReady (ticket:N)
 | ConnectionFailed (ticket:N) (reason:string)
+| ConnectionRetrying (ticket:N) (reason:string)
 | ConnectionRevoked (ticket:N) (reason:string).
 Definition connection_ticket observation := match observation with
  |ConnectionDormant=>None
- |ConnectionLoading ticket|ConnectionReady ticket|ConnectionFailed ticket _|ConnectionRevoked ticket _=>Some ticket end.
+ |ConnectionLoading ticket|ConnectionReady ticket|ConnectionFailed ticket _
+ |ConnectionRetrying ticket _|ConnectionRevoked ticket _=>Some ticket end.
+Definition connection_attempt observation := match observation with
+ |ConnectionLoading ticket|ConnectionRetrying ticket _=>Some ticket|_=>None end.
 Definition connection_active observation := match observation with
- |ConnectionLoading _|ConnectionReady _=>true|_=>false end.
+ |ConnectionLoading _|ConnectionRetrying _ _|ConnectionReady _=>true|_=>false end.
+Definition connection_failure observation := match observation with
+ |ConnectionFailed _ reason|ConnectionRetrying _ reason|ConnectionRevoked _ reason=>Some reason
+ |_=>None end.
 Definition connection_revoked observation := match observation with ConnectionRevoked _ _=>true|_=>false end.
 Definition connection_matches ticket observation := match connection_ticket observation with
  |Some current=>N.eqb ticket current|None=>false end.
@@ -91,12 +98,14 @@ Definition encode_connection observation := match observation with
  |ConnectionLoading ticket=>JObject[("status",JString "loading");("ticket",number ticket);("request",JNull)]
  |ConnectionReady ticket=>JObject[("status",JString "ready");("ticket",number ticket);("request",JNull);("value",JNull)]
  |ConnectionFailed ticket reason=>JObject[("status",JString "failed");("ticket",number ticket);("request",JNull);("error",JString reason)]
+ |ConnectionRetrying ticket reason=>JObject[("status",JString "retrying");("ticket",number ticket);("error",JString reason)]
  |ConnectionRevoked ticket reason=>JObject[("status",JString "revoked");("ticket",number ticket);("request",JNull);("error",JString reason)] end.
 Definition decode_connection value := match string_field "status" value with
  |Some "idle"=>Some ConnectionDormant
  |Some "loading"=>ticket<-natural_field "ticket" value;;request<-bind(field "request" value)(fun j=>match j with JNull=>Some tt|_=>None end);;Some(ConnectionLoading ticket)
  |Some "ready"=>ticket<-natural_field "ticket" value;;request<-bind(field "request" value)(fun j=>match j with JNull=>Some tt|_=>None end);;result<-bind(field "value" value)(fun j=>match j with JNull=>Some tt|_=>None end);;Some(ConnectionReady ticket)
  |Some "failed"=>ticket<-natural_field "ticket" value;;request<-bind(field "request" value)(fun j=>match j with JNull=>Some tt|_=>None end);;reason<-string_field "error" value;;Some(ConnectionFailed ticket reason)
+ |Some "retrying"=>ticket<-natural_field "ticket" value;;reason<-string_field "error" value;;Some(ConnectionRetrying ticket reason)
  |Some "revoked"=>ticket<-natural_field "ticket" value;;request<-bind(field "request" value)(fun j=>match j with JNull=>Some tt|_=>None end);;reason<-string_field "error" value;;Some(ConnectionRevoked ticket reason)
  |_=>None end.
 Inductive SettingsSection :=
@@ -250,7 +259,9 @@ Definition end_connection reason s :=
 Definition connect s :=
   let ended:=end_connection "Connection replaced" s in
   let clean:=service_state ended in let t:=next_ticket clean in
-  effects(with_next(N.succ t)(with_connection(ConnectionLoading t)clean))
+  let attempt:=match connection_failure(connection s)with
+    |Some reason=>ConnectionRetrying t reason|None=>ConnectionLoading t end in
+  effects(with_next(N.succ t)(with_connection attempt clean))
     (service_effects ended++[Authenticate t]).
 Definition configuration_read s :=
   let view := service_configuration s in
@@ -261,24 +272,22 @@ Definition configuration_read s :=
       [ReadConfiguration ticket]
   else keep s.
 Definition auth_result t (result:sum string unit) s :=
-  match connection s with
-  | ConnectionLoading u => if N.eqb t u then
+  match connection_attempt(connection s)with
+  | Some u => if N.eqb t u then
       match result with
       | inr _ =>
           let ready := with_connection (ConnectionReady t) s in
-          match settings_return ready, Configuration.catalog (service_configuration ready) with
-          | Some "main", _ => keep (with_settings_return None ready)
-          | Some _, Dormant => configuration_read ready
-          | _, _ => keep ready
+          match Configuration.catalog (service_configuration ready) with
+          | Dormant => configuration_read ready
+          | _ => keep ready
           end
       | inl error =>
-          let failed := with_connection (ConnectionFailed t error) s in
-          let view := if settings_open failed then failed else
-            with_settings_section SettingsConnection (with_settings_return (Some "main") failed) in
-          effects view [Reconnect t 1000]
+          (* The notice describes the outage. Individual attempts can fail in different ways. *)
+          let reason:=value_or error(connection_failure(connection s))in
+          effects (with_connection (ConnectionFailed t reason) s) [Reconnect t 1000]
       end
     else keep s
-  | _=>keep s end.
+  | None=>keep s end.
 Definition begin_upload e f s := let t:=next_ticket s in
   let r:=UploadRequest e f in effects(with_next(N.succ t)(with_uploads(Loading t r::uploads s)s))[Upload t r].
 Definition retry_upload t s :=
@@ -395,7 +404,8 @@ Definition service_step input s :=
   | Authenticated t r=>auth_result t r s
   | Disconnected t error revoked=>if connection_active(connection s)&&connection_ticket_matches t(connection s)then
       let ended:=end_connection error s in
-      let observation:=if revoked then ConnectionRevoked t error else ConnectionFailed t error in
+      let reason:=value_or error(connection_failure(connection s))in
+      let observation:=if revoked then ConnectionRevoked t reason else ConnectionFailed t reason in
       effects(with_connection observation(service_state ended))
         (service_effects ended++(if revoked then [InvalidateSource] else [])++[Reconnect t 1000])else keep s
   | RetryConnection t=>match connection s with

@@ -470,8 +470,7 @@ Definition approvals_project context view :=
 Definition tail_project context view :=
  let snapshot:=prepared_world context in let task:=task_view_task view in
  match Read.find_task task snapshot with
- |Some entry=>[Pages.task_timeline_tail snapshot (prepared_state context) view (V.task_parent view)
-     entry (value_or [] (Read.task_operations task snapshot))]
+ |Some entry=>[Pages.task_timeline_tail snapshot (prepared_state context) view (V.task_parent view) entry]
  |None=>[] end.
 Definition discarded_project context view :=
  [Pages.task_discarded_notice (prepared_state context) (task_view_task view) (V.task_parent view)].
@@ -564,7 +563,11 @@ Definition planned_regions (context : prepared) : option region_plan :=
  let nav:=invalidate || resized || (snapshot && navigation_world_changed before context) ||
    negb(Json.equal(navigation_without_layers before)(navigation_without_layers context)) ||
    state_changed ["collapsed_projects";"collapsed_tasks"] before context in
- let notices:=invalidate || section_changed "authoring" ["pending"] before context in
+ let connection_failure ctx:=Services.connection_failure(Services.connection
+   (Session.service_state(prepared_state ctx))) in
+ let connection_notice_changed:=match connection_failure before,connection_failure context with
+   |None,None=>false|Some previous,Some current=>negb(String.eqb previous current)|_,_=>true end in
+ let notices:=invalidate || connection_notice_changed || section_changed "authoring" ["pending"] before context in
  let project part:=V.view_region part world current size (Layout.short_landscape env) in
  let base name nodes:=broad_change name (base_roots nodes) (cached_region controls name) in
  let nav_nodes:=if nav then project V.NavigationRegionPart else [] in
@@ -648,11 +651,14 @@ Definition planned_regions (context : prepared) : option region_plan :=
  let per_task view :=
    let task:=task_view_task view in
    let parent:=V.task_parent view in
-   let local_reading:=match incoming with
-     |Some (Input.SetDisclosure id _ _ _)=>N.eqb task id|_=>false end in
-   (* The published cursor counts the append-only task history. Replacing a
-      connection or route is already handled by the containing region. *)
-   let history:=local_reading || (snapshot && task_field_changed ["cursor"] task before context) in
+   let same_disclosure '(group,occurrence,expanded) '(other,next,open_card):=
+     N.eqb group other && N.eqb occurrence next && Bool.eqb expanded open_card in
+   let local_reading:=negb (AuditReading.same_items same_disclosure
+     (Pages.reader_disclosures task (prepared_state before)) (Pages.reader_disclosures task (prepared_state context))) in
+   (* Tool execution can begin or settle between two history appends. *)
+   let history:=local_reading ||
+     (snapshot && (task_field_changed ["cursor";"operations";"working"] task before context ||
+       world_fields_changed ["tools"] before context)) in
    let operations:=(snapshot && operation_projection_changed task before context) ||
      ((assessment_changed || admission_pending) &&
        match Read.task_operations task world with Some (_::_)=>true|_=>false end) in

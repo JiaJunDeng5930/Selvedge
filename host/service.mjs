@@ -33,6 +33,10 @@ import { observeWorkspaceGit } from './worktrees.mjs';
 import { createTaskWorkspace, archiveTaskWorkspace, reconcileTaskWorkspace, rollbackTaskWorkspaceCreation,
   taskWorkspaceEnvironment, observeCloudRepository } from './task-workspaces.mjs';
 
+const TOOL_OUTPUT_INTERVAL_MS = 160;
+const TOOL_OUTPUT_PREVIEW_POINTS = 4096;
+const TOOL_SNAPSHOT_PREVIEW_POINTS = 32768;
+
 function directoriesOverlap(left, right) {
   return [path.relative(left, right), path.relative(right, left)].some(relative =>
     relative !== '..' && !relative.startsWith(`..${path.sep}`));
@@ -80,17 +84,18 @@ export class Service extends EventEmitter {
   #catalogRefreshes = new Map();
   #closePromise;
   #streams = [];
+  #toolActivity = new Set();
   #audioSessions = new Map();
 
   static async open({ home, config, cwd = process.cwd(), remoteOptions, audioOptions,
-    audioFactory = createChatGPTAudio, holdEffects = false } = {}) {
+    audioFactory = createChatGPTAudio, holdEffects = false, journal } = {}) {
     // DEFENSE: The process sandbox supports only the Linux and macOS implementations; refuse other OS launches.
     if (!['linux', 'darwin'].includes(process.platform)) throw new Error('Selvedge supports Linux and macOS only');
     const service = new Service();
     if (holdEffects) service.#heldStartup = { decisions: [], worktrees: [] };
     Object.assign(service, { home, config, declaredConfig: config, cwd: await realpath(cwd) });
     try {
-      service.journal = await Journal.open(path.join(home, 'journal.sqlite'));
+      service.journal = journal ?? await Journal.open(path.join(home, 'journal.sqlite'));
       service.description = service.journal.description;
       service.limits = service.description.limits;
       service.project = await snapshotProject(service.cwd, service.limits);
@@ -179,7 +184,9 @@ export class Service extends EventEmitter {
 
   notify(event) {
     event = { ...event, namespace: this.journal.namespace };
-    this.#streams = boundary('browser.host_stream_step', { state: this.#streams, notice: event }).state;
+    if (event.type !== 'tool_activity') {
+      this.#streams = boundary('browser.host_stream_step', { state: this.#streams, notice: event }).state;
+    }
     for (const observer of this.listeners('notice')) observer(event);
   }
 
@@ -321,7 +328,9 @@ export class Service extends EventEmitter {
       clock: effect => this.#scheduleCompactionClock(effect),
       start: effect => {
         // Background execution observes failures separately; the runner retains its rejecting promise.
-        void this.#launch(effect, (handle, signal) => this.#perform(effect, signal, handle))
+        void this.#launch(effect, (handle, signal) => effect.kind === 'tool'
+          ? this.#performObservedTool(effect, signal, handle)
+          : this.#perform(effect, signal, handle))
           .catch(error => this.#fatal(error));
       },
     });
@@ -341,7 +350,36 @@ export class Service extends EventEmitter {
     this.#providerCancellations.add(promise);
   }
 
-  async #runProcess(effect, signal) {
+  #toolActivitySnapshot(activity, previewLimit = TOOL_OUTPUT_PREVIEW_POINTS) {
+    const { identity, startedAt, readOutput } = activity;
+    return { ...identity, started_at: startedAt,
+      ...(readOutput && previewLimit > 0 ? { output: readOutput(previewLimit) } : {}) };
+  }
+
+  async #performObservedTool(effect, signal, handle) {
+    const identity = { task_id: effect.task_id, operation_id: effect.operation_id, call_id: effect.call.id };
+    const activity = { identity, startedAt: Date.now(), readOutput: undefined, outputTimer: undefined };
+    this.#toolActivity.add(activity);
+    try {
+      this.notify({ type: 'tool_activity', ...this.#toolActivitySnapshot(activity) });
+      await this.#perform(effect, signal, handle, activity);
+    } finally {
+      clearTimeout(activity.outputTimer);
+      this.#toolActivity.delete(activity);
+      // Settlement publishes its commit before releasing this observation.
+      this.notify({ type: 'tool_activity', ...identity, started_at: null });
+    }
+  }
+
+  #scheduleToolOutput(activity, readOutput) {
+    activity.readOutput = readOutput;
+    activity.outputTimer ??= setTimeout(() => {
+      activity.outputTimer = undefined;
+      this.notify({ type: 'tool_activity', ...this.#toolActivitySnapshot(activity) });
+    }, TOOL_OUTPUT_INTERVAL_MS);
+  }
+
+  async #runProcess(effect, signal, activity) {
     const key = `${naturalKey(effect.task_id)}:${naturalKey(effect.operation_id)}`;
     // Register before observing the checkout or preparing the sandbox: a sibling
     // read/write effect can run while the original process is still starting.
@@ -349,6 +387,7 @@ export class Service extends EventEmitter {
     const session = this.#processRegistry.register(key, arguments_.mode ?? 'pipe');
     const prepared = this.#resourceWorkspace(effect.execution.resource, signal).then(({ managedWorktreeRoot, environment }) =>
       startBash(arguments_, this.limits, { signal, execution: effect.execution, managedWorktreeRoot, environment,
+        onOutput: readOutput => this.#scheduleToolOutput(activity, readOutput),
         readOnlyPaths: [this.home], ...(environment ? {} : { artifactDirectory: path.join(this.home, 'artifacts') }) }));
     session.ready = prepared.then(({ read, write }) => { session.read = read; session.write = write; },
       error => {
@@ -405,7 +444,7 @@ export class Service extends EventEmitter {
   }
 
 
-  async #perform(effect, signal, handle) {
+  async #perform(effect, signal, handle, activity) {
     let input;
     let observation;
     const model = modelEffect(effect);
@@ -462,7 +501,7 @@ export class Service extends EventEmitter {
         },
         tool: async effect => {
           if (effect.tool.source.kind === 'native') {
-            if (effect.tool.source.program.kind === 'Process') return this.#runProcess(effect, signal);
+            if (effect.tool.source.program.kind === 'Process') return this.#runProcess(effect, signal, activity);
             if (effect.tool.source.program.kind === 'ReadImage') {
               const executionOptions = { signal, execution: effect.execution,
                 ...await this.#resourceWorkspace(effect.execution.resource, signal), readOnlyPaths: [this.home], home: this.home };
@@ -1003,6 +1042,15 @@ export class Service extends EventEmitter {
 
   browserStreams() {
     return structuredClone(this.#streams).map(stream => ({ ...stream, namespace: this.journal.namespace }));
+  }
+
+  browserToolActivity() {
+    const active = [...this.#toolActivity];
+    const outputSources = active.filter(activity => activity.readOutput).length;
+    // Concurrent Bash previews share the reconnect frame while each start time stays visible.
+    const previewLimit = Math.min(TOOL_OUTPUT_PREVIEW_POINTS,
+      Math.floor(TOOL_SNAPSHOT_PREVIEW_POINTS / Math.max(1, outputSources)));
+    return active.map(activity => this.#toolActivitySnapshot(activity, previewLimit));
   }
 
   async browserCommand(command) {

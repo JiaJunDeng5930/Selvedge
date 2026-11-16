@@ -47,16 +47,26 @@ Definition place_details_trigger occurrence trigger (value:node Input.input):=
    (map (details_header_trigger trigger) children) else value.
 Definition workspace_key := "/workspace".
 Definition main_key := "/main".
+Definition connect_button parent label : node Input.input := declared parent Roles.PrimaryButton
+ (primary "connect" label(Input.ServiceInput Services.Connect)).
+Definition connection_failure_content parent reason :=
+ [information parent "connection-failed" Information.Status connection_failure_message;
+  information parent "connection-reason" Information.Description reason;
+  connect_button parent reconnect_label].
+Definition connection_notice state :=
+ match Services.connection_failure(Services.connection(State.service_state state))with
+ |None=>[]
+ |Some reason=>let name:="connection-notice" in
+   [region workspace_key name "服务连接" Roles.Section
+     (connection_failure_content (part workspace_key name) reason)]
+ end.
 Definition connection_main (state : State.state) : node Input.input :=
  let services:=State.service_state state in
- let connect label:=declared main_key Roles.PrimaryButton
-   (primary "connect" label(Input.ServiceInput Services.Connect))in
  let content:=match Services.connection services with
- |Services.ConnectionFailed _ reason|Services.ConnectionRevoked _ reason=>
-   [information main_key "connection-failed" Information.Status "无法连接 Selvedge。";
-    information main_key "connection-reason" Information.Description reason;connect "重新连接"]
+ |Services.ConnectionFailed _ reason|Services.ConnectionRetrying _ reason|Services.ConnectionRevoked _ reason=>
+   connection_failure_content main_key reason
  |Services.ConnectionDormant=>
-   [information main_key "not-connected" Information.Description "连接 Selvedge 后即可打开对话。";connect "连接"]
+   [information main_key "not-connected" Information.Description "连接 Selvedge 后即可打开对话。";connect_button main_key "连接"]
  |Services.ConnectionLoading _|Services.ConnectionReady _=>
    [information main_key "connecting" Information.Status "正在连接 Selvedge…"]
  end in
@@ -148,7 +158,7 @@ Definition view_region section snapshot state capacity (short_landscape : bool) 
  |MainRegionPart=>[Pages.main_with_details snapshot state
   (relocate_primary (details_owner snapshot state capacity))
   (negb (details_beside_timeline capacity || short_landscape))]
- |NoticesRegionPart=>pending_notices state
+ |NoticesRegionPart=>List.app(connection_notice state)(pending_notices state)
  end.
 
 Definition creation_editor state := match State.location(State.navigation_state state),
@@ -173,8 +183,7 @@ Definition view_side_actions snapshot state capacity task : option (node Input.i
 Definition view_timeline snapshot state view : option (node Input.input) :=
  let task:=task_view_task view in
  task_record<-Read.find_task task snapshot;;
- Some(Pages.task_timeline snapshot state view (task_parent view) task_record
-   (value_or [] (Read.task_operations task snapshot))).
+ Some(Pages.task_timeline snapshot state view (task_parent view) task_record).
 Definition view_approvals snapshot state view : list (node Input.input) :=
  let task:=task_view_task view in
  Pages.approvals snapshot state task (task_parent view)

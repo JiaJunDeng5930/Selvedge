@@ -9,6 +9,7 @@ import { ChatGPTLogin } from './chatgpt-login.mjs';
 import { InteractiveSnapshotStorage } from './interactive-storage.mjs';
 import { createEditorRepairPlacement, createLayoutRevealer, revealAndFocus, revealInScrollport } from './layout-reveal.mjs';
 import { PresentationMotion } from './presentation-motion.mjs';
+import { ToolActivity } from './tool-activity.mjs';
 import { safeHref, scheduleDisplay, cancelDisplay } from './markdown.mjs';
 import { findHistoryRange, firstRangeRect } from './history-location.mjs';
 import { createPhysicalMeasurer } from './physical-measurement.mjs';
@@ -38,6 +39,11 @@ const readingLayouts = new WeakMap();
 const readingVisits = new WeakMap();
 const readingBlocks = new WeakMap();
 const restoredReadingOffsets = new WeakMap();
+let observedReadingProcesses = new Set();
+const readingProcessResize = new ResizeObserver(() => {
+  // Disclosure transitions resize the content after its document publication.
+  if (!disposed) layoutReading();
+});
 const selections = new WeakMap();
 const codeBlocks = new Map();
 const storagePolicy = interaction('interactive_storage_policy');
@@ -49,6 +55,7 @@ const historyResultsSelector = 'main > [data-page-region="history-results"]';
 const reveal = createLayoutRevealer(surface, activeModal);
 const editorRepair = createEditorRepairPlacement(activeModal);
 const motion = new PresentationMotion(surface, activeModal);
+const toolActivity = new ToolActivity(surface);
 let state = interaction('initial');
 let world = null;
 let publication = { generation: 0, phase: 'awaiting', namespace: '', sequence: 0,
@@ -429,6 +436,7 @@ function present(mode) {
     layoutReading(true);
     showWorkflowTimes(surface);
   }
+  if (layoutChanged) observeReadingProcesses();
   if (!renderer.document.measurement_pending) {
     publication = publicationEvent('document', { receipt_generation: generation });
     if (!streamed) {
@@ -664,15 +672,20 @@ const renderer = new Presentation(surface, {
         if (radioArrow && target !== current) target.click();
       }
     }
-    if (node.dataset.readingRoot === 'true' && event.target.closest('[data-reading-root="true"]') === node) {
+    if (node.dataset.readingRoot === 'true' && event.target.closest('[data-reading-root="true"]') === node &&
+        !event.target.closest('[data-tool-output]')) {
       const state = readingState(key, node);
-      acceptReading(key, node, browser('reading', { state, event: 'key', keyboard: event.key,
-        editable: event.target.matches('input,textarea,select') }));
+      const editable = event.target.matches('input,textarea,select') || event.target.isContentEditable;
+      if (!editable && ['ArrowDown', 'PageDown', 'End'].includes(event.key) && atReadingBottom(node))
+        reachedReadingBottom(key, node, state);
+      else acceptReading(key, node, browser('reading', { state, event: 'key', keyboard: event.key, editable }));
     }
   },
   reading(type, event, key, node) {
     if (node.dataset.readingRoot !== 'true') return;
-    if (type === 'scroll' ? event.target.closest('[data-reading-root="true"]') !== node : event.target !== node) return;
+    if (type === 'scroll'
+      ? event.target.closest('[data-reading-root="true"]') !== node || event.target.closest('[data-tool-output]')
+      : event.target !== node) return;
     if (type === 'pointer') {
       const rect = node.getBoundingClientRect(), style = getComputedStyle(node);
       const left = rect.left + node.clientLeft;
@@ -683,13 +696,22 @@ const renderer = new Presentation(surface, {
     }
     const state = readingState(key, node);
     if (type === 'scroll' || type === 'pointer') {
+      if (event.type === 'wheel') {
+        if (event.deltaY === 0 || event.shiftKey || event.ctrlKey) return;
+        if (event.deltaY > 0 && atReadingBottom(node)) {
+          reachedReadingBottom(key, node, state);
+          return;
+        }
+      }
       requestReadingAnchor(key, node, type === 'pointer' ? event.pointerId : undefined);
       acceptReading(key, node, browser('reading', { state, event: 'scroll' }));
     } else if (state.intent === 'history') {
       // DEFENSE: restoring a bookmark emits scroll even when the browser clamps
       // it before asynchronous Markdown mounts. That receipt is not a new user position.
       if (restoredReadingOffsets.get(node) === node.scrollTop) return;
-      requestReadingAnchor(key, node);
+      if (atReadingBottom(node) && !currentHistoryLocation(node))
+        reachedReadingBottom(key, node, state);
+      else requestReadingAnchor(key, node);
     }
   },
   menuGeometry(bounds) {
@@ -784,6 +806,12 @@ function codeStep(entry, input) {
 
 const readingKey = node => node.dataset.taskId;
 const readingTop = node => node.getBoundingClientRect().top + node.clientTop;
+const atReadingBottom = node => node.scrollHeight - node.clientHeight - node.scrollTop <= 1;
+function reachedReadingBottom(key, node, state) {
+  if (state.intent !== 'history') return;
+  retireHistoryLocation(node);
+  acceptReading(key, node, browser('reading', { state, event: 'reached_latest' }));
+}
 function readingAnchor(node, identity) {
   return node.querySelector(`[data-reading-identity="${CSS.escape(identity)}"]`);
 }
@@ -913,7 +941,11 @@ function endReadingPointer(event) {
   if (!node) return;
   readingPointers.delete(event.pointerId);
   const pending = currentReadingMeasurement(node);
-  if (pending) { pending.pointers.delete(event.pointerId); requestReadingAnchor(pending.key, node); }
+  if (!pending) return;
+  pending.pointers.delete(event.pointerId);
+  if (!pending.pointers.size && atReadingBottom(node))
+    reachedReadingBottom(pending.key, node, readingState(pending.key, node));
+  else requestReadingAnchor(pending.key, node);
 }
 window.addEventListener('pointerup', endReadingPointer, true);
 window.addEventListener('pointercancel', endReadingPointer, true);
@@ -1030,6 +1062,12 @@ function scheduleReadingLayout() {
     readingLayoutFrame = null;
     if (!disposed) { retryHistoryLocation(); layoutReading(); }
   });
+}
+function observeReadingProcesses() {
+  const mounted = new Set(surface.querySelectorAll('[data-reading-root] [data-task-process]'));
+  for (const process of observedReadingProcesses) if (!mounted.has(process)) readingProcessResize.unobserve(process);
+  for (const process of mounted) if (!observedReadingProcesses.has(process)) readingProcessResize.observe(process);
+  observedReadingProcesses = mounted;
 }
 function revealNewReaders() {
   if (revealingReader) return;
@@ -1152,6 +1190,7 @@ async function authenticate(effect) {
   connection?.abort();
   const controller = new AbortController();
   connection = controller;
+  toolActivity.replace([]);
   let ready = false;
   let streamNotices = [];
   try {
@@ -1171,6 +1210,12 @@ async function authenticate(effect) {
         ready = true; dispatch({ type: 'authenticated', ticket: effect.ticket, ok: true, value: null });
       },
       notice(value) {
+        if (value.type === 'tool_activity') {
+          if (value.namespace === publication.namespace) toolActivity.observe(value);
+          return false;
+        }
+        if (value.type === 'stream-state' && value.namespace === publication.namespace)
+          toolActivity.replace(Array.isArray(value.tool_activity) ? value.tool_activity : []);
         if (value.type === 'selvedge-update') {
           showUpdateStatus(value);
           return false;
@@ -1624,9 +1669,10 @@ function selectionChanged() {
 document.addEventListener('selectionchange', selectionChanged);
 
 window.addEventListener('pagehide', () => {
-  disposed = true; document.removeEventListener('selectionchange', selectionChanged); document.removeEventListener('keydown', dismiss); document.removeEventListener('pointerdown', dismiss); connection?.abort(); chatgptLogin.dispose(); audio.dispose(); motion.dispose(); editorRepair.dispose(); physical.dispose(); renderer.dispose(); storage.flush();
+  disposed = true; document.removeEventListener('selectionchange', selectionChanged); document.removeEventListener('keydown', dismiss); document.removeEventListener('pointerdown', dismiss); connection?.abort(); chatgptLogin.dispose(); audio.dispose(); toolActivity.dispose(); motion.dispose(); editorRepair.dispose(); physical.dispose(); renderer.dispose(); storage.flush();
   clearInterval(clockRefresh); document.removeEventListener('visibilitychange', refreshClock);
   boardTrackResize.disconnect();
+  readingProcessResize.disconnect();
   for (const timer of timers) clearTimeout(timer);
   for (const entry of codeBlocks.values()) for (const physical of entry.views.values()) physical.renderer?.dispose();
   for (const controller of transfers.values()) controller.abort();

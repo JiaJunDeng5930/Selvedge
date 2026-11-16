@@ -262,7 +262,10 @@ Export LayoutProof(editor_contains_observed_body_line,
   navigation_capacity_keeps_content, supporting_capacity_keeps_reading_measure).
 Export FocusProof(exact_focus_target_precedes_aliases,
   closing_child_restores_owner).
-Export ReadingProof(reader_occurrences_preserve_the_task_reading_position).
+(** Reaching the latest content by native scrolling resumes following it.
+    The follow layout aligns new content to the bottom of the reader. *)
+Export ReadingProof(reader_occurrences_preserve_the_task_reading_position,
+  reaching_latest_resumes_following_without_scrolling, latest_layout_cancels_history_observation).
 Export FieldSessionProof(superseded_composition_cannot_restore_old_draft).
 Export PublicationProof(a_prepared_document_has_no_prefix_authority,
   committed_dom_accepts_native_controls_before_prefix,
@@ -511,6 +514,9 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
 
     Before the first snapshot, preserve the basic navigation and content layout.
     Show the connection attempt or its failure and let the user reconnect.
+    After a connection failure, use a stable notice and reconnect control while
+    automatic attempts continue. If a workspace is already open, the notice
+    preserves its layout and reading position and does not open Settings.
     After the snapshot, a missing measurement selects
     the compact layout until real dimensions are available. A page change can
     continue to present the workspace while the browser measures it.

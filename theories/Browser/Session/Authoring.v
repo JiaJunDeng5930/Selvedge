@@ -368,6 +368,10 @@ Definition adopt_navigation snapshot decision:=
    |Some value=>match nth_error(Selvedge.Interaction.Codec.items "history" value)(N.to_nat index)with
     |None=>fail state "The history message is no longer available."
     |Some message=>let key:=AuditReading.history_target(DocumentState.retention_namespace(SS.document_retention state))task index message in
+      let state:=match AuditReading.commentary_process (N.to_nat index) (Selvedge.Interaction.Codec.items "history" value)
+        (Selvedge.Interaction.Codec.items "operations" value) with
+       |Some enclosing=>Navigation.result_state (Navigation.disclose task enclosing 0%N true state)
+       |None=>state end in
       changed state[emit "scroll_to_message"[("key",JString key);("markdown_key",JString(message_markdown_key key));
         ("query",JString query);("message_index",number index);("task_id",number task);
         ("reader_generation",number(SS.reader_generation(Navigation.reader_for state task)))]]end end end))
@@ -635,8 +639,8 @@ Definition service_step snapshot input state:=
  (* DEFENSE: Stale connection receipts emit neither authentication nor owned
     reconnect effects and must not retire the current microphone session. *)
  let signal:=match input with
- |Services.Authenticated _ (inr _)=>match previous_connection,Services.connection(Services.service_state decision)with
-  |Services.ConnectionLoading _,Services.ConnectionReady _=>Some Speech.Refresh|_,_=>None end
+ |Services.Authenticated _ (inr _)=>match Services.connection_attempt previous_connection,Services.connection(Services.service_state decision)with
+  |Some _,Services.ConnectionReady _=>Some Speech.Refresh|_,_=>None end
  |_=>if existsb(fun effect=>match input,effect with
     |_,Services.Authenticate _=>true
     |Services.Disconnected _ _ _,Services.Reconnect _ _=>true

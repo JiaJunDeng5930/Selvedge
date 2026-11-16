@@ -224,22 +224,23 @@ Definition model_output_has_origin (owner ticket : N) (mode : output_mode) (valu
      origin_producer origin = owner /\ origin_operation origin = ticket /\ origin_mode origin = mode
  | ModelContext origin content =>
      origin_producer origin = owner /\ origin_operation origin = ticket /\
-     origin_mode origin = Conversation.context_output_mode content mode
+     origin_mode origin = if Conversation.provider_assistant_message content then mode else PlainOutput
  | _ => True
  end.
 
-Theorem model_item_messages_preserve_output_origin : forall owner ticket mode items,
+Theorem model_item_messages_preserve_output_origin : forall owner ticket mode phase items,
  Forall (model_output_has_origin owner ticket mode)
-   (Callbacks.item_messages owner ticket mode items).
+   (Callbacks.item_messages owner ticket mode phase items).
 Proof.
- intros owner ticket mode items. induction items as [|item rest IH]; simpl.
+ intros owner ticket mode phase items. induction items as [|item rest IH]; simpl.
  - constructor.
  - destruct item; simpl; constructor.
    + repeat split; reflexivity.
    + exact IH.
    + exact I.
    + exact IH.
-   + repeat split; reflexivity.
+   + unfold model_output_has_origin, Conversation.context_origin.
+     destruct (Conversation.provider_assistant_message value); repeat split; reflexivity.
    + exact IH.
 Qed.
 

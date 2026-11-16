@@ -1,7 +1,8 @@
 From Stdlib Require Import String List Bool NArith Ascii.
 From Selvedge.Foundation Require Import Json Utf8 TextJson.
 From Selvedge.Kernel Require Import ChatgptProtocol PluginProtocol.
-From Selvedge.Adapters Require Import Common PluginConnections.
+From Selvedge.Kernel Require Domain.
+From Selvedge.Adapters Require Import Common PluginConnections Attachments.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
@@ -15,11 +16,29 @@ Definition within_bytes values maximum :=
   fold_left (fun total value => total + N.of_nat (String.length (render_json value))) values 0 <=? maximum.
 Definition catalog_bounded source values count_key :=
   (N.of_nat (List.length values) <=? num (get source "limits") count_key) && within_bytes values (num (get source "limits") "frame_bytes").
+Definition icon_mime mime := if String.eqb mime "image/jpg" then "image/jpeg" else mime.
+Definition small_icon_dimension size := (0 <? size) && (size <=? 256).
+Definition usable_icon observation :=
+  (* DEFENSE: MCP stdio has no HTTPS origin and can supply malformed or oversized embedded images. *)
+  match Domain.mcp_icon_mime (str observation "src") with
+  | None => false
+  | Some mime =>
+    let detected := str (attachment_media_type observation) "value" in
+    let declared := str observation "mimeType" in
+    boolean_field observation "canonical" &&
+    String.eqb (icon_mime mime) detected &&
+    (String.eqb declared "" || String.eqb (icon_mime declared) detected) &&
+    small_icon_dimension (num observation "width") && small_icon_dimension (num observation "height")
+  end.
+Definition mcp_icon_fields source tool :=
+  match find usable_icon ((items (get tool "icon_observations")) ++ items (get source "server_icons"))%list with
+  | Some icon => [("icon",get icon "src")]
+  | None => [] end.
 Definition remote_tool source tool (mcp : bool) reference :=
   let server := str source "name" in let remote := str tool "name" in
-  if mcp then JObject [("name",JString ("mcp__" ++ normalize server ++ "__" ++ normalize remote));
+  if mcp then JObject (List.app [("name",JString ("mcp__" ++ normalize server ++ "__" ++ normalize remote));
     ("description",if truthy (get tool "description") then get tool "description" else JString ("Call " ++ server ++ "/" ++ remote));
-    ("schema",get tool "inputSchema");("server",JString server);("remote",get tool "name")]
+    ("schema",get tool "inputSchema");("server",JString server);("remote",get tool "name")] (mcp_icon_fields source tool))
   else JObject [("name",JString ("plugin__" ++ server ++ "__" ++ remote));("description",get tool "description");
     ("schema",get tool "inputSchema");("plugin",reference);("remote",get tool "name")].
 Fixpoint collect_tools source mcp reference values previous := match values with

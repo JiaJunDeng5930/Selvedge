@@ -48,6 +48,23 @@ Import ListNotations.
     The current-format check must reject such earlier journals before replay,
     retaining their bytes rather than converting or partially applying them.
 
+    The journal may cache the extracted world at an acknowledged sequence.
+    Publication replaces one checkpoint after the journal commit; a cache
+    write never authorizes a commit or publishes its effects. Restore admits
+    only a checkpoint authenticated by the private service key and bound to
+    the same journal namespace, input prefix and journal semantics version.
+    The persisted world has a versioned wire shape derived from extracted
+    data declarations. Records and variants use canonical declaration names
+    and order independently of the OCaml layout. For dependent values whose
+    indices extraction erases, a versioned projection retains the parameters
+    needed for admission by the owning Gallina declaration. Changes to a
+    projection's wire contract require a new adapter version. A matching
+    wire shape and semantic version permit restore across kernel bundles.
+    A missing or unusable checkpoint leaves authoritative replay available.
+    Restoring the cached world uses the same replay operation on the suffix.
+    Physical restart tests exercise the cache boundary; the extracted runtime
+    codec and local key custody remain execution premises.
+
     Live configuration must carry the domain controller's maintenance
     cancellations into the actual packet decision. That boundary need not
     prescribe the controller's world-construction recipe. Successful admission
@@ -92,14 +109,19 @@ Export ApiProofs(public_unissued_rpc_response_preserves_pending_requests,
 (** ** Planned updates leave a recoverable boundary
 
     A development update builds a separate release while the current service
-    runs. Before yielding journal ownership, the host stops issuing scheduler
-    continuations and lets admitted physical operations settle through the
-    ordinary durable callback path. Waiting for user input is already a
-    recoverable task state. Retaining the old release and a pre-start journal
-    backup until publication makes startup failure reversible. SQLite schema
-    version and the meaning of replayed inputs have separate compatibility
-    rules. The update command and the browser reconnect are physical host
-    behavior and are verified through public execution. *)
+    runs. The candidate replays a read-only snapshot with its own kernel while
+    the current release serves requests. It closes the read transaction before
+    requesting handoff. Before yielding journal ownership, the host stops
+    issuing scheduler continuations and lets admitted physical operations settle
+    through the ordinary durable callback path. Waiting for user input is already
+    a recoverable task state. Retaining the old release and a pre-start journal
+    backup until publication makes startup failure reversible. Once the
+    candidate owns the journal, it verifies the prepared prefix against the
+    committed inputs and replays the suffix before publishing state or effects.
+    An incompatible read-only replay fails before the current release drains.
+    SQLite schema version and the meaning of replayed inputs have separate
+    compatibility rules. The update command and the browser reconnect are
+    physical host behavior and are verified through public execution. *)
 
 (** ** RPC responses retain the issued numeric identity
 

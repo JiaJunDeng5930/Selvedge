@@ -7,12 +7,12 @@ Theorem disconnected_upload_retry_emits_no_effect state ticket:
  Services.service_step(Services.RetryUpload ticket)state=Services.keep state.
 Proof. intro Offline. cbn[Services.service_step]. unfold Services.retry_upload. rewrite Offline. reflexivity. Qed.
 Theorem stale_connection_receipt_cannot_change_its_owner state incoming current outcome:
- Services.connection state=Services.ConnectionLoading current -> incoming<>current ->
+ Services.connection_attempt(Services.connection state)=Some current -> incoming<>current ->
  Services.connection(Services.service_state(Services.service_step(Services.Authenticated incoming outcome)state))=
  Services.connection state.
 Proof.
  intros Connection Different. cbn[Services.service_step]. unfold Services.auth_result. rewrite Connection.
- apply N.eqb_neq in Different. rewrite Different. exact Connection.
+ apply N.eqb_neq in Different. rewrite Different. reflexivity.
 Qed.
 
 Theorem revoked_disconnect_is_retained state ticket reason:

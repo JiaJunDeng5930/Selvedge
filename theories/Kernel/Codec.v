@@ -205,7 +205,11 @@ Definition parse_tool (value : json) : option tool :=
        (* MCP requires an object schema; validating its full dialect belongs to
           the server. In particular, number/$ref/anyOf are not extension rules. *)
        match string_field "server" value, schema with
-       | Some server, JObject _ => Some (Tool name description (McpToolSource schema server remote))
+       | Some server, JObject _ =>
+         let icon := match string_field "icon" value with
+           | Some src => option_map (fun _ => src) (mcp_icon_mime src)
+           | None => None end in
+         Some (Tool name description (McpToolSource schema server remote icon))
        | _,_ => None end
      | _ => None end
    else None
@@ -230,6 +234,23 @@ Definition output_mode_name (mode : output_mode) :=
 Definition origin_json (origin : output_origin) := JObject [
  ("producer_task", number (origin_producer origin)); ("operation", number (origin_operation origin));
  ("part", number (origin_part origin)); ("mode", JString (output_mode_name (origin_mode origin)))].
+Definition assistant_phase_name (phase : assistant_phase) :=
+ match phase with Commentary => "commentary" | FinalAnswer => "final_answer" end.
+Definition assistant_phase_field := "phase".
+Definition assistant_phase_from_json (value : json) :=
+ match string_field assistant_phase_field value with
+ | Some name =>
+   if String.eqb name (assistant_phase_name Commentary) then Some Commentary
+   else if String.eqb name (assistant_phase_name FinalAnswer) then Some FinalAnswer
+   else None
+ | None => None end.
+Definition output_message_json (include_phase : bool) (role : string) (origin : output_origin) (content : json) :=
+ JObject ([("role", JString role); ("origin", origin_json origin); ("content", content)] ++
+   if include_phase then
+     match origin_assistant_phase origin with
+     | Some phase => [(assistant_phase_field, JString (assistant_phase_name phase))]
+     | None => [] end
+   else []).
 Definition hook_json (value : hook_outcome) := match value with
  | HookAllow => JObject [("decision",JString "allow")]
  | HookRewrite arguments => JObject [("decision",JString "rewrite");("arguments",JObject arguments)]
@@ -240,21 +261,22 @@ Definition after_json (value : after_outcome) := match value with
  | RewriteResult result => JObject [("decision",JString "rewrite");("value",result)]
  | DenyResult reason => JObject [("decision",JString "deny");("reason",JString reason)]
  | AfterFailure reason => JObject [("decision",JString "failed");("reason",JString reason)] end.
-Definition message_json_with (project_call : call -> json) (owner : N) (value : message) :=
+Definition message_json_with_output_phase (include_phase : bool)
+ (project_call : call -> json) (owner : N) (value : message) :=
  match value with
  | InstructionMessage source value => JObject [("role", JString source); ("content", value)]
  | EnvironmentNotice text => JObject [("role",JString "task_context"); ("type",JString "environment_notice"); ("content",JString text)]
  | ReasoningConfigurationMessage effort => JObject [("role",JString "task_context"); ("type",JString "reasoning_configuration"); ("effort",JString effort)]
  | SettingsMessage settings profile reasoning => JObject [("role",JString "task_context"); ("type",JString "settings"); ("content",settings_json settings); ("profile",JString profile); ("reasoning",JString reasoning)]
  | UserMessage parts => JObject [("role", JString "user"); ("content", content_json parts)]
- | AssistantMessage origin text => JObject [("role", JString "assistant"); ("origin", origin_json origin); ("content", JString text)]
+ | AssistantMessage origin text => output_message_json include_phase "assistant" origin (JString text)
  | FunctionCall call => JObject [("role", JString "function_call"); ("content", project_call call)]
  | FunctionOutput id value error => JObject [("role", JString "function_output"); ("call_id", JString id); ("content", value); ("is_error", JBool error)]
  | OperationResult ticket call value error => JObject [("role", JString "operation_result"); ("operation_id", number ticket); ("call_id", JString (call_id call)); ("tool", JString (call_name call)); ("content", value); ("is_error", JBool error)]
  | FailureMessage text => JObject [("role", JString "error"); ("content", JString text)]
  | ReasoningRecord owner effort remaining => JObject [("role",JString "reasoning_record"); ("task_id",number owner);
    ("content",JObject [("effort",JString effort);("remaining",number remaining)])]
- | ModelContext origin value => JObject [("role", JString "model_context"); ("origin", origin_json origin); ("content", value)]
+ | ModelContext origin value => output_message_json include_phase "model_context" origin value
  | ContextReplacement value => JObject [("role", JString "context_replacement"); ("content", value)]
  | ContextObservation change => JObject [("role", JString "task_context"); ("type", JString "context_change"); ("change", Context.change_json change)]
  | SideConversationBirth side parent start => JObject [("role", JString "task_context"); ("type", JString "side_conversation");
@@ -274,8 +296,11 @@ Definition message_json_with (project_call : call -> json) (owner : N) (value : 
    ("content", number child); ("is_error", JBool false); ("receipt_kind", JString "fork_result")]
  end.
 
+Definition message_json_with := message_json_with_output_phase false.
 Definition message_json := message_json_with wire_call_json.
 Definition public_message_json := message_json_with call_json.
+(* read_task results enter durable history; the phase projection is only for the conversation surface. *)
+Definition conversation_message_json := message_json_with_output_phase true call_json.
 
 Theorem fork_receipt_json_preserves_provider_result : forall owner invocation child,
  field "role" (message_json owner (ForkReceipt owner invocation child)) = Some (JString "function_output") /\

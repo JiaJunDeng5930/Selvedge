@@ -15,6 +15,9 @@ Proof. reflexivity. Qed.
 Theorem user_scroll_takes_over_viewport : forall current reduced,
   step BeginUserScroll reduced current = (State ReadHistory None, [LeaveViewport]).
 Proof. reflexivity. Qed.
+Theorem reaching_latest_resumes_following_without_scrolling : forall current reduced,
+  step ReachLatest reduced current = (State FollowLatest None, [CancelAnchorObservation]).
+Proof. reflexivity. Qed.
 
 Theorem history_layout_preserves_the_saved_anchor : forall point,
   layout (State ReadHistory (Some point)) = [PreserveAnchor point].

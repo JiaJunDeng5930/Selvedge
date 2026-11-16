@@ -311,7 +311,10 @@ test('terminal update waits for a durable tool result and restarts the same task
 
   const eventStream = await openEvents(firstService.url, client.headers);
   const update = startUpdate(directory, serviceState);
-  const draining = await waitForUpdateDrain(eventStream);
+  const draining = await Promise.race([
+    waitForUpdateDrain(eventStream, 35_000),
+    update.closed.then(result => { throw new Error(`Update exited before draining:\n${result.output}`); }),
+  ]);
   assert.ok(Array.isArray(draining.operations));
   assert.ok(JSON.stringify(draining.operations).includes(toolName), JSON.stringify(draining));
   assert.equal(update.child.exitCode, null, 'The terminal update must wait while the durable tool is running');

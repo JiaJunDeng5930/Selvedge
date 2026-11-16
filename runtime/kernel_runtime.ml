@@ -2,8 +2,14 @@ open Js_of_ocaml
 module Model = KernelModel
 module Json = Json_io.Make(Model)
 
-(* World values stay opaque inside this worker; only domain JSON crosses IO. *)
+(* The host authenticates a checkpoint and admits its wire schema before the
+   generated decoder constructs a world. No runtime object representation crosses IO. *)
 let initial () = Model.selvedge_kernel_initial
+let checkpoint world = Js.bytestring (Checkpoint_state.encode world)
+let restore_checkpoint source =
+  match Checkpoint_state.decode (Js.to_bytestring source) with
+  | Some world -> Js.Unsafe.inject world
+  | None -> Js.Unsafe.inject Js.null
 let input_error name message =
   Js.Unsafe.obj [| "inputError", Js.Unsafe.inject (Js.Unsafe.obj [|
     "name", Js.Unsafe.inject (Js.string name);
@@ -34,6 +40,8 @@ let () = Js.Unsafe.set Js.Unsafe.global "__selvedgeKernel" (Js.Unsafe.obj [|
   "initial", Js.Unsafe.inject (Js.wrap_callback initial);
   "packet", Js.Unsafe.inject (Js.wrap_callback packet);
   "replay", Js.Unsafe.inject (Js.wrap_callback replay);
+  "checkpoint", Js.Unsafe.inject (Js.wrap_callback checkpoint);
+  "restoreCheckpoint", Js.Unsafe.inject (Js.wrap_callback restore_checkpoint);
   "observe", Js.Unsafe.inject (Js.wrap_callback observe);
   "assess", Js.Unsafe.inject (Js.wrap_callback assess)
 |])

@@ -258,8 +258,8 @@ export async function startServer(options) {
           const data = document && release ? bytes.toString('utf8').replace('<head>', `<head>\n<meta name="selvedge-release" content="${release.id}">`) : bytes;
           response.writeHead(200, { 'content-type': contentType, 'cache-control': url.pathname === '/' ? 'no-store' : 'no-cache',
             ...(url.pathname === '/' ? { 'set-cookie': `selvedge-session=${token}; Path=/api; HttpOnly; SameSite=Strict` } : {}),
-            // NOTE: Browser annotations inject inline styles into their selection overlay.
-            'content-security-policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+            // Browser annotations use inline styles. Admitted MCP icons are embedded raster images.
+            'content-security-policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' blob: data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
             'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer' });
           response.end(data);
           return;
@@ -348,7 +348,8 @@ export async function startServer(options) {
           response.once('close', () => clients.delete(response));
           if (release) sendUpdate(response);
           // Capture active streams before this synchronous subscription yields to notices.
-          sendEvent(response, { type: 'stream-state', namespace: service.journal.namespace, streams: service.browserStreams() });
+          sendEvent(response, { type: 'stream-state', namespace: service.journal.namespace, streams: service.browserStreams(),
+            tool_activity: service.browserToolActivity() });
           // Reconnection needs the current durable revision, not historical invalidations.
           sendEvent(response, { type: 'commit', namespace: service.journal.namespace, sequence: service.journal.sequence });
           return;
