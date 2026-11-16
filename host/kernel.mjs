@@ -75,8 +75,8 @@ export class Kernel {
   }
 
   // Replay checks admission without projecting intermediate worlds while the journal opens.
-  replay(text) {
-    return this.#submit(text, false, 'replay');
+  replay(text, replayVersion) {
+    return this.#submit(text, false, 'replay', replayVersion);
   }
 
   captureCheckpoint() {
@@ -91,7 +91,7 @@ export class Kernel {
     return this.#submit(encodeInput(candidate, this.maximum), false, 'assess');
   }
 
-  #submit(text, snapshot, operation = 'packet') {
+  #submit(text, snapshot, operation = 'packet', replayVersion) {
     return new Promise((resolve, reject) => {
       // DEFENSE: The Worker can exit while idle, before the next journal request observes its failure.
       if (this.#failure) throw this.#failure;
@@ -99,7 +99,7 @@ export class Kernel {
       const timer = setTimeout(() => this.#fail(new Error('Kernel transition timed out')), 30_000);
       // Journal owns request serialization through the complete SQLite transaction.
       this.#pending = { resolve, reject, timer };
-      this.#worker.postMessage({ text, snapshot, operation });
+      this.#worker.postMessage({ text, snapshot, operation, replayVersion });
     });
   }
 

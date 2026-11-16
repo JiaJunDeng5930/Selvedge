@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile, rm } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
 import { gunzipSync } from 'node:zlib';
 import { Service } from '../host/service.mjs';
-import { Journal } from '../host/journal.mjs';
+import { Journal, journalFormat } from '../host/journal.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
 import { home, responsesServer } from './support.mjs';
 
@@ -104,20 +104,140 @@ test('a lost SQLite commit acknowledgement retires the service and the committed
 });
 
 
-test('the previous durable journal format is rejected without replay or conversion', async t => {
+test('format 28 upgrades through the normal handoff and preserves conversations and cursor identities', async t => {
   const directory = await home(t);
-  const options = { home: directory, cwd: directory,
-    config: validateConfig({ ...defaultConfig, chatgpt: false }) };
   const filename = path.join(directory, 'journal.sqlite');
-  // Recorded through the public CLI before journal format 29 changed message admission.
+  // A real CLI session recorded before managed updates added the schema marker.
   const original = gunzipSync(await readFile(new URL('./fixtures/journal-format28-unversioned.sqlite.gz', import.meta.url)));
   await writeFile(filename, original, { mode: 0o600 });
+  const readPrefix = () => {
+    const database = new DatabaseSync(filename);
+    try { return database.prepare('SELECT seq, input, observed_at FROM journal ORDER BY seq').all(); }
+    finally { database.close(); }
+  };
+  const history = readPrefix();
+  const initial = await Journal.open(filename, { waitForOwnership: async () => {
+    assert.deepEqual(await readFile(filename), original, 'Read-only replay must leave the live database intact');
+  } });
+  const readTask = journal => journal.execute({ kind: 'command', command: { op: 'read', task_id: 0 } });
+  let conversation;
+  try {
+    assert.equal(initial.sequence, history.at(-1).seq);
+    assert.deepEqual(readPrefix(), history);
+    conversation = (await readTask(initial)).reply.result;
+    assert.match(JSON.stringify(conversation.messages), /History recorded before managed updates/);
+    const sent = await initial.execute({ kind: 'command', command: { op: 'send', task_id: 0, message: 'Message after upgrade' } });
+    assert.equal(sent.reply.ok, true, JSON.stringify(sent.reply));
+    assert.equal(sent.sequence, history.at(-1).seq + 1);
+    const db = new DatabaseSync(filename);
+    try {
+      assert.equal(db.prepare("SELECT value FROM meta WHERE key = 'format'").get().value, journalFormat);
+      assert.deepEqual(db.prepare('SELECT DISTINCT replay_version FROM journal ORDER BY replay_version').all().map(row => row.replay_version), [28, 30]);
+    } finally { db.close(); }
+  } finally { await initial.close(); }
 
-  await assert.rejects(async () => {
-    const service = await Service.open(options);
-    await service.close();
-  }, /Unsupported Selvedge Rocq journal format selvedge-rocq-journal-28/);
+  const reopened = await Journal.open(filename);
+  try {
+    const restored = (await readTask(reopened)).reply.result;
+    assert.match(JSON.stringify(restored), /Message after upgrade/);
+    assert.deepEqual(restored.messages.slice(0, conversation.messages.length), conversation.messages);
+  } finally { await reopened.close(); }
+});
+
+for (const { version, fixtureName, recordedText, existed } of [
+  // Actual sessions from b56ad975 and 79eebf7e with a failed git worktree add.
+  { version: 28, fixtureName: 'journal-format28-refused-send', recordedText: 'Historically refused message', existed: false },
+  { version: 29, fixtureName: 'journal-format29-accepted-send', recordedText: 'Accepted in format 29', existed: true },
+]) {
+  test(`format ${version} keeps the original send outcome and new messages survive replay`, async t => {
+    const directory = await home(t);
+    const filename = path.join(directory, 'journal.sqlite');
+    const fixture = new URL(`./fixtures/${fixtureName}.sqlite.gz`, import.meta.url);
+    await writeFile(filename, gunzipSync(await readFile(fixture)), { mode: 0o600 });
+    const history = await Journal.open(filename);
+    const readMessages = async journal => (await journal.execute({
+      kind: 'command', command: { op: 'read', task_id: 0 },
+    })).reply.result.messages;
+    let newSequence;
+    try {
+      const before = JSON.stringify(await readMessages(history));
+      assert.match(before, /Original message before upgrade/);
+      assert.equal(before.includes(recordedText), existed);
+      const accepted = await history.execute({
+        kind: 'command', command: { op: 'send', task_id: 0, message: 'Accepted after upgrade' },
+      });
+      assert.equal(accepted.reply.ok, true);
+      assert.equal(accepted.durable, true);
+      newSequence = accepted.sequence;
+    } finally { await history.close(); }
+    await rm(`${filename}.checkpoint`);
+    const replayed = await Journal.open(filename);
+    try {
+      assert.equal(replayed.sequence, newSequence);
+      // The legacy task can still be waiting on a provider reply, so an
+      // accepted message may have been queued rather than visible in history.
+      const interrupted = await replayed.execute({ kind: 'command', command: { op: 'interrupt', task_id: 0 } });
+      assert.equal(interrupted.reply.ok, true);
+      const resumed = await replayed.execute({
+        kind: 'command', command: { op: 'send', task_id: 0, message: 'Resume restored task' },
+      });
+      assert.equal(resumed.reply.ok, true);
+      const after = JSON.stringify(await readMessages(replayed));
+      assert.match(after, /Original message before upgrade/);
+      assert.match(after, /Accepted after upgrade/);
+      assert.equal(after.includes(recordedText), existed);
+    } finally { await replayed.close(); }
+  });
+}
+
+test('an unsuccessful migration leaves the historical format intact', async t => {
+  const directory = await home(t);
+  const filename = path.join(directory, 'journal.sqlite');
+  const fixture = new URL('./fixtures/journal-format28-refused-send.sqlite.gz', import.meta.url);
+  await writeFile(filename, gunzipSync(await readFile(fixture)), { mode: 0o600 });
+  const db = new DatabaseSync(filename);
+  try {
+    db.prepare('UPDATE journal SET input = ? WHERE seq = (SELECT MAX(seq) FROM journal)')
+      .run(JSON.stringify({ kind: 'unrecognized_fixture_input' }));
+  } finally { db.close(); }
+  const before = await readFile(filename);
+  await assert.rejects(Journal.open(filename), /Committed input incompatibility/);
+  assert.deepEqual(await readFile(filename), before);
+});
+
+test('an unsupported durable journal is rejected without conversion', async t => {
+  const directory = await home(t);
+  const filename = path.join(directory, 'journal.sqlite');
+  const original = gunzipSync(await readFile(new URL('./fixtures/journal-format13.sqlite.gz', import.meta.url)));
+  await writeFile(filename, original, { mode: 0o600 });
+  await assert.rejects(Journal.open(filename), /Unsupported Selvedge Rocq journal format/);
   assert.deepEqual(await readFile(filename), original);
+});
+
+test('local refusals, stale results and unchanged successes do not write journal rows', async t => {
+  const directory = await home(t);
+  const filename = path.join(directory, 'journal.sqlite');
+  const journal = await Journal.open(filename);
+  t.after(() => journal.close());
+  let publications = 0;
+  journal.on('commit', () => publications++);
+  const before = journal.sequence;
+  const refused = await journal.execute({ kind: 'command', command: { op: 'send', task_id: 42, message: 'Do not retain this text' } });
+  assert.equal(refused.reply.error.code, 'task_not_found');
+  const stale = await journal.execute({ kind: 'model', task_id: 42, ticket: 0, ok: true, items: [] });
+  assert.equal(stale.reply.ok, true);
+  const unchanged = await journal.execute({ kind: 'command', command: { op: 'remote_disable' } });
+  assert.equal(unchanged.reply.ok, true);
+  const emptyWork = await journal.execute({ kind: 'continue' });
+  assert.equal(emptyWork.reply.ok, true);
+  for (const result of [refused, stale, unchanged, emptyWork]) {
+    assert.equal(result.durable, false);
+    assert.equal(result.sequence, before);
+  }
+  assert.equal(publications, 0);
+  const db = new DatabaseSync(filename);
+  try { assert.equal(db.prepare('SELECT count(*) AS count FROM journal').get().count, before); }
+  finally { db.close(); }
 });
 
 test('a prepared restart includes commits made while the current service still owns the journal', async t => {

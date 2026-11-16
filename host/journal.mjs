@@ -16,17 +16,19 @@ function rejected(error, outcome) {
   return error;
 }
 
-export const journalFormat = 'selvedge-rocq-journal-29';
-const journalSchemaVersion = 1;
+const replayVersion = 30;
+export const journalFormat = `selvedge-rocq-journal-${replayVersion}`;
+const journalSchemaVersion = 2;
+const legacyVersions = new Map([['selvedge-rocq-journal-28', 28], ['selvedge-rocq-journal-29', 29]]);
 const checkpointInterval = 128;
 
 const schema = {
   meta: 'CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT',
-  journal: 'CREATE TABLE journal (seq INTEGER PRIMARY KEY CHECK (seq > 0), input TEXT NOT NULL, observed_at INTEGER NOT NULL) STRICT',
+  journal: 'CREATE TABLE journal (seq INTEGER PRIMARY KEY CHECK (seq > 0), input TEXT NOT NULL, observed_at INTEGER NOT NULL, replay_version INTEGER NOT NULL) STRICT',
 };
 
 function hashReplayRow(hash, row) {
-  hash.update(`${row.seq}:${Buffer.byteLength(row.input)}:`).update(row.input);
+  hash.update(`${row.seq}:${row.replay_version}:${Buffer.byteLength(row.input)}:`).update(row.input);
 }
 
 function closeJournalDatabase(database) {
@@ -61,6 +63,7 @@ export async function withJournalOwnership(filename, action) {
 /** A serialized, durable input journal. It deliberately stores no task table. */
 export class Journal extends EventEmitter {
   #database;
+  #replayVersionColumn = 'replay_version';
   #lock;
   #kernel;
   #checkpoint;
@@ -106,15 +109,16 @@ export class Journal extends EventEmitter {
   }
 
   #prepareReplay(readOnly = false) {
+    this.#replayVersionColumn = 'replay_version';
     const version = this.#database.prepare('PRAGMA user_version').get().user_version;
-    // DEFENSE: A different release or an external SQLite writer can set an unsupported storage version.
-    if (version !== journalSchemaVersion && (readOnly || version !== 0)) {
+    // DEFENSE: A database or update candidate can use a newer schema.
+    if (![0, 1, journalSchemaVersion].includes(version)) {
       throw new Error(`Unsupported Selvedge SQLite journal schema version ${version}`);
     }
-    if (version === 0) {
+    const upgrading = !readOnly && version !== journalSchemaVersion;
+    if (upgrading) {
       this.#database.exec('BEGIN IMMEDIATE');
-      const existing = this.#database.prepare('SELECT 1 FROM sqlite_schema LIMIT 1').get();
-      if (!existing) {
+      if (version === 0 && !this.#database.prepare('SELECT 1 FROM sqlite_schema LIMIT 1').get()) {
         for (const sql of Object.values(schema)) this.#database.exec(sql);
         const insert = this.#database.prepare('INSERT INTO meta (key, value) VALUES (?, ?)');
         insert.run('format', journalFormat);
@@ -128,13 +132,26 @@ export class Journal extends EventEmitter {
         !/^[0-9a-f]{32}$/.test(namespace.value)) {
       throw new Error('Invalid Selvedge journal metadata');
     }
-    // DEFENSE: Earlier or later kernels can persist frames with different semantics.
-    // A supported replay format conversion would rewrite the inputs and this tag in the transaction that spans replay.
     if (format.value !== journalFormat) {
-      throw new Error(`Unsupported Selvedge Rocq journal format ${format.value}`);
+      const legacy = legacyVersions.get(format.value);
+      // DEFENSE: Only journals whose historical replay is implemented can be upgraded.
+      if (!legacy || version === journalSchemaVersion) {
+        throw new Error(`Unsupported Selvedge Rocq journal format ${format.value}`);
+      }
+      if (readOnly) {
+        this.#replayVersionColumn = `${legacy} AS replay_version`;
+      } else {
+        // Keep input bytes and cursor identities. The default marks the entire
+        // existing prefix, while all new rows supply their version explicitly.
+        this.#database.exec(`ALTER TABLE journal ADD COLUMN replay_version INTEGER NOT NULL DEFAULT ${legacy}`);
+        this.#database.prepare("UPDATE meta SET value = ? WHERE key = 'format'").run(journalFormat);
+      }
+    } else if (version !== journalSchemaVersion && !upgrading) {
+      // DEFENSE: An externally edited format tag cannot stand in for a completed upgrade.
+      throw new Error('The current journal format requires its current schema version');
     }
     this.namespace = namespace.value;
-    return version === 0;
+    return upgrading;
   }
 
   async #preload(filename) {
@@ -153,7 +170,7 @@ export class Journal extends EventEmitter {
 
   #readPrefix(sequence) {
     const hash = createHash('sha256');
-    for (const row of this.#database.prepare('SELECT seq, input FROM journal WHERE seq <= ? ORDER BY seq').iterate(sequence)) {
+    for (const row of this.#database.prepare(`SELECT seq, input, ${this.#replayVersionColumn} FROM journal WHERE seq <= ? ORDER BY seq`).iterate(sequence)) {
       hashReplayRow(hash, row);
     }
     return hash;
@@ -207,8 +224,8 @@ export class Journal extends EventEmitter {
   }
 
   async #replay() {
-    for (const row of this.#database.prepare('SELECT seq, input FROM journal WHERE seq > ? ORDER BY seq').iterate(this.sequence)) {
-      const durable = await this.#kernel.replay(row.input);
+    for (const row of this.#database.prepare(`SELECT seq, input, ${this.#replayVersionColumn} FROM journal WHERE seq > ? ORDER BY seq`).iterate(this.sequence)) {
+      const durable = await this.#kernel.replay(row.input, row.replay_version);
       // DEFENSE: A stored input that the current kernel no longer admits cannot restore committed work.
       if (!durable) {
         throw new Error(`Committed input incompatibility at sequence ${row.seq}: current kernel rejected replay`);
@@ -275,14 +292,16 @@ export class Journal extends EventEmitter {
         const decision = { sequence: this.sequence, program: this.program, ...response.value };
         // Capture an authorized publication before the next input can replace this world.
         if (observeRead) observeRead(decision);
+        // Noncommitting packets can only carry an in-process scheduler wakeup.
+        if (decision.effects.length) this.#publish('transient', decision);
         return decision;
       }
       const sequence = this.sequence + 1;
       let committing = false;
       try {
         this.#database.exec('BEGIN IMMEDIATE');
-        this.#database.prepare('INSERT INTO journal (seq, input, observed_at) VALUES (?, ?, ?)')
-          .run(sequence, inputText, observedAt);
+        this.#database.prepare('INSERT INTO journal (seq, input, observed_at, replay_version) VALUES (?, ?, ?, ?)')
+          .run(sequence, inputText, observedAt, replayVersion);
         committing = true;
         this.#database.exec('COMMIT');
       // DEFENSE: A write before COMMIT is definitely uncommitted; an error during COMMIT leaves its durable outcome unknown.
@@ -292,13 +311,9 @@ export class Journal extends EventEmitter {
       }
       this.program = response.program;
       this.sequence = sequence;
-      hashReplayRow(this.#prefix, { seq: sequence, input: inputText });
+      hashReplayRow(this.#prefix, { seq: sequence, input: inputText, replay_version: replayVersion });
       const committed = { sequence, program: this.program, ...response.value };
-      // DEFENSE: A delivery observer can throw after COMMIT; report the delivery failure without making the durable input appear uncommitted.
-      for (const observer of this.listeners('commit')) {
-        try { observer(committed); }
-        catch (error) { this.emit('observerFailure', error); }
-      }
+      this.#publish('commit', committed);
       return committed;
     });
     // DEFENSE: execute's caller receives the failure; queue cleanup must still reach close and later callers' explicit poisoned-world rejection.
@@ -310,6 +325,14 @@ export class Journal extends EventEmitter {
       }
     }, () => {});
     return result;
+  }
+
+  #publish(event, decision) {
+    // DEFENSE: A delivery observer can throw after selection; it cannot undo a committed result.
+    for (const observer of this.listeners(event)) {
+      try { observer(decision); }
+      catch (error) { this.emit('observerFailure', error); }
+    }
   }
 
   observedAt(sequence) {

@@ -7,9 +7,8 @@
 
 From Stdlib Require Import List NArith.
 From Selvedge.Kernel Require PacketProofs.
-Export PacketProofs(actual_query_preserves_world_and_emits_no_effect,
-  live_configuration_preserves_maintenance_cancellations,
-  replay_recovers_the_packet_world_and_durability).
+Export PacketProofs(journal_query_preserves_world_and_emits_no_effect,
+  live_configuration_preserves_maintenance_cancellations).
 Import ListNotations.
 
 (** ** Acknowledgement controls publication
@@ -31,22 +30,25 @@ Import ListNotations.
     Recovery and new commands use the kernel
     built for this service; binding the Worker directly to that bundle keeps
     execution semantics independent of a private caller-supplied module path.
-    [actual_query_preserves_world_and_emits_no_effect] constrains that actual
-    packet entry. Public restart tests cover ordered replay and retained state;
-    SQLite supplies transaction durability. Exclusive writer ownership and the
-    acknowledged transaction establish journal authority. An authenticated
-    audit history would require an independent trust anchor and is outside this
-    restart contract. Persistent formats distinguish changes that would
-    reinterpret accepted work during replay: retained domain state, history or
-    receipts, and the admission or scheduling decisions that establish them.
-    A changed reply can affect output-budget admission and therefore scheduling.
-    Domain refusals of admitted mutations are also stored, so admission changes
-    must be followed through the actual durable input paths.
-    A transient refusal diagnostic needs no new format when refusal precedes
-    state changes and receipt retention, both replies fit the output budget,
-    and durability and cursor progression remain the same.
-    The current-format check must reject such earlier journals before replay,
-    retaining their bytes rather than converting or partially applying them.
+    Once a transition fits the transport budget, a journal row is necessary
+    exactly when the restorable world changes or the decision issues an
+    obligation owned by the physical runtime. A refusal without a retained
+    receipt, a stale callback, and a repeated observation leave the world and
+    cursor intact. A remote refusal can still record its required receipt.
+    A scheduler wakeup with unchanged state can run locally because recovery
+    derives runnable work from the retained world. The materiality and
+    transient-safety theorems constrain the selection used by the live packet
+    and by replay of new rows. The checkpoint generator derives comparison
+    from the same typed shape and dependent projections as the recovery image.
+    Its execution, SQLite durability and Worker delivery remain runtime
+    premises exercised by their boundaries.
+
+    Earlier rows may include no-ops and refusals. Upgrading formats 28 and 29
+    annotates their replay rules while retaining the exact input bytes and
+    sequence. Format 28 applies worktree admission to historical ordinary
+    sends, including sends from graph and workflow transitions. The
+    current-format change is committed only after successful replay. An
+    unsupported format stops without interpreting its inputs.
 
     The journal may cache the extracted world at an acknowledged sequence.
     Publication replaces one checkpoint after the journal commit; a cache
@@ -96,7 +98,18 @@ Import ListNotations.
     input once. [tests/service.test.mjs] covers successful publication through
     the public service and event stream. *)
 
-From Selvedge.Adapters Require RpcProofs ApiProofs.
+From Selvedge.Programming Require CommitPacket.
+Export CommitPacket(journal_selection_retains_exactly_the_recovery_obligations,
+  journal_transients_preserve_the_world_and_only_wake_the_scheduler,
+  journal_material_changes_keep_the_original_decision).
+Export PacketProofs(journal_replay_agrees_with_live_commit,
+  journal_never_commits_an_unchanged_refusal,
+  historical_send_uses_the_written_admission_rule,
+  historical_replay_does_not_retain_its_execution_mode).
+
+From Selvedge.Adapters Require RpcProofs ApiProofs WebProofs.
+Export WebProofs(web_repeated_identity_has_no_write, web_completed_response_is_not_written_again,
+  web_repeated_rejection_or_retirement_has_no_write).
 Export RpcProofs(correlation_matches_the_pending_numeric_value).
 Export ApiProofs(public_unissued_rpc_response_preserves_pending_requests,
   public_issued_plain_rpc_result_resolves_its_pending_request,

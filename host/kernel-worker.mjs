@@ -4,7 +4,7 @@ import * as model from '../.build/kernel-model.mjs';
 let world = model.initial();
 let projectedWorld;
 let projection;
-parentPort.on('message', ({ text: input, snapshot, operation }) => {
+parentPort.on('message', ({ text: input, snapshot, operation, replayVersion }) => {
   try {
     if (operation === 'captureCheckpoint') {
       parentPort.postMessage({ checkpoint: { schema: model.checkpointSchema, data: model.checkpoint(world) } });
@@ -16,8 +16,8 @@ parentPort.on('message', ({ text: input, snapshot, operation }) => {
       parentPort.postMessage(restored !== null);
       return;
     }
-    const run = operation === 'assess' ? model.assess : operation === 'replay' ? model.replay : model.packet;
-    const output = run(input, world);
+    const output = operation === 'replay' ? model.replay(replayVersion, input, world)
+      : operation === 'assess' ? model.assess(input, world) : model.packet(input, world);
     if (output.inputError) {
       parentPort.postMessage({ inputError: output.inputError });
       return;

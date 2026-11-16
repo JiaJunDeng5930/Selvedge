@@ -254,7 +254,8 @@ Definition input_command_result (requires_workspace : bool) (mode : input_mode) 
      else CommandResult.refuse "invalid_arguments" input_required_message
    end end.
 Definition input_result := input_command_result true.
-Definition send_result := input_command_result false AppendInput.
+Definition send_result id contents value :=
+ input_command_result (world_legacy_send_admission value) AppendInput id contents value.
 Definition send (id : N) (contents : content) (value : world) :=
  CommandResult.decide value (send_result id contents value).
 Definition steer_result := input_result ReplaceInput.

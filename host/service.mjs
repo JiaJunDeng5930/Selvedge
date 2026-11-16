@@ -106,6 +106,10 @@ export class Service extends EventEmitter {
       });
       service.config = discovered.config;
       service.accounts = discovered.accounts;
+      service.journal.on('transient', decision => {
+        if (service.#heldStartup) service.#heldStartup.decisions.push(decision);
+        else service.#scheduleContinuation();
+      });
       service.journal.on('commit', decision => {
         service.notify({ type: 'commit', sequence: decision.sequence });
         if (service.#heldStartup) service.#heldStartup.decisions.push(decision);

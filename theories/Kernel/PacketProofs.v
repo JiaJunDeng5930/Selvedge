@@ -109,3 +109,75 @@ Proof.
  destruct (Notifications.batch input value result) as [|notice rest]; [reflexivity|].
  destruct (Delivery.fits_json _); reflexivity.
 Qed.
+
+(** Replay of the current journal commits the same world and cursor decision
+    as its actual live entry. An uncommitted reply is not a replay record. *)
+Theorem journal_replay_agrees_with_live_commit same_image source value :
+ Packet.journal_replay same_image source value =
+ (fst (Packet.journal_packet same_image source value),
+  match field "durable" (snd (Packet.journal_packet same_image source value)) with
+  | Some (JBool durable) => durable | _ => false end).
+Proof.
+ unfold Packet.journal_replay, Packet.journal_packet.
+ destruct (Delivery.fits_json source); [|reflexivity].
+ unfold CommitPacket.journal_finalize, CommitPacket.finalize.
+ cbn [fst snd]. rewrite NotificationsProofs.notification_envelopes_preserve_the_durability_flag.
+ reflexivity.
+Qed.
+
+Theorem journal_never_commits_an_unchanged_refusal same_image source before code reason :
+ same_image before before = true ->
+ Delivery.fits_json source = true ->
+ CommitPacket.selected_decision (Packet.select source before) = State.reject code reason before ->
+ Packet.journal_replay same_image source before = (before,false).
+Proof.
+ intros Same Fits Refused. unfold Packet.journal_replay. rewrite Fits.
+ unfold CommitPacket.select_journal, CommitPacket.needs_commit. rewrite Refused.
+ cbn [State.reject State.decision_effects State.decision_world existsb orb].
+ rewrite Same. cbn [negb].
+ destruct (CommitPacket.selected_durable (Packet.select source before)); [|reflexivity].
+ unfold Delivery.deliver_with_status. destruct (Delivery.fits false _); reflexivity.
+Qed.
+
+Local Transparent DeferredCommit.select.
+Theorem journal_query_preserves_world_and_emits_no_effect same_image source command reply value :
+ same_image value value = true ->
+ Packet.decode source = Some (inl (UserCommand command)) ->
+ Packet.query command None value = Some reply ->
+ fst (Packet.journal_packet same_image source value) = value /\
+ field "effects" (snd (Packet.journal_packet same_image source value)) = Some (JArray []) /\
+ field "durable" (snd (Packet.journal_packet same_image source value)) = Some (JBool false).
+Proof.
+ intros Same Decoded Query.
+ unfold Packet.journal_packet. destruct (Delivery.fits_json source); [|repeat split; reflexivity].
+ unfold Packet.select. rewrite Decoded.
+ unfold Packet.query, CommandHandlers.query in Query.
+ cbn [CommandHandlers.task_origin] in Query.
+ destruct (CommandHandlers.interpret command false) as [observe|mutate]; [|discriminate].
+ unfold CommitPacket.journal_finalize.
+ assert (Unchanged : CommitPacket.select_journal same_image value
+     (DeferredCommit.select false (Some (UserCommand command)) value (Decision value (observe None value) [])) =
+     DeferredCommit.select false (Some (UserCommand command)) value (Decision value (observe None value) [])).
+ { unfold CommitPacket.select_journal, CommitPacket.needs_commit, DeferredCommit.select,
+     CommitPacket.choose, DeferredCommit.admit_with_status, Delivery.deliver_with_status.
+   destruct (Delivery.fits false (Dispatch.retain_live_effects (Decision value (observe None value) [])));
+   cbn [Dispatch.retain_live_effects State.reject CommitPacket.selected_decision CommitPacket.selected_durable
+     CommitPacket.selected_admitted CommitPacket.selected_source snd fst decision_world decision_effects existsb orb];
+   rewrite Same; reflexivity. }
+ rewrite Unchanged.
+ apply DeferredCommitProofs.a_noncommitting_unchanged_candidate_has_no_effect; reflexivity.
+Qed.
+Local Opaque DeferredCommit.select.
+
+Theorem historical_send_uses_the_written_admission_rule before task contents :
+ let historical := with_legacy_send_admission true before in
+ Tasks.send_result task contents historical = Tasks.input_result Tasks.AppendInput task contents historical.
+Proof. reflexivity. Qed.
+
+Theorem historical_replay_does_not_retain_its_execution_mode source before :
+ world_legacy_send_admission (fst (Packet.replay_format_28 source before)) =
+ world_legacy_send_admission before.
+Proof.
+ unfold Packet.replay_format_28.
+ destruct (Packet.replay source (with_legacy_send_admission true before)); reflexivity.
+Qed.

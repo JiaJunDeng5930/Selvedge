@@ -5,6 +5,9 @@ Open Scope string_scope.
 Open Scope N_scope.
 
 Definition writes updates := success (JObject [("updates",JObject updates)]).
+Definition read_only := success (JObject [("updates",JNull)]).
+Definition write_changes current next :=
+ if Json.equal (JObject current) (JObject next) then read_only else writes next.
 Definition bind_identity (current : response_stage) (id : json) : string + response_stage :=
  if negb (response_identity id) then inl "ChatGPT Web returned an invalid response identity"
  else match current with
@@ -15,7 +18,8 @@ Definition bind_identity (current : response_stage) (id : json) : string + respo
 Definition store_identify current id :=
  match bind_identity current id with
  | inl message => err message
- | inr next => writes (member_subset (response_fields next) ["response_id";"rejected"])
+ | inr next => let fields := ["response_id";"rejected"] in
+   write_changes (member_subset (response_fields current) fields) (member_subset (response_fields next) fields)
  end.
 Definition parsed_matches raw expected := match TextJson.parse_json (text raw) with
  | Some value => same value expected | None => false end.
@@ -27,20 +31,24 @@ Definition commit_response (current : response_stage) (response : list (string *
    let completed := CommittedResponse (text (response_id identified)) (TextJson.render_json (JObject response)) in
    match current with
    | CommittedResponse _ body =>
-     if parsed_matches (JString body) (JObject response) then inr completed
+     if parsed_matches (JString body) (JObject response) then inr current
      else inl "ChatGPT Web changed a committed response"
    | _ => inr completed end
  end.
 Definition store_finish current response :=
  match commit_response current response with
  | inl message => err message
- | inr next => writes (response_fields next)
+ | inr next => write_changes (response_fields current) (response_fields next)
  end.
 Definition store_reject current := match current with
- | AwaitingResponse | RejectedResponse => writes (member_subset (response_fields RejectedResponse) ["rejected"])
- | _ => success (JObject [("updates",JNull)])
+ | AwaitingResponse => writes (member_subset (response_fields RejectedResponse) ["rejected"])
+ | _ => read_only
  end.
-Definition store_retire := success (JObject [("updates",JObject [("retired",retirement_code Cancelled)])]).
+Definition store_retire current :=
+ match current with
+ | Cancelled => read_only
+ | _ => writes [("retired",retirement_code Cancelled)]
+ end.
 Record new_request := NewRequest {
  request_body : list (string * json); request_invocation : json; request_owner : json;
  request_profile : json; request_endpoint : json; request_binding : json; request_reset : json }.

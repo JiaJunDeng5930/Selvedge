@@ -21,13 +21,18 @@ let with_input source apply =
   | TextJson.InputInvalid -> input_error "TypeError" "Invalid domain JSON input"
   | TextJson.InputNestingExceeded -> input_error "RangeError" Model.selvedge_input_nesting_error
 let packet source world = with_input source (fun input ->
-  let world, envelope = Model.selvedge_kernel_packet input world in
+  let world, envelope = Model.selvedge_kernel_journal_packet Checkpoint_state.same_image input world in
   Js.Unsafe.obj [|
     "world", Js.Unsafe.inject world;
     "envelope", Js.Unsafe.inject (Js.string (Json.stringify envelope))
   |])
-let replay source world = with_input source (fun input ->
-  let world, durable = Model.selvedge_kernel_replay input world in
+let replay version source world = with_input source (fun input ->
+  let world, durable = match version with
+    | 28 -> Model.selvedge_kernel_replay_format_28 input world
+    | 29 -> Model.selvedge_kernel_replay input world
+    | 30 -> Model.selvedge_kernel_journal_replay Checkpoint_state.same_image input world
+    (* DEFENSE: A damaged journal can carry an unrecognized replay version. *)
+    | _ -> world, false in
   Js.Unsafe.obj [|
     "world", Js.Unsafe.inject world;
     "durable", Js.Unsafe.inject (Js.bool durable)

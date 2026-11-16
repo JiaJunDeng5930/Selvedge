@@ -150,17 +150,21 @@ export class WebRequestStore {
   identify(record, id) {
     const current = this.find(record.request_key);
     const { updates } = boundary('web.store_identify', { current, id });
-    this.db.prepare('UPDATE requests SET response_id=?, rejected=? WHERE request_key=?')
-      .run(updates.response_id, updates.rejected, record.request_key);
-    Object.assign(record, updates);
+    if (updates) {
+      this.db.prepare('UPDATE requests SET response_id=?, rejected=? WHERE request_key=?')
+        .run(updates.response_id, updates.rejected, record.request_key);
+    }
+    Object.assign(record, current, updates);
   }
 
   finish(record, response) {
     const current = this.find(record.request_key);
     const { updates } = boundary('web.store_finish', { current, response });
-    this.db.prepare('UPDATE requests SET response_id=?, response=?, rejected=? WHERE request_key=?')
-      .run(updates.response_id, updates.response, updates.rejected, record.request_key);
-    Object.assign(record, updates);
+    if (updates) {
+      this.db.prepare('UPDATE requests SET response_id=?, response=?, rejected=? WHERE request_key=?')
+        .run(updates.response_id, updates.response, updates.rejected, record.request_key);
+    }
+    Object.assign(record, current, updates);
   }
 
   reject(record) {
@@ -173,7 +177,8 @@ export class WebRequestStore {
   }
 
   retire(record) {
-    const { updates } = boundary('web.store_retire', {});
-    this.db.prepare('UPDATE requests SET retired=? WHERE request_key=?').run(updates.retired, record.request_key);
+    const current = this.find(record.request_key);
+    const { updates } = boundary('web.store_retire', { record: current });
+    if (updates) this.db.prepare('UPDATE requests SET retired=? WHERE request_key=?').run(updates.retired, record.request_key);
   }
 }
