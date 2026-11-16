@@ -233,10 +233,12 @@ Definition context_element context generation raw :=
  controls<-prepared_controls context;;
  resolve_native_element (published_input controls) generation raw.
 Definition admitted_element request context raw :=
- let native:=natural_field "native_displayed_generation" request in
- generation<-native;; input<-context_element context generation raw;;
- if InputAuthority.admit_generation generation input native (natural_field "displayed_generation" request)
- then Some input else None.
+ generation<-natural_field "native_displayed_generation" request;;
+ input<-context_element context generation raw;;
+ if InputAuthority.requires_prefix input then
+   prefix<-natural_field "displayed_generation" request;;
+   if N.eqb generation prefix then Some input else None
+ else Some input.
 Definition decode_input request context raw:=match string_field "op" raw with
 |Some "element"=>admitted_element request context raw
 |_=>InputCodecs.decode_runtime raw end.
@@ -454,11 +456,6 @@ Definition latest_changed task before after :=
    (Navigation.return_latest (prepared_state after) task)).
 Definition timeline_project context view :=
  V.view_timeline (prepared_world context) (prepared_state context) view.
-Definition reading_controls_changed before incoming task :=
- match observed_assessment_owner before incoming with
- |Some (CommandAssessment.ObjectActionOwner (TaskActions owner) key)=>
-   N.eqb owner task && existsb (fun prefix=>String.prefix prefix key) ["approve/";"deny/";"cancel/"]
- |_=>false end.
 Definition conversation_change controls (before after:prepared) view identity project :=
  child_change (Some view) (identity++"/"++V.task_parent view)
    (map (fun node=>RegionRoot (scoped_view controls (Some view),node)
@@ -534,10 +531,10 @@ Definition overlay_projection_dirty before after incoming snapshot layer :=
      |_=>true end else match incoming with
      |Some (Input.ReadTimeline _ _ _)|Some (Input.FollowLatest _)|Some (Input.SetDisclosure _ _ _ _)=>false
      |_=>section_changed "authoring" ["drafts";"pending";"mentions";"skills"] before after ||
-         section_changed "services" ["command_assessments";"directory";"preparations";"workspace_git"] before after
+         section_changed "services" ["command_assessments";"connection";"directory";"preparations";"workspace_git";"uploads"] before after
      end
    end
- |V.DirectoryOverlay=>section_changed "services" ["directory";"directory_location";"preparations"] before after ||
+ |V.DirectoryOverlay=>section_changed "services" ["directory";"directory_location";"preparations";"workspace_git"] before after ||
    section_changed "authoring" ["drafts"] before after
  |V.SettingsOverlay|V.ConfigurationOverlay|V.PreviewOverlay|V.LoginOverlay=>
    snapshot || match incoming with Some (Input.ServiceInput _) |Some (Input.SpeechInput _) => true|_=>false end end.
@@ -645,9 +642,8 @@ Definition planned_regions (context : prepared) : option region_plan :=
    |Some (Input.Stream _)|Some (Input.RetainedOutput _ _)|Some (Input.ClearDiscarded _)
    |Some (Input.ClockObserved _)|Some Input.EnvironmentObserved=>true
    |_=>snapshot end in
- let assessment_changed:=snapshot && world_fields_changed ["sequence"] before context in
- let admission_pending:=section_changed "authoring" ["pending"] before context in
- let reading_controls view:=reading_controls_changed before incoming (task_view_task view) in
+ let command_state_changed:=section_changed "authoring" ["pending"] before context ||
+    section_changed "services" ["connection"] before context in
  let per_task view :=
    let task:=task_view_task view in
    let parent:=V.task_parent view in
@@ -660,9 +656,9 @@ Definition planned_regions (context : prepared) : option region_plan :=
      (snapshot && (task_field_changed ["cursor";"operations";"working"] task before context ||
        world_fields_changed ["tools"] before context)) in
    let operations:=(snapshot && operation_projection_changed task before context) ||
-     ((assessment_changed || admission_pending) &&
+     (command_state_changed &&
        match Read.task_operations task world with Some (_::_)=>true|_=>false end) in
-   let tail:=reading_controls view || operations || (lifecycle && reply_projection_changed task before context) ||
+   let tail:=operations || (lifecycle && reply_projection_changed task before context) ||
      (snapshot && task_field_changed ["working"] task before context) in
    let discarded:=lifecycle && discarded_projection_changed task before context in
    let patch name project:=conversation_change controls before context view name project in
@@ -678,7 +674,7 @@ Definition planned_regions (context : prepared) : option region_plan :=
      else (if tail then [patch "timeline-tail" (fun ctx=>tail_project ctx view)] else []) ++
           (if discarded then [patch "discarded" (fun ctx=>discarded_project ctx view)] else []) ++
           (if latest_changed task before context then [patch "latest" latest] else [])) ++
-    (if operations || reading_controls view then [patch "approvals" (fun ctx=>approvals_project ctx view)] else []) ++
+    (if operations then [patch "approvals" (fun ctx=>approvals_project ctx view)] else []) ++
     (if snapshot && task_title_projection_changed task view before context then
       [title_change] else []) ++
     match view with
@@ -692,14 +688,7 @@ Definition planned_regions (context : prepared) : option region_plan :=
    let parent:=V.task_parent view in
    let relevant:=detail_actions_changed before context view size ||
     (snapshot && task_actions_projection_changed (task_view_task view) before context) ||
-    (assessment_changed &&
-     match Read.find_task (task_view_task view) world with
-     |Some entry=>Read.task_working entry || String.eqb (Read.task_status entry) "frozen" ||
-       match Read.task_side_parent world (Read.task_id entry) with Some _=>true|_=>false end
-     |None=>false end) ||
-    admission_pending ||
-    (section_changed "services" ["command_assessments";"connection"] before context &&
-       match incoming with Some (Input.ServiceInput _) => true|_=>false end) in
+    command_state_changed in
    let roots ctx:=
     let state:=prepared_state ctx in
     let world:=prepared_world ctx in

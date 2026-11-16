@@ -16,7 +16,7 @@ function rejected(error, outcome) {
   return error;
 }
 
-export const journalFormat = 'selvedge-rocq-journal-28';
+export const journalFormat = 'selvedge-rocq-journal-29';
 const journalSchemaVersion = 1;
 const checkpointInterval = 128;
 
@@ -243,7 +243,7 @@ export class Journal extends EventEmitter {
     return result;
   }
 
-  execute(input) {
+  execute(input, observeRead) {
     // DEFENSE: Requests already in flight at shutdown can still reach the journal.
     if (this.#closing) return Promise.reject(rejected(new Error('Journal is closed'), 'rejected'));
     const result = this.#tail.then(async () => {
@@ -272,7 +272,10 @@ export class Journal extends EventEmitter {
       }
       if (!response.value.durable) {
         this.program = response.program;
-        return { sequence: this.sequence, program: this.program, ...response.value };
+        const decision = { sequence: this.sequence, program: this.program, ...response.value };
+        // Capture an authorized publication before the next input can replace this world.
+        if (observeRead) observeRead(decision);
+        return decision;
       }
       const sequence = this.sequence + 1;
       let committing = false;

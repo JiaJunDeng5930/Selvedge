@@ -145,9 +145,9 @@ function taskObservation(effect, fields) {
   return effect.task_id === undefined ? fields : { ...fields, task_id: effect.task_id };
 }
 
-const requestScope = () => ({ namespace: publication.namespace, sequence: publication.sequence, ticket: state.services.connection.ticket });
+const requestScope = () => ({ namespace: publication.namespace, ticket: state.services.connection.ticket });
 const ownsRequestFailure = scope => publicationEvent('request_failure', { expected_namespace: scope.namespace,
-  expected_sequence: scope.sequence, ticket: scope.ticket, connection: state.services.connection });
+  ticket: scope.ticket, connection: state.services.connection });
 const authorizationRevoked = error => error.status === 401 || error.status === 403;
 function observeRequestFailure(error, scope) {
   if (authorizationRevoked(error) && ownsRequestFailure(scope))

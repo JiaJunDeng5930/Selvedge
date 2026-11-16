@@ -295,7 +295,7 @@ Theorem actual_delivery_reaches_idle_task : forall source item result task,
 Proof.
  intros source item result task found available idle nonempty.
  unfold DecisionComposition.run, DecisionComposition.transform, DecisionComposition.maintain, TaskGraph.send_delivery; cbn [DecisionComposition.updated_world DecisionComposition.appended_effects].
- rewrite TaskChangesProofs.send_expression. cbv beta zeta. rewrite found, idle, nonempty, available. cbn.
+ rewrite TaskChangesProofs.send_expression. cbv beta zeta. rewrite found, idle, nonempty. cbn.
  cbn [decision_world].
  assert (tasks_same : forall id graph receipt value,
    K.find_task id (TaskGraph.record_receipt graph receipt value)=K.find_task id value).

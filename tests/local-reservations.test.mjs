@@ -68,6 +68,12 @@ exec ${shellQuote(realGit)} "$@"
   const failed = await until(() => recovered.command({ op: 'read_worktree', task_id }), value => value.status === 'create_failed');
   assert.equal(failed.root, reservedRoot);
   assert.equal((await lstat(reservedRoot)).isDirectory(), true);
+  const additional = 'Retain this message even though the checkout failed.';
+  await recovered.command({ op: 'send', task_id, message: additional });
+  const blocked = await recovered.command({ op: 'read', task_id });
+  assert.match(JSON.stringify(blocked), /Retain this message even though the checkout failed/);
+  assert.equal(blocked.task.phase, 'ready', 'The accepted input remains queued for execution');
+  assert.equal((await recovered.command({ op: 'read_worktree', task_id })).status, 'create_failed');
   await recovered.command({ op: 'archive', task_id });
   const archived = await until(() => recovered.command({ op: 'read_worktree', task_id }), value => value.status === 'archived');
   assert.equal(archived.root, null, 'Reservation release must not invent an archive path');

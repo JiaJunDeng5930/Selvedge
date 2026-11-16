@@ -284,40 +284,6 @@ export function decodeRemoteTransportObservation(input: unknown): RemoteTranspor
   }
 }
 
-export type RemoteAuthorizationState =
-  | {"phase": "first"; }
-  | {"phase": "second"; }
-  | {"phase": "third"; }
-  | {"phase": "last"; };
-export function decodeRemoteAuthorizationState(input: unknown): RemoteAuthorizationState {
-  const source = decodeObject(input);
-  switch (source["phase"]) {
-    case "first": exactFields(source, ["phase"]); return {"phase": "first"};
-    case "second": exactFields(source, ["phase"]); return {"phase": "second"};
-    case "third": exactFields(source, ["phase"]); return {"phase": "third"};
-    case "last": exactFields(source, ["phase"]); return {"phase": "last"};
-    // DEFENSE: External boundary values must name a declared RemoteAuthorizationState variant.
-    default: throw new TypeError('Unknown RemoteAuthorizationState discriminant');
-  }
-}
-
-export type RemoteAuthorizationAction =
-  | {"kind": "check"; }
-  | {"kind": "capture"; }
-  | {"kind": "deny"; }
-  | {"kind": "disconnect"; };
-export function decodeRemoteAuthorizationAction(input: unknown): RemoteAuthorizationAction {
-  const source = decodeObject(input);
-  switch (source["kind"]) {
-    case "check": exactFields(source, ["kind"]); return {"kind": "check"};
-    case "capture": exactFields(source, ["kind"]); return {"kind": "capture"};
-    case "deny": exactFields(source, ["kind"]); return {"kind": "deny"};
-    case "disconnect": exactFields(source, ["kind"]); return {"kind": "disconnect"};
-    // DEFENSE: External boundary values must name a declared RemoteAuthorizationAction variant.
-    default: throw new TypeError('Unknown RemoteAuthorizationAction discriminant');
-  }
-}
-
 export type HttpPlan =
   | {"action": "respond"; "status": number; "value": JsonValue}
   | {"action": "throw"; "kind": "TypeError" | "RangeError"; "message": string}
@@ -325,9 +291,7 @@ export type HttpPlan =
   | {"action": "observe_host"; }
   | {"action": "parse_url"; }
   | {"action": "observe_connection_authorization"; }
-  | {"action": "connection_method_origin"; }
   | {"action": "observe_local_authorization"; }
-  | {"action": "local_origin"; }
   | {"action": "asset"; }
   | {"action": "audio_capabilities"; }
   | {"action": "audio_transcribe"; }
@@ -366,9 +330,7 @@ export function decodeHttpPlan(input: unknown): HttpPlan {
     case "observe_host": exactFields(source, ["action"]); return {"action": "observe_host"};
     case "parse_url": exactFields(source, ["action"]); return {"action": "parse_url"};
     case "observe_connection_authorization": exactFields(source, ["action"]); return {"action": "observe_connection_authorization"};
-    case "connection_method_origin": exactFields(source, ["action"]); return {"action": "connection_method_origin"};
     case "observe_local_authorization": exactFields(source, ["action"]); return {"action": "observe_local_authorization"};
-    case "local_origin": exactFields(source, ["action"]); return {"action": "local_origin"};
     case "asset": exactFields(source, ["action"]); return {"action": "asset"};
     case "audio_capabilities": exactFields(source, ["action"]); return {"action": "audio_capabilities"};
     case "audio_transcribe": exactFields(source, ["action"]); return {"action": "audio_transcribe"};
@@ -508,11 +470,6 @@ export function decodeCloudResourceTransition(input: unknown): CloudResourceTran
 export type RemoteTransportTransition = {"state": JsonValue; "actions": Array<JsonValue>};
 export function decodeRemoteTransportTransition(input: unknown): RemoteTransportTransition {
  const source = decodeObject(input); exactFields(source, ["state","actions"]); return {"state": decodeJson(source["state"]), "actions": decodeArray(source["actions"], item => decodeJson(item))};
-}
-
-export type RemoteAuthorizationTransition = {"state": JsonValue; "action": JsonValue};
-export function decodeRemoteAuthorizationTransition(input: unknown): RemoteAuthorizationTransition {
- const source = decodeObject(input); exactFields(source, ["state","action"]); return {"state": decodeJson(source["state"]), "action": decodeJson(source["action"])};
 }
 
 export type WorkspaceCommandPlan = {"root_task": boolean; "worktree": boolean; "selections": Array<JsonValue>};

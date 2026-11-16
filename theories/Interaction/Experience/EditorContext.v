@@ -9,14 +9,12 @@ From Selvedge.Interaction.Submission Require Draft.
     and command admission. Each entry supplies these from its own session. *)
 Record resources := Resources {
   editor_pending : editor -> bool;
-  editor_preparing : editor -> bool;
   editor_uploading : editor -> bool;
   directory_entry : editor -> string;
   directory_result : Draft.draft -> option (sum string (Domain.workspace * json));
   git_observation : resource (editor * string) bool;
   cloud_repository_observation : resource (editor * string) bool;
   connected : bool;
-  admission_revision : N;
   command_assessments : list (resource request observation);
   current_time : option N
 }.

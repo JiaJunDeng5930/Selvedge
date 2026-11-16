@@ -659,20 +659,11 @@ test('the mobile card editor keeps real repairs visible and missing model choice
   assert.equal((await command({ op: 'list_cards' })).cards[0].title, generatedTitle);
 });
 
-test('the card action menu keeps positions while service assessments settle', async t => {
+test('the card action menu stays ordered and ready on opening', async t => {
   const { page, command } = await browserFixture(t);
   await command({ op: 'board_settings', automatic: false, draft_profile: '' });
   const title = 'A model-assigned card';
   await command({ op: 'create_card', title, assignee: 'profile/interactive' });
-  const archiveCheck = Promise.withResolvers();
-  const otherChecks = Promise.withResolvers();
-  await page.route('**/api/assess', async route => {
-    const owner = route.request().postDataJSON()?.editor;
-    if (owner?.kind !== 'menu') return route.continue();
-    const response = await route.fetch();
-    await (owner.action === 'archive' ? archiveCheck.promise : otherChecks.promise);
-    await route.fulfill({ response });
-  });
   const menu = page.getByRole('menu', { name: '卡片操作', exact: true });
   const action = name => menu.getByRole('button', { name, exact: true });
   const rows = () => menu.getByRole('button').evaluateAll(buttons => buttons.map(button => {
@@ -682,40 +673,18 @@ test('the card action menu keeps positions while service assessments settle', as
       y: button.getBoundingClientRect().y, labelX: label?.getBoundingClientRect().x };
   }));
   const order = ['移动卡片', '编辑卡片', '启动对话', '归档卡片', '置顶卡片', '删除卡片'];
-  let opening;
-  function assertMenu(current, available) {
-    assert.deepEqual(current.map(({ name }) => name), order);
-    assert.deepEqual(current.filter(row => !row.disabled).map(({ name }) => name), available);
-    assert.deepEqual(current.map(({ id }) => id), opening.map(({ id }) => id));
-    assert.ok(current.every((row, index) => Math.abs(row.y - opening[index].y) <= 1),
-      'Permission results leave each action at the same screen position');
-    assert.ok(current.every(row => row.labelX !== undefined && Math.abs(row.labelX - current[0].labelX) <= 1),
-      'The visible card action labels start at the same horizontal position');
-  }
-  try {
-    await page.getByRole('navigation', { name: 'Global navigation', exact: true })
-      .getByRole('button', { name: '卡片看板', exact: true }).click();
-    await page.getByRole('article', { name: title, exact: true })
-      .getByRole('button', { name: '卡片操作', exact: true }).click();
-    await action('启动对话').waitFor();
-    opening = await rows();
-    assertMenu(opening, ['移动卡片', '编辑卡片']);
-    assert.ok(opening.every((row, index) => index === 0 || row.y > opening[index - 1].y),
-      'Visual order follows the declared action order');
-    await action('编辑卡片').focus();
-    archiveCheck.resolve();
-    await action('归档卡片').and(page.locator(':not([aria-disabled="true"])')).waitFor();
-    const partial = await rows();
-    assertMenu(partial, ['移动卡片', '编辑卡片', '归档卡片']);
-    assert.equal(partial.find(row => row.name === '启动对话').reason, '正在检查');
-    assert.equal(await action('编辑卡片').evaluate(button => document.activeElement === button), true);
-  } finally {
-    archiveCheck.resolve();
-    otherChecks.resolve();
-  }
-  for (const name of ['启动对话', '置顶卡片', '删除卡片'])
-    await action(name).and(page.locator(':not([aria-disabled="true"])')).waitFor();
-  assertMenu(await rows(), order);
+  await page.getByRole('navigation', { name: 'Global navigation', exact: true })
+    .getByRole('button', { name: '卡片看板', exact: true }).click();
+  await page.getByRole('article', { name: title, exact: true })
+    .getByRole('button', { name: '卡片操作', exact: true }).click();
+  await action('启动对话').waitFor();
+  const opening = await rows();
+  assert.deepEqual(opening.map(({ name }) => name), order);
+  assert.equal(opening.every(row => !row.disabled), true);
+  assert.ok(opening.every((row, index) => index === 0 || row.y > opening[index - 1].y),
+    'Visual order follows the declared action order');
+  assert.ok(opening.every(row => row.labelX !== undefined && Math.abs(row.labelX - opening[0].labelX) <= 1),
+    'The visible card action labels start at the same horizontal position');
   const remove = await action('删除卡片').evaluate(button => ({
     color: getComputedStyle(button).color,
     separator: getComputedStyle(button, '::before').borderBlockStartWidth,

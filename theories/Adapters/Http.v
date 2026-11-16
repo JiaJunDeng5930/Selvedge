@@ -58,11 +58,6 @@ Definition header (source : json) (key : string) := get (get source "headers") k
 Definition host_valid (source : json) := boolean_field source "address_present" &&
   equal (header source "host") (get source "expected_host").
 Definition open_valid (source : json) := equal (get source "closing") (JBool false).
-Definition open_host_guard (source : json) (next : json -> json) :=
-  (* DEFENSE: Reject shutdown and an unrelated Host header before URL or secret observations. *)
-  if negb (open_valid source) then rejection 503 "stopping" "Server is stopping"
-  else if negb (host_valid source) then rejection 400 "host" "Invalid local host"
-  else next source.
 Definition connection_path (source : json) := starts (str source "pathname") "/api/chatgpt/".
 Definition authorized (source : json) := boolean_field source "authorized".
 Definition authorization_rejection (source : json) :=
@@ -73,15 +68,14 @@ Definition local_origin_valid (source : json) :=
 Definition connection_origin_valid (source : json) :=
   negb (truthy (header source "origin")) && String.eqb (str source "search") "".
 Definition request_guard (source : json) (local connection : json -> json) :=
-  open_host_guard source (fun source =>
-    (* DEFENSE: Peer supplied URL and headers may reach any later HTTP stage directly. *)
-    if negb (authorized source) then authorization_rejection source
-    else if connection_path source then
-      if negb (String.eqb (str source "method") "POST") then rejection 405 "method" "Use POST"
-      else if negb (connection_origin_valid source) then rejection 403 "origin" "Browser origins and query parameters are not accepted"
-      else connection source
-    else if negb (local_origin_valid source) then rejection 403 "origin" "Origin does not match this server"
-    else local source).
+  (* DEFENSE: API callers can supply invalid credentials, methods and origins. *)
+  if negb (authorized source) then authorization_rejection source
+  else if connection_path source then
+    if negb (String.eqb (str source "method") "POST") then rejection 405 "method" "Use POST"
+    else if negb (connection_origin_valid source) then rejection 403 "origin" "Browser origins and query parameters are not accepted"
+    else connection source
+  else if negb (local_origin_valid source) then rejection 403 "origin" "Origin does not match this server"
+  else local source.
 Fixpoint split_path (path : string) : list string :=
   match path with
   | EmptyString => [""]
@@ -110,15 +104,6 @@ Definition audio_target (source : json) :=
    else if String.eqb kind "login" then Some ModelResultDeclarations.Http_audio_login
    else None in
  match action with Some action => ModelResultDeclarations.http_action_name action | None => "" end.
-Definition body_target (source : json) :=
-  match ModelResultDeclarations.http_body_target_named (audio_target source) with
-  | Some target => Some target
-  | None => match selected_route source with
-    | Some route => ModelResultDeclarations.http_body_target_named (ModelResultDeclarations.http_action_name route.(route_target))
-    | None => if connection_path source && String.eqb (str source "method") "POST"
-              then ModelResultDeclarations.http_body_target_named
-                (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_connection_command) else None
-    end end.
 Definition local_target (source : json) :=
   if String.eqb (str source "method") "POST" && String.eqb (str source "pathname") "/api/board/attachments"
   then (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_attachment_upload)
@@ -150,7 +135,7 @@ Definition local_route (source : json) :=
   let target := local_target source in
   if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_attachment_upload) then upload source
   else if String.eqb target "" then unknown_local source
-  else match body_target source with Some body => content_target body | None => action_named target end.
+  else match ModelResultDeclarations.http_body_target_named target with Some body => content_target body | None => action_named target end.
 Definition nonempty_text (value : json) := is_text value && negb (String.eqb (text value) "").
 Definition permissions (body : json) :=
  match Schema.decode ModelResultDeclarations.http_permissions_fields body with
@@ -190,26 +175,31 @@ Definition body_error (target : string) := exception ModelResultDeclarations.Typ
 Definition body_action (target : ModelResultDeclarations.http_body_target) (value : option json) :=
  Variant.encode_packet
    (Variant.pack (ModelResultDeclarations.http_body_declaration (proj1_sig target)) [!value!]).
-Definition body_stage (body : bool) (source : json) :=
-  match body_target source with
+Definition content_type_stage (source : json) :=
+  match ModelResultDeclarations.http_body_target_named (str source "target") with
+  | None => unknown_route
+  | Some target =>
+    if starts (str source "content_type") "application/json" then body_action target None
+    else rejection 415 "content_type" "Send application/json"
+  end.
+Definition body_stage (source : json) :=
+  match ModelResultDeclarations.http_body_target_named (str source "target") with
   | None => unknown_route
   | Some selected => let target := proj1_sig selected in
-  if negb (String.eqb (str source "target") target) then unknown_route
-  else if negb (starts (str source "content_type") "application/json")
-    then rejection 415 "content_type" "Send application/json"
-  else if negb body then body_action selected None
-  else match as_string (get source "text") with
-  | None => body_error target
-  | Some original =>
-    match TextJson.parse_input_json original with
-    | TextJson.InputAccepted value => match body_payload target value with
-      | Some payload => body_action selected (Some payload)
-      | None => body_error target
+    match as_string (get source "text") with
+    | None => body_error target
+    | Some original =>
+      match TextJson.parse_input_json original with
+      | TextJson.InputAccepted value => match body_payload target value with
+        | Some payload => body_action selected (Some payload)
+        | None => body_error target
+        end
+      | TextJson.InputInvalid => body_error target
+      | TextJson.InputNestingExceeded => exception ModelResultDeclarations.RangeErrorKind TextJson.input_nesting_error
       end
-    | TextJson.InputInvalid => body_error target
-    | TextJson.InputNestingExceeded => exception ModelResultDeclarations.RangeErrorKind TextJson.input_nesting_error
     end
-  end end.
+  end.
+
 Definition audio_limits := Variant.encode_packet (Variant.pack ModelDeclarations.audio_allowed
  [!Audio.asr_max_bytes;Audio.request_timeout_ms;Audio.connect_timeout_ms;Audio.session_max_ms!]).
 Definition audio_reject (message : string) := Variant.encode_packet
@@ -253,20 +243,20 @@ Definition request_error_response (source : json) :=
     "request_failed" message.
 Definition call (operation : string) (source : json) :=
   if String.eqb operation "http.closing" then success
-    (if boolean_field source "closing" then rejection 503 "stopping" "Server is stopping" else action ModelResultDeclarations.Http_observe_host)
-  else if String.eqb operation "http.preflight" then success (open_host_guard source (fun _ => action ModelResultDeclarations.Http_parse_url))
-  else if String.eqb operation "http.route" then success (open_host_guard source (fun source =>
-    if String.eqb (str source "method") "GET" && boolean_field source "asset" then action ModelResultDeclarations.Http_asset
-    else action (if connection_path source then ModelResultDeclarations.Http_observe_connection_authorization else ModelResultDeclarations.Http_observe_local_authorization)))
-  else if String.eqb operation "http.connection_authorization" || String.eqb operation "http.local_authorization"
-    then success (open_host_guard source (fun source =>
-      if authorized source then action (if connection_path source then ModelResultDeclarations.Http_connection_method_origin else ModelResultDeclarations.Http_local_origin)
-      else authorization_rejection source))
-  else if String.eqb operation "http.connection_method_origin" || String.eqb operation "http.local_origin"
-    then success (request_guard source local_route (fun source =>
-      match body_target source with Some target => content_target target | None => unknown_route end))
-  else if String.eqb operation "http.content_type" || String.eqb operation "http.body"
-    then success (request_guard source (body_stage (String.eqb operation "http.body")) (body_stage (String.eqb operation "http.body")))
+    (if open_valid source then action ModelResultDeclarations.Http_observe_host
+     else rejection 503 "stopping" "Server is stopping")
+  else if String.eqb operation "http.preflight" then success
+    (if host_valid source then action ModelResultDeclarations.Http_parse_url else rejection 400 "host" "Invalid local host")
+  else if String.eqb operation "http.route" then success
+    (if String.eqb (str source "method") "GET" && boolean_field source "asset" then action ModelResultDeclarations.Http_asset
+     else action (if connection_path source then ModelResultDeclarations.Http_observe_connection_authorization else ModelResultDeclarations.Http_observe_local_authorization))
+  else if String.eqb operation "http.authorization" then success
+    (request_guard source local_route (fun source =>
+      match ModelResultDeclarations.http_body_target_named
+        (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_connection_command) with
+      | Some target => content_target target | None => unknown_route end))
+  else if String.eqb operation "http.content_type" then success (content_type_stage source)
+  else if String.eqb operation "http.body" then success (body_stage source)
   else if String.eqb operation "http.error" then success (request_error_response source)
   else if String.eqb operation "http.reply_status" then success (number (if UserCommand.accepted (get source "reply") then 200 else 400))
   else if String.eqb operation "http.audio" then success (audio_admission source)

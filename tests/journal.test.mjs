@@ -109,19 +109,14 @@ test('the previous durable journal format is rejected without replay or conversi
   const options = { home: directory, cwd: directory,
     config: validateConfig({ ...defaultConfig, chatgpt: false }) };
   const filename = path.join(directory, 'journal.sqlite');
-  // Recorded on 1515e4ce through create_idle, create_card, link_card and a rejected
-  // update_card. Replaying that refusal under the new editing rules could turn it into an edit.
-  const original = gunzipSync(await readFile(new URL('./fixtures/journal-format13.sqlite.gz', import.meta.url)));
+  // Recorded through the public CLI before journal format 29 changed message admission.
+  const original = gunzipSync(await readFile(new URL('./fixtures/journal-format28-unversioned.sqlite.gz', import.meta.url)));
   await writeFile(filename, original, { mode: 0o600 });
 
   await assert.rejects(async () => {
     const service = await Service.open(options);
     await service.close();
-  }, error => {
-    assert.ok(error instanceof Error);
-    assert.notEqual(error.message.trim(), '');
-    return true;
-  });
+  }, /Unsupported Selvedge Rocq journal format selvedge-rocq-journal-28/);
   assert.deepEqual(await readFile(filename), original);
 });
 

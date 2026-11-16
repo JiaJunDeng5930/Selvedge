@@ -36,10 +36,10 @@ Definition directory_result state draft :=
 Definition editor_context state :=
  let services := State.service_state state in
  EC.Context (State.current_draft state)
-   (EC.Resources (fun e=>State.pending_editor e state) (fun e=>Services.preparing e services)
+   (EC.Resources (fun e=>State.pending_editor e state)
      (fun e=>Services.blocks e services) (project_directory_buffer state) (directory_result state)
      (Services.workspace_git services) (Services.cloud_repository services)
-     (Services.connected services) (State.generation(State.navigation_state state))
+     (Services.connected services)
      (Services.command_assessments services) (State.now state)).
 Coercion editor_context : State.state >-> EC.context.
 

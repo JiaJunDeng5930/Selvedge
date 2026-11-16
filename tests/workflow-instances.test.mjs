@@ -48,52 +48,25 @@ test('a ticket waits for every exit, with a fresh reviewer and a reused implemen
   await editor.waitFor({ state: 'hidden' });
   const { card_id } = await command({ op: 'create_card', title: 'Workflow acceptance ticket' });
   await page.getByRole('button', { name: '卡片看板', exact: true }).click();
-  let concurrentChecks = 0;
-  let peakChecks = 0;
-  let checkedActions = 0;
-  let measureChecks = true;
-  let failEntranceCheck = true;
-  let failLaunchCheckAtRevision;
-  let holdLaunchRevision;
-  const launchCheck = Promise.withResolvers();
-  t.after(() => launchCheck.resolve());
+  const workflowAssessments = [];
   await page.route('**/api/assess', async route => {
-    const { editor: owner, command: assessed } = route.request().postDataJSON();
-    if (measureChecks && owner.kind !== 'candidate') {
-      checkedActions++;
-      peakChecks = Math.max(peakChecks, ++concurrentChecks);
-      await delay(60);
-      concurrentChecks--;
+    const operation = route.request().postDataJSON()?.command?.op;
+    if (operation === 'configure_ticket_workflow' || operation === 'start_ticket_workflow') {
+      workflowAssessments.push(operation);
+      return route.abort();
     }
-    if ((failEntranceCheck && assessed?.op === 'configure_ticket_workflow' && assessed.entrance === 'alternative') ||
-        (failLaunchCheckAtRevision !== undefined && assessed?.op === 'start_ticket_workflow' &&
-          assessed.revision === failLaunchCheckAtRevision)) {
-      if (assessed.op === 'configure_ticket_workflow') failEntranceCheck = false;
-      else failLaunchCheckAtRevision = undefined;
-      await route.abort();
-    } else {
-      if (assessed?.op === 'start_ticket_workflow' && assessed.revision === holdLaunchRevision)
-        await launchCheck.promise;
-      await route.continue();
-    }
+    await route.continue();
   });
   await page.getByRole('button', { name: '打开 Workflow acceptance ticket', exact: true }).click();
   const details = page.getByRole('dialog', { name: '卡片详情', exact: true });
-  await details.getByRole('button', { name: '重新检查 · 选择 Implement and review · alternative', exact: true }).click();
-  await until(() => checkedActions >= 3, 'Opening a card checks multiple actions');
-  assert.equal(peakChecks, 1);
-  measureChecks = false;
   await details.getByRole('button', { name: '选择 Implement and review · alternative', exact: true }).click();
   await details.getByText('Implement and review · alternative', { exact: true }).waitFor();
   await page.setViewportSize({ width: 768, height: 1024 });
-  failLaunchCheckAtRevision = (await command({ op: 'read_card', card_id })).revision + 1;
-  holdLaunchRevision = failLaunchCheckAtRevision;
   const change = details.getByText('更改工作流入口', { exact: true });
   assert.equal(await change.evaluate(el => el.getBoundingClientRect().bottom <= innerHeight), true);
   await change.click();
   await details.getByRole('button', { name: '选择 Implement and review · start', exact: true }).click();
   await details.getByText('Implement and review · start', { exact: true }).waitFor();
-  await details.getByRole('button', { name: '重新检查', exact: true }).click();
   await page.setViewportSize({ width: 360, height: 640 });
   let allowStart;
   const startGate = new Promise(resolve => { allowStart = resolve; });
@@ -108,9 +81,6 @@ test('a ticket waits for every exit, with a fresh reviewer and a reused implemen
   const launch = details.getByRole('button', { name: '启动工作流实例', exact: true });
   assert.equal(await launch.evaluate(el => el.getBoundingClientRect().bottom <= innerHeight), true);
   await launch.click();
-  await details.getByRole('button', { name: '正在检查启动条件…', exact: true }).waitFor();
-  assert.equal((await command({ op: 'read_card', card_id })).workflow_instance_id, null);
-  launchCheck.resolve();
   const waitingForReceipt = details.getByRole('button', { name: /正在等待启动回执|服务已收到请求/ });
   await waitingForReceipt.waitFor();
   const instance_id = await until(async () => {
@@ -119,6 +89,7 @@ test('a ticket waits for every exit, with a fresh reviewer and a reused implemen
   }, 'Starting from the board attaches a workflow instance');
   await details.getByRole('button', { name: `实例 #${instance_id} · 进行中`, exact: true }).waitFor();
   await waitingForReceipt.waitFor({ state: 'hidden' });
+  assert.deepEqual(workflowAssessments, []);
   allowStart();
   const read = () => command({ op: 'read_workflow_instance', instance_id });
   const card = () => command({ op: 'read_card', card_id });

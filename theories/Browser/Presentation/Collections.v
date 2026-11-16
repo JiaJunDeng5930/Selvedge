@@ -85,7 +85,7 @@ Definition card_destinations snapshot s board_parent candidates value :=
     (if Read.card_archived value then[]else match ObjectActions.resolve snapshot s(CardActions id)"archive"with
      |None=>[]|Some descriptor=>match ObjectActions.command descriptor with
       |None=>[]|Some command=>[Placement(part board_parent "archive-destination")
-        (Control "archive" "归档卡片"Secondary(Input.Command command)(domain_availability(Authoring.command_availability snapshot s command)))]end end)
+        (Control "archive" "归档卡片"Secondary(Input.Command command)(domain_availability(Authoring.command_availability s command)))]end end)
  |None=>[]end.
 Definition card_conversation snapshot parent value activity :=
  let identity:="card/conversation" in
@@ -401,13 +401,10 @@ Definition ticket_workflow_controls snapshot s parent (card : Read.card) :=
      let pending := State.pending_command command s in
      let connected := Services.connected (State.service_state s) in
      let request := Input.RequestCommand command in
-     let progress := if State.checking_command command s then "正在检查入口切换…" else "正在提交…" in
+     let progress := "正在提交…" in
      let control := if pending then Control key progress Secondary request (Busy progress)
        else if negb connected then Control key caption Secondary request (Unavailable "正在重新连接服务…")
-       else match Authoring.command_assessment_failure snapshot s command with
-       | Some _ => Control key ("重新检查 · " ++ caption) Secondary (Input.RetryCommandAssessment command) Available
-       | None => Control key caption Secondary request
-           (value_or Available (option_map domain_availability (Authoring.direct_command_admission snapshot s command))) end in
+       else Control key caption Secondary request Available in
      [declared parent Roles.Button control]
    | None => [] end in
  let configured : list (node Input.input) := match link with

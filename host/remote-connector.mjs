@@ -1,4 +1,4 @@
-import { initialTransport, observeTransport, transportRunning, initialConnectorSession, observeConnectorSession, interpretConnectorFrame, interpretConnectorCapture, interpretConnectorDelivery, enqueueRemoteOperation, authorizeRemoteCapture } from '../remote/transport-runner.ts';
+import { initialTransport, observeTransport, transportRunning, initialConnectorSession, observeConnectorSession, interpretConnectorFrame, interpretConnectorCapture, interpretConnectorDelivery, enqueueRemoteOperation } from '../remote/transport-runner.ts';
 import { stringifyJson } from './public/json-tokens.mjs';
 import {
   REMOTE_PROTOCOL_VERSION, MAX_REMOTE_FRAME_BYTES,
@@ -277,15 +277,14 @@ export class RemoteConnector {
     });
   }
 
-  #authorize(session, connection, authorized) {
-    return authorizeRemoteCapture({
-      check: () => this.#service.remoteCheck(connection.controllerId, connection.grantEpoch),
-      active: () => this.#current(session) && connection.active,
-      currentSequence: () => this.#service.browserSnapshot().sequence,
-      capture: authorized,
-      deny: () => { this.#step('capture', { generation: session.generation, connection_id: connection.id, method: 'unsubscribe' }); },
-      disconnect: () => this.#disconnect(session, 'authorization_revision_changed'),
+  async #authorize(session, connection, capture) {
+    let allowed = false;
+    await this.#service.remoteCheck(connection.controllerId, connection.grantEpoch, result => {
+      allowed = this.#current(session) && connection.active && result.reply.ok;
+      if (allowed) capture();
+      else this.#step('capture', { generation: session.generation, connection_id: connection.id, method: 'unsubscribe' });
     });
+    return allowed;
   }
 
   #snapshot() {

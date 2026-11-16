@@ -194,8 +194,6 @@ export async function createManagedWorktree(effect, { home, limits, signal } = {
     files = await locations(home, effect.task_id);
     root = files.active;
     const primary = await realpath(effect.source_root);
-    // DEFENSE: The source repository or HEAD can disappear after the command's eligibility observation.
-    if (!await observeWorkspaceGit(primary, { signal })) throw new Error('The primary workspace must have a Git commit');
     repository = await realpath((await git(primary, ['rev-parse', '--show-toplevel'], { signal })).trim());
     boundary('effect.worktree_path', { operation: 'source', home: files.home, primary, repository });
     const commit = (await git(repository, ['rev-parse', '--verify', 'HEAD^{commit}'], { signal })).trim();

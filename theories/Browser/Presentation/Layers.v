@@ -26,21 +26,16 @@ Open Scope string_scope.
 Module UX := Selvedge.Interaction.Experience.Model.
 Module G := Selvedge.Generated.Commands.
 Definition status_availability status :=match status with
-|ObjectActions.Available=>Available|ObjectActions.InFlight=>Busy "正在处理"|ObjectActions.Awaiting=>Unavailable "正在检查"
-|ObjectActions.Unavailable reason|ObjectActions.AssessmentFailed reason=>Unavailable reason end.
-Definition action_nodes subject occurrence parent :=flat_map(fun action=>
+|ObjectActions.Available=>Available|ObjectActions.InFlight=>Busy "正在处理"
+|ObjectActions.Unavailable reason=>Unavailable reason end.
+Definition action_nodes subject occurrence parent :=map(fun action=>
  let key:=part parent(ObjectActions.action_key action)in
  let role:=match subject,ObjectActions.action_confirmation action with
   |CardActions _,Some _=>Roles.DestructiveButton|_,_=>Roles.Button end in
- let command:=Node key(ObjectActions.action_key action)(ObjectActions.action_label action)role
+ Node key(ObjectActions.action_key action)(ObjectActions.action_label action)role
   (Activate(Control(ObjectActions.action_key action)(ObjectActions.action_label action)
     (match ObjectActions.action_confirmation action with Some _=>Destructive|None=>Secondary end)
-    (Input.MenuAction subject(ObjectActions.action_key action)occurrence)(status_availability(ObjectActions.action_status action))))[]in
- match ObjectActions.action_status action with
- |ObjectActions.AssessmentFailed reason=>[command;
-   information parent("failure/"++ObjectActions.action_key action)Information.Description reason;
-   declared parent Roles.Button(secondary("retry/"++ObjectActions.action_key action)"重试"(Input.RetryMenuAssessment subject(ObjectActions.action_key action)occurrence))]
- | _=>[command]end).
+    (Input.MenuAction subject(ObjectActions.action_key action)occurrence)(status_availability(ObjectActions.action_status action))))[]).
 Definition card_decision_title decision := match decision with
  |CardDecisions.MoveCard=>"移动卡片"|CardDecisions.LinkCard=>"关联对话"end.
 Definition card_decision_controls snapshot subject parent :=
@@ -74,7 +69,7 @@ Definition card_choice_nodes snapshot s card decision occurrence query parent :=
   let summary:=if Nat.ltb 24 (List.length matching) then
     [information parent "search-hint" Information.Description "仅显示前 24 项。搜索可以缩小范围。"]
    else match matching with []=>[empty]|_=>[]end in
-  List.app summary(action_nodes subject occurrence parent(map(ObjectActions.observe snapshot s subject)actions))
+  List.app summary(action_nodes subject occurrence parent(map(ObjectActions.observe s)actions))
  |_,_=>[information parent "choices-unavailable" Information.Description "选项不可用。"]end.
 
 Definition detail_action_input parent(action:ObjectActions.action):Input.input:=
@@ -100,9 +95,9 @@ Definition ticket_workflow_launch snapshot s parent card :=
    let key:="workflow-start-ticket" in
    let caption:=match status with
     |ObjectActions.InFlight=>match pending with
-      |Some entry=>match State.outcome_unknown entry,State.purpose entry with
-        |Some _,_=>"启动结果待确认"|None,State.DirectAdmission=>"正在检查启动条件…"
-        |None,_=>if State.request_received entry then "服务已收到请求，正在等待启动确认…" else "正在等待启动回执…" end
+      |Some entry=>match State.outcome_unknown entry with
+        |Some _=>"启动结果待确认"
+        |None=>if State.request_received entry then "服务已收到请求，正在等待启动确认…" else "正在等待启动回执…" end
       |None=>"正在等待启动回执…" end
     |_=>match Read.ticket_instance snapshot card with
       |Some instance=>if String.eqb (Read.workflow_instance_status instance) "已完成" then
@@ -112,14 +107,9 @@ Definition ticket_workflow_launch snapshot s parent card :=
    let launch:=declared parent Roles.PrimaryButton(Control key caption
      Primary (Input.RequestCommand command)
      (if connected then match status with
-      |ObjectActions.Awaiting=>Available|ObjectActions.InFlight=>Busy caption|_=>status_availability status end
+      |ObjectActions.InFlight=>Busy caption|_=>Available end
       else Unavailable "正在重新连接服务…")) in
-   launch :: match status with
-   |ObjectActions.AssessmentFailed reason=>
-      [information parent "workflow-start-check-failed" Information.Description ("无法检查工作流启动。 "++reason);
-       declared parent Roles.Button(secondary "workflow-start-check-retry" "重新检查"
-         (Input.RetryMenuAssessment subject "run" 0%N))]
-   |_=>[] end
+   [launch]
  end
  end.
 Definition detail_action_nodes snapshot s subject parent excluded:=List.app (card_decision_controls snapshot subject parent) (map(fun action=>
@@ -459,7 +449,7 @@ Definition layer_view snapshot s capacity compact_model_picker layer hide_side_d
     [declared parent Roles.Button(secondary "cancel" "Cancel" Input.ClosePanel);
      declared parent Roles.DestructiveButton(Control "confirm" "Confirm"Destructive Input.Confirm
       (if State.layer_pending layer then Busy "This action is pending"else
-       domain_availability(Selvedge.Browser.Session.Authoring.confirmation_availability snapshot s command)))]])%list
+       domain_availability(Selvedge.Browser.Session.Authoring.command_availability s command)))]])%list
   |_=>[]end in
   let content:=match State.layer_panel layer with
   |State.EditorPanel _|State.SideConversationPanel _|State.NavigationPanel _

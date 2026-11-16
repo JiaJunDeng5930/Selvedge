@@ -73,18 +73,6 @@ Definition step cfg s event : state * list action := match event with
    | _ => (s,[]) end
  end.
 
-(** A capture may follow only the very observation whose sequence still equals
-    the committed snapshot. Four constructors make the retry budget structural. *)
-Inductive authorization := FirstCheck | SecondCheck | ThirdCheck | LastCheck.
-Inductive grant_observation := GrantChecked (active allowed : bool) (checked current : N).
-Inductive grant_action := CheckAgain | Capture | Deny | Disconnect.
-Definition authorize s event : authorization * grant_action :=
- match event with GrantChecked active allowed checked current =>
-   if negb active || negb allowed then (s,Deny)
-   else if N.eqb checked current then (s,Capture)
-   else match s with FirstCheck => (SecondCheck,CheckAgain) | SecondCheck => (ThirdCheck,CheckAgain)
-     | ThirdCheck => (LastCheck,CheckAgain) | LastCheck => (s,Disconnect) end end.
-
 Theorem stale_transport_observation s cfg n now sample : current s n = false ->
  step cfg s (Lost n now sample) = (s,[]).
 Proof. intros H; cbn; now rewrite H. Qed.
@@ -94,16 +82,4 @@ Theorem failed_authentication_stops cfg g tries status now sample :
 Proof.
  intros [H|[H|H]]; subst status; unfold step, current, generation;
  rewrite N.eqb_refl; reflexivity.
-Qed.
-Theorem last_changed_revision_disconnects checked current : N.eqb checked current = false ->
- snd (authorize LastCheck (GrantChecked true true checked current)) = Disconnect.
-Proof. intros H; cbn; now rewrite H. Qed.
-Theorem capture_requires_current_revision s active allowed checked current :
- snd (authorize s (GrantChecked active allowed checked current)) = Capture ->
- active = true /\ allowed = true /\ checked = current.
-Proof.
- destruct s; intros A; cbn in A; try discriminate;
- destruct active, allowed; cbn in A; try discriminate;
- destruct (N.eqb checked current) eqn:E; try discriminate;
- apply N.eqb_eq in E; auto.
 Qed.

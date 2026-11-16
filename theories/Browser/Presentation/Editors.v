@@ -208,7 +208,7 @@ Definition composer_view snapshot (s:Session.state) e parent :=
  let submitting:=UX.action_pending unit in
  let status:="正在提交消息…" in
  let availability:=if submitting then Busy status
-  else if Observe.awaits_only_admission assessment then Available else assessment_availability assessment in
+  else assessment_availability assessment in
  let label:=if submitting then status else submit_label snapshot(Session.current_draft s e)e in
  let progress:=if submitting || Model.available availability then
   [information parent "composer/submission-status" Information.Status
@@ -222,7 +222,7 @@ Definition composer_view snapshot (s:Session.state) e parent :=
  Some(Composer.composer parent message_label(commit_role unit feedback)unit subject(field_control snapshot s subject)
   (progress++attachments++[assessment_nodes parent assessment]++skill_nodes snapshot s e parent)%list
   [ServiceControls.file_picker e parent s "Attach files";
-   ServiceControls.speech_controls snapshot s e(Draft.revision(Session.current_draft s e))parent(Session.speech_state s)]
+   ServiceControls.speech_controls s e(Draft.revision(Session.current_draft s e))parent(Session.speech_state s)]
   tools assessment commit feedback)end.
 
 (** Product sections reference the shared parameter declaration; they do not
@@ -461,8 +461,7 @@ Definition editor_view snapshot (s:Session.state) e parent :=
  |WorkflowStart _=>
    let causes:=Observe.assessment_obstructions (UX.assessment_outcome assessment) in
    let message:=if busy then "" else match causes with
-   |cause::_=>if String.eqb (UX.obstruction_code cause) Observe.admission_pending_code
-     then "" else UX.obstruction_message cause
+   |cause::_=>UX.obstruction_message cause
    |[]=>"" end in
    [information parent "workflow-start-feedback" Information.Description message]
  |_=>[assessment_nodes parent assessment] end in

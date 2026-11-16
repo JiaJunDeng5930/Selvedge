@@ -229,17 +229,11 @@ export async function startServer(options) {
         observe_connection_authorization: () => {
           connectionId = url.pathname.slice('/api/chatgpt/'.length);
           source.authorized = connectionAuthorized(connections, connectionId, request.headers.authorization);
-          return decide('http.connection_authorization');
-        },
-        connection_method_origin: () => {
-          return decide('http.connection_method_origin');
+          return decide('http.authorization');
         },
         observe_local_authorization: () => {
           source.authorized = authorized(request);
-          return decide('http.local_authorization');
-        },
-        local_origin: () => {
-          return decide('http.local_origin');
+          return decide('http.authorization');
         },
         observe_content_type: target => {
           source.target = target;

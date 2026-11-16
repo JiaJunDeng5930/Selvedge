@@ -22,15 +22,13 @@ Definition exception_value (kind : exception_kind) : denote (KEnum "TypeError" [
  match kind with
  | TypeErrorKind => exist _ "TypeError" (or_introl eq_refl)
  | RangeErrorKind => exist _ "RangeError" (or_intror (or_introl eq_refl)) end.
-Inductive http_action := Http_observe_host | Http_parse_url | Http_observe_connection_authorization | Http_connection_method_origin | Http_observe_local_authorization | Http_local_origin | Http_asset | Http_audio_capabilities | Http_audio_transcribe | Http_audio_events | Http_audio_stop | Http_attachment_upload | Http_attachment_download | Http_browser_state | Http_describe | Http_remote_status | Http_remote_pending | Http_events | Http_event_page | Http_health | Http_service_configuration_read | Http_account_refresh | Http_service_configuration_change | Http_audio_create | Http_audio_login | Http_remote_pair | Http_remote_enable | Http_remote_disable | Http_remote_approve | Http_remote_revoke | Http_browser_command | Http_browser_observation | Http_command | Http_assess | Http_connection_command.
+Inductive http_action := Http_observe_host | Http_parse_url | Http_observe_connection_authorization | Http_observe_local_authorization | Http_asset | Http_audio_capabilities | Http_audio_transcribe | Http_audio_events | Http_audio_stop | Http_attachment_upload | Http_attachment_download | Http_browser_state | Http_describe | Http_remote_status | Http_remote_pending | Http_events | Http_event_page | Http_health | Http_service_configuration_read | Http_account_refresh | Http_service_configuration_change | Http_audio_create | Http_audio_login | Http_remote_pair | Http_remote_enable | Http_remote_disable | Http_remote_approve | Http_remote_revoke | Http_browser_command | Http_browser_observation | Http_command | Http_assess | Http_connection_command.
 (** The wire name and body policy are one declaration, shared by routes and metadata. *)
 Definition http_action_spec (value : http_action) := match value with
  | Http_observe_host => ("observe_host",false)
  | Http_parse_url => ("parse_url",false)
  | Http_observe_connection_authorization => ("observe_connection_authorization",false)
- | Http_connection_method_origin => ("connection_method_origin",false)
  | Http_observe_local_authorization => ("observe_local_authorization",false)
- | Http_local_origin => ("local_origin",false)
  | Http_asset => ("asset",false)
  | Http_audio_capabilities => ("audio_capabilities",false)
  | Http_audio_transcribe => ("audio_transcribe",false)
@@ -61,7 +59,7 @@ Definition http_action_spec (value : http_action) := match value with
  | Http_assess => ("assess",true)
  | Http_connection_command => ("connection_command",true)
  end.
-Definition all_http_actions := [Http_observe_host;Http_parse_url;Http_observe_connection_authorization;Http_connection_method_origin;Http_observe_local_authorization;Http_local_origin;Http_asset;Http_audio_capabilities;Http_audio_transcribe;Http_audio_events;Http_audio_stop;Http_attachment_upload;Http_attachment_download;Http_browser_state;Http_describe;Http_remote_status;Http_remote_pending;Http_events;Http_event_page;Http_health;Http_service_configuration_read;Http_account_refresh;Http_service_configuration_change;Http_audio_create;Http_audio_login;Http_remote_pair;Http_remote_enable;Http_remote_disable;Http_remote_approve;Http_remote_revoke;Http_browser_command;Http_browser_observation;Http_command;Http_assess;Http_connection_command].
+Definition all_http_actions := [Http_observe_host;Http_parse_url;Http_observe_connection_authorization;Http_observe_local_authorization;Http_asset;Http_audio_capabilities;Http_audio_transcribe;Http_audio_events;Http_audio_stop;Http_attachment_upload;Http_attachment_download;Http_browser_state;Http_describe;Http_remote_status;Http_remote_pending;Http_events;Http_event_page;Http_health;Http_service_configuration_read;Http_account_refresh;Http_service_configuration_change;Http_audio_create;Http_audio_login;Http_remote_pair;Http_remote_enable;Http_remote_disable;Http_remote_approve;Http_remote_revoke;Http_browser_command;Http_browser_observation;Http_command;Http_assess;Http_connection_command].
 Definition http_action_name value := fst (http_action_spec value).
 Definition http_action_has_body value := snd (http_action_spec value).
 Definition http_body_declaration name := variant "action" name [OmittableField "body" KJson] [].
@@ -160,24 +158,12 @@ Definition remote_observation_decoders : list (Variant.decoder RT.observation) :
    (fun v => Some (RT.Heartbeat (head v) (head (tail v)) (head (tail (tail v)))));
  Variant.Decoder (remote_action "retry" remote_timed) (fun v => Some (RT.Retry (head v) (head (tail v))))].
 Definition remote_transport_observations := map Variant.decoder_declaration remote_observation_decoders.
-Definition authorization_name state := match state with
- | RT.FirstCheck => "first" | RT.SecondCheck => "second" | RT.ThirdCheck => "third" | RT.LastCheck => "last" end.
-Definition remote_authorization_declaration state := variant "phase" (authorization_name state) [] [].
-Definition remote_authorization_decoders := map (fun state =>
- Variant.Decoder (remote_authorization_declaration state) (fun _ => Some state))
- [RT.FirstCheck;RT.SecondCheck;RT.ThirdCheck;RT.LastCheck].
-Definition remote_authorization_states := map Variant.decoder_declaration remote_authorization_decoders.
-Definition grant_action_name action := match action with
- | RT.CheckAgain => "check" | RT.Capture => "capture" | RT.Deny => "deny" | RT.Disconnect => "disconnect" end.
-Definition remote_authorization_action_declaration action := variant "kind" (grant_action_name action) [] [].
-Definition remote_authorization_actions := map remote_authorization_action_declaration
- [RT.CheckAgain;RT.Capture;RT.Deny;RT.Disconnect].
 Definition remote_connector_actions := map RC.abi_variant RC.action_declarations.
 Definition remote_connector_states := map (fun value => RC.abi_variant (DeclarationFields.decoder_branch value)) RC.state_decoders.
 Definition remote_connector_observations := map (fun value => RC.abi_variant (DeclarationFields.decoder_branch value)) RC.event_decoders.
 Definition unions := [Variant.declare_union "RemoteConnectorSessionAction" remote_connector_actions;Variant.declare_union "RemoteConnectorSessionState" remote_connector_states;Variant.declare_union "RemoteConnectorSessionObservation" remote_connector_observations;Variant.declare_union "CloudReadinessAction" cloud_readiness_actions;Variant.declare_union "RemoteTransportState" remote_transport_states;Variant.declare_union "RemoteTransportAction" remote_transport_actions;
- Variant.declare_union "RemoteTransportObservation" remote_transport_observations;Variant.declare_union "RemoteAuthorizationState" remote_authorization_states;
- Variant.declare_union "RemoteAuthorizationAction" remote_authorization_actions;Variant.declare_union "HttpPlan" http_plans;Variant.declare_union "BrowserObservationPlan" browser_plans;
+ Variant.declare_union "RemoteTransportObservation" remote_transport_observations;
+ Variant.declare_union "HttpPlan" http_plans;Variant.declare_union "BrowserObservationPlan" browser_plans;
  Variant.declare_union "DispatchAction" dispatch_actions;Variant.declare_union "AudioAction" audio_actions;Variant.declare_union "AudioTransportAction" audio_transport_actions].
 Definition workspace_command_fields := [Field "root_task" KBool;Field "worktree" KBool;Field "selections" (KArray KJson)].
 Definition workspace_selection_fields := [Field "value" KJson;Field "resolve_project" KBool].
@@ -191,7 +177,6 @@ Definition records : list (string * schema) := [
  ("LocalResourceTransition",LocalResources.transition_fields);
  ("CloudResourceTransition",CloudResources.transition_fields);
  ("RemoteTransportTransition",[Field "state" KJson;Field "actions" (KArray KJson)]);
- ("RemoteAuthorizationTransition",[Field "state" KJson;Field "action" KJson]);
  ("WorkspaceCommandPlan",workspace_command_fields);
  ("WorkspaceSelectionPlan",workspace_selection_fields);
  ("WorkspaceSettingsPlan",workspace_settings_fields);

@@ -584,16 +584,17 @@ Qed.
     the distinct assisted workflow. *)
 Theorem ordinary_card_creation_installs_the_requested_draft : forall input observed profile value,
  let draft := Board.apply_patch input Board.empty_draft in
- Board.valid_draft draft value = true ->
+ forall Attachments : BoardFacts.attachment_limit draft = true,
+ BoardFacts.valid_metadata draft value = true ->
  Nat.ltb (BoardDrafting.live_count value) 512 = true ->
  N.ltb (BoardDrafting.fresh_id value) 4294967295 = true ->
- let created := CommandResult.decide value (Board.create_card_result input observed false profile value) in
+ let created := CommandResult.decide value (Board.create_card_result input observed false profile value Attachments) in
  CardScope.lookup (BoardDrafting.fresh_id value) (decision_world created) =
    Some (BoardDrafting.fresh_card draft observed) /\
  world_tasks (decision_world created) = world_tasks value /\
  decision_effects created = [].
 Proof.
- intros input observed profile value draft Valid Capacity Identity created.
+ intros input observed profile value draft Attachments Valid Capacity Identity created.
  unfold created,Board.create_card_result; cbn [Board.normalized_draft]. fold draft.
  rewrite Valid,Capacity,Identity; cbn [andb CommandResult.require].
  cbn [CommandResult.decide CommandResult.resolve CommandResult.accept Board.save_change

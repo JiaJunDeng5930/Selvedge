@@ -48,7 +48,7 @@ Proof. intros current requested stale; unfold publish; apply N.eqb_neq in stale;
 Theorem superseded_authentication_cannot_install_its_snapshot : forall
   ticket connection expected incoming incoming_sequence current,
   Services.connection_matches ticket connection = false ->
-  admit_authenticated_snapshot ticket connection expected incoming incoming_sequence current = false.
+  fst (admit_authenticated_snapshot ticket connection expected incoming incoming_sequence current) = false.
 Proof.
   intros ticket connection expected incoming incoming_sequence current Stale.
   unfold admit_authenticated_snapshot, admit_authentication. rewrite Stale, andb_false_r. reflexivity.
@@ -56,7 +56,7 @@ Qed.
 Theorem inactive_connection_cannot_install_an_authenticated_snapshot : forall
   ticket connection expected incoming incoming_sequence current,
   Services.connection_active connection = false ->
-  admit_authenticated_snapshot ticket connection expected incoming incoming_sequence current = false.
+  fst (admit_authenticated_snapshot ticket connection expected incoming incoming_sequence current) = false.
 Proof.
   intros ticket connection expected incoming incoming_sequence current Inactive.
   unfold admit_authenticated_snapshot, admit_authentication. rewrite Inactive. reflexivity.
@@ -116,11 +116,7 @@ Theorem renderer_receipt_establishes_the_displayed_identity generation namespace
  requested=generation ->
  displayed_generation(publish requested(State generation Prepared namespace sequence None(Some generation)))=Some requested.
 Proof. intro Same;subst;unfold publish;simpl;now rewrite N.eqb_refl. Qed.
-Theorem newer_cursor_rejects_an_older_request_failure expected seq ticket connection current :
- N.eqb seq (sequence current)=false ->
- admit_request_failure expected seq ticket connection current=false.
-Proof. intros Older; unfold admit_request_failure; rewrite Older,andb_false_r; reflexivity. Qed.
-Theorem superseded_connection_rejects_a_request_failure expected seq ticket connection current :
+Theorem superseded_connection_rejects_a_request_failure expected ticket connection current :
  Services.connection_matches ticket connection=false ->
- admit_request_failure expected seq ticket connection current=false.
+ admit_request_failure expected ticket connection current=false.
 Proof. intros Stale; unfold admit_request_failure; rewrite Stale,andb_false_r; reflexivity. Qed.

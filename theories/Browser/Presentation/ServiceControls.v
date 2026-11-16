@@ -32,7 +32,7 @@ Definition speech_button parent id label (enabled:bool) event :=
   (if enabled then Available else Unavailable "Audio is busy")).
 Definition speech_status parent text:node Input.input:=information parent "speech/status" Information.Status text.
 Definition can_begin_voice speech realtime:=Speech.free speech&&match Speech.eligible realtime speech with Some _=>true|None=>false end.
-Definition speech_controls snapshot s e revision parent (speech:Speech.speech) :=
+Definition speech_controls s e revision parent (speech:Speech.speech) :=
  let free:=Speech.free speech in
  let choices:=match Speech.connections speech with
  |[]=>[Settings.sign_in_button (part parent "speech") speech]
@@ -47,7 +47,7 @@ Definition speech_controls snapshot s e revision parent (speech:Speech.speech) :
    (match e with
     |Message task=>[speech_button parent "start-voice" "Start voice"(can_begin_voice speech true)(Speech.BeginVoice task)]
     |NewTask _=>[declared parent Roles.Button(Control "speech/start-voice" "Start voice"Secondary(Input.BeginVoiceNew e)
-      (if can_begin_voice speech true then domain_availability(Authoring.new_voice_availability snapshot s e)
+      (if can_begin_voice speech true then domain_availability(Authoring.new_voice_availability s e)
        else Unavailable "Select a connection with live voice"))]|_=>[]end)
  |Speech.Acquiring _ _ _=>[speech_status parent "Requesting microphone access…";cancel "Cancel"]
  |Speech.Recording _ _=>[speech_status parent "Recording…";speech_button parent "finish" "Finish dictation"true Speech.FinishDictation;cancel "Cancel"]

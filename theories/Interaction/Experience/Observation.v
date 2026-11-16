@@ -398,23 +398,7 @@ Definition observe_properties snapshot state e:list(property e):=
 Definition action_context e:=match e with Identity.NewTask _=>Creation|Identity.Message task=>Continuation task|_=>ObjectEditing end.
 Definition action_unit_for state e:Model.action_unit e:=let draft:=EC.current_draft state e in
  ActionUnit(ActionIdentity(Draft.revision draft))(action_context e)
- (EC.editor_pending(EC.observed state)e||EC.editor_preparing(EC.observed state)e).
-Definition candidate_owner {e}(subject:Model.subject e)incoming:=CommandAssessment.CandidateOwner e(subject_name subject)(TextJson.render_json incoming).
-Definition awaiting_admission := "正在检查操作…".
-Definition admission_pending_code := "admission_pending".
-Definition checked_admission snapshot state owner revision command : option availability :=
- let sequence:=natural_field "sequence" snapshot in
- match sequence with None=>Some(Unavailable "The current state has not been observed.")
- |Some sequence=>match find(CommandAssessment.owned_assessment owner)(EC.command_assessments(EC.observed state))with
- |Some(Loaded _ request observation)=>if CommandAssessment.matches owner revision sequence command request && CommandAssessment.current_owned owner revision sequence observation then
-   Some(match CommandAssessment.observed_admission observation with
-    |CommandAssessment.Admitted=>Available|CommandAssessment.Refused _ reason=>Unavailable reason end)
-   else None
- |Some(Failed _ request reason)=>if CommandAssessment.matches owner revision sequence command request
-   then Some(Unavailable reason) else None
- | _=>None end end.
-Definition admission snapshot state owner revision command : availability :=
- value_or (Unavailable awaiting_admission) (checked_admission snapshot state owner revision command).
+ (EC.editor_pending(EC.observed state)e).
 Definition card_save_consequence snapshot state (draft:Draft.draft) :=
  let context:=EC.observed state in
  let owner:=CommandAssessment.DraftOwner(Draft.owner draft) in
@@ -503,11 +487,12 @@ Definition run_environment_problem_for snapshot state draft : option run_environ
  else
  problem<-FieldsObservation.worktree_submission_problem snapshot(EC.git_observation(EC.observed state))draft;;
  Some(RunEnvironmentProblem "workspace_git_unavailable" (run_environment_git_message problem) None false).
-Definition run_environment_obstruction snapshot state e (draft:Draft.draft):option(obstruction e):=
+Definition run_environment_obstruction snapshot e (draft:Draft.draft):option(obstruction e):=
  match e with
  |Identity.NewTask _=>
-   problem<-run_environment_problem_for snapshot state draft;;
-   Some(requirement_obstruction e (Some Fields.TaskEnvironment) (environment_problem_code problem) (environment_problem_message problem))
+   if FieldsObservation.cloud_workspace_requested draft && negb(FieldsObservation.cloud_workspace_configured snapshot)
+   then Some(requirement_obstruction e (Some Fields.TaskEnvironment) "cloud_backend_unavailable" "此 Selvedge 主机尚未配置腾讯云 CVM。")
+   else None
  |_=>None end.
 Definition model_requirements snapshot e profile effort:list(obstruction e):=
  match ModelSelection.observed_profile snapshot profile with
@@ -647,9 +632,6 @@ Definition draft_requirements snapshot state e:list(obstruction e):=
  (* Every observed cause survives assessment. A pending submission must not
     hide the editable field that will still need attention afterwards. *)
  (match Draft.draft_feedback draft with
-  |Draft.WorkspaceRejected revision reason=>failed_requirement e(negb(N.eqb revision(Draft.revision draft)))
-    (Some Fields.WorkspaceDirectories)"workspace_observation_failed" reason|_=>[]end)++
- (match Draft.draft_feedback draft with
   |Draft.DuplicateWorkflowNodeName _ _=>[requirement_obstruction e (Some Fields.TaskGraphDeclaration)
     "duplicate_workflow_node_name" Draft.duplicate_workflow_node_name]
   |_=>[]end)++
@@ -658,14 +640,13 @@ Definition draft_requirements snapshot state e:list(obstruction e):=
  (match FieldsObservation.draft_context draft with None=>[]|Some _=>
   match FieldsObservation.draft_preview snapshot draft with Context.ContextUnavailable reason=>
    [requirement_obstruction e(Some Fields.ContextOrigin)"context_unavailable" reason]|_=>[]end end)++
- (match run_environment_obstruction snapshot state e draft with Some cause=>[cause]|None=>[]end)++
+ (match run_environment_obstruction snapshot e draft with Some cause=>[cause]|None=>[]end)++
  record_requirements snapshot e(Draft.contents draft)++body_requirements snapshot e(Draft.contents draft).
 Definition assessment_obstructions {e}(outcome:assessment_result e):list(obstruction e):=
  match outcome with PreparationBlocked first rest=>first::rest|_=>[]end.
 Definition passive_obstruction {e}(cause:obstruction e):bool:=
  String.eqb(obstruction_code cause)"empty_message"||String.eqb(obstruction_code cause)"pending"||
  String.eqb(obstruction_code cause)"graph_handoff_incomplete"||
- String.eqb(obstruction_code cause)admission_pending_code||
  String.eqb(obstruction_code cause)missing_required_input_code.
 Definition attention_obstruction {e}(outcome:assessment_result e):option(obstruction e):=
  find(fun cause=>negb(passive_obstruction cause))(assessment_obstructions outcome).
@@ -677,39 +658,17 @@ Definition restrict_outcome {e}(reason:string)(outcome:assessment_result e):asse
  let cause:=Obstruction RepairEditor "control_unavailable" reason in
  match outcome with PreparationBlocked first rest=>PreparationBlocked first(rest++[cause])
  |_=>PreparationBlocked cause[]end.
-Definition preparation_admission snapshot state e draft command : option availability :=
- match checked_admission snapshot state(CommandAssessment.DraftOwner e)(Draft.revision draft)command with
- |Some Available=>match FieldsObservation.worktree_preference snapshot(EC.git_observation(EC.observed state)) draft with
-  |Some update=>checked_admission snapshot state(CommandAssessment.DirectOwner(CommandAssessment.command_identity update))
-    (EC.admission_revision(EC.observed state))update
-  |None=>Some Available end
- |outcome=>outcome end.
 Definition preliminary_assessment snapshot state e:assessment_result e:=
  let draft:=EC.current_draft state e in
  let obstruction (reason:string):assessment_result e:=
    PreparationBlocked (Obstruction RepairEditor "NotAdmitted" reason) [] in
- let assess command:=
-   if EC.connected(EC.observed state)then
-    match preparation_admission snapshot state e draft command with
-    |Some Available=>PreparationReady
-    |Some(Unavailable reason)=>obstruction reason
-    |None=>PreparationBlocked (Obstruction RepairEditor admission_pending_code awaiting_admission) []
-    end
-   else PreparationReady in
  match draft_requirements snapshot state e with
  |first::rest=>PreparationBlocked first rest
  |[]=>match Draft.contents draft,EC.current_time(EC.observed state) with
  |Draft.CardBody _ _ _ _ _ _,None=>obstruction "The current time has not yet been observed."
- |_,_=>match Draft.explicit_workspace draft with
- |Some workspace=>match EC.directory_result(EC.observed state)draft with
-   |Some(inr observation)=>match Command.observed_command(EC.current_time(EC.observed state))draft observation with
-     |Some command=>assess command
-     |None=>obstruction "The draft does not yet form a command."end
-   |Some(inl reason)=>PreparationBlocked(requirement_obstruction e(Some Fields.WorkspaceDirectories)"workspace_observation_failed" reason)[]
-   |_=>DirectoryObservationRequired workspace end
- |None=>match Command.command(EC.current_time(EC.observed state))draft with
-   |Some command=>assess command
-   |None=>obstruction "The draft does not yet form a command."end end end end.
+ |_,now=>match Command.command now draft with
+   |Some _=>PreparationReady
+   |None=>obstruction "The draft does not yet form a command."end end end.
 Definition observe_assessment snapshot state e:assessment e:=
  let draft:=EC.current_draft state e in
  let outcome:=preliminary_assessment snapshot state e in
@@ -717,10 +676,6 @@ Definition observe_assessment snapshot state e:assessment e:=
  (if negb(EC.connected(EC.observed state))then restrict_outcome "Connect to continue." outcome
  else if EC.editor_uploading(EC.observed state)e then restrict_outcome "Finish or cancel the attachment transfer before submitting." outcome
  else outcome).
-Definition awaits_only_admission {e}(assessment:assessment e) :=
- match assessment_outcome assessment with
- |PreparationBlocked cause []=>String.eqb(obstruction_code cause)admission_pending_code
- |_=>false end.
 Definition information_summaries {e}(value:information e):list(summary_value e):=
  match value with PresentInformation first None=>[first]|PresentInformation first(Some second)=>[first;second]|_=>[]end.
 Definition assignment_shape snapshot {e}(subject:Model.subject e) form
@@ -768,8 +723,7 @@ Definition assignment_availability snapshot state {e}(assignment:assignment e) c
  if shape tt then
  if Parameters.live_configuration e(subject_declaration subject)then
   match command tt with
-  |Some command=>admission snapshot state(candidate_owner subject
-    (Schema.encode_value(subject_kind subject)(assignment_value assignment)))(Draft.revision current)command
+  |Some _=>if EC.connected(EC.observed state)then Available else Unavailable "Connect to continue."
   |None=>Unavailable "This configuration change is not available in the current task."end
  else match apply tt with
    |Some _=>Available

@@ -61,10 +61,12 @@ Definition refresh_needed source_namespace source_sequence sources_fresh connect
     match connection with Services.ConnectionReady _ => true | _ => false end)
   |_,_ => true end.
 Inductive snapshot_origin := Authentication | ExistingSession.
-Definition admit_snapshot origin expected incoming incoming_sequence value :=
-  Origin.valid_namespace incoming && String.eqb expected (namespace value) &&
+Definition admit_snapshot_cursor origin incoming incoming_sequence value :=
   if String.eqb incoming (namespace value) then N.leb (sequence value) incoming_sequence
   else match origin with Authentication => true | ExistingSession => false end.
+Definition admit_snapshot origin expected incoming incoming_sequence value :=
+  Origin.valid_namespace incoming && String.eqb expected (namespace value) &&
+  admit_snapshot_cursor origin incoming incoming_sequence value.
 Definition admit_completion expected incoming value :=
   Origin.valid_namespace incoming && String.eqb expected (namespace value) &&
   String.eqb incoming (namespace value).
@@ -78,8 +80,8 @@ Definition admit_authentication ticket connection expected incoming value :=
   Services.connection_active connection && Services.connection_matches ticket connection &&
   Origin.valid_namespace incoming && String.eqb expected (namespace value).
 Definition admit_authenticated_snapshot ticket connection expected incoming incoming_sequence value :=
-  admit_authentication ticket connection expected incoming value &&
-    admit_snapshot Authentication expected incoming incoming_sequence value.
+  let authenticated := admit_authentication ticket connection expected incoming value in
+  (authenticated && admit_snapshot_cursor Authentication incoming incoming_sequence value, authenticated).
 
 (** A command can refresh its admission snapshot after the event connection has
     failed. That refresh updates the world, not the observation of that connection.
@@ -90,9 +92,9 @@ Definition snapshot_freshness (origin : snapshot_origin) (authenticated previous
     | Authentication => true | ExistingSession => previous end
   else previous.
 
-(** A failure belongs to the request's source cursor and connection. A command
-    may install a newer snapshot while an older state read or SSE open waits. *)
-Definition admit_request_failure expected expected_sequence ticket connection value :=
-  String.eqb expected (namespace value) && N.eqb expected_sequence (sequence value) &&
+(** Snapshot publication can advance during an SSE open. The namespace and
+    connection ticket still identify the request that owns a failure. *)
+Definition admit_request_failure expected ticket connection value :=
+  String.eqb expected (namespace value) &&
   Services.connection_active connection && Services.connection_matches ticket connection.
 Definition pending value := match current_phase value with Published=>false|_=>true end.

@@ -21,7 +21,7 @@ Module Decisions := ObjectDecisions.
 Inductive operation := NativeCommand(command:State.public_command)
 | Destination(target:route) | Editor(owner:editor) | SideConversation(task:N)
 | InspectCard(card:N).
-Inductive status := Available | Awaiting | InFlight | Unavailable(reason:string) | AssessmentFailed(reason:string).
+Inductive status := Available | InFlight | Unavailable(reason:string).
 Record action := Action {
  action_key:string; action_label:string; action_operation:operation;
  action_confirmation:option(string*route); action_status:status
@@ -32,7 +32,7 @@ Definition command value := match action_operation value with
 |_=>None end.
 Definition local key label operation := Action key label operation None Available.
 Definition native key label confirmation (generated : G.proposal) :=
- option_map(fun command=>Action key label(NativeCommand command)confirmation Awaiting)
+ option_map(fun command=>Action key label(NativeCommand command)confirmation Available)
   (decode_command command_specs(G.encode generated)).
 Definition singleton {A} (value:option A) := match value with Some value=>[value]|None=>[]end.
 Definition confirmation_destination subject := match subject with
@@ -87,32 +87,14 @@ Definition find_choice snapshot clock card decision key :=
  now<-clock;;
  selected<-find(fun candidate=>String.eqb key(choice_key candidate))(CardDecisions.choices decision opportunity);;
  choice_declaration snapshot opportunity now selected.
-Definition assessment_revision s := State.generation(State.navigation_state s).
-Definition action_revision s subject := match State.layers(State.navigation_state s),subject with
-|layer::_,CardActions card=>match State.layer_panel layer with
- |State.CardDecisionPanel source _=>if N.eqb source card then State.layer_occurrence layer else assessment_revision s
- |_=>assessment_revision s end
-|_,_=>assessment_revision s end.
-Definition action_owner subject value := CommandAssessment.ObjectActionOwner subject(action_key value).
-Definition assessment_for subject value s := find(Services.owned_assessment(action_owner subject value))
- (Services.command_assessments(State.service_state s)).
-Definition availability snapshot s subject value :=match command value with
+Definition availability (s:State.state) value :=match command value with
 |None=>Available
-|Some command=>if State.pending_command command s then InFlight else if negb(Services.connected(State.service_state s))then Unavailable "Connect to continue"else
- match natural_field "sequence" snapshot,assessment_for subject value s with
- |Some sequence,Some(Loaded _ request observation)=>
-   if CommandAssessment.matches(action_owner subject value)(action_revision s subject)sequence command request &&
-      CommandAssessment.current_owned(action_owner subject value)(action_revision s subject)sequence observation
-   then match CommandAssessment.observed_admission observation with
-    |CommandAssessment.Admitted=>Available|CommandAssessment.Refused _ reason=>Unavailable reason end
-   else Awaiting
- |Some sequence,Some(Failed _ request reason)=>
-   if CommandAssessment.matches(action_owner subject value)(action_revision s subject)sequence command request
-   then AssessmentFailed reason else Awaiting
- |_,_=>Awaiting end end.
-Definition observe snapshot s subject value :=Action(action_key value)(action_label value)(action_operation value)
- (action_confirmation value)(availability snapshot s subject value).
-Definition items snapshot s subject :=map(observe snapshot s subject)(declarations snapshot(State.now s)subject).
+|Some command=>if State.pending_command command s then InFlight
+ else if Services.connected(State.service_state s)then Available
+ else Unavailable "Connect to continue" end.
+Definition observe s value :=Action(action_key value)(action_label value)(action_operation value)
+ (action_confirmation value)(availability s value).
+Definition items snapshot s subject :=map(observe s)(declarations snapshot(State.now s)subject).
 Definition task_menu_actions (task:Read.task) (actions:list action) :=
  filter (fun value=>match action_key value with
   |"interrupt"|"unfreeze"=>false
@@ -135,7 +117,7 @@ Definition menu_items snapshot s subject :=
  let actions:=items snapshot s subject in
  match subject with
  |TaskActions id=>match Read.find_task id snapshot with
-  |Some task=>map(observe snapshot s subject)(task_board_action snapshot id)++task_menu_actions task actions
+  |Some task=>map(observe s)(task_board_action snapshot id)++task_menu_actions task actions
   |None=>[]end
  |CardActions id=>match Read.find_card id snapshot with
    |Some card=>filter (card_action_applies snapshot card) actions
@@ -155,23 +137,17 @@ Definition resolve snapshot s subject key :=
  else match subject,active_decision s subject with
  |CardActions card,Some decision=>find_choice snapshot(State.now s)card decision key
  |_,_=>find matching (declarations snapshot(State.now s)subject)end in
- option_map(observe snapshot s subject)declared.
+ option_map(observe s)declared.
 
-Definition observed_decision snapshot state task value :=
- option_map (observe snapshot state(TaskActions task)) (from_decision (TaskActions task) value).
+Definition observed_decision state task value :=
+ option_map (observe state) (from_decision (TaskActions task) value).
 Definition return_action snapshot state task :=
- bind (Decisions.return_decision snapshot task) (observed_decision snapshot state task).
-Definition approval_action snapshot state task operation allow :=
- observed_decision snapshot state task (Decisions.approval_decision task operation allow).
-Definition cancellation_action snapshot state task operation :=
- observed_decision snapshot state task (Decisions.cancellation_decision task operation).
+ bind (Decisions.return_decision snapshot task) (observed_decision state task).
+Definition approval_action state task operation allow :=
+ observed_decision state task (Decisions.approval_decision task operation allow).
+Definition cancellation_action state task operation :=
+ observed_decision state task (Decisions.cancellation_decision task operation).
 Definition worktree_retry_action snapshot state task :=
- bind (Decisions.worktree_retry_decision snapshot task) (observed_decision snapshot state task).
+ bind (Decisions.worktree_retry_decision snapshot task) (observed_decision state task).
 Definition reading_actions snapshot state task :=
- flat_map (fun value=>singleton(observed_decision snapshot state task value))(Decisions.reading_decisions snapshot task).
-Definition descriptors snapshot state subject :=items snapshot state subject++
- match subject with TaskActions task=>reading_actions snapshot state task|_=>[]end.
-Definition descriptor_for_command snapshot state (accepted:State.public_command) :=
- find(fun entry=>match command(snd entry)with
-  |Some candidate=>CommandAssessment.same_command candidate accepted|None=>false end)
-  (flat_map(fun subject=>map(fun action=>(subject,action))(descriptors snapshot state subject))(Decisions.subjects snapshot)).
+ flat_map (fun value=>singleton(observed_decision state task value))(Decisions.reading_decisions snapshot task).

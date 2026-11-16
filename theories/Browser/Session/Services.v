@@ -52,21 +52,11 @@ Definition directory_response value : sum string json :=
    |Some _=>if negb(flag "ok" value)then inl(value_or directory_unavailable(string_field "errno" value))
     else inl directory_unavailable
    |None=>inl directory_unavailable end end.
-Inductive preparation_intent := PreviewContext | CommitPrepared.
-Record preparation := Preparation { preparation_draft:Draft.draft; preparation_generation:N;
- preparation_layer:N; preparation_trigger:string; preparation_intent_of:preparation_intent;
- preparation_preference:option(Schema.command_value Selvedge.Kernel.Commands.command_specs) }.
+Record preparation := Preparation { preparation_draft:Draft.draft }.
 Record directory_observation := DirectoryObservation {
  observed_workspace:Selvedge.Kernel.Domain.workspace; observed_guidance:json }.
-Definition encode_preparation p := JObject[("draft",DraftCodec.encode_draft(preparation_draft p));
- ("generation",number(preparation_generation p));("layer",number(preparation_layer p));("trigger",JString(preparation_trigger p));
- ("commit",JBool(match preparation_intent_of p with CommitPrepared=>true|_=>false end));
- ("preference",match preparation_preference p with None=>JNull|Some command=>Schema.encode_command command end)].
-Definition decode_preparation j := d<-bind(field "draft" j)DraftCodec.decode_draft;;
- g<-natural_field "generation" j;;layer<-natural_field "layer" j;;trigger<-string_field "trigger" j;;commit<-bool_field "commit" j;;
- preference<-bind(field "preference" j)(fun value=>match value with JNull=>Some None
- |value=>option_map Some(Schema.decode_command Selvedge.Kernel.Commands.command_specs value)end);;
- Some(Preparation d g layer trigger(if commit then CommitPrepared else PreviewContext)preference).
+Definition encode_preparation p := DraftCodec.encode_draft(preparation_draft p).
+Definition decode_preparation j := option_map Preparation (DraftCodec.decode_draft j).
 Definition encode_directory_observation value:=JObject[("workspace",Selvedge.Kernel.Codec.workspace_json(observed_workspace value));("guidance",observed_guidance value)].
 Definition decode_directory_observation value:=workspace<-bind(field "workspace" value)Selvedge.Kernel.Codec.parse_workspace;;guidance<-field "guidance" value;;
  match Selvedge.Kernel.Codec.parse_guidance workspace guidance with Some _=>Some(DirectoryObservation workspace guidance)|None=>None end.
@@ -174,17 +164,7 @@ Definition assessment_editor_owned e (resource:resource CommandAssessment.reques
 Definition forget_assessment e s:=with_command_assessments(filter(fun resource=>negb(assessment_editor_owned e resource))(command_assessments s))s.
 Definition preparation_owned e (resource:resource preparation directory_observation) :=match resource_request resource with
 |Some request=>same_editor e(Draft.owner(preparation_draft request))|None=>false end.
-Definition captured_preparation (resource:resource preparation directory_observation):=match resource with
-|Loading _ request|Loaded _ request _=>match preparation_intent_of request with CommitPrepared=>true|PreviewContext=>false end
-|_=>false end.
-Definition replaceable_preparation e resource:=preparation_owned e resource && negb(captured_preparation resource).
-Definition preparing e s := existsb(fun resource=>preparation_owned e resource &&
- captured_preparation resource)(preparations s).
 Definition forget_preparation ticket s :=
- let s:=with_command_assessments(filter(fun resource=>match resource_request resource with
- |Some request=>match CommandAssessment.request_owner request with
-  |CommandAssessment.PreparationOwner actual _=>negb(N.eqb ticket actual)|_=>true end
- |None=>true end)(command_assessments s))s in
  with_preparations(filter(fun resource=>
  match resource_ticket resource with Some actual=>negb(N.eqb ticket actual)|None=>true end)(preparations s))s.
 Definition upload_owner (r:resource upload_request attachment) := match r with Dormant=>None|Loading _ a|Loaded _ a _|Failed _ a _=>Some(upload_editor a) end.
@@ -243,7 +223,7 @@ Definition abort_uploads (resources:list(resource upload_request attachment)) :=
  flat_map(fun resource=>match resource with Loading ticket _=>[AbortUpload ticket]|_=>[]end)resources.
 Definition cancel_editor e s :=
  let s:=forget_assessment e s in
- let s:=with_preparations(filter(fun resource=>negb(replaceable_preparation e resource))(preparations s))s in
+ let s:=with_preparations(filter(fun resource=>negb(preparation_owned e resource))(preparations s))s in
  let s:=match directory s with Loading _ request|Loaded _ request _|Failed _ request _=>
    if same_editor e(directory_editor request)then with_directory Dormant "" s else s|Dormant=>s end in
  let '(discarded,remaining):=partition(fun resource=>match upload_owner resource with

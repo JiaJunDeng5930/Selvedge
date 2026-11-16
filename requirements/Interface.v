@@ -7,7 +7,7 @@
 From Selvedge.Interaction.Experience Require ObservationProof.
 From Selvedge.Browser.Presentation Require EditorsProof.
 From Selvedge.Browser.Scene Require SurfaceProofs.
-Export ObservationProof(available_live_assignment_has_current_authority,
+Export ObservationProof(available_live_assignment_forms_a_connected_command,
   blocked_draft_preserves_all_requirements,
   observed_property_retains_complete_help,
   a_field_diagnostic_is_not_masked_by_an_unrelated_first_cause).
@@ -109,10 +109,8 @@ Export ApplicationProof(live_setting_selection_preserves_the_message_draft,
   stale_element_cannot_produce_a_product_input,
   rebasing_a_canonical_prepared_state_agrees_with_prepare,
   a_pending_command_is_not_executed_twice).
-Export ObjectActionsProof(available_native_has_current_admission).
-Export AuthoringProof(an_admitted_captured_submission_executes_its_captured_command,
-  a_captured_direct_request_waits_for_its_verdict, an_admitted_direct_request_executes_its_captured_command,
-  completion_of_an_older_revision_preserves_the_newer_editor,
+Export ObjectActionsProof(available_native_has_a_connected_idle_command).
+Export AuthoringProof(completion_of_an_older_revision_preserves_the_newer_editor,
   git_observation_settles_only_the_workspace_check,
   a_blocked_directory_choice_does_not_change_the_draft).
 Export NavigationProof(new_selection_intent_prevents_work_completion_selection,
@@ -120,11 +118,8 @@ Export NavigationProof(new_selection_intent_prevents_work_completion_selection,
 
 (** ** A displayed action is still a request to the service
 
-    Menu and editor assessment uses the same command admission as committed
-    submission. Composers and workflow card controls can capture a locally
-    valid request while its admission is pending. Direct workflow launches
-    submit the captured request for admission and execution in one service
-    transaction. Only the exact captured command may run after admission.
+    Explicit editor and workflow submissions capture the user's command and
+    send it for admission and execution in one service transaction.
     Sending from an existing conversation shows a visible status
     in the composer and leaves the draft and send control in place. Starting a
     conversation places its captured message and submission status in a temporary
@@ -135,12 +130,11 @@ Export NavigationProof(new_selection_intent_prevents_work_completion_selection,
     conversation header presents an interrupt when admitted and retains it
     during submission. It shows lifecycle statuses that require a separate
     indication, such as a paused or stopped conversation.
-    The admission observation is bound to subject,
-    action, occurrence, draft revision and world sequence.
-    [available_native_has_current_admission] and
-    [an_admitted_captured_submission_executes_its_captured_command] constrain
-    those consumers. Filesystem preparation is a separate observation, not a
-    fact predicted by read-only assessment. A failed directory observation is
+    Menu actions belong to the active occurrence of their owning panel.
+    A mutation is ready to submit when the connection is active and that
+    command is not already pending. Directory observations inform the editor while
+    the service owns filesystem preparation for the submitted command. A failed
+    directory observation is
     retained for explicit retry without requiring an unrelated draft change.
 
     Resource tickets reject unrelated IO, draft revisions protect newer edits,

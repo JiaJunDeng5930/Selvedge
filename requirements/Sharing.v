@@ -200,8 +200,7 @@ Export RemoteEntryProofs(current_control_grant_executes_actual_remote_stop).
 From Selvedge.Host Require RemoteTransportProofs
   RemoteConnectorSessionProofs RemoteRelaySessionProofs.
 Export RemoteConnectorSession(retirement_discards_session).
-Export RemoteTransportProofs(authorization_retry_decreases,
-  rejected_identity_ignores_async_observations,
+Export RemoteTransportProofs(rejected_identity_ignores_async_observations,
   current_retry_rearms_or_connects).
 Export RemoteConnectorSessionProofs(subscription_capture_records_the_current_notice_cutoff,
   notice_delivery_matches_the_current_subscription,

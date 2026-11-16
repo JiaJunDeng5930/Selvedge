@@ -155,7 +155,7 @@ Definition speech_delegation (id : N) (session_value identity_value : D.denote D
              (CommandResult.change_world delivered)) (CommandResult.change_effects delivered)
        | None => delivered end)
        (if String.eqb mode "steer" then Tasks.steer_result id [TextPart text] value
-        else Tasks.send_result id [TextPart text] value)
+        else Tasks.input_result Tasks.AppendInput id [TextPart text] value)
    end
  end.
 Definition return_side (id : N) (value : world) :=
@@ -188,7 +188,7 @@ Definition return_side (id : N) (value : world) :=
        (put_task id (with_side_handoff (advance_side_handoff through handoff) side)
          (CommandResult.change_world delivered))
        (CommandResult.change_effects delivered))
-       (Tasks.send_result parent (TextPart text :: images) value)
+       (Tasks.input_result Tasks.AppendInput parent (TextPart text :: images) value)
      end
    end end end.
 Definition handle_send (request : Selvedge.Generated.Commands.send_payload)

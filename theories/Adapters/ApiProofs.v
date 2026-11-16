@@ -26,32 +26,18 @@ Proof.
 Qed.
 
 Theorem public_admitted_command_body_is_delivered : forall source original value,
-  open_valid source = true -> host_valid source = true -> Http.authorized source = true ->
-  local_origin_valid source = true ->
-  str source "method" = "POST" -> str source "pathname" = "/api/commands" ->
   str source "target" = "command" ->
-  starts (str source "content_type") "application/json" = true ->
   as_string (get source "text") = Some original -> TextJson.parse_input_json original = TextJson.InputAccepted value ->
   let response := Api.call "http.body" source in
   JsonObjects.equivalent response (success (JObject [("action",JString "command");("body",value)])) = true /\
   field "body" (get response "value") = Some value.
 Proof.
- intros source original value opened host authorization origin method pathname selected mime text parsed.
- assert (local : connection_path source = false).
- { unfold connection_path;rewrite pathname;reflexivity. }
- assert (audio : audio_target source = "").
- { unfold audio_target,audio_kind;rewrite pathname,method;reflexivity. }
- assert (route : selected_route source = Some (Route "POST" "/api/commands" ModelResultDeclarations.Http_command)).
- { unfold selected_route,matches_route;rewrite method,pathname;reflexivity. }
- assert (target : body_target source = ModelResultDeclarations.http_body_target_named "command").
- { unfold body_target;rewrite audio,route;reflexivity. }
+ intros source original value selected text parsed.
  assert (delivered : Api.call "http.body" source =
    success (JObject [("action",JString "command");("body",value)])).
  { change (Http.call "http.body" source = success (JObject [("action",JString "command");("body",value)])).
-   unfold Http.call;cbn;unfold request_guard,open_host_guard.
-   rewrite opened,host,authorization,local,origin;cbn.
-   unfold body_stage;rewrite target;cbn;rewrite selected;cbn.
-   rewrite mime;cbn;rewrite text,parsed;reflexivity. }
+   unfold Http.call; cbn; unfold body_stage.
+   rewrite selected; cbn; rewrite text, parsed; reflexivity. }
  rewrite delivered.
  split; [apply equivalent_is_reflexive|reflexivity].
 Qed.

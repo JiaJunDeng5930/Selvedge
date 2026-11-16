@@ -660,26 +660,17 @@ export class Service extends EventEmitter {
     return result;
   }
 
-  assess(candidate, { signal } = {}) {
+  async assess(candidate, { signal } = {}) {
     this.#publicCommand(candidate.command);
-    // DEFENSE: An HTTP assessment can already be in flight when the service closes or loses its worker.
-    if (this.#failure) return Promise.reject(this.#failure);
-    if (this.#closing) return Promise.reject(new Error('Service is stopping'));
-    const result = this.#catalogTail.then(async () => {
-      // DEFENSE: A closed browser request may still have an observation queued here.
-      signal?.throwIfAborted();
-      // DEFENSE: Catalog work queued before assessment can fail, or shutdown can finish while it waits.
-      if (this.#failure) throw this.#failure;
-      if (this.#closing) throw new Error('Service is stopping');
-      const command = await this.#observeCommandInput(candidate.command);
-      // DEFENSE: Shutdown or a fatal operation can occur during the same filesystem preparation used by submission.
-      if (this.#failure) throw this.#failure;
-      if (this.#closing) throw new Error('Service is stopping');
-      return this.journal.assess({ ...candidate, command }, { signal });
-    });
-    // DEFENSE: A refused filesystem observation reports its own error without blocking later catalog work.
-    this.#catalogTail = result.catch(() => {});
-    return result;
+    // DEFENSE: An HTTP assessment can be cancelled or arrive after the worker stops.
+    signal?.throwIfAborted();
+    if (this.#failure) throw this.#failure;
+    if (this.#closing) throw new Error('Service is stopping');
+    const command = await this.#observeCommandInput(candidate.command);
+    // DEFENSE: Shutdown or a fatal error can occur during filesystem observations.
+    if (this.#failure) throw this.#failure;
+    if (this.#closing) throw new Error('Service is stopping');
+    return this.journal.assess({ ...candidate, command }, { signal });
   }
 
   async command(command) {
@@ -718,6 +709,11 @@ export class Service extends EventEmitter {
     // DEFENSE: A queued remote request can outlive service shutdown or a fatal journal failure.
     if (this.#failure) throw this.#failure;
     if (this.#closing) throw new Error('Service is stopping');
+    if (boundary('http.command_read_only', { command: envelope.intent, remote: true })) {
+      const result = await this.journal.execute({ kind: 'remote_command', ...envelope,
+        command: envelope.intent, configuration: null });
+      return { sequence: result.sequence, reply: result.reply };
+    }
     const probe = await this.journal.execute({ kind: 'remote_probe', ...envelope });
     // DEFENSE: The remote owner can revoke a grant or a client can send invalid receipt coordinates; do no filesystem work for a rejected intent.
     if (!probe.reply.ok) return { sequence: probe.sequence, reply: probe.reply };
@@ -747,11 +743,11 @@ export class Service extends EventEmitter {
     return { sequence: result.sequence, reply: result.reply };
   }
 
-  remoteCheck(controller_id, grant_epoch) {
+  remoteCheck(controller_id, grant_epoch, observe) {
     // DEFENSE: A relay authorization check can arrive after local shutdown or a journal failure.
     if (this.#failure) return Promise.reject(this.#failure);
     if (this.#closing) return Promise.reject(new Error('Service is stopping'));
-    return this.journal.execute({ kind: 'remote_check', controller_id, grant_epoch });
+    return this.journal.execute({ kind: 'remote_check', controller_id, grant_epoch }, observe);
   }
 
   async #observeCommandWorkspace(command) {

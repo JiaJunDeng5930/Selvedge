@@ -13,8 +13,8 @@
     The observation, command and card-decision requirements bind the shared
     functions to the actual browser projections and authenticated HTTP
     dispatch. Here the browser reducer also retains the authoritative command
-    receipt. A refusal is visible with the service's diagnostic, and an
-    available command requires a matching admission for the current world. *)
+    receipt. A refusal is visible with the service's diagnostic. An explicit
+    submission reaches the service with the command captured by the user. *)
 From Stdlib Require Import List String NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Programming Require Import Resource.
@@ -25,25 +25,6 @@ From Selvedge.Browser.Session Require State Authoring Services Input InputCodecs
 From Selvedge.Browser.Session Require Import EditorContext.
 Open Scope string_scope.
 
-
-Theorem browser_ready_command_has_current_admission snapshot state owner revision command :
- Authoring.canonical_ready snapshot state owner revision command=true ->
- exists sequence ticket request observation,
-  natural_field "sequence" snapshot=Some sequence /\
-  List.find (CommandAssessment.owned_assessment owner)
-    (Services.command_assessments (State.service_state state))=Some(Loaded ticket request observation) /\
-  CommandAssessment.matches owner revision sequence command request=true /\
-  CommandAssessment.observed_owner observation=owner /\
-  CommandAssessment.observed_revision observation=revision /\
-  CommandAssessment.observed_sequence observation=sequence /\
-  CommandAssessment.observed_admission observation=CommandAssessment.Admitted.
-Proof.
- unfold Authoring.canonical_ready.
- destruct (Observation.admission snapshot state owner revision command) eqn:Admission.
- - intros _. exact (ObservationProof.available_admission_has_current_authority
-    snapshot state owner revision command Admission).
- - discriminate.
-Qed.
 
 Theorem browser_direct_refusal_displays_the_shared_diagnostic snapshot state command reply diagnostic :
  UserCommand.feedback_of reply=Some(UserCommand.Refused diagnostic) ->

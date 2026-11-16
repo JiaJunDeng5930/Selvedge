@@ -12,12 +12,13 @@
     governed by the journal contract in [requirements/Host.v]. *)
 From Selvedge.Adapters Require ApiProofs HttpProofs UserInteractionProofs.
 Export ApiProofs(public_admitted_command_body_is_delivered).
-Export HttpProofs(http_body_requires_authorization, http_body_requires_local_origin,
+Export HttpProofs(http_body_route_requires_authorization, http_body_route_requires_local_origin,
   http_public_command_rejects_sideband_observations).
 
 (** Service configuration belongs to local administration. Both reading and
     changing it require the local credential and origin guard. The body
-    authorization contracts above govern the change request. *)
+    route contracts above govern the change request. Only a selected body route
+    can request the media type check, which grants the read of its body. *)
 Export HttpProofs(http_service_configuration_read_requires_local_authorization).
 
 Export UserInteractionProofs(public_browser_command_delivers_unwrapped_payload,

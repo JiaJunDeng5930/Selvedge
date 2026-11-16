@@ -22,7 +22,7 @@ Proof.
  destruct (task_lifecycle side); try (split; reflexivity);
  rewrite Handoff; cbn zeta;
  destruct (filter _ _) as [|first rest]; try (split; reflexivity).
- all: unfold Tasks.send_result; rewrite TaskChangesProofs.input_result_expression; cbv beta zeta; rewrite Selected.
+ all: rewrite TaskChangesProofs.input_result_expression; cbv beta zeta; rewrite Selected.
  all: destruct (task_lifecycle current); try (split; reflexivity).
  all: destruct (content_nonempty _); try (split; reflexivity).
  all: rewrite Failed; cbn; split; reflexivity.
