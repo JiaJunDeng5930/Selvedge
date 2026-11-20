@@ -9,6 +9,7 @@ From Selvedge.Interaction Require Import Codec Identity Context SkillMention.
 From Selvedge.Browser.Session Require Import Input.
 From Selvedge.Interaction.Experience Require Model Activity Observation Read.
 From Selvedge.Interaction.Submission Require Draft GraphAuthoring Initialize.
+From Selvedge.Interaction.Submission Require Observation.
 From Selvedge.Browser.Session Require State Observation Authoring ObjectActions.
 From Selvedge.Interaction.Submission Require Fields Parameters.
 From Selvedge.Browser.Scene Require Import Surface Model Construction Composer.
@@ -79,6 +80,28 @@ Definition assignment_node {e} parent identity label (subject:UX.subject e) inco
  match Input.assign_subject subject incoming with
  |Some input=>declared parent Roles.Button(secondary identity label input)
  |None=>read_only parent identity label "This value does not satisfy the field contract"end.
+Definition workspace_directory_controls snapshot s parent e (workspace : Domain.workspace)
+ (directories : list (node Input.input)) : list (node Input.input) :=
+ let current:=Domain.workspace_environment workspace in
+ let machines:=Selvedge.Interaction.Submission.Observation.shared_execution_environments snapshot in
+ match machines,current with
+ |[],None=>directories
+ |_,_=>
+    let machines:=match current with
+     |Some id=>if existsb (String.eqb id) machines then machines else id::machines
+     |None=>machines end in
+    let options:=Fields.ChoiceValue "" "本机"::map (fun id=>Fields.ChoiceValue id id) machines in
+    let receive value:=id<-as_string value;;
+      Some(Input.ChooseWorkspaceMachine e (if String.eqb id "" then None else Some id)) in
+    Node(part parent "workspace-machine-picker")"workspace-machine-picker" "目录所在机器" Roles.Field
+     (ConfigurationField false (value_or "" current) (Some options)
+       (negb(Session.pending_editor e s)) receive)[]::
+    match directories with
+    |[]=>[]
+    |_=>[region parent "selected-directories" "已选目录" Roles.Section
+     (group_title (part parent "selected-directories") "已选目录"::directories)]
+    end
+ end.
 Definition workspace_field snapshot (s:Session.state) {e} parent(subject:UX.subject e) :=
  match workspace_observation(Observe.observe_subject snapshot s subject)with
  |None=>region parent "unavailable" "Working directories" Roles.Section
@@ -87,16 +110,17 @@ Definition workspace_field snapshot (s:Session.state) {e} parent(subject:UX.subj
  |Some(workspace,inherited)=>let collection:=UX.Collection workspace inherited in
   let roots:=Domain.workspace_roots workspace in
   Node parent "workspace-collection" "Working directories"Roles.Section(WorkspaceCollection e collection)
-   (map(fun path=>let key:=part parent path in
+   (workspace_directory_controls snapshot s parent e workspace
+    (map(fun path=>let key:=part parent path in
     Node key "workspace-member"path Roles.Section(WorkspaceMember e collection path)
      [read_only key "path" "Directory"path;
       information key "primary-state" Information.Status(if match Domain.workspace_primary workspace with Some primary=>String.eqb path primary|None=>false end then "Primary directory"else"");
       assignment_node key "remove" "Remove directory" subject(JArray(map JString(filter(fun root=>negb(String.eqb root path))roots)));
       match UX.admit_subject e "primary_root"with
        |Some primary=>assignment_node key "primary" "Use as primary"primary(JString path)
-       |None=>read_only key "primary" "Primary directory"path end])roots ++
+       |None=>read_only key "primary" "Primary directory"path end])roots) ++
     [declared parent Roles.Button(secondary "browse" "Add directory"
-      (Input.ServiceInput(Services.OpenDirectory e(value_or ""(Domain.workspace_primary workspace))(part parent "browse"))))])%list end.
+      (Input.ServiceInput(Services.OpenDirectory e(value_or ""(Domain.workspace_primary workspace))(part parent "browse")(Domain.workspace_environment workspace))))])%list end.
 Definition field_node snapshot s e parent field :=
  match UX.admit_subject e(Parameters.name field)with
  |None=>None

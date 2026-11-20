@@ -26,9 +26,13 @@ Definition optional_string (value : option string) :=
  match value with Some value => JString value | None => JNull end.
 Definition nonempty (text : string) := Utf8.nonblank text.
 Definition strings := OptionList.traverse as_string.
-Definition workspace_json (value : workspace) := JObject [
+Definition workspace_json (value : workspace) := JObject ([
  ("roots", JArray (map JString (workspace_roots value)));
- ("primary_root", optional_string (workspace_primary value))].
+ ("primary_root", optional_string (workspace_primary value))] ++
+ match workspace_environment value with
+ | Some environment => [("environment", JString environment)]
+ | None => []
+ end).
 Definition sandbox_fields (value : sandbox) := [
  ("mode", JString (match sandbox_access value with ReadOnly => "read-only" | WorkspaceWrite => "workspace-write" end));
  ("network_access", JBool (sandbox_network value))].
@@ -48,15 +52,16 @@ Definition settings_json (value : task_settings) := JObject [
 Module D := ArgumentDeclaration.
 From Selvedge.Kernel Require RealtimeContext.
 Definition workspace_declaration := D.Object
- [("roots",true,D.BoundedArray 0 32 Workspace.path_declaration);("primary_root",false,D.nullable D.text)].
+ [("roots",true,D.BoundedArray 0 32 Workspace.path_declaration);("primary_root",false,D.nullable D.text);
+  ("environment",false,Workspace.environment_declaration)].
 Definition workspace_of_values (values : D.denote workspace_declaration) : option workspace :=
- let '(roots,(primary,_)) := proj1_sig values in
+ let '(roots,(primary,(environment,_))) := proj1_sig values in
  let roots := map (@proj1_sig _ _) (proj1_sig roots) in
  let primary := match primary with
  | Some (inl root) => Some (proj1_sig root)
  | None | Some (inr (inl _)) => hd_error roots
  | Some (inr (inr impossible)) => match impossible with end end in
- let space := Workspace roots primary in
+ let space := ExecutionWorkspace roots primary (option_map (@proj1_sig _ _) environment) in
  if forallb Workspace.canonical_path roots && Workspace.valid_selection space then Some space else None.
 Definition parse_workspace value :=
  match D.decode workspace_declaration value with Some fields => workspace_of_values fields | None => None end.
@@ -153,7 +158,8 @@ Definition settings_of_request (model : profile) (catalog : list profile)
    let contents := match guidance with
      | None => match workspace_override request with
        | None => settings_guidance fallback
-       | Some _ => inherited_guidance workspace (settings_guidance fallback) end
+       | Some _ => if Workspace.same_environment workspace (settings_workspace fallback)
+                   then inherited_guidance workspace (settings_guidance fallback) else None end
      | Some observed => Some observed end in
    let owner := match binding_observation request with Some owner => owner
      | None => match workspace_override request with Some _ => None | None => settings_resource fallback end end in

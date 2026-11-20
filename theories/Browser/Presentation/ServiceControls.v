@@ -215,10 +215,12 @@ Definition directory_view snapshot s :=
    let source:=if SO.cloud_workspace_configured snapshot && SO.cloud_workspace_requested draft then
     [information parent "cloud-workspace-source" Information.Description(Experience.cloud_source_caption snapshot draft)]
     else[]in
-   let caption:=label "选择 Selvedge 主机上的目录" (match directory_backend snapshot owner with
-    |Some WorkspaceBackend.Local=>"Choose a directory on the Selvedge host"
-    |Some WorkspaceBackend.TencentCvm=>"Choose a directory in the conversation's cloud workspace"
-    |None=>"Choose a directory" end) in
+   let caption:=match Services.directory_environment request with
+    |Some id=>label ("选择 "++id++" 上的目录") ("Choose a directory on "++id)
+    |None=>label "选择 Selvedge 主机上的目录" (match directory_backend snapshot owner with
+      |Some WorkspaceBackend.Local=>"Choose a directory on the Selvedge host"
+      |Some WorkspaceBackend.TencentCvm=>"Choose a directory in the conversation's cloud workspace"
+      |None=>"Choose a directory" end) end in
    let loading:=label "正在读取目录…" "Loading directories…" in
    let content:=match resource with
     |Resource.Loading _ _=>[information parent "loading" Information.Status loading]

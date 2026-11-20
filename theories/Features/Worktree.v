@@ -120,6 +120,7 @@ Arguments ProvisionLocal {before settings}.
 Arguments ProvisionCloud {before settings}.
 Definition provision_plan (before:world) (backend:WorkspaceBackend.backend) (settings:task_settings)
  :option (creation_plan before settings) :=
+ if Workspace.on_shared_environment (settings_workspace settings) then None else
  match WorkspaceBinding.resolve settings before with
  | Some tree=>if WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend tree) then None
    else Some (if WorkspaceBackend.cloud backend then ProvisionCloud else ProvisionLocal)
@@ -132,7 +133,12 @@ Definition reuse_plan (before:world) (settings:task_settings) (owner:N) :option 
  | None=>fun _=>None end eq_refl.
 Definition select_creation_plan (before:world) (selected:task_settings)
  (managed:option bool) (backend:option WorkspaceBackend.backend) :option (creation_plan before selected) :=
- match backend with
+ if Workspace.on_shared_environment (settings_workspace selected) then
+   match backend, managed, settings_resource selected with
+   | None, None, None | None, Some false, None => Some UseWorkspace
+   | _, _, _ => None
+   end
+ else match backend with
  | Some backend=>provision_plan before backend selected
  | None=>match managed with
    | Some true=>provision_plan before WorkspaceBackend.Local selected
@@ -215,7 +221,13 @@ Definition interpret_planned_birth {before : world} (plan : planned_start before
  let fresh := next_task current in
  let task := Tasks.start_task start (N.succ (world_sequence current)) in
  let '(prepared,resource) := match planned_resource plan with
- | UseWorkspace => (task,None)
+ | UseWorkspace =>
+   (match workspace_environment (settings_workspace (task_current_settings task)) with
+    | None => task
+    | Some id => append_history [EnvironmentNotice
+      ("Workspace operations run on the shared Selvedge environment " ++ id ++
+       ". Model inference and host MCP services run on the task's Selvedge instance.")] task
+    end,None)
  | ReuseBinding _ tree _ =>
    (if WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend tree) then
      append_history [EnvironmentNotice environment_notice] task else task,None)

@@ -107,7 +107,12 @@ Definition same_profile (left right : profile) :=
  Json.equal (profile_metadata left) (profile_metadata right) &&
  String.eqb (profile_reasoning left) (profile_reasoning right).
 Inductive approval_policy := FullAccess | AskForApproval | ReviewWith (reviewer : profile).
-Record workspace := Workspace { workspace_roots : list string; workspace_primary : option string }.
+Record workspace := ExecutionWorkspace {
+  workspace_roots : list string;
+  workspace_primary : option string;
+  workspace_environment : option string
+}.
+Definition Workspace roots primary := ExecutionWorkspace roots primary None.
 Record task_settings := Settings {
   settings_workspace : workspace;
   settings_project : option N;

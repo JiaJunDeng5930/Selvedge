@@ -255,6 +255,61 @@ test('Task and Service settings restore only saved values that differ from their
   }, cloud);
   await page.setViewportSize({ width: 1280, height: 900 });
 
+  const receiver = { id: 'build-runner-northeast-development-02', url: 'wss://receiver.example:4443/execution',
+    token_file: '/fixture/execution-token', ca_file: '/fixture/receiver-ca.pem' };
+  const connectionList = settings.getByRole('region', { name: '远程执行连接', exact: true });
+  const addConnection = page.getByRole('dialog', { name: '新建连接', exact: true });
+  await button(settings, '添加连接').click();
+  await textbox(addConnection, '机器名称').fill(receiver.id);
+  const endpoint = textbox(addConnection, '连接地址（wss://）');
+  await endpoint.fill('ws://receiver.example:4443/execution');
+  await textbox(addConnection, '令牌文件路径').fill(receiver.token_file);
+  await textbox(addConnection, 'CA 证书文件路径（可选）').fill(receiver.ca_file);
+  assert.deepEqual(await addConnection.getByRole('button').allTextContents(), ['取消', '添加']);
+  await button(addConnection, '添加连接').click();
+  await addConnection.getByRole('status').filter({ hasText: '连接地址应为 wss://' }).waitFor();
+  assert.equal(Object.hasOwn(await saved(), 'execution_environments'), false);
+  await endpoint.fill(receiver.url);
+  await button(addConnection, '添加连接').click();
+  await addConnection.waitFor({ state: 'hidden' });
+  await connectionList.getByText(receiver.url, { exact: true }).waitFor();
+  assert.deepEqual((await saved()).execution_environments, [receiver]);
+
+  await page.setViewportSize({ width: 320, height: 568 });
+  const machineName = connectionList.getByText(receiver.id, { exact: true });
+  await machineName.scrollIntoViewIfNeeded();
+  assert.equal(await machineName.evaluate(element => element.scrollHeight <= element.clientHeight + 1), true,
+    'A narrow connection list keeps the entire machine name readable');
+  const editLabel = `编辑「${receiver.id}」`;
+  const editConnection = page.getByRole('dialog', { name: editLabel, exact: true });
+  const revised = { ...receiver, ca_file: '/fixture/replacement-ca.pem' };
+  const caFile = textbox(editConnection, 'CA 证书文件路径（可选）');
+  await button(connectionList, editLabel).click();
+  await caFile.fill(revised.ca_file);
+  assert.deepEqual(await editConnection.getByRole('button').allTextContents(), ['取消', '保存']);
+  await button(editConnection, '保存').click();
+  await editConnection.waitFor({ state: 'hidden' });
+  assert.deepEqual((await saved()).execution_environments, [revised]);
+
+  const removeLabel = `移除「${receiver.id}」`;
+  const removeConnection = page.getByRole('dialog', { name: `${removeLabel}？`, exact: true });
+  const removeEntry = button(connectionList, removeLabel);
+  await removeEntry.click();
+  await removeConnection.waitFor();
+  const removalHeading = removeConnection.getByRole('heading', { level: 2 });
+  assert.equal(await removalHeading.evaluate(element => element.scrollHeight <= element.clientHeight + 1), true,
+    'The removal confirmation shows the complete name of the connection');
+  assert.deepEqual(await removeConnection.getByRole('button').allTextContents(), ['取消', '移除']);
+  await button(removeConnection, '取消').click();
+  await removeConnection.waitFor({ state: 'hidden' });
+  assert.deepEqual((await saved()).execution_environments, [revised]);
+  await removeEntry.click();
+  await button(removeConnection, '移除连接').click();
+  await removeConnection.waitFor({ state: 'hidden' });
+  await connectionList.getByText('暂无远程执行连接。', { exact: true }).waitFor();
+  assert.deepEqual((await saved()).execution_environments, []);
+  await page.setViewportSize({ width: 1280, height: 900 });
+
   await category('服务');
   const address = settings.getByRole('combobox', { name: '监听地址', exact: true });
   const port = textbox(settings, '监听端口');

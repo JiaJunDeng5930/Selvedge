@@ -1,4 +1,4 @@
-From Selvedge.Programming Require Variant.
+From Selvedge.Programming Require Variant ArgumentDeclaration.
 From Selvedge.Kernel Require Import ModelResultDeclarations.
 From Selvedge.Kernel Require Workspace.
 From Selvedge.Programming Require Import Schema.
@@ -37,9 +37,17 @@ Definition request_plan (source : json) : json :=
       (Variant.pack ModelResultDeclarations.browser_cloud_repository [!primary!]))
       else type_error "Expected a canonical workspace root"
     | None=>type_error "Expected a workspace root" end
-  else if String.eqb (observation_kind request) "browse-directories" && request_count_is 2 request then
-    success (Variant.encode_packet (Variant.pack ModelResultDeclarations.browser_browse_directories
-      [!get request "path";empty_requested_path request;get source "project_root";field "task_id" request!]))
+  else if String.eqb (observation_kind request) "browse-directories" &&
+    request_count_is (if has request "environment" then 3 else 2) request then
+    match field "environment" request with
+    | Some value=>
+      match ArgumentDeclaration.decode Workspace.environment_declaration value with
+      | Some id=>success (Variant.encode_packet (Variant.pack ModelResultDeclarations.browser_browse_directories
+        [!get request "path";empty_requested_path request;get source "project_root";Some (proj1_sig id);field "task_id" request!]))
+      | None=>type_error "Expected a workspace machine identifier" end
+    | None=>success (Variant.encode_packet (Variant.pack ModelResultDeclarations.browser_browse_directories
+        [!get request "path";empty_requested_path request;get source "project_root";None;field "task_id" request!]))
+    end
   else if String.eqb (observation_kind request) "directories" && request_count_is 2 request && truthy (get request "workspace") then
     success (Variant.encode_packet (Variant.pack ModelResultDeclarations.browser_directories
       [!get request "workspace";field "task_id" request!]))

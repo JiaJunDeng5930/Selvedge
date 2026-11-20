@@ -122,6 +122,9 @@ Definition committed_workspace_facts parent workspace:list(node Input.input) :=
  let primary:=Domain.workspace_primary workspace in
  let roots:=Domain.workspace_roots workspace in
  let selected path:=match primary with Some value=>String.eqb value path|None=>false end in
+ (match Domain.workspace_environment workspace with
+ |Some environment=>[read_only parent "workspace-machine" "目录所在机器" environment]
+ |None=>[]end) ++
  match roots with
  |[]=>[information parent "working-directory" Information.Description "未设置工作目录"]
  |[path]=>[Pages.directory_details parent "working-directory" "工作目录" path]

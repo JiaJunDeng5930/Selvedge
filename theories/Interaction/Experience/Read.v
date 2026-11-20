@@ -90,17 +90,19 @@ Definition context_instructions context := guidance_instructions(context_guidanc
 Record task_operation := TaskOperation {
  operation_id : N; operation_tool : string; operation_call_id : string;
  operation_stage : string; operation_status : string; operation_arguments : option json;
- operation_human : bool; operation_directory : option string; operation_reviewer : option string
+ operation_human : bool; operation_directory : option string; operation_environment : option string;
+ operation_reviewer : option string
 }.
 Definition observe_operation snapshot value :=
  id<-natural_field "operation_id" value;;tool<-string_field "tool" value;;
  call_id<-string_field "call_id" value;;stage<-string_field "stage" value;;
  status<-string_field "status" value;;human<-bool_field "awaitingHuman" value;;
- let directory:=bind(field "context" value)(fun settings=>
-   bind(field "workspace" settings)(string_field "primary_root")) in
+ let workspace:=bind(field "context" value)(field "workspace") in
+ let directory:=bind workspace (string_field "primary_root") in
+ let environment:=bind workspace (string_field "environment") in
  let reviewer:=bind(bind(field "reviewer" value)(field "profile"))KernelCodec.parse_profile in
  Some(TaskOperation id tool call_id stage status (bind(field "call" value)(field "arguments"))
-  human directory(option_map(fun profile=>ContextObservation.profile_label(Observation.catalog snapshot)profile)reviewer)).
+  human directory environment(option_map(fun profile=>ContextObservation.profile_label(Observation.catalog snapshot)profile)reviewer)).
 Definition task_operations id snapshot :=
  bind(World.find_task id snapshot)(list_field(observe_operation snapshot)"operations").
 Definition pending_approvals operations :=
