@@ -53,7 +53,8 @@ Theorem native_creation_cannot_supply_guidance_observations : forall source sele
  Tasks.native_creation_allowed (Some source) selected caller value = false.
 Proof.
  intros; unfold Tasks.native_creation_allowed; rewrite H.
- destruct (Workspace.may_delegate selected caller); reflexivity.
+ destruct (Workspace.same_environment (settings_workspace selected) (settings_workspace caller)),
+   (Workspace.may_delegate selected caller); reflexivity.
 Qed.
 
 (* Native fork runs while its caller's model calls are pending. Unlike creation,

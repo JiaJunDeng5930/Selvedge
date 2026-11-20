@@ -13,8 +13,23 @@ Definition valid_project_name (name : string) :=
 Definition path_constraints := WorkspacePath.constraints.
 Definition path_declaration := WorkspacePath.declaration.
 Definition canonical_path := WorkspacePath.canonical.
+Definition environment_declaration := ArgumentDeclaration.Textual
+ (ArgumentDeclaration.PrintableUtf16 1 128).
+Definition on_shared_environment (value : workspace) :=
+ match workspace_environment value with Some _ => true | None => false end.
+Definition same_environment (left right : workspace) :=
+ match workspace_environment left, workspace_environment right with
+ | None, None => true
+ | Some first, Some second => String.eqb first second
+ | _,_ => false
+ end.
+(* Directory names are relative to the selected machine's filesystem. *)
+Definition select_environment (environment : option string) (current : workspace) :=
+ let empty := ExecutionWorkspace [] None environment in
+ if same_environment current empty then current else empty.
 Definition primary_path (value:workspace) := match workspace_primary value with Some root=>root|None=>"" end.
-Definition same_primary (left right:workspace) := String.eqb (primary_path left) (primary_path right).
+Definition same_primary (left right:workspace) :=
+ same_environment left right && String.eqb (primary_path left) (primary_path right).
 Definition valid_path (path : string) :=
  ArgumentDeclaration.check_text path_constraints path && canonical_path path.
 Definition valid_selection (value : workspace) :=

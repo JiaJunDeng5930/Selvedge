@@ -173,11 +173,12 @@ Theorem archiving_local_workspace_is_unavailable : forall space value tree root 
  F.worktree_backend tree=WorkspaceBackend.Local ->
  F.worktree_phase tree=F.TreeArchiving (RequestEnvelope.Owned (root,target)) ->
  WorkspaceBinding.any_inside root (workspace_roots space)=true ->
+ Workspace.on_shared_environment space=false ->
  Worktree.workspace_available space value=false.
 Proof.
- intros space value tree root target member backend phase uses.
+ intros space value tree root target member backend phase uses Local.
  apply Bool.not_true_is_false. intro available.
- unfold Worktree.workspace_available in available.
+ unfold Worktree.workspace_available,WorkspaceBinding.workspace_available in available. rewrite Local in available. simpl in available.
  apply forallb_forall with (x:=tree) in available; [|exact member].
  rewrite backend,phase in available. cbn [WorkspaceBackend.cloud] in available.
  unfold F.worktree_root in available. unfold WorkspaceBinding.any_inside,Worktree.inside, WorkspaceBinding.inside in uses.
@@ -333,13 +334,14 @@ Qed.
 Theorem an_observed_binding_takes_priority_over_automatic_worktree_preference :
  forall before settings owner,
  settings_resource settings = Some owner ->
+ Workspace.on_shared_environment (settings_workspace settings) = false ->
  Worktree.select_creation_plan before settings None None = Worktree.reuse_plan before settings owner.
-Proof. intros before settings owner Bound. unfold Worktree.select_creation_plan; rewrite Bound; reflexivity. Qed.
+Proof. intros before settings owner Bound Local. unfold Worktree.select_creation_plan; now rewrite Local, Bound. Qed.
 Theorem explicit_provision_rejects_an_observed_cloud_source : forall before backend settings tree,
  WorkspaceBinding.resolve settings before = Some tree ->
  WorkspaceBackend.cloud (F.worktree_backend tree) = true ->
  Worktree.provision_plan before backend settings = None.
-Proof. intros before backend settings tree Observed Cloud. unfold Worktree.provision_plan; rewrite Observed, Cloud; reflexivity. Qed.
+Proof. intros before backend settings tree Observed Cloud. unfold Worktree.provision_plan; rewrite Observed, Cloud; now destruct (Workspace.on_shared_environment (settings_workspace settings)). Qed.
 
 Theorem planned_birth_appends_exactly_one_task : forall before (plan:Worktree.planned_start before) current,
  exists created, world_tasks (Worktree.born_world (Worktree.interpret_planned_birth plan current)) = (world_tasks current ++ [created])%list.

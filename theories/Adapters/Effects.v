@@ -1,9 +1,17 @@
 From Stdlib Require Import String List Bool.
 From Selvedge.Adapters Require Import Common EffectCallbacks Processes TextEndpoints Workspaces CloudWorkspaces SandboxPolicy Seatbelt Sandbox Attachments.
+From Selvedge.Adapters Require SharedExecution.
+From Selvedge.Kernel Require Limits.
 Import ListNotations.
 Open Scope string_scope.
 
 Definition handlers : list (string * (json -> json)) := [
+  ("effect.execution_endpoint_path",fun _ => success (JString SharedExecution.endpoint_path));
+  ("effect.execution_limits",fun _ => success Limits.boundary_limits);
+  ("effect.execution_request",SharedExecution.admit SharedExecution.request);
+  ("effect.execution_response",SharedExecution.admit SharedExecution.response);
+  ("effect.execution_start_action",fun source => success (JString
+    (SharedExecution.start_action (flag (get source "recorded")) (get source "previous") (get source "incoming"))));
   ("effect.cloud_backend",CloudConfiguration.require_cloud);
   ("effect.cloud_repository",CloudWorkspaces.repository);
   ("effect.cloud_remote_names",CloudWorkspaces.remote_names);

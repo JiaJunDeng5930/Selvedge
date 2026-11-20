@@ -105,12 +105,13 @@ async function observeWorkspaceSettings({ value, project_id }, limits, { project
   const workspace = project_id === null ? value.workspace : await projectWorkspace(project_id);
   // DEFENSE: A public project ID can name a deleted or unavailable Project; preserve it for native command rejection.
   if (workspace === undefined) return {};
-  const resolution = await workspaceEnvironment?.(project_id === null ? { workspace } : { project_id });
+  const resolution = await workspaceEnvironment?.(workspace.environment || project_id === null ? { workspace } : { project_id });
   const environment = resolution?.environment;
   try {
     const canonical = await canonicalWorkspace(workspace, { filesystem: environment?.filesystem });
-    if (environment) boundary('effect.workspace_environment_bound', { workspace: canonical, root: environment.root });
-    const observed = { workspace: { roots: canonical.roots } };
+    if (environment && !workspace.environment) boundary('effect.workspace_environment_bound', { workspace: canonical, root: environment.root });
+    const observed = { workspace: { roots: canonical.roots,
+      ...(workspace.environment ? { environment: workspace.environment } : {}) } };
     if (resolution) observed.workspace_binding = resolution.workspace_binding;
     if (canonical.primary_root !== null) {
       observed.workspace.primary_root = canonical.primary_root;

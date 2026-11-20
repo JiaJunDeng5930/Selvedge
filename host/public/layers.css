@@ -774,6 +774,12 @@ dialog[data-semantic-key="object-actions"] { padding: var(--layer-gap) !importan
   padding-inline: 0 !important;
   gap: var(--layer-gap) !important;
 }
+[data-semantic-key="workspace-collection"] div:has(> select[data-semantic-key="workspace-machine-picker"]) {
+  display: grid !important;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  column-gap: var(--layer-gap, .5rem) !important;
+}
 [data-semantic-key="shared-explanation"] {
   border-block-start: 1px solid var(--selvedge-border);
   padding-block-start: .5rem !important;

@@ -80,6 +80,10 @@ function contextTransport(config, definitions, observer) {
 export function validateConfig(value) {
   const observer = configurationObserver();
   const config = configurationHead(value, observer);
+  const connections = value.execution_environments ?? [];
+  config.execution_environments = profileBoundary('config.execution_environments', {
+    connections, endpoints: Array.isArray(connections) ? connections.map(entry => urlObservation(entry?.url)) : [],
+  });
   config.cloud = profileBoundary('config.cloud', { cloud: value.cloud ?? false });
   config.chatgpt_plugin = connectionConfig(value.chatgpt_plugin);
   config.chatgpt = value.chatgpt === false ? false : accountConfig(value.chatgpt);

@@ -21,12 +21,20 @@ Record preview_request := PreviewRequest { preview_file:attachment; preview_trig
 Definition encode_preview p := JObject[("file",encode_attachment(preview_file p));("trigger",JString(preview_trigger p))].
 Definition decode_preview j := f <- bind(field "file" j) decode_attachment ;; t <- string_field "trigger" j ;; Some(PreviewRequest f t).
 Record directory_request := DirectoryRequest { directory_editor:editor; directory_path:string;
- directory_trigger:string; directory_previous:option string }.
-Definition encode_directory d := JObject[("editor",encode_editor(directory_editor d));("path",JString(directory_path d));
- ("trigger",JString(directory_trigger d));("previous",DraftCodec.optional_value JString(directory_previous d))].
+ directory_trigger:string; directory_previous:option string; directory_environment:option string }.
+Definition directory_environment_fields (environment : option string) :=
+ match environment with Some id=>[("environment",JString id)] |None=>[]end.
+Definition decode_directory_environment j :=
+ match field "environment" j with
+ |None=>Some None |Some value=>option_map (@Some string) (as_string value) end.
+Definition encode_directory d := JObject
+ ([("editor",encode_editor(directory_editor d));("path",JString(directory_path d));
+   ("trigger",JString(directory_trigger d));("previous",DraftCodec.optional_value JString(directory_previous d))]++
+  directory_environment_fields (directory_environment d))%list.
 Definition decode_directory j := e<-bind(field "editor" j)decode_editor;;p<-string_field "path" j;;
  t<-string_field "trigger" j;;previous<-bind(field "previous" j)(DraftCodec.parse_optional as_string);;
- Some(DirectoryRequest e p t previous).
+ environment<-decode_directory_environment j;;
+ Some(DirectoryRequest e p t previous environment).
 Definition directory_entry_schema := [Schema.Field "name" Schema.KText;Schema.Field "path" Schema.KText].
 Definition directory_catalog_schema := [Schema.Field "ok" Schema.KBool;Schema.Field "path" Schema.KText;
  Schema.Field "parent" Schema.KJson;Schema.Field "entries" (Schema.KArray Schema.KJson);
@@ -177,6 +185,7 @@ Inductive service_input :=
 | LoadConfiguration | SelectConfiguration(path:list string)
 | EditConfigurationAt(path:list string)(raw:string) | CancelConfigurationEdit
 | SelectConfigurationItem(path:list string)(name:string) | BeginAddConfigurationItem(path:list string)
+| BeginRemoveConfigurationItem(path:list string)(name:string)
 | EditConfigurationItemName(raw:string)
 | EditConfigurationItemValue(value:json) | RemoveConfigurationItem(name:string)
 | EditModelProfileField(field raw:string)
@@ -190,7 +199,7 @@ Inductive service_input :=
 | AddFile(owner:editor)(file:selected_file) | RetryUpload(ticket:N) | CancelUpload(ticket:N)
 | Uploaded(ticket:N)(outcome:sum string attachment)
 | OpenPreview(file:attachment)(trigger:string) | Previewed(ticket:N)(outcome:sum string string) | ClosePreview
-| Download(file:attachment) | OpenDirectory(owner:editor)(path trigger:string)
+| Download(file:attachment) | OpenDirectory(owner:editor)(path trigger:string)(environment:option string)
 | WriteDirectoryLocation(value:string) | VisitDirectory(path:string) | GoDirectory
 | DirectoryListed(ticket:N)(outcome:sum string json) | ChooseDirectory | CloseDirectory.
 Inductive service_effect :=
@@ -201,7 +210,7 @@ Inductive service_effect :=
 | FetchPreview(ticket:N)(file:attachment) | ReleasePreview(url:string) | DownloadFile(file:attachment)
 | ObserveDirectories(ticket:N)(workspace:json)(owner:editor) | ObserveWorkspaceGit(ticket:N)(primary:string)(owner:editor)
 | ObserveCloudRepository(ticket:N)(primary:string)
-| ListDirectory(ticket:N)(path:string)(owner:editor) | DirectoryChosen(owner:editor)(path:string) | Focus(trigger:string).
+| ListDirectory(ticket:N)(path:string)(owner:editor)(environment:option string) | DirectoryChosen(owner:editor)(path:string) | Focus(trigger:string).
 Record service_result := ServiceResult { service_state:services; service_effects:list service_effect; attached:option(editor*attachment) }.
 Definition keep s := ServiceResult s [] None.
 Definition effects s es := ServiceResult s es None.
@@ -275,8 +284,9 @@ Definition finish_upload t result s :=
     | inl error=>keep(with_uploads(map(settle t (inl error))(uploads s))s)
     | inr value=>ServiceResult(forget_upload t s)[] (Some(upload_editor a,value)) end
   | _=>keep s end.
-Definition begin_directory e path trigger previous s := let t:=next_ticket s in
-  effects(with_next(N.succ t)(with_directory(Loading t (DirectoryRequest e path trigger previous))path s))[ListDirectory t path e].
+Definition begin_directory e path trigger previous environment s := let t:=next_ticket s in
+  effects(with_next(N.succ t)(with_directory(Loading t (DirectoryRequest e path trigger previous environment))path s))
+    [ListDirectory t path e environment].
 Definition visit_directory path s :=
  let browsing:=directory s in
  match resource_request browsing with
@@ -284,7 +294,7 @@ Definition visit_directory path s :=
  |Some request=>let previous:=match browsing with
    |Loaded _ _ catalog=>string_field "path" catalog
    |_=>directory_previous request end in
-  begin_directory(directory_editor request)path(directory_trigger request)previous s
+  begin_directory(directory_editor request)path(directory_trigger request)previous(directory_environment request)s
  end.
 Definition configuration_write (reset:bool) s :=
   let view := service_configuration s in
@@ -354,6 +364,8 @@ Definition service_step input s :=
       keep (with_configuration (Configuration.edit_at path (Configuration.select_item name) (service_configuration s)) s)
   | BeginAddConfigurationItem path =>
       keep (with_configuration (Configuration.edit_at path Configuration.begin_add_item (service_configuration s)) s)
+  | BeginRemoveConfigurationItem path name =>
+      keep (with_configuration (Configuration.edit_at path (Configuration.begin_remove_item name) (service_configuration s)) s)
   | EditConfigurationItemName raw =>
       keep (with_configuration (Configuration.edit_item_name raw (service_configuration s)) s)
   | EditConfigurationItemValue value =>
@@ -399,7 +411,7 @@ Definition service_step input s :=
       effects s(match r with inr url=>[ReleasePreview url]|inl _=>[]end)end
   | ClosePreview=>effects(with_preview Dormant s)(release_preview s++match preview s with Loading _ p|Loaded _ p _|Failed _ p _=>[Focus(preview_trigger p)]|Dormant=>[]end)
   | Download f=>effects s[DownloadFile f]
-  | OpenDirectory e path trigger=>begin_directory e path trigger None s
+  | OpenDirectory e path trigger environment=>begin_directory e path trigger None environment s
   | WriteDirectoryLocation v=>keep(with_directory(directory s)v s)
   | VisitDirectory path=>visit_directory path s
   | GoDirectory=>visit_directory(directory_location s)s
@@ -446,7 +458,8 @@ Definition encode_effect e :=
   | ObserveDirectories t workspace e=>effect "observe_directories"(task_observation_fields e[("ticket",number t);("workspace",workspace)])
   | ObserveWorkspaceGit t primary e=>effect "workspace_git"(task_observation_fields e[("ticket",number t);("primary",JString primary)])
   | ObserveCloudRepository t primary=>effect "cloud_repository"[("ticket",number t);("primary",JString primary)]
-  | ListDirectory t p e=>effect "list_directory"(task_observation_fields e[("ticket",number t);("path",JString p)])
+  | ListDirectory t p e environment=>effect "list_directory"(task_observation_fields e
+    ([("ticket",number t);("path",JString p)]++directory_environment_fields environment))
   | DirectoryChosen e p=>effect "directory_chosen"[("editor",encode_editor e);("path",JString p)]
   | Focus t=>effect "focus"[("key",JString t)]end.
 Definition decode_outcome {A} (decode:json->option A) (j:json) : option(sum string A):=
@@ -489,7 +502,7 @@ Definition service_input_decoders : list (string * (json -> option service_input
   ("previewed", fun j => t<-natural_field "ticket" j;;r<-decode_outcome as_string j;;Some(Previewed t r));
   ("close_preview", fun j => Some ClosePreview);
   ("download", fun j => a<-bind(field "file" j)decode_attachment;;Some(Download a));
-  ("open_directory", fun j => e<-bind(field "editor" j)decode_editor;;p<-string_field "path" j;;t<-string_field "trigger" j;;Some(OpenDirectory e p t));
+  ("open_directory", fun j => e<-bind(field "editor" j)decode_editor;;p<-string_field "path" j;;t<-string_field "trigger" j;;environment<-decode_directory_environment j;;Some(OpenDirectory e p t environment));
   ("write_directory", fun j => v<-string_field "value" j;;Some(WriteDirectoryLocation v));
   ("visit_directory", fun j => p<-string_field "path" j;;Some(VisitDirectory p));
   ("go_directory", fun j => Some GoDirectory);

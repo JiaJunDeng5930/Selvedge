@@ -125,27 +125,36 @@ Definition write_finished ticket outcome s :=
   | _ => s
   end.
 
+Inductive collection_shape :=
+| ObjectEntries (wrapper : option string)
+| ArrayEntries (identity : string).
+
 Definition collection_root path :=
   match path with
-  | ["profiles"] | ["reasoning_evaluators"] | ["mcp"] | ["plugins"] => Some None
-  | ["chatgpt_plugin"] => Some (Some "connections")
+  | ["profiles"] | ["reasoning_evaluators"] | ["mcp"] | ["plugins"] => Some (ObjectEntries None)
+  | ["chatgpt_plugin"] => Some (ObjectEntries (Some "connections"))
+  | ["execution_environments"] => Some (ArrayEntries "id")
   | _ => None
   end.
 Definition parsed_draft s :=
   draft <- current_draft s ;;
   TextJson.parse_json (draft_input draft).
-Definition collection_object s :=
-  draft <- current_draft s ;;
-  wrapper <- collection_root (draft_path draft) ;;
-  value <- parsed_draft s ;;
-  match value, wrapper with
-  | JNull, _ =>
-      match draft_path draft with ["reasoning_evaluators"] | ["chatgpt_plugin"] => Some [] | _ => None end
-  | JObject _, None => as_object value
-  | JObject _, Some key =>
+Definition collection_members path value :=
+  shape <- collection_root path ;;
+  match shape, value with
+  | ObjectEntries _, JNull =>
+      match path with ["reasoning_evaluators"] | ["chatgpt_plugin"] => Some [] | _ => None end
+  | ObjectEntries None, JObject entries => Some entries
+  | ObjectEntries (Some key), JObject _ =>
       match field key value with None => Some [] | Some entries => as_object entries end
+  | ArrayEntries key, JArray entries =>
+      traverse (fun entry => name <- string_field key entry ;; Some (name, entry)) entries
   | _, _ => None
   end.
+Definition collection_object s :=
+  draft <- current_draft s ;;
+  value <- parsed_draft s ;;
+  collection_members (draft_path draft) value.
 Definition collection_entries s := value_or [] (collection_object s).
 
 Definition details_open s initial := value_or initial (details_choice (form_editor_current s)).
@@ -185,10 +194,11 @@ Definition valid_item_name name (entries : list (string * json)) :=
   Utf8.nonblank name && negb (existsb (fun entry => String.eqb name (fst entry)) entries).
 Definition collection_value entries s :=
   match bind (current_draft s) (fun draft => collection_root (draft_path draft)) with
-  | Some None => Some (JObject entries)
-  | Some (Some key) =>
+  | Some (ObjectEntries None) => Some (JObject entries)
+  | Some (ObjectEntries (Some key)) =>
       let current := value_or [] (bind (parsed_draft s) as_object) in
       Some (JObject (set_field key (JObject entries) current))
+  | Some (ArrayEntries key) => Some (JArray (map (fun '(name, value) => Common.set value key (JString name)) entries))
   | None => None
   end.
 Definition write_collection entries s :=
@@ -207,6 +217,8 @@ Definition valid_collection_item path value :=
       | Some _, Some model => Utf8.nonblank model
       | _, _ => false
       end
+  | ["execution_environments"] =>
+      Utf8.nonblank (Common.str value "url") && Utf8.nonblank (Common.str value "token_file")
   | _ => true
   end.
 Definition new_collection_entries s :=
@@ -248,6 +260,9 @@ Definition remove_item name :=
     | Some _ => write_collection (remove_field name entries) s
     | None => s
     end).
+
+Definition begin_remove_item name s :=
+  if has_unsaved_work s then s else remove_item name (select_item name s).
 
 (* Keep existing positions so editing a field does not move the profile row. *)
 Fixpoint put_member key (value : json) entries :=

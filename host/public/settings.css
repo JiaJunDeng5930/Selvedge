@@ -401,6 +401,17 @@ dialog[data-semantic-key="settings"]::backdrop { background: var(--selvedge-canv
   -webkit-line-clamp: 2;
   overflow: hidden;
 }
+/* Edit and Remove both identify a saved entry. Keep the full name visible
+   beside the pair, and give the name and address their own line on narrow screens. */
+[data-semantic-key="settings-entries"] [data-semantic-key="settings-row"]:has(> [data-semantic-key="settings-controls"] > button + button) [data-semantic-key="setting-name"] {
+  display: block !important;
+}
+@container settings-shell (inline-size < 22rem) {
+  [data-semantic-key="settings-entries"] [data-semantic-key="settings-row"]:has(> [data-semantic-key="settings-controls"] > button + button) {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: .375rem !important;
+  }
+}
 [data-semantic-key="settings-collection"] {
   align-items: stretch !important;
   gap: .625rem !important;
@@ -1026,6 +1037,10 @@ dialog:is([data-semantic-key="settings-title-editor"], [data-semantic-key="setti
   max-block-size: 2lh;
   overflow: auto;
   overscroll-behavior: contain;
+}
+/* A removal needs the full name in view and has no fields competing for space. */
+[data-semantic-key="settings-configuration-editor"]:has(button[data-semantic-key="confirm-remove"]) > [data-surface-role="dialog-header"] > h2 {
+  max-block-size: 50dvh;
 }
 [data-semantic-key="settings-title-editor"] > [data-semantic-key="editor"] {
   flex: 1 1 auto !important;

@@ -9,6 +9,7 @@ import { startServer } from './server.mjs';
 import { requestJson, events } from './network.mjs';
 import { parseJson, stringifyJson } from './codec.mjs';
 import { publishBytes } from './file-io.mjs';
+import { receiveExecution } from './shared-execution.mjs';
 import { provisionRemote } from './remote-control.mjs';
 
 function parseOptions(args) {
@@ -115,6 +116,30 @@ async function remoteCommand(global, args) {
 export async function main(args = process.argv.slice(2)) {
   const { global, values } = parseOptions(args);
   const [operation = 'help', ...rest] = values;
+  if (operation === 'receive-execution') {
+    const options = commandArguments({ name: operation, schema: { properties: {
+      host: { type: 'string' }, port: { type: 'integer' }, cert_file: { type: 'string' },
+      key_file: { type: 'string' }, token_file: { type: 'string' },
+    } } }, rest);
+    // DEFENSE: Reception changes network exposure. Require a concrete listener, port and credential files.
+    if (!options.host || !Number.isInteger(options.port) || options.port < 0 || options.port > 65535 ||
+        !options.cert_file || !options.key_file || !options.token_file) {
+      throw new TypeError('receive-execution requires --host --port --cert-file --key-file --token-file');
+    }
+    const receiver = await receiveExecution({ home: homeDirectory(global.home), host: options.host, port: options.port,
+      certFile: options.cert_file, keyFile: options.key_file, tokenFile: options.token_file });
+    console.log(`Selvedge execution receiver listening on ${receiver.address.address}:${receiver.address.port}`);
+    await new Promise((resolve, reject) => {
+      const stop = () => {
+        process.off('SIGINT', stop);
+        process.off('SIGTERM', stop);
+        receiver.close().then(resolve, reject);
+      };
+      process.once('SIGINT', stop);
+      process.once('SIGTERM', stop);
+    });
+    return;
+  }
   if (operation === 'server') {
     const settings = await loadConfig(global);
     const server = await startServer(settings);
@@ -192,7 +217,7 @@ export async function main(args = process.argv.slice(2)) {
     return;
   }
   if (operation === 'help' && rest.length === 0) {
-    console.log('Usage: bun host/cli.mjs [--home PATH] [--config FILE] server|init|login [PROFILE]|models [--refresh]|remote SUBCOMMAND|describe|watch|COMMAND [--field value]\nRun describe against a running server for its executable command schemas. Array arguments use JSON.\nRun remote for relay configuration, pairing and device management commands.\nRun login to use your ChatGPT account models without writing model profiles.');
+    console.log('Usage: bun host/cli.mjs [--home PATH] [--config FILE] server|receive-execution|init|login [PROFILE]|models [--refresh]|remote SUBCOMMAND|describe|watch|COMMAND [--field value]\nRun describe against a running server for its executable command schemas. Array arguments use JSON.\nRun remote for relay configuration, pairing and device management commands.\nRun login to use your ChatGPT account models without writing model profiles.');
     return;
   }
   const local = await connection(global.home);

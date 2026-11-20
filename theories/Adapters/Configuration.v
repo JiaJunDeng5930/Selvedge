@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Adapters Require Import Common Observation CloudConfiguration.
+From Selvedge.Adapters Require SharedExecution.
 From Selvedge.Adapters Require ProviderCatalog ConfigurationEditing.
 From Selvedge.Foundation Require Import Utf8.
 From Selvedge.Programming Require Schema ArgumentDeclaration DeclarationFields.
@@ -117,6 +118,7 @@ Definition configuration_fields definitions instructions :=
     Edit.Setting "reasoning_evaluators" D.RawObject None;
     Edit.Setting "chatgpt_plugin" D.Any None;
     setting "remote" D.Any (JBool false);
+    setting "execution_environments" SharedExecution.peers (JArray []);
     setting "cloud" CloudConfiguration.declaration (JBool false);
     setting "compaction" (D.Object policy_fields) compaction_defaults
   ] ++ map (context_entry instructions) (filter context_configured (items definitions)))%list.
@@ -373,6 +375,7 @@ Definition call (definitions : json) (instructions : string)
   else if String.eqb operation "config.evaluator_plan" then success (evaluator_plan source)
   else if String.eqb operation "config.evaluator_entry" then success (evaluator_entry source)
   else if String.eqb operation "config.adaptive_policy" then success (adaptive_policy source)
+  else if String.eqb operation "config.execution_environments" then SharedExecution.configuration source
   else if String.eqb operation "config.cloud" then CloudConfiguration.call source
   else if String.eqb operation "config.remote" then remote source
   else err ("Unknown host model operation: " ++ operation).

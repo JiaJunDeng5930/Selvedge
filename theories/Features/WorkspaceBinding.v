@@ -45,7 +45,8 @@ Definition local (space : workspace) (value : world) :=
 Definition resolve (settings : task_settings) (value : world) :=
   match settings_resource settings with
   | Some owner => owned owner value
-  | None => local (settings_workspace settings) value
+  | None => if Workspace.on_shared_environment (settings_workspace settings)
+            then None else local (settings_workspace settings) value
   end.
 
 Definition for_task (id : N) (value : world) :=
@@ -99,6 +100,7 @@ Definition resource_ready (space : workspace) (owner : option N) (value : world)
         | Selvedge.Features.Domain.TreeReady _ _ => true | _ => false end
     | None => false end end.
 Definition cloud_intersects (space : workspace) (tree : Selvedge.Features.Domain.worktree) :=
+  negb (Workspace.on_shared_environment space) &&
   WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend tree) &&
   match Selvedge.Features.Domain.worktree_root tree with
   | Some root => existsb (inside root) (workspace_roots space)
@@ -144,7 +146,7 @@ Proof.
   unfold resolve. rewrite reference, found. reflexivity.
 Qed.
 
-Definition workspace_available (space:workspace) (value:world) := forallb
+Definition workspace_available (space:workspace) (value:world) := Workspace.on_shared_environment space || forallb
  (fun tree=>WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend tree) ||
  match Selvedge.Features.Domain.worktree_phase tree with Selvedge.Features.Domain.TreeReady _ _=>true | _=>
  match Selvedge.Features.Domain.worktree_root tree with Some root=>negb (existsb (fun path => String.eqb root path || String.prefix (String.append root "/") path) (workspace_roots space)) | None=>true end end)

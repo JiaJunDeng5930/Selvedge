@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Programming Require Import Schema.
-From Selvedge.Kernel Require Domain Codec ModelCapabilities WorkspaceBackend Commands.
+From Selvedge.Kernel Require Domain Codec ModelCapabilities Workspace WorkspaceBackend Commands.
 From Selvedge.Features Require Domain.
 From Selvedge.Interaction Require Import Codec Identity Context ModelSelection.
 From Selvedge.Interaction Require World.
@@ -80,7 +80,7 @@ Definition choose_reviewer snapshot value:=match current_reviewer snapshot value
  |Some key=>Some key|None=>default_reviewer snapshot(body_model snapshot value)end.
 Definition choose_primary workspace primary := match primary with
  |Some path=>if existsb(String.eqb path)(Domain.workspace_roots workspace)
-   then Domain.Workspace(Domain.workspace_roots workspace)(Some path)else workspace
+   then Domain.ExecutionWorkspace(Domain.workspace_roots workspace)(Some path)(Domain.workspace_environment workspace)else workspace
  |None=>workspace end.
 Definition modify_context snapshot body configuration field incoming :option Context.configuration:=
  match field with
@@ -88,7 +88,7 @@ Definition modify_context snapshot body configuration field incoming :option Con
  |Fields.WorkspaceDirectories=>match incoming with JNull=>Some(with_context_workspace None configuration)
    |JArray values=>roots<-traverse as_string values;;workspace<-current_workspace snapshot configuration;;
     let primary:=match Selvedge.Kernel.Domain.workspace_primary workspace with Some path=>if existsb(String.eqb path)roots then Some path else hd_error roots|None=>hd_error roots end in
-    Some(with_context_workspace(Some(Selvedge.Kernel.Domain.Workspace roots primary))configuration)|_=>None end
+    Some(with_context_workspace(Some(Domain.ExecutionWorkspace roots primary (Domain.workspace_environment workspace)))configuration)|_=>None end
  |Fields.WorkspacePrimary=>primary<-DraftCodec.decode_option_text incoming;;workspace<-current_workspace snapshot configuration;;
    Some(with_context_workspace(Some(choose_primary workspace primary))configuration)
  |Fields.SandboxMode=>match incoming with JNull=>Some(with_context_sandbox None configuration)
@@ -133,7 +133,7 @@ Definition update_body snapshot (body:Draft.body) (field:Fields.field) (incoming
    |Fields.MessageText,Draft.MessageBody task message delivery=>text<-as_string incoming;;Some(Draft.MessageBody task(Draft.Text text(Draft.text_images message))delivery)
    |Fields.WorkspaceDirectories,Draft.ProjectBody project name workspace worktree=>roots<-match incoming with JArray values=>traverse as_string values|_=>None end;;
      let primary:=match Selvedge.Kernel.Domain.workspace_primary workspace with Some path=>if existsb(String.eqb path)roots then Some path else hd_error roots|None=>hd_error roots end in
-     Some(Draft.ProjectBody project name(Selvedge.Kernel.Domain.Workspace roots primary)worktree)
+     Some(Draft.ProjectBody project name(Domain.ExecutionWorkspace roots primary (Domain.workspace_environment workspace))worktree)
    |Fields.WorkspacePrimary,Draft.ProjectBody project name workspace worktree=>primary<-DraftCodec.decode_option_text incoming;;Some(Draft.ProjectBody project name(choose_primary workspace primary)worktree)
    |_,Draft.CardBody card revision value assist profile keep=>match field with
      |Fields.AssistedCapture=>enabled<-as_bool incoming;;Some(Draft.CardBody card revision value enabled profile keep)
@@ -141,6 +141,23 @@ Definition update_body snapshot (body:Draft.body) (field:Fields.field) (incoming
      |Fields.ContinueCapture=>keep<-as_bool incoming;;Some(Draft.CardBody card revision value assist profile keep)
      |_=>updated<-DraftCodec.decode_card(replace(Parameters.name field)incoming(DraftCodec.encode_card value));;Some(Draft.CardBody card revision updated assist profile keep)end
    |_,_=>DraftCodec.decode_body(Draft.owner(Draft.Draft 0 body Draft.Editing "" None))(replace(Parameters.name field)incoming(DraftCodec.encode_body body))end end.
+Definition choose_workspace_environment snapshot (body : Draft.body) current environment : option Draft.body :=
+ let available:=match environment with
+ |None=>true
+ |Some id=>existsb (String.eqb id) (SO.shared_execution_environments snapshot)
+ end in
+ if available then
+  let selected:=Workspace.select_environment environment current in
+  match body with
+  |Draft.NewTaskBody message profile reasoning context _ work=>
+   Some(Draft.NewTaskBody message profile reasoning (with_context_workspace (Some selected) context)
+    Draft.CurrentWorkspace work)
+  |Draft.ForkBody task count messages context=>
+   Some(Draft.ForkBody task count messages (with_context_workspace (Some selected) context))
+  |Draft.ProjectBody project name _ worktree=>
+   Some(Draft.ProjectBody project name selected (worktree && negb (Workspace.on_shared_environment selected)))
+  |_=>None end
+ else None.
 Definition add_workspace_directory snapshot body workspace path :=
  let roots:=Domain.workspace_roots workspace in
  let roots:=if existsb(String.eqb path)roots then roots else (roots++[path])%list in
