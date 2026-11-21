@@ -34,8 +34,8 @@ dialog:is([data-semantic-key="settings"], [data-semantic-key="settings-title-edi
 }
 dialog[data-semantic-key="settings"] {
   --settings-edge: clamp(1rem, 2vi, 1.75rem);
-  --settings-frame: 37.375rem;
-  --settings-rail: 5rem;
+  --settings-frame: 52rem;
+  --settings-rail: clamp(5rem, 13cqi, 8rem);
   container: settings-shell / inline-size;
   position: fixed !important;
   inset: 0 !important;
@@ -1051,8 +1051,10 @@ dialog:is([data-semantic-key="settings-title-editor"], [data-semantic-key="setti
 }
 :is([data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) [data-surface-role="dialog-actions"] {
   flex: none !important;
+  max-block-size: min(14rem, calc(var(--panel-available-height, 100dvh) * .4));
+  overflow-y: auto !important;
+  justify-content: safe flex-end !important;
   flex-flow: row wrap !important;
-  justify-content: flex-end !important;
   gap: .5rem !important;
   margin-block-start: .375rem !important;
   padding: .75rem .1875rem 0 !important;
@@ -1200,4 +1202,14 @@ dialog[data-semantic-key="settings-configuration-editor"] [data-semantic-key="se
   --control-pressed-background: var(--control-hover-background) !important;
   --control-focus-ring: currentColor !important;
   color: #fff !important;
+}
+
+
+@media (pointer: coarse) {
+  dialog:is([data-semantic-key="settings"], [data-semantic-key="settings-title-editor"], [data-semantic-key="settings-configuration-editor"]) {
+    --settings-control-height: max(44px, 2.25rem);
+    --settings-text-action-height: var(--settings-control-height);
+    --settings-control-font: max(16px, 1rem);
+    & [data-surface-role="dialog-actions"] button { min-block-size: var(--settings-control-height) !important; }
+  }
 }

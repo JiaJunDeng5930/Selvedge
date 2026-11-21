@@ -1,6 +1,25 @@
 /** Observe native geometry and the exact font specifications requested by Gallina. */
 export function createPhysicalMeasurer({ surface, onChange }) {
   const document = surface.ownerDocument;
+  const view = document.defaultView;
+  const visibleViewport = view.visualViewport;
+  // Some mobile keyboards resize only the visual viewport. Keep editing
+  // controls in that space while allowing pinch zoom to pan normally.
+  function observeVisibleViewport() {
+    const clipped = visibleViewport?.scale === 1 && view.innerHeight - visibleViewport.height > 1;
+    if (clipped) {
+      const viewportStyle = document.documentElement.style;
+      viewportStyle.setProperty('--visible-height', `${visibleViewport.height}px`);
+      viewportStyle.setProperty('--visible-top', `${visibleViewport.offsetTop}px`);
+      viewportStyle.setProperty('--covered-bottom',
+        `${Math.max(0, view.innerHeight - visibleViewport.height - visibleViewport.offsetTop)}px`);
+    }
+    surface.toggleAttribute('data-viewport-clipped', clipped);
+  }
+  visibleViewport?.addEventListener('resize', observeVisibleViewport);
+  visibleViewport?.addEventListener('scroll', observeVisibleViewport);
+  view.addEventListener('resize', observeVisibleViewport);
+  observeVisibleViewport();
   const observed = new Set([surface]);
   const boxes = new WeakMap();
   const rowSelector = '[data-native-responsive-row]';
@@ -196,6 +215,9 @@ export function createPhysicalMeasurer({ surface, onChange }) {
   }
   return { viewport, measure, refresh, regions, responsiveRows,
     dispose() {
+      visibleViewport?.removeEventListener('resize', observeVisibleViewport);
+      visibleViewport?.removeEventListener('scroll', observeVisibleViewport);
+      view.removeEventListener('resize', observeVisibleViewport);
       resize.disconnect(); rowChanges.disconnect(); rootFontProbe.remove();
       document.fonts.removeEventListener('loadingdone', fontChange); observed.clear(); observedRows.clear();
     } };

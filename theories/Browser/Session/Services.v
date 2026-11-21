@@ -173,7 +173,7 @@ Inductive service_input :=
 | RestoreModelPreference(raw:string) | StorageProblem(message:string) | DismissStorageProblem
 | WorkspaceGitCompleted(ticket:N)(outcome:sum string bool)
 | CloudRepositoryCompleted(ticket:N)(outcome:sum string bool) | RefreshCloudRepository(owner:editor)
-| OpenSettings | CloseSettings | SelectSettingsSection(section:SettingsSection)
+| OpenSettings | OpenModelSettings(trigger:string) | CloseSettings | SelectSettingsSection(section:SettingsSection)
 | LoadConfiguration | SelectConfiguration(path:list string)
 | EditConfigurationAt(path:list string)(raw:string) | CancelConfigurationEdit
 | SelectConfigurationItem(path:list string)(name:string) | BeginAddConfigurationItem(path:list string)
@@ -311,6 +311,9 @@ Definition write_configuration_at path view reset s :=
       then configuration_write reset (with_configuration view s) else keep s
   | None => keep s
   end.
+Definition open_settings section trigger s :=
+ if settings_open s then keep s else
+ configuration_read (with_settings_section section (with_settings_return (Some trigger) s)).
 Definition service_step input s :=
   match input with
   | CommandAssessed ticket outcome =>
@@ -335,9 +338,8 @@ Definition service_step input s :=
       |None => keep (with_storage_problem (Some "无法恢复本地模型偏好：存储内容无效。") s) end
   | StorageProblem message => keep (with_storage_problem (Some message) s)
   | DismissStorageProblem => keep (with_storage_problem None s)
-  | OpenSettings =>
-      if settings_open s then keep s else
-      configuration_read (with_settings_section SettingsGeneral (with_settings_return (Some "nav/settings") s))
+  | OpenSettings => open_settings SettingsGeneral "nav/settings" s
+  | OpenModelSettings trigger => open_settings SettingsModels trigger s
   | CloseSettings=>effects(with_settings_return None s)(match settings_return s with Some trigger=>[Focus(settings_focus_target trigger)]|None=>[]end)
   | SelectSettingsSection section =>
       if settings_open s then

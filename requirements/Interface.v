@@ -93,6 +93,8 @@ Export SurfaceProofs(unavailable_control_cannot_press,
     after the other actions and keeps their reasons available.
 
     A chooser explains why a choice is unavailable at the point of selection.
+    An empty model chooser leads directly to the model configuration section.
+    Closing Settings returns attention to the chooser.
     Model choices with the same name show the configuration difference in
     their captions, including the reasoning policy where it distinguishes them.
     Each delivery choice has one name and explains what happens to the next
@@ -208,7 +210,10 @@ Export PlotProof(chart_axis_covers_values, chart_axis_coordinates_reach_both_plo
     interactive preview reserves space and shows a loading status in place
     of its source. The conversation end action waits for pending previews.
     Opening a conversation reveals its available Markdown at the intended
-    reading position as soon as the text is ready. Interactive previews
+    reading position as soon as the text is ready. A search hit in a streaming
+    reply can be read from its published prefix. Formatting another block
+    must not hold up a match in ordinary prose or take focus from an editor.
+    Interactive previews
     may finish loading in place after the surrounding text appears.
     An already visible timeline continues displaying live replies.
     Mounting a preview above the current passage preserves its reading
@@ -309,8 +314,9 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     can put task navigation in a drawer to leave room for the graph and its actions.
     Centered dialogs fit the current viewport while a new layout observation is
     pending.
-    Collapsed desktop navigation keeps the new conversation and search actions
-    beside the control that reopens the sidebar.
+    Collapsed desktop navigation keeps conversation creation, search, workspace
+    destinations and settings within reach. Compact navigation offers creation
+    from the header while the task drawer is closed.
     Returning to the latest message uses the reading area's outer edge.
     Its control stays clear of inline reading actions and does not change
     how much of the conversation or composer is visible when it appears.
@@ -320,6 +326,8 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     Work membership. The conversation scope selector identifies the current
     scope and gives the conversation count for each choice. A project name opens
     its details, and a separate control starts a conversation with its defaults.
+    Deeply nested branches retain room for the conversation title and its
+    controls. Building the navigation tree groups children by their parent.
     The board and project management are global. The board identifies its items
     as cards. It exposes actions to link or open a conversation on an ordinary
     card and to open the current instance on a workflow-backed ticket.
@@ -328,10 +336,14 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     View choices and filters are adjacent. Search has a compact field beside
     them. An empty stage keeps its heading and count on the board background.
     An available destination is highlighted while a card is dragged over it.
-    Stage lanes follow one horizontal track. Their minimum width leaves room
+    A drag observes the destination under the pointer against the published
+    card and board. Browsing cards requires only one index of drop positions.
+    Cards show a bounded preview of their description and labels. Opening the
+    card exposes the full text. Stage lanes follow one horizontal track. Their minimum width leaves room
     to read a card title alongside its action menu. Empty lanes retain a drop
     target with the same height. Previous and next controls join the toolbar
-    when columns extend beyond the viewport. The filter and lane heading use the same
+    when columns extend beyond the viewport. In a short viewport the page can
+    scroll past a wrapped toolbar to reach the cards. The filter and lane heading use the same
     icon for each stage. The assignee filter distinguishes people, models
     and unassigned cards while keeping its options searchable and its
     selected indicator distinct from keyboard focus.
@@ -340,6 +352,7 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     The graph destination, its empty state and the creation action name the same
     object. The empty state describes how a workflow routes messages through
     nodes. A connection identifies its source and receiver beside the direction.
+    Canvas zoom leaves the browser's page zoom shortcuts and pinch gesture available.
 
     Creation starts with the input needed for the common operation. A new
     conversation starts with a message, and a board card can be captured with a
@@ -484,6 +497,8 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     A Task with branches keeps its title as a conversation link while its
     adjacent disclosure controls the visibility of its descendants.
 
+    The collapsed sidebar keeps the board, projects, task graphs and Settings
+    directly reachable. A narrow header provides direct access to a new conversation.
     Narrow navigation renders the same Task tree through a native drawer, with
     explicit return focus and retained reading position. Modal native behavior
     supplies background inertness and focus isolation. Physical view occurrences

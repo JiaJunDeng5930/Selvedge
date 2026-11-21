@@ -35,7 +35,7 @@ Definition projects_page snapshot s parent :=
    (match project_list,tasks snapshot with
    |Some [],_=>[region parent "project/empty" "" Roles.Section
       [information parent "project/empty-description" Information.Description "还没有项目。";create]]
-   |Some values,Some tasks=>map(Navigation.project_entry snapshot s(State.location(State.navigation_state s))parent tasks)values
+   |Some values,Some tasks=>map(Navigation.project_entry (selected_project snapshot s) s(State.location(State.navigation_state s))parent (tasks_by_project tasks))values
    |_,_=>[information parent "unavailable" Information.Description "项目列表不可用。"]end)].
 Definition project_page snapshot s parent project :=
  let id:=project_id project in
@@ -59,35 +59,45 @@ Definition project_page snapshot s parent project :=
 Definition elapsed_label seconds:=
  if N.ltb seconds 60 then "刚刚"else if N.ltb seconds 3600 then show_natural(N.div seconds 60)++"分钟前"
  else if N.ltb seconds 86400 then show_natural(N.div seconds 3600)++"小时前"else show_natural(N.div seconds 86400)++"天前".
-Definition card_face snapshot s value :=
+Definition card_face_from snapshot s activity project value :=
  CardFace (Read.card_id value)(Read.card_identifier value)(Read.card_title value)(Read.card_description value)
-  (Read.card_priority value)(Read.card_pinned value)(Read.card_activity_label snapshot value)
-  (Read.card_project_label snapshot(Read.card_project value))(Read.card_labels value)
+  (Read.card_priority value)(Read.card_pinned value)(activity value)
+  (Read.card_project_name project (Read.card_project value))(Read.card_labels value)
   (match Read.card_owner value with BoardDomain.Unassigned=>""|owner=>Read.card_owner_label snapshot owner end)
   (match State.now s with Some now=>elapsed_label(BoardFilter.elapsed now(Read.card_updated value))|None=>"更新时间待观测"end).
-Definition card_destinations snapshot s board_parent candidates value :=
+Definition card_face snapshot s :=
+ card_face_from snapshot s (Read.card_activity_from (fun id=>World.find_task id snapshot) (Read.ticket_instance snapshot))
+   (fun id=>Read.find_project id snapshot).
+Definition board_drop_targets parent cards :=
+ fold_left (fun targets position=>
+   let lane:=part parent (BoardDomain.stage_name (CardDecisions.position_stage position)) in
+   let key:=match CardDecisions.position_target position with
+    |None=>lane|Some id=>part lane ("card/"++show_natural id) end in
+   BindingMap.add key position targets)
+   (CardDecisions.board_positions cards) (BindingMap.empty CardDecisions.position).
+Definition card_movement_control snapshot s board_parent targets value : meaning Input.input :=
  match State.now s with
+ |None=>MovableCard false (fun _=>None)
  |Some now=>
   let id:=Read.card_id value in
-  let entry position:=
-   let stage:=BoardDomain.stage_name(CardDecisions.position_stage position) in
-   let before:=CardDecisions.position_target position in
-   let label:=match position with
-    |CardDecisions.EndOfStage stage=>BoardDomain.stage_label stage
-    |CardDecisions.BeforeCard _ _ title=>String.append "Move before " title end in
-   let action:=Input.CardPlaced id (Read.card_revision value) now stage before in
-   let target:=match before with None=>part board_parent stage
-    |Some id=>part(part board_parent stage)(String.append "card/"(show_natural id))end in
-   Placement target(Control(String.append "move/" target)label Secondary action
-    (if State.pending_placement id s then Busy "This task movement is pending"else
-     domain_availability(Authoring.input_availability snapshot s action)))in
-  List.app(map entry(CardDecisions.move_positions_from_cards candidates id))
-    (if Read.card_archived value then[]else match ObjectActions.resolve snapshot s(CardActions id)"archive"with
-     |None=>[]|Some descriptor=>match ObjectActions.command descriptor with
-      |None=>[]|Some command=>[Placement(part board_parent "archive-destination")
-        (Control "archive" "归档卡片"Secondary(Input.Command command)(domain_availability(Authoring.command_availability s command)))]end end)
- |None=>[]end.
-Definition card_conversation snapshot parent value activity :=
+  let move position:=
+   let action:=Input.CardPlaced id (Read.card_revision value) now
+      (BoardDomain.stage_name (CardDecisions.position_stage position)) (CardDecisions.position_target position) in
+   if Model.available (domain_availability (Authoring.input_availability snapshot s action)) then Some action else None in
+  let archive (_:unit):=if Read.card_archived value then None else
+   descriptor<-ObjectActions.resolve snapshot s (CardActions id) "archive";;
+   command<-ObjectActions.command descriptor;;
+   if Model.available (domain_availability (Authoring.command_availability s command))
+   then Some (Input.Command command) else None in
+  (* All stage ends share the source card's connection and pending-movement checks. *)
+  let enabled:=match move (CardDecisions.EndOfStage BoardDomain.Backlog) with
+   |Some _=>true|None=>match archive tt with Some _=>true|None=>false end end in
+  MovableCard enabled (fun raw=>key<-as_string raw;;
+   if String.eqb key (part board_parent "archive-destination") then archive tt else
+   position<-BindingMap.find key targets;;
+   if CardDecisions.accepts_source id position then move position else None)
+ end.
+Definition card_conversation (task_at:N->option Read.task) parent value activity :=
  let identity:="card/conversation" in
  match Read.card_task value with
  |None=>if Read.card_archived value then [] else
@@ -98,18 +108,23 @@ Definition card_conversation snapshot parent value activity :=
     Node(part parent identity)identity "打开对话" Roles.Button
       (Activate(Control identity "打开对话" Secondary (Input.Navigate(Conversation task)) availability))
       description in
-   match Read.find_task task snapshot with
+   match task_at task with
    |Some _=>[open_conversation Available (if String.eqb activity "" then [] else
       [information (part parent identity) "card/conversation-activity" Information.Description activity])]
    (* DEFENSE: A linked conversation can be absent from the current observation. *)
    |None=>[open_conversation(Unavailable "关联的对话不可用") []]
    end
  end.
-Definition card_node snapshot s board_parent candidates parent value :=
+Definition card_node snapshot s board_parent targets :=
+ let task_at:=Read.board_task_lookup snapshot in
+ let activity:=Read.card_activity_from task_at (Read.board_instance_lookup snapshot) in
+ let project_at:=World.indexed_lookup "projects" "project_id" snapshot in
+ let face_of:=card_face_from snapshot s activity (fun id=>bind (project_at id) Read.observe_project) in
+ fun parent value=>
  let id:=Read.card_id value in
  let key:=part parent("card/"++show_natural id)in
  let action_parent:=part board_parent("card/"++show_natural id)in
- let face:=card_face snapshot s value in
+ let face:=face_of value in
  let title:=Read.card_title value in
  let status:=Model.card_status face in
  (* Card enrichment takes precedence over linked execution in BoardFacts.activity. *)
@@ -118,12 +133,12 @@ Definition card_node snapshot s board_parent candidates parent value :=
   |_,_=>(status,"")end in
  let card_activity:=fst activity in
  Node key "card" title Roles.Card(CardContent face)
-   ([Node(part key "movement")"movement"("Move "++title)Roles.Content(MovableCard face(card_destinations snapshot s board_parent candidates value))[];
+   ([Node(part key "movement")"movement"("Move "++title)Roles.Content(card_movement_control snapshot s board_parent targets value)[];
      declared key Roles.Button(secondary "open"("打开 "++title)(Input.OpenInformation(State.CardDetails id)(part key "open")));
      declared action_parent Roles.Button(secondary "more" "卡片操作"(Input.OpenObjectActions(CardActions id)(part action_parent "more")))] ++
      (if String.eqb card_activity "" then [] else
        [information key "card/activity" Information.Description card_activity]) ++
-     card_conversation snapshot key value(snd activity))%list.
+     card_conversation (fun task=>bind (task_at task) Read.observe_task_summary) key value(snd activity))%list.
 Definition board_group {A} parent key grouping (children:list(node A)):=Node(part parent key)key ""Roles.Toolbar(BoardGroup grouping)children.
 Definition board_toolbar snapshot s parent :=
  let selection:=State.board_selection s in
@@ -159,14 +174,14 @@ Definition board_page snapshot s parent :=
  [page_region parent Composition.BoardStages Composition.BodyPosition
    (match cards with
     |None=>[information parent "pending" Information.Description "正在加载看板。"]
-    |Some cards=>let candidates:=value_or[](Read.board_cards snapshot)in
+    |Some cards=>let rows:=card_node snapshot s parent (board_drop_targets parent (value_or[](Read.board_cards snapshot)))in
      map(fun stage=>let key:=part parent(BoardDomain.stage_name stage)in
       let entries:=filter(fun card=>String.eqb(BoardDomain.stage_name(Read.card_stage card))(BoardDomain.stage_name stage))cards in
       Node key "board-lane"(BoardDomain.stage_label stage)Roles.Section
         (BoardLane(BoardDomain.stage_name stage)(N.of_nat(List.length entries)))
         (group_title key(BoardDomain.stage_label stage)::
          declared key Roles.Button(secondary "card/new" ("新建卡片 · "++BoardDomain.stage_label stage)(Input.NewCard stage(part key "card/new")))::
-         map(card_node snapshot s parent candidates key)(Read.display_cards entries)))BoardDomain.stages end)])%list.
+         map(rows key)(Read.display_cards entries)))BoardDomain.stages end)])%list.
 Definition graph_endpoint_label graph name :=
  match Read.graph_endpoint graph name with
  |Some task=>String.concat ""[name;"（对话 #";show_natural task;"）"]

@@ -1,5 +1,5 @@
 import { naturalKey } from './json-tokens.mjs';
-import { appendDepartingSurface } from './native-dom.mjs';
+import { appendPhysicalChild } from './native-dom.mjs';
 
 /** Physical observations and motion for tool cards already admitted by the browser model. */
 const collapsedDeck = ':is([data-task-process-toggle], [data-tool-group-toggle])[aria-expanded="false"]';
@@ -141,7 +141,7 @@ export class ToolActivity {
     leaving.inert = true;
     leaving.setAttribute('aria-hidden', 'true');
     deck.querySelector(':scope > [data-task-history-departure]')?.remove();
-    appendDepartingSurface(deck, leaving);
+    appendPhysicalChild(deck, leaving);
     const motion = { duration: 340, easing: 'cubic-bezier(.3,.1,.25,1)' };
     const exit = leaving.animate([{ transform: 'translateY(0)' }, { transform: 'translateY(-105%)' }],
       { ...motion, fill: 'forwards' });

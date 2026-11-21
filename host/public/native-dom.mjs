@@ -9,12 +9,12 @@ const svgTags = new Set(['svg', 'path', 'line', 'polyline', 'rect', 'circle', 't
 const svgNamespace = 'http://www.w3.org/2000/svg';
 const listenerGroup = { keyboardFocus: 1, actions: 2, field: 4, pointer: 8, reading: 16, files: 32 };
 const requiredEditorOptions = 'data-editor-options-required';
-const departingSurfaces = new WeakSet();
+const physicalChildren = new WeakSet();
 
-// The motion controller removes this trailing physical copy when its exit ends.
-export function appendDepartingSurface(parent, copy) {
-  departingSurfaces.add(copy);
-  parent.append(copy);
+// Host-owned children stay mounted while the scene reconciles its own nodes.
+export function appendPhysicalChild(parent, child) {
+  physicalChildren.add(child);
+  if (child.parentNode !== parent) parent.append(child);
 }
 
 function unmount(node) {
@@ -76,7 +76,7 @@ function reconcile(parent, children, retired) {
   if (current.length === 0 && children.length <= 32) { parent.append(...children); return; }
   const retained = new Set(children);
   // Remove replaced text before ordering so unchanged editor ancestors never move.
-  for (const child of Array.from(parent.childNodes)) if (!retained.has(child) && !departingSurfaces.has(child)) {
+  for (const child of Array.from(parent.childNodes)) if (!retained.has(child) && !physicalChildren.has(child)) {
     retired?.add(child);
     unmount(child);
   }
@@ -107,7 +107,13 @@ export class Presentation {
     this.prefixActions = new Set();
     this.styleTexts = new Map();
     this.menuCssConfinement = new WeakMap();
-    this.resizeMenus = () => { this.menuCssConfinement = new WeakMap(); };
+    this.resizeMenus = () => {
+      this.menuCssConfinement = new WeakMap();
+      if (this.menuFrame == null && this.modal) this.menuFrame = requestAnimationFrame(() => {
+        this.menuFrame = null;
+        this.confineAnchoredLayers();
+      });
+    };
     this.composing = new WeakSet();
     this.modal = null;
     this.focusScope = [];
@@ -122,7 +128,10 @@ export class Presentation {
       });
     };
     if (!isolated) {
-      root.ownerDocument.defaultView.addEventListener('resize', this.resizeMenus);
+      const view = root.ownerDocument.defaultView;
+      view.addEventListener('resize', this.resizeMenus);
+      view.visualViewport?.addEventListener('resize', this.resizeMenus);
+      view.visualViewport?.addEventListener('scroll', this.resizeMenus);
       root.addEventListener('focusin', this.anchorFocus);
       root.addEventListener('focusout', this.anchorFocus);
     }
@@ -180,7 +189,10 @@ export class Presentation {
   }
   confineAnchoredLayers() {
     const view = this.root.ownerDocument.defaultView;
-    let width, height;
+    const visible = this.root.hasAttribute('data-viewport-clipped') && view.visualViewport;
+    const top = visible ? visible.offsetTop : 0;
+    const bottom = visible ? top + visible.height : view.innerHeight;
+    const width = view.innerWidth;
     for (const menu of this.root.querySelectorAll('[data-native-layer="menu"], [data-native-layer="anchored-dialog"]')) {
       if (menu.style.translate) menu.style.removeProperty('translate');
       // Fixed menus declare confinement through a viewport media rule. Their
@@ -192,14 +204,12 @@ export class Presentation {
         this.menuCssConfinement.set(menu, css);
       }
       if (css.confined) continue;
-      width ??= Math.min(view.innerWidth, view.visualViewport?.width ?? view.innerWidth);
-      height ??= Math.min(view.innerHeight, view.visualViewport?.height ?? view.innerHeight);
       const bounds = menu.getBoundingClientRect();
       if (!bounds.width || !bounds.height) continue;
       const clearance = Number.parseFloat(menu.style.getPropertyValue('--layer-clearance'));
       // An in-bounds box needs no corrective transform or second layout pass.
-      if (bounds.left >= clearance && bounds.top >= clearance &&
-          bounds.right <= width - clearance && bounds.bottom <= height - clearance) continue;
+      if (bounds.left >= clearance && bounds.top >= top + clearance &&
+          bounds.right <= width - clearance && bounds.bottom <= bottom - clearance) continue;
       menu.style.translate = this.callbacks.menuGeometry(bounds);
     }
   }
@@ -323,7 +333,8 @@ export class Presentation {
     const actions = record.events.length !== 0 || record.tag === 'form' || record.tag === 'dialog';
     const files = field || record.tag === 'button' || record.tag === 'fieldset' || record.tag === 'output' ||
       record.tag === 'object' || record.events.some(binding => binding.kind === 'files');
-    const groups = listenerGroup.keyboardFocus | (actions ? listenerGroup.actions : 0) |
+    const keyboardOwner = field || actions || reading || record.metadata.key_input;
+    const groups = (keyboardOwner ? listenerGroup.keyboardFocus : 0) | (actions ? listenerGroup.actions : 0) |
       (field ? listenerGroup.field : 0) |
       (field || reading || record.attributes.has('data-retain-focus') ? listenerGroup.pointer : 0) |
       (reading ? listenerGroup.reading : 0) | (files ? listenerGroup.files : 0);
@@ -351,7 +362,10 @@ export class Presentation {
         if (this.fieldSession(record, 'input_observed').deliver) dispatch('change', event);
       });
       node.addEventListener('submit', event => { event.preventDefault(); dispatch('submit', event); });
-      node.addEventListener('cancel', event => { event.preventDefault(); dispatch('cancel', event); });
+      node.addEventListener('cancel', event => {
+        event.preventDefault();
+        if (!this.composing.has(node.ownerDocument.activeElement)) dispatch('cancel', event);
+      });
     }
     if (added & listenerGroup.field) {
       node.addEventListener('compositionstart', event => {
@@ -366,8 +380,14 @@ export class Presentation {
     }
     if (added & listenerGroup.keyboardFocus) node.addEventListener('keydown', event => {
       if (event.defaultPrevented) return;
-      const keyboard = this.callbacks.keyboard?.(keyObservation(event, this.composing.has(node)));
-      if (keyboard?.input_started) this.fieldSession(record, 'input_started');
+      const target = event.target;
+      const ownsKey = target === node || record.metadata.key_input ||
+        record.events.some(binding => binding.event === 'keydown') ||
+        (record.tag === 'dialog' && event.key === 'Tab') ||
+        (reading && !target.closest('input, textarea, select, [contenteditable="true"]'));
+      if (!ownsKey) return;
+      const keyboard = this.callbacks.keyboard?.(keyObservation(event, this.composing.has(target)));
+      if (field && keyboard?.input_started) this.fieldSession(record, 'input_started');
       for (const binding of record.events.filter(binding => binding.event === 'keydown')) {
         if (binding.kind === 'confirm' ? keyboard?.confirm : keyboard?.activate)
           deliver(binding, event);
@@ -381,26 +401,37 @@ export class Presentation {
     });
     // SVG focus listeners make decorative glyphs implicit Tab stops in Chromium.
     // Caret/refocus observations only belong to native HTML fields.
-    if ((added & listenerGroup.keyboardFocus) && node.namespaceURI !== svgNamespace) {
+    if (added & listenerGroup.field) {
       node.addEventListener('focusin', event => this.callbacks.focus?.(event, record.key, node));
       node.addEventListener('focusout', event => this.callbacks.blur?.(event, record.key, node));
     }
     if (added & listenerGroup.reading) {
       node.addEventListener('wheel', event => this.callbacks.reading?.('scroll', event, record.key, node), { passive: true });
-      node.addEventListener('touchmove', event => this.callbacks.reading?.('scroll', event, record.key, node), { passive: true });
+      let touchStart;
+      node.addEventListener('touchstart', event => {
+        touchStart = event.touches.length === 1 ? event.touches[0] : null;
+      }, { passive: true });
+      node.addEventListener('touchmove', event => {
+        const touch = event.touches.length === 1 && event.touches[0];
+        if (!touchStart || !touch || touch.identifier !== touchStart.identifier) return;
+        const dy = touchStart.clientY - touch.clientY;
+        if (Math.abs(dy) > Math.abs(touchStart.clientX - touch.clientX))
+          this.callbacks.reading?.('scroll', event, record.key, node, dy);
+      }, { passive: true });
       node.addEventListener('scroll', event => this.callbacks.reading?.('anchor', event, record.key, node), { passive: true });
     }
     if (!(added & listenerGroup.files)) return;
     // A pasted file targets the editor; its form's ReceiveFile control owns admission.
     const fileReceivers = () => {
       const candidates = node.form
-        ? Array.from(this.records.values()).filter(candidate => candidate.node.form === node.form)
+        ? Array.from(node.form.elements, element => this.nodeRecords.get(element)).filter(Boolean)
         : [record];
       return candidates.flatMap(candidate => candidate.events.some(binding => binding.kind === 'files') ? [candidate] : []);
     };
     for (const type of ['paste', 'drop']) node.addEventListener(type, event => {
+      if (event.defaultPrevented || !filesFromEvent(event).length) return;
       const receivers = fileReceivers();
-      if (filesFromEvent(event).length && receivers.length) {
+      if (receivers.length) {
         event.preventDefault();
         for (const receiver of receivers.filter(receiver => !receiver.node.disabled && !receiver.node.matches('[aria-disabled="true"]')))
           for (const binding of receiver.events.filter(binding => binding.kind === 'files'))
@@ -408,7 +439,7 @@ export class Presentation {
       }
     });
     node.addEventListener('dragover', event => {
-      if (fileReceivers().length && Array.from(event.dataTransfer?.types ?? []).includes('Files')) event.preventDefault();
+      if (Array.from(event.dataTransfer?.types ?? []).includes('Files') && fileReceivers().length) event.preventDefault();
     });
   }
   refreshLinks(records = this.records.values()) {
@@ -495,7 +526,7 @@ export class Presentation {
     else this.fieldSession(record, 'reject', record.attributes.get('value'));
   }
   elementChildren(record, children, retired) {
-    if (!this.isolated && record.attributes.has('data-key')) this.listeners(record);
+    if (record.events.length || (!this.isolated && record.attributes.has('data-key'))) this.listeners(record);
     // Retained native editors keep their selection and composition session.
     reconcile(record.node, children, retired);
     if (record.tag === 'select' && record.attributes.has('value') && 'value' in record.node && !this.composing.has(record.node)
@@ -584,7 +615,8 @@ export class Presentation {
       for (const [target, node] of record.markdownTargets) if (this.targets.get(target) === node) this.targets.delete(target);
       record.markdownTargets.clear(); record.node.replaceChildren();
       const current = () => this.records.get(key) === record;
-      record.markdown = new Markdown(record.node, { smooth: false, onChange: () => { if (current()) { this.refreshLinks([record]); this.callbacks.layout?.(); } },
+      record.markdown = new Markdown(record.node, { smooth: false, onChange: () => { if (current()) this.callbacks.layout?.(); },
+        onLinksChanged: () => { if (current()) this.refreshLinks([record]); },
         ...(record.metadata.origin === undefined ? {} : { interactiveFence: this.callbacks.interactiveFence }),
         ...(record.metadata.source === undefined ? {} : {
           codeIdentity: ordinal => this.callbacks.codeIdentity?.(record.metadata.source, ordinal),
@@ -748,6 +780,7 @@ export class Presentation {
       top.open = false;
       top.showModal();
     }
+    this.callbacks.modalChanged?.(top);
     this.confineAnchoredLayers();
     // Moving a retained header into its native drawer must not discard its focused control.
     if (active?.isConnected && active !== this.root.ownerDocument.activeElement &&
@@ -872,7 +905,13 @@ export class Presentation {
     this.targetUpdates.clear(); this.updatedTargets.clear();
   }
   dispose() {
-    if (!this.isolated) this.root.ownerDocument.defaultView.removeEventListener('resize', this.resizeMenus);
+    if (!this.isolated) {
+      const view = this.root.ownerDocument.defaultView;
+      view.removeEventListener('resize', this.resizeMenus);
+      view.visualViewport?.removeEventListener('resize', this.resizeMenus);
+      view.visualViewport?.removeEventListener('scroll', this.resizeMenus);
+      if (this.menuFrame != null) cancelAnimationFrame(this.menuFrame);
+    }
     this.root.removeEventListener('focusin', this.anchorFocus);
     this.root.removeEventListener('focusout', this.anchorFocus);
     this.disposed = true;

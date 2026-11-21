@@ -318,6 +318,11 @@
   border-radius: .625rem;
   box-shadow: var(--selvedge-shadow);
 }
+#surface[data-viewport-clipped] [data-semantic-key="task-details"][data-workspace-side] {
+  --details-top-gap: min(4rem, calc(.15 * var(--visible-height)));
+  inset-block-start: calc(var(--visible-top) + var(--details-top-gap));
+  max-block-size: calc(var(--visible-height) - var(--details-top-gap) - .75rem) !important;
+}
 [data-semantic-key="task-details"] > [data-surface-role="dialog-header"] > [data-semantic-key="details"] {
   justify-content: center !important;
   padding-inline: .35rem !important;

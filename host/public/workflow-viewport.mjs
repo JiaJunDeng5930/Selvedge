@@ -343,14 +343,15 @@ export function installWorkflowViewport(surface) {
       } else zoomFromCenter(viewport, direction);
     }
   });
-  surface.addEventListener('wheel', event => {
-    const viewport = event.target.closest(viewportSelector);
-    if (!viewport || viewport.closest('[data-workflow-frame="overview"]')) return;
+  function wheelZoom(event) {
+    const viewport = event.currentTarget;
+    if (event.defaultPrevented || event.ctrlKey || event.metaKey || !event.deltaY ||
+        viewport.closest('[data-workflow-frame="overview"]')) return;
     event.preventDefault();
     const box = viewport.getBoundingClientRect();
     const units = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? viewport.clientHeight : 1;
     zoom(viewport, view(viewport), Math.exp(-event.deltaY * units / 400), event.clientX - box.left, event.clientY - box.top);
-  }, { passive: false });
+  }
   surface.addEventListener('pointerdown', event => {
     const viewport = event.target.closest(viewportSelector);
     if (!viewport || viewport.closest('[data-workflow-frame="overview"]') ||
@@ -394,6 +395,8 @@ export function installWorkflowViewport(surface) {
     viewport.removeAttribute('data-panning');
   });
   surface.addEventListener('keydown', event => {
+    if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.ctrlKey ||
+        event.metaKey || event.altKey || !event.target.closest('[data-workflow-workspace]')) return;
     if (event.key === 'Escape') {
       if (expandedPreview || expandedNode) {
         if (expandedNode) closeNodeName(true);
@@ -451,8 +454,14 @@ export function installWorkflowViewport(surface) {
     }
     const viewport = workspace?.querySelector(viewportSelector);
     if (viewport !== observedViewport) {
-      if (observedViewport) viewportObserver.unobserve(observedViewport);
-      if (viewport) viewportObserver.observe(viewport);
+      if (observedViewport) {
+        viewportObserver.unobserve(observedViewport);
+        observedViewport.removeEventListener('wheel', wheelZoom);
+      }
+      if (viewport) {
+        viewportObserver.observe(viewport);
+        viewport.addEventListener('wheel', wheelZoom, { passive: false });
+      }
       observedViewport = viewport;
     }
     const nextLabels = new Set(workspace?.querySelectorAll(

@@ -141,9 +141,14 @@ Definition observe_task_details value :=
  Some(TaskDetails model reasoning phase lineage tools queued).
 Definition task_details_for id snapshot :=
  bind(World.find_task id snapshot)observe_task_details.
+Definition observed_side_parent := natural_field "side_parent".
 Definition task_side_parent snapshot task :=
  value<-World.find_task task snapshot;;
- natural_field "side_parent" value.
+ observed_side_parent value.
+Definition side_children snapshot parent :=
+ let observe value:=entry<-observe_task value;;Some (task_id entry, observed_side_parent value) in
+ option_map (fun entries=>map fst (filter (fun entry=>same_id (Some parent) (snd entry)) entries))
+   (list_field observe "tasks" snapshot).
 Definition task_timeline id snapshot :=
  value<-World.find_task id snapshot;;
  option_map(Audit.retained 0)(array_field "history" value).
@@ -195,13 +200,13 @@ Definition ticket_instance snapshot id :=
 Definition workflow_instance_status value :=
  match string_field "state" value with
  | Some "completed" => "已完成" | Some "blocked" => "已阻塞" | _ => "进行中" end.
-Definition card_activity_label snapshot card:=
- match ticket_instance snapshot (card_id card) with
+Definition card_activity_from (task_at instance_at:N->option json) card:=
+ match instance_at (card_id card) with
  |Some instance=>workflow_instance_status instance
  |None=>
  let name:=card_activity card in
  if String.eqb name "completed" then
-  match bind(card_task card)(fun id=>World.find_task id snapshot)with
+  match bind(card_task card)task_at with
   |Some task=>if existsb Conversation.json_message_assistant (items "history" task)
     then "对话已完成"else "对话已就绪"
   |None=>"" end
@@ -211,17 +216,24 @@ Definition card_activity_label snapshot card:=
   ("evaluating","评估推理等级");("compacting","整理上下文");("awaiting_approval","等待授权");
   ("failed","运行失败");("interrupted","已中断");("paused","已暂停");("archived","会话已归档")]))
  end.
+Definition board_task_lookup := World.indexed_lookup "tasks" "id".
+Definition board_instance_lookup snapshot :=
+ let ticket_at:=World.indexed_lookup "ticket_workflows" "card_id" snapshot in
+ let instance_at:=World.indexed_lookup "workflow_instances" "instance_id" snapshot in
+ fun id=>ticket<-ticket_at id;; instance<-natural_field "instance_id" ticket;; instance_at instance.
+Definition card_activity_label snapshot :=
+ card_activity_from (board_task_lookup snapshot) (board_instance_lookup snapshot).
 Definition card_owner_label snapshot owner:=match owner with
 |BoardDomain.Unassigned=>"未分配"|BoardDomain.Self=>"我"
 |BoardDomain.ProfileOwner key=>match ModelSelection.observed_profile snapshot key with
  |Some profile=>ContextObservation.profile_label(ModelSelection.selectable_profiles(Observation.catalog snapshot))profile
  |None=>"模型 "++key++" 不可用"end end.
-Definition card_project_label snapshot project := match project with
- |Some id=>match find_project id snapshot with
+Definition card_project_name (project_at:N->option project) selected := match selected with
+ |Some id=>match project_at id with
   |Some project=>project_name project|None=>"项目 #"++show_natural id++" 不可用"end|None=>""end.
 Definition ordered_cards snapshot :=
  value<-board_value snapshot;;order<-list_field natural "order" value;;
- traverse(fun id=>World.find_world "cards" "card_id" id value)order.
+ traverse (World.indexed_lookup "cards" "card_id" value) order.
 Definition visible_card_values snapshot selection now :=
  values<-ordered_cards snapshot;;
  Some(BoardFilter.apply_in_world selection now values snapshot).

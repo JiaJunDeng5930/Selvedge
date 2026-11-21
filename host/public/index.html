@@ -1,8 +1,8 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
   <meta name="color-scheme" content="light dark">
   <title>Selvedge</title>
   <link rel="stylesheet" href="/vendor/desktop-tokens.css">
@@ -13,6 +13,10 @@
   <link rel="stylesheet" href="/settings.css">
   <link rel="stylesheet" href="/physical-markdown.css">
   <link rel="stylesheet" href="/conversation.css">
+  <link rel="modulepreload" href="/app.mjs">
+  <link rel="modulepreload" href="/generated/interaction-model.mjs">
+  <link rel="modulepreload" href="/generated/host-model.mjs">
+  <link rel="modulepreload" href="/generated/browser-model.mjs">
   <script type="module" src="/bootstrap.mjs"></script>
 </head>
 <body>
@@ -21,7 +25,9 @@
       <main class="startup-content"><p role="status">正在加载…</p></main>
     </div>
   </div>
-  <div id="announcements" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></div>
-  <div role="status" aria-atomic="true"><p id="selvedge-update-status"></p></div>
+  <div id="browser-notices">
+    <div id="announcements" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></div>
+    <div role="status" aria-atomic="true"><p id="selvedge-update-status"></p></div>
+  </div>
 </body>
 </html>

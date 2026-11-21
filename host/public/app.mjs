@@ -1,7 +1,7 @@
 import { boundary } from './model-boundary.mjs';
 import { browser, interaction, presentNative, presentBrowserDocument } from './browser-model-boundary.mjs';
 import { JsonNumber, parseJson, stringifyJson } from './json-tokens.mjs';
-import { Presentation, filesFromEvent } from './native-dom.mjs';
+import { Presentation, appendPhysicalChild, filesFromEvent } from './native-dom.mjs';
 import { editorKeyboard, applyByteSelection, selectingRadioGroup, radioTabTargets } from './keyboard.mjs';
 import { observeConnection } from './connection.mjs';
 import { AudioRuntime } from './audio.mjs';
@@ -19,6 +19,7 @@ import { installWorkflowViewport, showWorkflowTimes } from './workflow-viewport.
 const surface = document.getElementById('surface');
 installModelPickerPreview(surface);
 const synchronizeWorkflowViewport = installWorkflowViewport(surface);
+const notices = document.getElementById('browser-notices');
 const announcements = document.getElementById('announcements');
 const updateStatus = document.getElementById('selvedge-update-status');
 const documentRelease = document.querySelector('meta[name="selvedge-release"]')?.content;
@@ -38,6 +39,7 @@ const readingPointers = new Map();
 const readingLayouts = new WeakMap();
 const readingVisits = new WeakMap();
 const readingBlocks = new WeakMap();
+const visibleReadingAnchors = new WeakMap();
 const restoredReadingOffsets = new WeakMap();
 let observedReadingProcesses = new Set();
 const readingProcessResize = new ResizeObserver(() => {
@@ -107,18 +109,22 @@ function showUpdateStatus({ status, operations, message }) {
   updateStatus.textContent = updateStorageProblem || text;
 }
 
+let releaseCheckpointSaved = false;
+function saveTabSession() {
+  if (!publication.namespace || world === null) return;
+  const session = interaction('update_session', { state, world, environment });
+  sessionStorage.setItem(updateSessionKey, stringifyJson({ namespace: publication.namespace, session }));
+}
 function reloadForRelease(release) {
   if (!documentRelease || !release || release === documentRelease) return false;
-  if (publication.namespace) {
-    const session = interaction('update_session', { state, world, environment });
-    try {
-      sessionStorage.setItem(updateSessionKey, stringifyJson({ namespace: publication.namespace, session }));
-    } catch (error) {
-      // DEFENSE: Browser settings or storage quota can prevent saving this tab's drafts.
-      updateStorageProblem = `无法保存更新前的草稿，当前页面保持打开：${error.message}`;
-      showUpdateStatus({ status: 'idle' });
-      return false;
-    }
+  try {
+    saveTabSession();
+    releaseCheckpointSaved = true;
+  } catch (error) {
+    // DEFENSE: Browser settings or storage quota can prevent saving this tab's drafts.
+    updateStorageProblem = `无法保存更新前的草稿，当前页面保持打开：${error.message}`;
+    showUpdateStatus({ status: 'idle' });
+    return false;
   }
   connection?.abort();
   window.location.reload();
@@ -136,7 +142,7 @@ function restoreUpdateSession() {
     sessionStorage.removeItem(updateSessionKey);
   } catch (error) {
     // DEFENSE: Browser storage can be disabled or its checkpoint can be unreadable.
-    updateStorageProblem = `无法恢复更新前的草稿：${error.message}`;
+    updateStorageProblem = `无法恢复此标签页的草稿：${error.message}`;
     showUpdateStatus({ status: 'idle' });
   }
 }
@@ -218,6 +224,11 @@ function admitted(generation) {
   return generation !== null && generation !== undefined &&
     publicationEvent('native_admit', { receipt_generation: generation });
 }
+function acceptsElement(input) {
+  return interaction('accepts_element', { state, input, world, environment, generation: publication.generation,
+    namespace: publication.namespace, displayed_generation: publication.displayed_generation,
+    native_displayed_generation: publication.native_displayed_generation, now: BigInt(Math.floor(Date.now() / 1000)) });
+}
 function prefixAdmitted(generation) {
   return generation !== null && generation !== undefined &&
     publicationEvent('admit', { receipt_generation: generation });
@@ -237,7 +248,7 @@ function snapshot(body, expected = publication.namespace, authenticating = false
   if (body.namespace !== publication.namespace) retireDocumentViews();
   world = body.program;
   publication = publicationEvent('observe', { observed_namespace: body.namespace, observed_sequence: body.sequence });
-  if (firstSnapshot && documentRelease) restoreUpdateSession();
+  if (firstSnapshot) restoreUpdateSession();
   dispatch({ type: 'snapshot' });
   // A committed launch can arrive through the live snapshot before its HTTP
   // reply, or after that connection was interrupted.
@@ -378,7 +389,7 @@ function render(mode = 'region') {
     fatal(error);
   }
 }
-function refreshPageLayout(previous, scrollport, offset) {
+function refreshPageLayout(previous, offset, routeChanged) {
   const track = surface.querySelector('[data-page-region="board-stages"]');
   const firstLane = track?.firstElementChild ?? null;
   const controls = track?.parentElement.querySelector('[data-board-scroll-controls]') ?? null;
@@ -398,11 +409,11 @@ function refreshPageLayout(previous, scrollport, offset) {
   if (controls && boardHasOverflow) controls.hidden = false;
   const current = surface.querySelector(historyResultsSelector);
   historyResultsNode = current;
-  if (previous === current) return;
-  if (previous) {
-    // The workspace keeps its main scrollport mounted across route changes.
-    searchResultsPosition = { key: previous.dataset.key, offset };
-    scrollport.scrollTop = 0;
+  if (previous === current && !routeChanged) return;
+  if (previous) searchResultsPosition = { key: previous.dataset.key, offset };
+  if (routeChanged || previous) {
+    const main = surface.querySelector('[data-measure-region="main"] > main');
+    main?.scrollTo(0, 0);
   }
   if (current) current.parentElement.scrollTop =
     current.dataset.key === searchResultsPosition?.key ? searchResultsPosition.offset : 0;
@@ -416,11 +427,16 @@ function updateBoardScroll() {
     const available = button.dataset.boardScroll === 'next'
       ? boardTrack.scrollLeft < overflow - 1
       : boardTrack.scrollLeft > 1;
-    button.setAttribute('aria-disabled', String(!available));
+    if (button.getAttribute('aria-disabled') !== String(!available)) button.setAttribute('aria-disabled', String(!available));
   }
 }
 function scrollBoard(direction) {
-  boardTrack.scrollBy({ left: direction * boardTrack.clientWidth / 2 });
+  const edge = boardTrack.getBoundingClientRect().left + boardTrack.clientLeft;
+  const lanes = Array.from(boardTrack.children);
+  const ordered = direction > 0 ? lanes : lanes.reverse();
+  const adjacent = ordered.find(lane => direction * (lane.getBoundingClientRect().left - edge) > 1);
+  if (adjacent) boardTrack.scrollBy({ left: adjacent.getBoundingClientRect().left - edge });
+  else boardTrack.scrollLeft = direction > 0 ? boardTrack.scrollWidth : 0;
 }
 function present(mode) {
   surface.dataset.displayPending = String(publicationEvent('pending'));
@@ -436,7 +452,7 @@ function present(mode) {
   if (!streamed && !regions) throw new Error('Unable to publish the native regions');
   const pageChanged = starting || regions?.page_changed;
   if (pageChanged) {
-    refreshPageLayout(previousResults, scrollport, offset);
+    refreshPageLayout(previousResults, offset, regions?.route_changed);
     synchronizeWorkflowViewport();
   }
   const freshness = String(sourceFresh);
@@ -444,6 +460,7 @@ function present(mode) {
   if (freshnessChanged) surface.dataset.sourcesFresh = freshness;
   const layoutChanged = pageChanged || regions?.focus_scope || regions?.layout_changed;
   if (pageChanged || regions?.layout_changed && !regions.layers_changed) schedulePhysicalRefresh();
+  if (pageChanged || regions?.layers_changed || regions?.remove?.length) retireDetachedCodeViews();
   if (pageChanged || regions?.layers_changed) {
     layoutReading(true);
     showWorkflowTimes(surface);
@@ -545,10 +562,14 @@ async function refreshPhysical() {
   })();
   try { await measuring; } finally { measuring = null; }
 }
+const selectionEncoder = new TextEncoder();
 function observedSelection(node, composing = false) {
-  const encode = value => new TextEncoder().encode(value).length;
-  return { start: encode(node.value.slice(0, node.selectionStart ?? node.value.length)),
-    end: encode(node.value.slice(0, node.selectionEnd ?? node.value.length)), direction: node.selectionDirection, composing };
+  const text = node.value;
+  const first = node.selectionStart ?? text.length;
+  const last = node.selectionEnd ?? text.length;
+  const start = selectionEncoder.encode(text.slice(0, first)).length;
+  const end = first === last ? start : selectionEncoder.encode(text.slice(0, last)).length;
+  return { start, end, direction: node.selectionDirection, composing };
 }
 function registerFiles(action, selected) {
   for (const file of selected) {
@@ -556,13 +577,24 @@ function registerFiles(action, selected) {
     dispatch({ ...action, value: { handle, name: file.name, mime: file.type, bytes: file.size } });
   }
 }
+surface.addEventListener('focusin', () => { focusRequest++; });
 const renderer = new Presentation(surface, {
   resolveTarget(source) { return browser('resolve_target', source); },
   fieldSession(source) { return browser('field_session', source); },
   focusPlan(source) { return browser('focus_plan', source); },
+  modalChanged(modal) {
+    appendPhysicalChild(modal ?? document.body, notices);
+    // Native menus can clip their descendants or establish a transformed
+    // containing block. Keep the live regions inside the active modal for
+    // accessibility and paint their notices in the viewport's top layer.
+    if (!modal) notices.removeAttribute('popover');
+    else if (notices.showPopover && !notices.matches(':popover-open')) {
+      notices.popover = 'manual';
+      notices.showPopover();
+    }
+  },
   keyboard(source) { return browser('key', source); },
   focus(event, key, node) {
-    focusRequest++;
     if (event.target !== node) return;
     if (node.matches('input,textarea,select') &&
         node.closest('dialog[data-semantic-key="settings-configuration-editor"] [data-surface-role="dialog-body"]')) {
@@ -647,17 +679,15 @@ const renderer = new Presentation(surface, {
     // DEFENSE: A handled keydown still bubbles through ancestor renderer records.
     if (event.defaultPrevented) return;
     if (!admitted(record.generation)) return;
-    const composing = event.isComposing || renderer.composing.has(node);
+    const composing = !keyboard.editing;
     if (record.metadata.key_input && keyboard.unmodified) {
       const input = { op: 'element', key, gesture: 'key', generation: record.generation, value: { key: event.key } };
-      if (interaction('accepts_element', { state, input, world, environment, generation: publication.generation,
-          namespace: publication.namespace, displayed_generation: publication.displayed_generation,
-          native_displayed_generation: publication.native_displayed_generation, now: BigInt(Math.floor(Date.now() / 1000)) })) {
+      if (acceptsElement(input)) {
         event.preventDefault(); dispatch(input); return;
       }
     }
     const form = node.form;
-    if (form && (node.tagName === 'TEXTAREA' || node.tagName === 'INPUT')) {
+    if (event.key === 'Enter' && form && (node.tagName === 'TEXTAREA' || node.tagName === 'INPUT')) {
       const submitter = form.querySelector('button[type="submit"],input[type="submit"]');
       editorKeyboard(event, observation => browser('editor_key', { ...observation,
         scope: renderer.focusScope, within_scope: !!renderer.modal?.contains(form), composer_binding: record.metadata.composer_binding === true, multiline: node.tagName === 'TEXTAREA', enabled: !node.disabled && !submitter?.disabled && submitter?.getAttribute('aria-disabled') !== 'true', pending: submitter?.getAttribute('aria-busy') === 'true' }), () => form.requestSubmit(), composing);
@@ -693,7 +723,7 @@ const renderer = new Presentation(surface, {
       else acceptReading(key, node, browser('reading', { state, event: 'key', keyboard: event.key, editable }));
     }
   },
-  reading(type, event, key, node) {
+  reading(type, event, key, node, touchDelta) {
     if (node.dataset.readingRoot !== 'true') return;
     if (type === 'scroll'
       ? event.target.closest('[data-reading-root="true"]') !== node || event.target.closest('[data-tool-output]')
@@ -706,18 +736,28 @@ const renderer = new Presentation(surface, {
       const inRightGutter = event.clientX >= right && rect.right - right > Number.parseFloat(style.borderRightWidth);
       if (!inLeftGutter && !inRightGutter) return;
     }
-    const state = readingState(key, node);
     if (type === 'scroll' || type === 'pointer') {
-      if (event.type === 'wheel') {
-        if (event.deltaY === 0 || event.shiftKey || event.ctrlKey) return;
-        if (event.deltaY > 0 && atReadingBottom(node)) {
-          reachedReadingBottom(key, node, state);
+      if (type === 'scroll') {
+        const delta = touchDelta ?? event.deltaY;
+        if (!delta || event.shiftKey || event.ctrlKey ||
+            (event.type === 'wheel' && Math.abs(event.deltaX) > Math.abs(delta))) return;
+        for (let child = event.target; child && child !== node; child = child.parentElement) {
+          if (child.scrollHeight <= child.clientHeight) continue;
+          const style = getComputedStyle(child);
+          if (/^(auto|scroll)$/.test(style.overflowY) && (style.overscrollBehaviorY !== 'auto' ||
+              (delta > 0 ? child.scrollTop + child.clientHeight < child.scrollHeight - 1 : child.scrollTop > 0))) return;
+        }
+        if (delta > 0 && atReadingBottom(node)) {
+          reachedReadingBottom(key, node, readingState(key, node));
           return;
         }
       }
+      const state = readingState(key, node);
       requestReadingAnchor(key, node, type === 'pointer' ? event.pointerId : undefined);
       acceptReading(key, node, browser('reading', { state, event: 'scroll' }));
-    } else if (state.intent === 'history') {
+    } else {
+      const state = readingState(key, node);
+      if (state.intent !== 'history') return;
       // DEFENSE: restoring a bookmark emits scroll even when the browser clamps
       // it before asynchronous Markdown mounts. That receipt is not a new user position.
       if (restoredReadingOffsets.get(node) === node.scrollTop) return;
@@ -758,6 +798,16 @@ const physical = createPhysicalMeasurer({ surface, onChange() {
   scheduleLayoutReveal();
 } });
 
+function retireDetachedCodeViews() {
+  for (const [key, entry] of codeBlocks) {
+    for (const [id, view] of entry.views) {
+      if (!view.renderer || view.renderer.root.isConnected) continue;
+      view.renderer.dispose();
+      entry.views.delete(id);
+    }
+    if (entry.views.size === 0 && !entry.state.wrap && entry.state.copy.type === 'idle') codeBlocks.delete(key);
+  }
+}
 function publishCode(identity, view, text) {
   const key = browser('code_key', { identity });
   let entry = codeBlocks.get(key);
@@ -789,7 +839,7 @@ function renderCode(entry, decision) {
         physical.renderer = new Presentation(target, { event(binding, event) {
           if (!prefixAdmitted(renderer.generation)) return;
           event.preventDefault(); codeStep(entry, binding.action.input);
-        } });
+        } }, { isolated: true });
       }
       const metadata = physical.renderer.renderDocument(ops => presentBrowserDocument('code_present', {
         state: entry.state, view: physical.view, environment,
@@ -841,7 +891,7 @@ function acceptReading(key, node, decision, locationTarget, publishIntent = true
       if (!locationTarget) retireHistoryLocation(node);
       readingBlocks.delete(node);
       restoredReadingOffsets.delete(node);
-      node.scrollTo({ top: node.scrollTop, left: node.scrollLeft, behavior: 'instant' });
+      if (previous === 'follow') node.scrollTo({ top: node.scrollTop, left: node.scrollLeft, behavior: 'instant' });
     }
     else if (effect.type === 'align_latest') node.scrollTo({ top: node.scrollHeight, behavior: effect.animate ? 'smooth' : 'instant' });
     else if (effect.type === 'reserve_composer') node.style.setProperty('scroll-padding-block-end', effect.clearance);
@@ -898,16 +948,40 @@ function holdAuthoredReading(node) {
 }
 function observeReadingAnchor(node, state, selected) {
   const top = readingTop(node);
-  const anchor = selected ?? Array.from(node.querySelectorAll('[data-reading-anchor]')).find(target => {
-    const bounds = target.getBoundingClientRect();
-    return bounds.bottom > top && bounds.top < top + node.clientHeight;
-  });
+  const retained = visibleReadingAnchors.get(node);
+  const retainedBox = retained && node.contains(retained) && retained.getBoundingClientRect();
+  const spansTop = bounds => bounds && bounds.top <= top && bounds.bottom > top;
+  let topElement;
+  const firstVisible = (root, selector) => {
+    // Jump straight to the painted passage after a scrollbar jump. Retain
+    // document order if several matching elements enclose the same point.
+    if (topElement === undefined) {
+      const box = node.getBoundingClientRect();
+      topElement = document.elementFromPoint(box.left + node.clientLeft + node.clientWidth / 2, top);
+    }
+    let hit = topElement?.closest(selector);
+    if (hit && root.contains(hit) && hit !== root) {
+      for (let outer = hit.parentElement?.closest(selector); outer && root.contains(outer) && outer !== root;
+           outer = outer.parentElement?.closest(selector)) hit = outer;
+      if (spansTop(hit.getBoundingClientRect())) return hit;
+    }
+    // Gaps between articles and overlays can cover the sampling point.
+    for (const target of root.querySelectorAll(selector)) {
+      const bounds = target.getBoundingClientRect();
+      if (bounds.bottom > top && bounds.top < top + node.clientHeight) return target;
+    }
+    return null;
+  };
+  const anchor = selected ?? (spansTop(retainedBox) ? retained : firstVisible(node, '[data-reading-anchor]'));
   if (!anchor) return;
-  const block = selected ? null : Array.from(anchor.querySelectorAll('.physical-markdown > .markdown > [data-stable]')).find(target => {
-    const bounds = target.getBoundingClientRect();
-    return bounds.bottom > top && bounds.top < top + node.clientHeight &&
-      !target.matches('[data-interactive-preview-candidate]:not([data-interactive-active], [data-interactive-preview-failed])');
-  });
+  if (!selected) visibleReadingAnchors.set(node, anchor);
+  let block = null;
+  if (!selected) {
+    const lastBlock = readingBlocks.get(node)?.node;
+    const selector = '.physical-markdown > .markdown > [data-stable]:not([data-interactive-preview-candidate]:not([data-interactive-active], [data-interactive-preview-failed]))';
+    block = lastBlock?.matches(selector) && anchor.contains(lastBlock) && spansTop(lastBlock.getBoundingClientRect())
+      ? lastBlock : firstVisible(anchor, selector);
+  }
   // The durable bookmark identifies the message. A retained Markdown block
   // also identifies the visible passage when an earlier widget in that message grows.
   if (block) readingBlocks.set(node, { anchor, node: block, offset: block.getBoundingClientRect().top - top });
@@ -1001,7 +1075,8 @@ function currentHistoryLocation(root) {
 function locateHistoryRange(pending, root, target, range) {
   pendingHistoryLocation = null;
   const location = { namespace: pending.namespace, navigationGeneration: pending.navigationGeneration,
-    readerGeneration: pending.readerGeneration, taskId: pending.taskId, root, target, range };
+    readerGeneration: pending.readerGeneration, taskId: pending.taskId, root, target, range,
+    invokingFocus: pending.invokingFocus };
   historyLocation = location;
   retireReadingMeasurement(root);
   const key = root.dataset.key;
@@ -1012,9 +1087,12 @@ function locateHistoryRange(pending, root, target, range) {
 }
 function revealHistoryLocation(location) {
   const { target, range, readerGeneration } = location;
-  target.setAttribute('tabindex', '-1');
-  target.addEventListener('blur', () => target.removeAttribute('tabindex'), { once: true });
-  target.focus({ preventScroll: true });
+  const active = document.activeElement;
+  if (active === document.body || active === location.invokingFocus || active === location.root) {
+    target.setAttribute('tabindex', '-1');
+    target.addEventListener('blur', () => target.removeAttribute('tabindex'), { once: true });
+    target.focus({ preventScroll: true });
+  }
   if (range && CSS.highlights && typeof Highlight === 'function') {
     CSS.highlights.set(historyHighlight, new Highlight(range));
   } else target.dataset.historyMatch = readerGeneration;
@@ -1031,30 +1109,47 @@ function retryHistoryLocation() {
   const root = target?.closest('[data-reading-root]');
   if (!target?.isConnected || target.dataset.readingAnchor !== 'true' || !root?.clientHeight ||
       !historyReaderOwns(root, pending) || renderer.modal && !renderer.modal.contains(root)) return;
-  // Align the match against assembled text so content below it cannot change
-  // the initial scroll clamp after it has appeared.
-  if (root.querySelector('[data-markdown-parsing]')) return;
   const record = renderer.records.get(pending.markdown_key);
   const markdown = record?.markdown;
   if (!markdown || !target.contains(record.node)) return;
-  // The committed article mounts before its individual Markdown parse and
-  // decorations finish. An incomplete prefix cannot prove a missing match.
+  // A search hit can belong to an answer that is still streaming. Search
+  // the published prefix even if the answer never receives a terminal event.
   if (pending.markdown !== markdown) {
     pending.markdown = markdown;
-    pending.settled = false;
+    pending.prefixLength = markdown.text.length;
+    pending.phase = 'waiting-for-text';
     pending.scan = null;
-    markdown.whenSettled().then(settled => {
-      if (!settled || pendingHistoryLocation !== pending || pending.markdown !== markdown) return;
-      pending.settled = true;
+    markdown.prioritizeReadingPassage();
+    markdown.whenTextReady(pending.prefixLength).then(ready => {
+      if (!ready || pendingHistoryLocation !== pending || pending.markdown !== markdown) return;
+      pending.phase = 'search-text';
       retryHistoryLocation();
     }).catch(fatal);
   }
-  if (!pending.settled || pending.frame != null) return;
-  pending.scan ??= findHistoryRange(record.node, pending.query);
+  if (pending.phase === 'waiting-for-text' || pending.phase === 'waiting-for-format' || pending.frame != null) return;
+  if (!pending.scan) {
+    pending.scan = findHistoryRange(record.node, pending.query);
+    pending.scanningDuringFormatting = markdown.decorations.size > 0;
+  }
   const deadline = performance.now() + 4;
   do {
     const result = pending.scan.next();
-    if (result.done) { locateHistoryRange(pending, root, target, result.value); return; }
+    if (result.done) {
+      const range = result.value;
+      // Highlighting and math can replace text nodes in their own blocks.
+      // Ordinary prose elsewhere in the message is already safe to reveal.
+      if (pending.scanningDuringFormatting && pending.phase === 'search-text' && (!range ||
+          [range.startContainer, range.endContainer].some(node => node.parentElement?.closest('pre, .math-source')))) {
+        pending.phase = 'waiting-for-format';
+        markdown.whenCaughtUp(pending.prefixLength).then(ready => {
+          if (!ready || pendingHistoryLocation !== pending || pending.markdown !== markdown) return;
+          pending.phase = 'search-formatted';
+          pending.scan = null;
+          retryHistoryLocation();
+        }).catch(fatal);
+      } else locateHistoryRange(pending, root, target, range);
+      return;
+    }
   } while (performance.now() < deadline);
   pending.frame = scheduleDisplay(() => { pending.frame = null; retryHistoryLocation(); });
 }
@@ -1091,6 +1186,22 @@ function revealNewReaders() {
     if (!disposed) layoutReading(true);
   });
 }
+function waitingForReadingPassage(reader) {
+  const bookmark = readings.get(readingKey(reader))?.anchor;
+  const savedPassage = bookmark && readingAnchor(reader, bookmark.key);
+  let passage = savedPassage;
+  if (!passage) {
+    const messages = reader.querySelectorAll('[data-reading-anchor]');
+    passage = messages[messages.length - 1];
+  }
+  const pending = passage?.querySelector('.markdown[data-markdown-parsing]');
+  if (!pending) return false;
+  const markdown = renderer.nodeRecords.get(pending)?.markdown;
+  if (markdown) markdown.prioritizeReadingPassage(savedPassage ? markdown.text.length : 0);
+  // A saved offset may be far into this message. The live end can show its
+  // available prefix while the normal follow behavior keeps it aligned.
+  return Boolean(savedPassage) || !pending.hasChildNodes();
+}
 function layoutReading(initialOnly = false) {
   const modal = activeModal();
   for (const node of surface.querySelectorAll('[data-reading-root="true"]')) {
@@ -1098,11 +1209,9 @@ function layoutReading(initialOnly = false) {
     const locating = pendingHistoryLocation && historyReaderOwns(node, pendingHistoryLocation);
     const generation = node.dataset.readerGeneration;
     const completing = node.hasAttribute('data-reading-initial');
-    if (initialOnly && readingVisits.get(node) === generation) continue;
-    if (readingVisits.get(node) !== generation) {
-      // Reveal at the reading position once the available text has arrived.
-      // Widgets keep their own placeholders and can finish after this first paint.
-      const loading = locating || node.querySelector('[data-markdown-parsing]');
+    if (initialOnly && readingVisits.get(node) === generation && !locating && !completing) continue;
+    if (readingVisits.get(node) !== generation || locating || completing) {
+      const loading = locating || (!currentHistoryLocation(node) && waitingForReadingPassage(node));
       node.toggleAttribute('data-reading-initial', Boolean(loading));
       // Keep the text measurable for history search while the reader is hidden.
       node.inert = Boolean(loading);
@@ -1130,26 +1239,43 @@ function layoutReading(initialOnly = false) {
     if (completing && location) revealHistoryLocation(location);
   }
 }
+function outsideDialog(event, dialog) {
+  if (!dialog.contains(event.target)) return true;
+  if (event.target !== dialog) return false;
+  const box = dialog.getBoundingClientRect();
+  return event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom;
+}
+let backdropPress = null;
+function rememberBackdropPress(event) {
+  if (event.isPrimary && event.button === 0) {
+    for (const voice of surface.querySelectorAll('[data-voice-controls][open]')) {
+      if (!voice.contains(event.target) && !renderer.nodeRecords.get(voice)?.attributes.has('open')) voice.open = false;
+    }
+  }
+  const modal = renderer.modalRecord();
+  backdropPress = event.isPrimary && event.button === 0 && modal?.metadata.layer?.outside &&
+    outsideDialog(event, modal.node) ? { node: modal.node, occurrence: modal.metadata.layer.occurrence } : null;
+}
+function clearBackdropPress() { backdropPress = null; }
 function dismiss(event) {
-  // DEFENSE: An inner menu can consume Escape before it reaches the enclosing dialog.
-  if (event.defaultPrevented) return;
-  // DEFENSE: Escape from an open select picker bubbles before the browser closes it.
-  if (event.type === 'keydown' && event.key === 'Escape' && CSS.supports('selector(select:open)') &&
-      event.target.closest?.('select:open')) return;
+  const escape = event.type === 'keydown';
+  const pressed = backdropPress;
+  if (!escape) clearBackdropPress();
+  if (event.defaultPrevented || (escape ? event.key !== 'Escape' : !pressed)) return;
+  // DEFENSE: Escape belongs to the IME or an open select before its enclosing dialog.
+  if (escape && (event.isComposing || event.keyCode === 229 || renderer.composing.has(event.target) ||
+      (CSS.supports('selector(select:open)') && event.target.closest?.('select:open')))) return;
   const modal = renderer.modalRecord();
   const dismissal = modal?.events.find(binding => binding.kind === 'dismiss');
-  const behavior = modal?.metadata.layer;
-  if (!dismissal || !admitted(modal.generation)) return;
-  if (event.type === 'keydown' && event.key === 'Escape' && behavior.escape || event.type === 'pointerdown' && behavior.outside && (!modal.node.contains(event.target) || event.target === modal.node && (() => {
-    const box = modal.node.getBoundingClientRect();
-    return event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom;
-  })())) {
-    event.preventDefault();
-    dispatch({ ...renderer.input(modal, dismissal.action), value: event.type === 'keydown' ? 'escape' : 'outside' });
-  }
+  if (!dismissal || !(escape ? modal.metadata.layer.escape :
+      pressed.node === modal.node && sameGeneration(pressed.occurrence, modal.metadata.layer.occurrence) && outsideDialog(event, modal.node)) || !admitted(modal.generation)) return;
+  event.preventDefault();
+  dispatch({ ...renderer.input(modal, dismissal.action), value: escape ? 'escape' : 'outside' });
 }
 document.addEventListener('keydown', dismiss);
-document.addEventListener('pointerdown', dismiss);
+document.addEventListener('pointerdown', rememberBackdropPress);
+document.addEventListener('pointercancel', clearBackdropPress);
+document.addEventListener('click', dismiss);
 
 const audioEventNames = {
   Capabilities: 'audio_capabilities', CapabilitiesFailed: 'audio_capabilities_failed',
@@ -1298,7 +1424,7 @@ surface.addEventListener('change', event => {
   if (!boardTrack || !select?.value) return;
   const lane = boardTrack.querySelector(`[data-board-stage="${CSS.escape(select.value)}"]`);
   if (lane) boardTrack.scrollBy({
-    left: lane.getBoundingClientRect().left - boardTrack.getBoundingClientRect().left,
+    left: lane.getBoundingClientRect().left - boardTrack.getBoundingClientRect().left - boardTrack.clientLeft,
   });
   select.value = '';
 });
@@ -1310,7 +1436,15 @@ surface.addEventListener('keydown', event => {
     event.preventDefault();
     scrollBoard(event.key === 'ArrowRight' ? 1 : -1);
   }
-  if (event.key !== 'Escape') return;
+  if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing || event.keyCode === 229 ||
+      renderer.composing.has(event.target)) return;
+  const voice = event.target.closest('[data-voice-controls][open]');
+  if (voice) {
+    voice.open = false;
+    voice.querySelector('summary').focus({ preventScroll: true });
+    event.preventDefault();
+    return;
+  }
   for (const node of surface.querySelectorAll('[data-help]:hover,[data-help]:focus-visible')) node.setAttribute('data-help-dismissed', '');
 });
 for (const name of ['pointerout', 'focusout']) surface.addEventListener(name, event => {
@@ -1329,13 +1463,23 @@ surface.addEventListener('dragstart', event => {
   const node = event.target.closest?.('[data-card-id][draggable="true"]');
   const record = node && renderer.records.get(node.dataset.key);
   if (!record || !admitted(record.generation)) return;
-  draggedCard = record;
+  draggedCard = { record, hover: null };
   event.dataTransfer.setData('application/x-selvedge-card', node.dataset.cardId);
   event.dataTransfer.effectAllowed = 'move';
 });
+function observedCardPlacement(source, target) {
+  const generation = source?.generation;
+  if (!target || !source?.metadata.place_action || !admitted(generation)) return null;
+  const input = { ...source.metadata.place_action, generation, value: target.dataset.dropTarget };
+  return acceptsElement(input) ? input : null;
+}
 surface.addEventListener('dragover', event => {
+  if (!draggedCard) return;
   const target = event.target.closest?.('[data-drop-target]');
-  const allowed = draggedCard && target && draggedCard.metadata.placements.some(value => value.target === target.dataset.dropTarget);
+  const { record, hover } = draggedCard;
+  if (!hover || hover.target !== target || hover.state !== state || hover.publication !== publication)
+    draggedCard.hover = { target, state, publication, allowed: Boolean(observedCardPlacement(record, target)) };
+  const allowed = draggedCard.hover.allowed;
   showCardDropStage(allowed ? target.closest('[data-board-stage]') : null);
   if (allowed) event.preventDefault();
 });
@@ -1344,14 +1488,13 @@ surface.addEventListener('dragleave', event => {
     showCardDropStage(null);
 });
 surface.addEventListener('drop', event => {
-  const source = draggedCard; draggedCard = null;
+  const source = draggedCard?.record; draggedCard = null;
   showCardDropStage(null);
   const target = event.target.closest?.('[data-drop-target]');
-  if (!source || !target || !admitted(source.generation)) return;
-  const placement = source.metadata.placements.find(value => value.target === target.dataset.dropTarget);
-  if (placement) {
+  const input = observedCardPlacement(source, target);
+  if (input) {
     event.preventDefault();
-    dispatch({ ...placement.action, generation: source.generation, value: placement.target });
+    dispatch(input);
   }
 });
 surface.addEventListener('dragend', () => {
@@ -1573,10 +1716,11 @@ async function execute(effect) {
     }
     case 'scroll_to_message': {
       retireHistoryLocation();
-      pendingHistoryLocation = { ...effect, namespace: publication.namespace,
+      pendingHistoryLocation = { ...effect, namespace: publication.namespace, invokingFocus: document.activeElement,
         navigationGeneration: integral(state.navigation.generation), readerGeneration: integral(effect.reader_generation).toString(),
         taskId: integral(effect.task_id).toString() };
       retryHistoryLocation();
+      if (pendingHistoryLocation) layoutReading(true);
       return;
     }
     case 'selection_bytes': applyByteSelection(renderer.resolveTarget(effect.key), integral(effect.start), integral(effect.end)); return;
@@ -1671,8 +1815,32 @@ function selectionChanged() {
 }
 document.addEventListener('selectionchange', selectionChanged);
 
-window.addEventListener('pagehide', () => {
-  disposed = true; document.removeEventListener('selectionchange', selectionChanged); document.removeEventListener('keydown', dismiss); document.removeEventListener('pointerdown', dismiss); connection?.abort(); chatgptLogin.dispose(); audio.dispose(); toolActivity.dispose(); motion.dispose(); editorRepair.dispose(); physical.dispose(); renderer.dispose(); storage.flush();
+window.addEventListener('pageshow', event => {
+  if (event.persisted) dispatch({ type: 'connect' });
+});
+window.addEventListener('pagehide', event => {
+  if (event.persisted) {
+    // A cached document keeps its drafts, DOM and input listeners for Back/Forward.
+    connection?.abort();
+    sourceFresh = false;
+    storage.flush();
+    return;
+  }
+  if (!releaseCheckpointSaved) {
+    try { saveTabSession(); }
+    catch (error) {
+      // DEFENSE: Storage can be disabled or full when the browser is already leaving.
+      console.warn('无法保存此标签页的草稿', error);
+    }
+  }
+  disposed = true;
+  document.removeEventListener('selectionchange', selectionChanged);
+  document.removeEventListener('keydown', dismiss);
+  document.removeEventListener('pointerdown', rememberBackdropPress);
+  document.removeEventListener('pointercancel', clearBackdropPress);
+  document.removeEventListener('click', dismiss);
+  connection?.abort(); chatgptLogin.dispose(); audio.dispose(); toolActivity.dispose(); motion.dispose();
+  editorRepair.dispose(); physical.dispose(); renderer.dispose(); storage.flush();
   clearInterval(clockRefresh); document.removeEventListener('visibilitychange', refreshClock);
   boardTrackResize.disconnect();
   readingProcessResize.disconnect();
@@ -1690,7 +1858,7 @@ window.addEventListener('pagehide', () => {
   if (readingLayoutFrame !== null) cancelAnimationFrame(readingLayoutFrame);
   if (measurementFrame !== null) cancelAnimationFrame(measurementFrame);
   if (measurementTask !== null) clearTimeout(measurementTask);
-}, { once: true });
+});
 window.addEventListener('focus', () => chatgptLogin.focus());
 for (const preference of ['(prefers-color-scheme: dark)', '(prefers-reduced-motion: reduce)'])
   matchMedia(preference).addEventListener('change', schedulePhysicalRefresh);

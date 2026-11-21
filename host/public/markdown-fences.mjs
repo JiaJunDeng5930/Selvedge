@@ -20,12 +20,21 @@ export class MarkdownFenceObserver {
     this.ending = 'open';
     const generation = ++this.generation;
     const reported = new Map();
-    const parser = createMarkdownFenceParser((fences, prefix) => {
+    let previousEnding;
+    let previousTerminal;
+    const parser = createMarkdownFenceParser((fences, prefix, firstChanged) => {
       if (this.disposed || generation !== this.generation) return;
-      for (const fence of fences) {
-        const signature = JSON.stringify([fence.info, fence.code, fence.closed, this.ending, this.ending !== 'open' && prefix === this.text]);
-        if (signature === reported.get(fence.ordinal)) continue;
-        reported.set(fence.ordinal, signature);
+      const ending = this.ending;
+      const terminal = ending !== 'open' && prefix === this.text;
+      const all = previousEnding !== ending || previousTerminal !== terminal;
+      previousEnding = ending;
+      previousTerminal = terminal;
+      for (let index = all ? 0 : firstChanged; index < fences.length; index++) {
+        const fence = fences[index];
+        const previous = reported.get(fence.ordinal);
+        if (!all && previous && previous.info === fence.info && previous.code === fence.code &&
+            previous.closed === fence.closed) continue;
+        reported.set(fence.ordinal, { info: fence.info, code: fence.code, closed: fence.closed });
         this.options.onFence?.({
           ordinal: fence.ordinal, kind: fence.kind, info: fence.info,
           infoComplete: true, code: fence.code, closed: fence.closed,
