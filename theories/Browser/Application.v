@@ -285,6 +285,7 @@ Record region_plan := RegionPlan {
   plan_row_cache : list mounted_region;
   plan_scopes : option (list Focus.scope);
   plan_page : bool;
+  plan_route_changed : bool;
   plan_layers : bool;
   plan_theme : bool
 }.
@@ -550,9 +551,10 @@ Definition planned_regions (context : prepared) : option region_plan :=
  let resized:=layout_changed before context in
  let layout:=shell_mode_changed before context in
  let invalidate:=first || connected || layout in
+ let route_changed:=context_route_changed before context in
  let main:=invalidate || (snapshot && main_world_changed before context) ||
    (resized && match current_route context with Graphs=>true|_=>false end) ||
-   context_route_changed before context || creation_changed before context ||
+   route_changed || creation_changed before context ||
    main_local context incoming || negb online ||
    state_changed ["board"] before context ||
    section_changed "authoring" ["search"] before context in
@@ -748,7 +750,7 @@ Definition planned_regions (context : prepared) : option region_plan :=
   (if layers_changed then [placement (String.append V.workspace_key "/beside") None (filter Document.beside_layer next_layer_nodes);
    placement (String.append V.workspace_key "/overlays") None (filter (fun node=>negb(Document.beside_layer node)) next_layer_nodes)]else[]) ++
   flat_map local_placements visible)%list in
- Some (RegionPlan changes places (map fst rows) scopes main layers_changed theme).
+ Some (RegionPlan changes places (map fst rows) scopes main route_changed layers_changed theme).
 Definition native_planned request context : option ((json * list DOM.node) * prepared) :=
  plan<-planned_regions context;; controls<-prepared_controls context;;
  env<-prepared_environment context;; generation<-natural_field "generation" request;;
@@ -795,6 +797,7 @@ Definition native_planned request context : option ((json * list DOM.node) * pre
  let next_controls:=PublishedControls (published_receivers changed_controls) display mounted children in
  let metadata:=JObject ([("remove",JArray(map JString removals));
     ("place",JArray(plan_placements plan));("page_changed",JBool(plan_page plan));
+    ("route_changed",JBool(plan_route_changed plan));
     ("layers_changed",JBool(plan_layers plan));
     ("removed_target_updates",JArray(map JString removed_targets));
     ("target_updates",JArray(map DOM.update_json updates))]

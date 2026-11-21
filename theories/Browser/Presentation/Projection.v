@@ -1,4 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
+From Stdlib Require FSets.FMapAVL Structures.OrderedTypeEx.
 From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Identity Codec.
@@ -16,15 +17,33 @@ Definition domain_availability(value:Selvedge.Interaction.Experience.Model.avail
 |Selvedge.Interaction.Experience.Model.Unavailable reason=>Unavailable reason end.
 
 Inductive task_tree := TaskTree (entry:task)(children:list task_tree).
-Definition tree_entry(tree:task_tree):task:=match tree with TaskTree entry _=>entry end.
-(** Snapshots retain the kernel's parent-before-child registry order.  Folding
-    from the right attaches complete descendants, while a parent outside the
-    selected Work/project leaves its child at the collection root. *)
-Fixpoint forest(values:list task):list task_tree:=match values with
-|[]=>[]
-|entry::rest=>let '(children,roots):=partition
-  (fun tree=>same_id(Some(task_id entry))(task_parent(tree_entry tree)))(forest rest)in
- TaskTree entry children::roots end.
+Module TaskIdMap := FMapAVL.Make OrderedTypeEx.N_as_OT.
+Definition waiting_children id (pending:TaskIdMap.t (list task_tree)) :=
+ value_or [] (TaskIdMap.find id pending).
+
+(** Only a parent already seen in this Work/project can receive the current
+    entry. On the return traversal each parent takes its completed children
+    from one bucket; prepending preserves the original sibling and root order. *)
+Fixpoint assemble_forest (earlier:TaskIdMap.t unit) (values:list task)
+    : list task_tree * TaskIdMap.t (list task_tree) :=
+ match values with
+ |[]=>([],TaskIdMap.empty _)
+ |entry::rest=>
+   let id:=task_id entry in
+   let '(roots,pending):=assemble_forest (TaskIdMap.add id tt earlier) rest in
+   let tree:=TaskTree entry (waiting_children id pending) in
+   let remaining:=TaskIdMap.remove id pending in
+   match task_parent entry with
+   |Some parent=>if TaskIdMap.mem parent earlier then
+      (roots,TaskIdMap.add parent (tree::waiting_children parent remaining) remaining)
+     else (tree::roots,remaining)
+   |None=>(tree::roots,remaining)
+   end
+ end.
+Definition forest (values:list task) :=
+ if existsb (fun entry=>match task_parent entry with Some _=>true|None=>false end) values
+ then fst (assemble_forest (TaskIdMap.empty unit) values)
+ else map (fun entry=>TaskTree entry []) values.
 Definition task_selected route value := match route with
 |Conversation id=>N.eqb id(task_id value)|SharedUI _ (Some id)=>N.eqb id(task_id value)|_=>false end.
 Definition task_details_observation snapshot id :=

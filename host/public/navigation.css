@@ -67,6 +67,22 @@ dialog[data-semantic-key="global-navigation-menu"]::backdrop { background: trans
   --control-rest-background: var(--selvedge-selection) !important;
 }
 
+[data-workspace-navigation="shortcuts"] {
+  overflow-y: auto !important;
+  scrollbar-width: thin;
+}
+[data-workspace-navigation="shortcuts"] > button { flex-shrink: 0 !important; }
+
+@media (min-height: 30rem) {
+  [data-workspace-navigation="collection"] { scroll-padding-block-start: 3rem; }
+  [data-workspace-navigation="collection"] > [data-semantic-key="task-creation"] {
+    position: sticky;
+    inset-block-start: 0;
+    z-index: 1;
+    background: var(--selvedge-navigation) !important;
+  }
+}
+
 [data-workspace-navigation="shortcuts"] > button[data-help]::after {
   position-area: inline-end;
   position-try-fallbacks: flip-inline;

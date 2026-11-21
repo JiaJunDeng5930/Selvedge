@@ -8,13 +8,13 @@ Open Scope list_scope.
 
 (** Native anchor positioning chooses below, then above. Its final painted box
     still needs the viewport clamp when the trigger has moved off screen. *)
-Definition menu_axis_correction (viewport : string) (start size : Schema.decimal) :=
-  ("clamp(calc(var(--layer-clearance) - (" ++ Schema.spelling start ++ "px)), 0px, " ++
-  "calc(" ++ viewport ++ " - var(--layer-clearance) - (" ++ Schema.spelling start ++
+Definition menu_axis_correction (first last : string) (start size : Schema.decimal) :=
+  ("clamp(calc(" ++ first ++ " + var(--layer-clearance) - (" ++ Schema.spelling start ++ "px)), 0px, " ++
+  "calc(" ++ last ++ " - var(--layer-clearance) - (" ++ Schema.spelling start ++
   "px) - (" ++ Schema.spelling size ++ "px)))")%string.
 Definition menu_viewport_correction (left top width height : Schema.decimal) :=
-  (menu_axis_correction "100dvw" left width ++ " " ++
-  menu_axis_correction "100dvh" top height)%string.
+  (menu_axis_correction "0px" "100dvw" left width ++ " " ++
+  menu_axis_correction "var(--menu-top, 0px)" "calc(100dvh - var(--menu-covered, 0px))" top height)%string.
 
 (* Zero metrics are not font observations. The constructor stores their positive predecessors. *)
 Record metric := Metric { height_extra : nat; advance_extra : nat }.
@@ -182,7 +182,7 @@ Definition region_properties env (region : Composition.region) (position : Compo
       ("grid-auto-columns",("minmax(min(100%, " ++ Typography.px (lane_minimum_width p) ++ "), 1fr)")%string);
       ("grid-template-rows","minmax(0, 1fr)"); ("align-items","stretch");
       ("gap",Typography.px (Enclosure.separation Enclosure.BoardColumns));
-      ("overflow-x","auto"); ("min-block-size","0"); ("flex","1 1 auto")]
+      ("overflow-x","auto"); ("min-block-size","10rem"); ("flex","1 1 auto")]
   | _ => [] end.
 
 Definition workspace_properties env (navigation_visible supporting_visible : bool) : list (string * string) :=

@@ -355,7 +355,10 @@ main > [data-page-region="collection-actions"]:has(> [data-semantic-key="history
 
 [data-board-scroll-controls]:not([hidden]) {
   display: flex;
-  flex: none;
+  flex: 0 1 auto;
+  max-inline-size: 100%;
+  min-inline-size: 0;
+  flex-wrap: wrap;
   gap: .25rem;
 }
 [data-board-stage-jump] {
@@ -396,6 +399,9 @@ main > [data-page-region="collection-actions"]:has(> [data-semantic-key="history
   scrollbar-width: thin;
   padding-block: 2px .375rem !important;
 }
+/* When the toolbar wraps or the keyboard opens, the page can scroll
+   past the controls to a lane tall enough to read and operate a card. */
+main:has(> [data-page-region="board-stages"]) { overflow-y: auto !important; }
 [data-page-region="board-stages"]:focus-visible {
   outline: 2px solid var(--selvedge-focus);
   outline-offset: -2px;
@@ -424,10 +430,17 @@ main > [data-page-region="collection-actions"]:has(> [data-semantic-key="history
   flex: 1 1 auto;
   overflow-y: auto;
   scrollbar-width: thin;
-  overscroll-behavior-block: contain;
 }
 [data-board-cards] > [data-card-id] {
   flex-shrink: 0 !important;
+}
+
+[data-board-cards] [data-card-field="description"],
+[data-board-cards] [data-card-id] [data-semantic-key="open"] {
+  display: -webkit-box !important;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
 }
 
 [data-card-id] {
@@ -654,7 +667,7 @@ dialog[data-semantic-key="card-details"] {
   min-inline-size: 0;
   overflow: clip;
   cursor: grab;
-  touch-action: none;
+  touch-action: pinch-zoom;
   background-image: radial-gradient(var(--selvedge-border) 0.65px, transparent 0.65px);
   background-size: calc(1.25rem * var(--workflow-scale, 1)) calc(1.25rem * var(--workflow-scale, 1));
   background-position: var(--workflow-x, 16px) var(--workflow-y, 16px);
@@ -688,7 +701,7 @@ dialog[data-semantic-key="card-details"] {
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-gutter: stable;
-  touch-action: pan-y;
+  touch-action: pan-y pinch-zoom;
   cursor: default;
 }
 [data-workflow-frame="overview"] [data-workflow-plane] {

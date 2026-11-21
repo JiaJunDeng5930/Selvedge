@@ -45,6 +45,28 @@
 html, body { margin: 0; inline-size: 100%; min-block-size: 100%; }
 body { font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif); color: var(--selvedge-text); background: var(--selvedge-canvas); }
 #surface { inline-size: 100%; block-size: 100dvh; overflow: hidden; }
+#surface[data-viewport-clipped] {
+  --menu-top: var(--visible-top);
+  --menu-covered: var(--covered-bottom);
+  & dialog[data-native-layer] {
+    max-block-size: calc(var(--visible-height) - 2 * var(--layer-clearance)) !important;
+  }
+  position: relative;
+  inset-block-start: var(--visible-top);
+  block-size: var(--visible-height);
+
+  & dialog:not([data-native-layer]) {
+    inset-block: var(--visible-top) var(--covered-bottom) !important;
+    max-block-size: var(--visible-height) !important;
+  }
+  & dialog[data-semantic-key="settings"] { block-size: var(--visible-height) !important; }
+  @media (orientation: portrait) and (max-width: 600px) {
+    & dialog[data-semantic-key="model-picker"] {
+      inset-block-end: calc(var(--covered-bottom) + .65rem) !important;
+      max-block-size: calc(var(--visible-height) - 1.3rem) !important;
+    }
+  }
+}
 /* The initial service scene uses the same frame while the world is unavailable. */
 :is(#selvedge-startup, [data-key="workspace-body"]:has(> [data-measure-region="main"] > main
   :is([data-semantic-key="not-connected"], [data-semantic-key="connecting"], [data-semantic-key="connection-failed"]))) {
@@ -316,6 +338,30 @@ button[data-activity-destination] > svg { flex: none; }
   overflow-wrap: anywhere;
 }
 .visually-hidden { position: absolute; inline-size: 1px; block-size: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+#browser-notices {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  inline-size: auto;
+  block-size: auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  pointer-events: none;
+}
+#browser-notices::backdrop { pointer-events: none; background: transparent; }
+body:has(> #surface[data-viewport-clipped]) {
+  & #announcements[role="alert"], & [data-semantic-key="connection-notice"] {
+    inset-block-start: calc(var(--visible-top) + .5rem);
+    max-block-size: min(12rem, calc(.3 * var(--visible-height)));
+  }
+  & #selvedge-update-status {
+    inset-block-end: calc(var(--covered-bottom) + .5rem);
+    max-block-size: min(12rem, calc(.3 * var(--visible-height)));
+  }
+}
+#announcements[role="alert"], #selvedge-update-status { pointer-events: auto; }
 #announcements[role="alert"], #selvedge-update-status, [data-semantic-key="connection-notice"] {
   position: fixed; z-index: 10000; inset-block-start: 1rem; inset-inline: 1rem;
   inline-size: fit-content; max-inline-size: min(36rem, calc(100vw - 2rem));
@@ -323,6 +369,12 @@ button[data-activity-destination] > svg { flex: none; }
   border: 1px solid var(--selvedge-border); border-radius: 8px;
   background: var(--selvedge-surface); color: var(--selvedge-text);
   box-shadow: var(--selvedge-shadow);
+}
+#announcements[role="alert"], #selvedge-update-status {
+  max-block-size: min(12rem, 30dvh);
+  overflow: auto;
+  overflow-wrap: anywhere;
+  overscroll-behavior: contain;
 }
 #selvedge-update-status { inset-block-start: auto; inset-block-end: 1rem; }
 #selvedge-update-status:empty { display: none; }
@@ -535,7 +587,7 @@ button[data-help][aria-disabled="true"] { cursor: default; }
 [data-task-tree-entry] {
   --task-row-height: 32px;
   --task-marker-width: 24px;
-  --task-indent: 18px;
+  container: task-entry / inline-size;
   --task-branch-gap: 12px;
   row-gap: var(--task-branch-gap) !important;
 }
@@ -607,7 +659,16 @@ button[data-help][aria-disabled="true"] { cursor: default; }
 }
 
 /* The first branch starts at its parent's dot and siblings share a stem. */
-[data-task-branches] { padding-inline-start: var(--task-indent) !important; row-gap: 0 !important; }
+[data-task-branches] {
+  --task-indent: 18px;
+  padding-inline-start: var(--task-indent) !important;
+  row-gap: 0 !important;
+}
+/* Preserve room for the disclosure, status and title at every depth. The
+   connecting strokes inherit the same indent that positioned the children. */
+@container task-entry (max-width: 10rem) {
+  [data-task-branches] { --task-indent: 0px; }
+}
 [data-task-branches],
 [data-project-id] > [data-navigation-members] { padding-inline-end: 0 !important; }
 [data-task-branches] > [data-task-tree-entry] { position: relative; }
@@ -875,6 +936,22 @@ dialog[data-semantic-key="side-conversation"] {
   border-radius: 9px;
   background: var(--selvedge-surface) !important;
   box-shadow: 0 6px 20px #0002;
+}
+@supports (anchor-scope: --voice-trigger) and (top: anchor(top)) {
+  [data-voice-controls] { anchor-scope: --voice-trigger; }
+  [data-voice-controls] > summary { anchor-name: --voice-trigger; }
+  [data-voice-controls] > [data-voice-controls-body] {
+    position: fixed;
+    position-anchor: --voice-trigger;
+    inset: auto;
+    left: clamp(.5rem, calc(anchor(left) - 2rem), calc(100% - min(19rem, 100cqi) - .5rem));
+    bottom: calc(anchor(top) + .5rem);
+    position-try-fallbacks: flip-block;
+  }
+  [data-page-region="creation-introduction"] + [data-page-region="composer-input"] [data-voice-controls-body] {
+    top: calc(anchor(bottom) + .5rem);
+    bottom: auto;
+  }
 }
 [data-semantic-key="composer/tools"] > button {
   min-inline-size: 36px !important;
@@ -1625,4 +1702,12 @@ table:where(.markdown .table-scroll > *, [data-interactive-component="table"] > 
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* Keep touch editing legible without making the browser zoom when a field receives focus. */
+@media (pointer: coarse) {
+  #surface :is(textarea, select, input:not([type]), input:is([type="text"], [type="search"],
+    [type="url"], [type="password"], [type="email"], [type="number"], [type="tel"])) {
+    font-size: max(16px, 1rem) !important;
+  }
 }

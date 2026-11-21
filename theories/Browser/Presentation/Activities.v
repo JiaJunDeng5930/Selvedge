@@ -81,7 +81,7 @@ Definition decision_node {e} pending show_consequences occurrence parent query s
  let obstruction:=common_choice_obstruction (map UX.alternative_availability visible) in
  let status:=match full,visible with
  |[],_=>[read_only identity "candidates/empty" "" (match UX.subject_declaration(UX.decision_subject decision)with
-          |Fields.ModelProfile=>"No models available"|_=>"No choices have been configured"end)]
+          |Fields.ModelProfile=>"还没有可用模型。请先在设置中连接模型服务。"|_=>"No choices have been configured"end)]
  |_,[]=>[read_only identity "candidates/no-match" "Search" "No choices match this search"]
  |_,_=>match obstruction with None=>[]
    |Some reason=>[information identity "candidates/obstruction" Information.Description reason]end end in
@@ -231,6 +231,12 @@ Definition model_picker_view (s:State.state) {e} (activity:Act.activity e)
    occurrence parent behavior (compact:bool) query (focus:option(UX.subject e)) : node Input.input :=
  let '(root, dependencies):=match picker_root activity with
   |Some(Act.RootDecision decision relations)=>(Some decision,relations)|_=>(None,[])end in
+ let settings:=match root with
+  |Some decision=>match UX.decision_alternatives decision with
+    |[]=>declared parent Roles.Button (secondary "configure-models" "前往模型设置"
+          (Input.ServiceInput (Services.OpenModelSettings parent)))
+    |_=>model_settings e occurrence parent end
+  |None=>model_settings e occurrence parent end in
  let effort:=match picker_effort activity dependencies with
   |Some(Act.DependentDecision _ _ decision)=>Some decision|_=>None end in
  let catalog:=match effort,focus with
@@ -242,7 +248,7 @@ Definition model_picker_view (s:State.state) {e} (activity:Act.activity e)
  let switch_key:=part parent "model-picker-switch"in
  let nav:=if summary then match root with
   |Some decision=>match UX.decision_alternatives decision with
-    |[]=>[model_settings e occurrence parent]
+    |[]=>[settings]
     |_=>let label:=value_or "Choose model"(selected_label decision)in
       let effort_label:=match effort with Some decision=>selected_label decision|None=>None end in
       [Node switch_key "model-picker-summary" label Roles.Button
@@ -252,7 +258,7 @@ Definition model_picker_view (s:State.state) {e} (activity:Act.activity e)
         (information switch_key "model-name" Information.OptionLabel label::
          match effort_label with Some text=>[information switch_key "current-effort" Information.Description text]|None=>[]end)]
     end
-  |None=>[model_settings e occurrence parent]end
+  |None=>[settings]end
   else match effort with Some _=>
     [Node switch_key "model-picker-back" "Back to reasoning effort" Roles.Button
       (Activate(secondary "model-picker-back" "Back to reasoning effort"(Input.ActivityFocus occurrence e None))) []]
@@ -271,7 +277,7 @@ Definition model_picker_view (s:State.state) {e} (activity:Act.activity e)
       (EffortRange(map(fun alternative=>(UX.alternative_selected alternative,candidate_control pending occurrence decision alternative))
          (UX.decision_alternatives decision)))[]]
    |None=>[]end in
- let content:=(models++effort_controls++(if summary then [] else [model_settings e occurrence parent]))%list in
+ let content:=(models++effort_controls++(if summary then [] else [settings]))%list in
  Node parent "model-picker" "Model" Roles.Dialog(ActivityGroup e activity Act.PrincipalView behavior)
   ([dialog_header parent [region parent "model-picker-header" "" Roles.Toolbar (nav++[title parent "Model"]++close)%list]]++
    match content with []=>[]|_=>[dialog_body parent content]end)%list.

@@ -107,7 +107,7 @@ Definition describe snapshot state input:P.purpose:=match input with
    match connection with
    |Services.ConnectionLoading _=>P.Connect true None
    |_=>P.Connect false (Services.connection_failure connection) end
- |Services.OpenSettings=>P.ApplicationSettings(Services.settings_open(State.service_state state))
+ |Services.OpenSettings|Services.OpenModelSettings _=>P.ApplicationSettings(Services.settings_open(State.service_state state))
  |Services.CloseSettings|Services.ClosePreview=>P.Dismiss|Services.CloseDirectory=>P.NamedAction
  |Services.RetryUpload _=>P.RetryTransfer
  |Services.CancelUpload _=>P.AbortOperation|Services.OpenPreview _ _=>P.PreviewFile|Services.Download _=>P.DownloadFile

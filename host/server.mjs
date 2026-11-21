@@ -1,7 +1,9 @@
 import http from 'node:http';
+import { promisify } from 'node:util';
+import { gzip } from 'node:zlib';
 import { boundary } from './public/model-boundary.mjs';
 import { interpretHttpPlan, requireAudioAdmission, httpReplyStatus } from './model-api.ts';
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFile, readdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { Service } from './service.mjs';
@@ -11,6 +13,8 @@ import { writeAtomic } from './files.mjs';
 import { saveBoardAttachment, readBoardAttachment } from './board-files.mjs';
 import { connectionCredentials, connectionAuthorized, connectionCommand } from './chatgpt-plugin.mjs';
 import { configurationFilename, readServiceConfiguration, changeServiceConfiguration } from './config.mjs';
+
+const compressAsset = promisify(gzip);
 
 async function publicAssets(directory, prefix = '') {
   const assets = new Map();
@@ -45,6 +49,7 @@ export async function startServer(options) {
   const clients = new Set();
   const audioClients = new Set();
   const sockets = new Set();
+  const compressedAssets = new Map();
   const filename = path.join(options.home, 'server.json');
   let closing;
   let address;
@@ -76,13 +81,16 @@ export async function startServer(options) {
       ...(gzip ? { 'content-encoding': 'gzip' } : {}) });
     response.end(body);
   }
-  function browserJson(request, response, status, value) {
-    response.setHeader('vary', 'Accept-Encoding');
-    const gzip = request.headers['accept-encoding']?.split(',').some(value => {
+  function acceptsGzip(request) {
+    return request.headers['accept-encoding']?.split(',').some(value => {
       const [coding, quality] = value.toLowerCase().split(';').map(part => part.trim());
       return coding === 'gzip' && (quality === undefined || Number(quality.split('=')[1]) > 0);
-    });
-    json(response, status, value, gzip);
+    }) ?? false;
+  }
+
+  function browserJson(request, response, status, value) {
+    response.setHeader('vary', 'Accept-Encoding');
+    json(response, status, value, acceptsGzip(request));
   }
 
   function authorized(request) {
@@ -260,12 +268,45 @@ export async function startServer(options) {
           const bytes = await readFile(new URL(`./public/${file}`, import.meta.url));
           const document = file === 'index.html';
           const data = document && release ? bytes.toString('utf8').replace('<head>', `<head>\n<meta name="selvedge-release" content="${release.id}">`) : bytes;
-          response.writeHead(200, { 'content-type': contentType, 'cache-control': url.pathname === '/' ? 'no-store' : 'no-cache',
+          const headers = { 'content-type': contentType, 'cache-control': document ? 'no-store' : 'no-cache',
             ...(url.pathname === '/' ? { 'set-cookie': `selvedge-session=${token}; Path=/api; HttpOnly; SameSite=Strict` } : {}),
             // Browser annotations use inline styles. Admitted MCP icons are embedded raster images.
             'content-security-policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' blob: data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
-            'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer' });
-          response.end(data);
+            'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer' };
+          if (document) {
+            response.writeHead(200, headers);
+            response.end(data);
+            return;
+          }
+          // Both encodings represent the same public file. Read its current bytes
+          // so a running checkout can serve an edit on the next revalidation.
+          const digest = createHash('sha256').update(bytes).digest('base64');
+          const tag = `"${digest}"`;
+          headers.etag = `W/${tag}`;
+          headers.vary = 'Accept-Encoding';
+          const validators = request.headers['if-none-match']?.split(',').map(value => value.trim());
+          if (validators?.some(value => value === '*' || value === tag || value === headers.etag)) {
+            response.writeHead(304, headers);
+            response.end();
+            return;
+          }
+          let body = bytes;
+          if (acceptsGzip(request)) {
+            let cached = compressedAssets.get(file);
+            if (cached?.digest !== digest) {
+              cached = { digest, body: compressAsset(bytes, { level: 4 }) };
+              compressedAssets.set(file, cached);
+            }
+            headers['content-encoding'] = 'gzip';
+            try { body = await cached.body; }
+            catch (error) {
+              // DEFENSE: A failed compression job must not poison later requests for this file.
+              if (compressedAssets.get(file) === cached) compressedAssets.delete(file);
+              throw error;
+            }
+          }
+          response.writeHead(200, headers);
+          response.end(body);
           return;
         },
         audio_capabilities: async () => {

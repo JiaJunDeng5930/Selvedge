@@ -137,9 +137,8 @@ Definition show_side_control parent task : node Input.input :=
  declared parent Roles.Button(secondary "side/show" "Open side conversation"
    (Input.ShowSide task(part parent "side/show"))).
 Definition task_side_controls snapshot s task parent:=match ObjectActions.return_action snapshot s task with
-|None=>match filter (fun entry=>match Read.task_side_parent snapshot (task_id entry) with
-         |Some source=>N.eqb source task|None=>false end) (value_or[](Read.tasks snapshot)) with
-       |[child]=>[show_side_control parent (task_id child)]|_=>[]end
+|None=>match Read.side_children snapshot task with
+       |Some [child]=>[show_side_control parent child]|_=>[]end
 |Some action=>List.app
  (match ObjectActions.command action with
   |Some command=>[declared parent Roles.Button(Control(ObjectActions.action_key action)(ObjectActions.action_label action)Secondary(Input.Command command)(approval_availability action))]|None=>[]end)
@@ -346,7 +345,7 @@ Definition history_page snapshot s parent :=
     history_scope true(State.project_filter search)project_choices parent;
     history_scope false(State.work_filter search)work_choices parent;
     declared parent Roles.PrimaryButton submit];
-  page_region parent Composition.HistoryResults Composition.BodyPosition
+  page_region results_parent Composition.HistoryResults Composition.BodyPosition
    (if pending then[information parent "searching" Information.Status "正在搜索…"]else
     match page with
    |None=>[]

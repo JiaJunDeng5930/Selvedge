@@ -20,12 +20,13 @@ Definition position_target place := match place with EndOfStage _ => None | Befo
 Record task_target := TaskTarget { target_task : N; target_title : string }.
 Inductive choice := MoveTo (place : position) | LinkTo (task : task_target).
 
-Definition move_positions_from_cards (cards:list Read.card) card :=
+Definition board_positions (cards:list Read.card) :=
  map EndOfStage Domain.stages ++
- flat_map (fun other =>
-   if negb (N.eqb card (Read.card_id other)) && negb (Read.card_archived other)
-   then [BeforeCard (Read.card_stage other) (Read.card_id other) (Read.card_title other)]
-   else []) cards.
+ flat_map (fun other => if Read.card_archived other then [] else
+   [BeforeCard (Read.card_stage other) (Read.card_id other) (Read.card_title other)]) cards.
+Definition accepts_source card place := match position_target place with
+ |Some other=>negb (N.eqb card other)|None=>true end.
+Definition move_positions_from_cards cards card := filter (accepts_source card) (board_positions cards).
 Definition link_targets (tasks:list Read.task) :=
  map (fun task => TaskTarget (Read.task_id task) (Read.task_title task)) tasks.
 Record opportunity := Opportunity {

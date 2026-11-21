@@ -5,14 +5,16 @@ export function createMarkdownFenceParser(onChange) {
   const fences = [];
   let ordinal = 0n;
   let prefix = '';
-  const report = () => onChange(fences.map(({ type, ...fence }) => ({ ...fence })), prefix);
+  // Parser output is append-only. Only the last open fence can change when
+  // another chunk arrives. Consumers read this view synchronously.
+  const firstUnfinished = () => fences.at(-1)?.closed === false ? fences.length - 1 : fences.length;
   const sink = {
     data: null,
     add_token: (_, type) => {
       if (type === smd.DOCUMENT) return;
       let fence = null;
       if (type === smd.CODE_BLOCK || type === smd.CODE_FENCE) {
-        fence = { type, ordinal: ordinal++, kind: type === smd.CODE_FENCE ? 'fenced' : 'indented',
+        fence = { ordinal: ordinal++, kind: type === smd.CODE_FENCE ? 'fenced' : 'indented',
           info: '', code: '', closed: false };
         fences.push(fence);
       }
@@ -33,13 +35,15 @@ export function createMarkdownFenceParser(onChange) {
   const parser = smd.parser(sink);
   return {
     write(chunk) {
+      const first = firstUnfinished();
       prefix += chunk;
       smd.parser_write(parser, chunk);
-      report();
+      onChange(fences, prefix, first);
     },
     finish() {
+      const first = firstUnfinished();
       smd.parser_end(parser);
-      report();
+      onChange(fences, prefix, first);
     },
   };
 }

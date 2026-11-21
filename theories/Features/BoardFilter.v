@@ -1,4 +1,5 @@
 From Stdlib Require Import String List Bool Ascii NArith.
+From Stdlib Require FSets.FSetAVL Structures.OrderedTypeEx.
 From Selvedge.Foundation Require Import Json Utf8.
 From Selvedge.Kernel Require Import Numbers.
 From Selvedge.Features Require Import Domain Titles.
@@ -35,7 +36,7 @@ Definition elapsed (now then_:N) := N.sub now then_.
 Definition day_limit (name:string) :N := if String.eqb name "1" then 86400 else if String.eqb name "7" then 604800 else if String.eqb name "30" then 2592000 else 0.
 Definition date_matches (values:list string) (age:N) := match values with []=>true | _=>existsb (fun name=>N.leb age (day_limit name)) values end.
 Definition id_text (value:json) := match value with JNumber source=>source | _=>"" end.
-Definition matches (selection:filter) (now:N) (card:json) :=
+Definition matches_query (selection:filter) query (now:N) (card:json) :=
  let owner:=text "assignee" card in
  negb (flag "archived" card) &&
  (match filter_tab selection with All=>true | Assigned=>negb (String.eqb owner "none" || String.eqb owner "") | UnassignedTab=>String.eqb owner "none" || String.eqb owner "" | Working=>flag "working" card end) &&
@@ -45,14 +46,30 @@ Definition matches (selection:filter) (now:N) (card:json) :=
  selected (filter_values selection Project) (match string_field "project" card with Some value=>value | None=>"" end) &&
  labels (filter_values selection Label) (match field "labels" card with Some value=>texts value | None=>[] end) &&
  date_matches (filter_values selection Date) (elapsed now (match field "updated_at" card with Some value=>match value with JString source=>match natural (JNumber source) with Some value=>value | None=>0 end | _=>0 end | None=>0 end)) &&
- contains (lower_text (trim (filter_query selection))) (lower_text ((text "identifier" card)++" "++text "title" card++" "++text "description" card)).
-Definition task_working (card world:json) := match field "task_id" card, array_field "tasks" world with Some (JNumber id),Some tasks=>existsb (fun task=>match field "id" task with Some (JNumber other)=>String.eqb id other && flag "working" task | _=>false end) tasks | _,_=>false end.
-Definition matches_in_world (selection:filter) (now:N) (card world:json) :=
- let working := task_working card world ||
-   match string_field "activity" card with Some "running"=>true|_=>false end in
- matches selection now (match card with JObject fields=>JObject (set_field "working" (JBool working) fields) | _=>card end).
+ match query with EmptyString=>true|_=>contains query (lower_text
+   ((text "identifier" card)++" "++text "title" card++" "++text "description" card))end.
+Definition normalized_query selection := lower_text (trim (filter_query selection)).
+Definition matches selection := matches_query selection (normalized_query selection).
+Module WorkingTasks := FSetAVL.Make OrderedTypeEx.String_as_OT.
+Definition working_tasks world :=
+ fold_left (fun index task=>match field "id" task with
+ |Some (JNumber id)=>if flag "working" task then WorkingTasks.add id index else index
+ |_=>index end) (match array_field "tasks" world with Some tasks=>tasks|None=>[]end) WorkingTasks.empty.
+Definition task_working_in index card := match field "task_id" card with
+ |Some (JNumber id)=>WorkingTasks.mem id index|_=>false end.
+Definition match_board_card selection query now world : json -> bool :=
+ match filter_tab selection with
+ |Working=>let index:=working_tasks world in fun card=>
+    let working:=task_working_in index card ||
+      match string_field "activity" card with Some "running"=>true|_=>false end in
+    matches_query selection query now
+      (match card with JObject fields=>JObject (set_field "working" (JBool working) fields)|_=>card end)
+ |_=>matches_query selection query now
+ end.
+Definition matches_in_world selection now card world := match_board_card selection (normalized_query selection) now world card.
 Definition apply (selection:filter) (now:N) (cards:list json) := List.filter (matches selection now) cards.
-Definition apply_in_world (selection:filter) (now:N) (cards:list json) (world:json) := List.filter (fun card=>matches_in_world selection now card world) cards.
+Definition apply_in_world (selection:filter) (now:N) (cards:list json) (world:json) :=
+ List.filter (match_board_card selection (normalized_query selection) now world) cards.
 Definition choices (entries:list (string*string)) := map (fun entry=>JObject [("value",JString (fst entry));("label",JString (snd entry))]) entries.
 Definition stage_choices := choices (map (fun stage=>(Domain.stage_name stage,Domain.stage_label stage)) stages).
 Definition priority_choices := choices (map (fun level=>(Domain.priority_name level,Domain.priority_label level)) priorities).

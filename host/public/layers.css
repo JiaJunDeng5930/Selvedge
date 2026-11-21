@@ -293,6 +293,8 @@ dialog[data-semantic-key="workflow-instance-details"] {
     flex-flow: row wrap !important;
     justify-content: flex-end !important;
     align-items: center !important;
+    max-block-size: min(14rem, calc(var(--panel-available-height, 100dvh) * .4));
+    overflow-y: auto !important;
     gap: var(--panel-related-space) !important;
     padding-block: var(--panel-related-space) !important;
   }
@@ -440,6 +442,8 @@ dialog[data-semantic-key="directory-browser"] {
 dialog:is([data-semantic-key="object-actions"], [data-semantic-key="property-source"], [data-semantic-key="workspace-settings"])::backdrop {
   background: transparent;
 }
+#surface[data-viewport-clipped] { --panel-available-height: var(--visible-height); }
+
 dialog[data-semantic-key="model-picker"] {
   inline-size: min(18rem, calc(100dvi - 1.5rem)) !important;
   padding: .55rem !important;
@@ -497,17 +501,17 @@ dialog[data-semantic-key="model-picker"] {
   }
   & > [role="menu"] > [data-surface-role="dialog-body"] {
     min-block-size: 0 !important;
-    overflow: hidden !important;
+    overflow: hidden auto !important;
   }
   & input[type="search"] {
     inline-size: 100% !important;
     max-inline-size: none !important;
   }
   & [data-semantic-key="model-picker-models"] {
-    flex: 1 1 auto !important;
+    flex: var(--picker-list-flex, 1 1 auto) !important;
     min-block-size: 0 !important;
-    max-block-size: min(14rem, 44dvh);
-    overflow: auto !important;
+    max-block-size: var(--picker-list-height, min(14rem, 44dvh));
+    overflow: var(--picker-list-scroll, auto) !important;
     overscroll-behavior: contain;
     scrollbar-width: thin;
   }
@@ -650,8 +654,18 @@ button[data-semantic-key="composer/model"][data-native-anchor-owner] {
     border-radius: 18px !important;
 
     &::backdrop { background: rgb(0 0 0 / .16); }
-    & [data-semantic-key="model-picker-models"] { max-block-size: min(21rem, 37dvh); }
+    & [data-semantic-key="model-picker-models"] { max-block-size: var(--picker-list-height, min(21rem, 37dvh)); }
   }
+}
+/* Keep search, every model, and reasoning settings in a single scrollport when
+   the keyboard or a short window leaves too little space for two panes. */
+@media (max-height: 36rem) {
+  dialog[data-semantic-key="model-picker"] { --picker-list-scroll: visible; --picker-list-height: none; --picker-list-flex: none; }
+}
+#surface[data-viewport-clipped] dialog[data-semantic-key="model-picker"] {
+  --picker-list-scroll: visible;
+  --picker-list-height: none;
+  --picker-list-flex: none;
 }
 dialog[data-semantic-key="object-actions"] { padding: var(--layer-gap) !important; }
 [data-semantic-key="account-sign-in"] [data-semantic-key="device-verification"] {

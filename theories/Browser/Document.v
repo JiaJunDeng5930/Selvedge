@@ -627,15 +627,12 @@ Definition source_context {A} (current:S.meaning A) (meaning:S.meaning A) :=
  | S.ActivityRow _ | S.ActivityGroup _ _ _ _ | S.LayerRegion _ | S.NavigationRegion _ _ => meaning
  | S.Region | S.InformationText _ => current
  | _ => match current with S.ActivityRow S.SupportingRow => current | _ => meaning end end.
-Definition available_placements {A} (values:list(S.placement A)) :=
- filter(fun value=>Model.available(Model.control_availability(S.placement_control value)))values.
 Definition card_movement {A} (values:list(S.node A)) :=
  fold_right(fun value rest=>match S.node_meaning value with
- |S.MovableCard _ placements=>Some(S.node_key value,available_placements placements)|_=>rest end)None values.
-Definition card_drag {A} generation (movement:option(string*list(S.placement A))) :=
- JObject[("placements",JArray(match movement with None=>[]|Some(key,placements)=>
- map(fun destination=>JObject[("target",JString(S.placement_target destination));
- ("action",DOM.input_json(DOM.ElementTarget key(Gesture.gesture_name Gesture.Place)generation))])placements end))].
+ |S.MovableCard true _=>Some(S.node_key value)|_=>rest end)None values.
+Definition card_drag generation (movement:option string) :=
+ match movement with None=>empty|Some key=>JObject[("place_action",
+   DOM.input_json(DOM.ElementTarget key(Gesture.gesture_name Gesture.Place)generation))]end.
 Definition card_part {A} (describe:A->C.purpose) (more:bool) (values:list(S.node A*DOM.node)) :=
  fold_right(fun pair rest=>let '(original,native):=pair in
  match S.node_meaning original with
@@ -1405,8 +1402,8 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  |S.ContextSummary _=>element (role_tag role) [] [] empty children
  |S.CardContent face=>
  let movement:=card_movement(S.node_children value)in
- let movable:=match movement with Some(_, _::_)=>true|_=>false end in
- let text part value:=DOM.Element (key++"/"++part)%string "span" []
+ let movable:=match movement with Some _=>true|None=>false end in
+ let text part value:=DOM.Element (key++"/"++part)%string "span" [("data-card-field",part)]
  (NativeAppearance.information_properties env false Information.Description) [] empty [DOM.Text value]in
  let optional part value:=if String.eqb value ""then[]else[text part value]in
  let row part (responsive:bool) content:=DOM.Element(key++"/"++part)%string "div"
@@ -1419,8 +1416,11 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  let grip:=if movable then
    [DOM.Element (key++"/grip")%string "span" [("data-card-grip","");("title","拖动卡片");("aria-hidden","true")]
      [] [] empty (glyph "grip")] else [] in
+ let labels:=Model.card_labels face in
+ let remaining:=List.length (skipn 3 labels) in
  let context:=optional "project"(Model.card_project face)++
-   map(fun label=>DOM.Element "" "span" [] (NativeAppearance.information_properties env false Information.Description) [] empty [DOM.Text label])(Model.card_labels face)in
+   map(fun label=>DOM.Element "" "span" [] (NativeAppearance.information_properties env false Information.Description) [] empty [DOM.Text label])(firstn 3 labels)++
+   (match remaining with 0=>[]|_=>[text "more-labels" ("另有 "++show_natural (N.of_nat remaining)++" 个标签")%string]end)in
  DOM.Element key "article" (attrs++[("data-card-id",text_number(Model.card_identity face));("data-card-title",Model.card_title face);
  ("draggable",flag movable);("data-drop-target",key)]) styles [] (card_drag generation movement)
  ([row "actions" false [DOM.Element(key++"/open-group")%string "div" [][("flex","1");("min-inline-size","0")][]empty

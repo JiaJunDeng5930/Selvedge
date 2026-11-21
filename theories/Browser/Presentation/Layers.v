@@ -209,7 +209,7 @@ Definition card_details snapshot s id parent :=match Read.find_card id snapshot 
  (match bind(Read.card_task card)(fun task=>find_task task snapshot)with
   |Some entry=>[group_title (part parent "conversation") "关联对话";
     Navigation.task_entry_tree(State.location(State.navigation_state s))[] parent(TaskTree entry [])]
-  |None=>Collections.card_conversation snapshot parent card "" end)++
+  |None=>Collections.card_conversation (fun task=>Read.find_task task snapshot) parent card "" end)++
  [region parent "card-detail-actions" "卡片操作" Roles.Toolbar
    (detail_action_nodes snapshot s(CardActions id)parent
      (match Read.ticket_workflow snapshot id with Some _=>["run"]|None=>[]end))])%list end.
@@ -442,7 +442,7 @@ Definition layer_view snapshot s capacity compact_model_picker layer hide_side_d
    let candidates:=value_or[](Read.board_cards snapshot)in
    match filter Read.card_archived candidates with
    |[]=>[information parent "empty" Information.Description "没有归档的卡片。"]
-   |archived=>map(Collections.card_node snapshot s parent candidates parent)archived end
+   |archived=>map(Collections.card_node snapshot s parent (Collections.board_drop_targets parent candidates) parent)archived end
   |State.Confirmation command caption destination=>
    ([dialog_header parent [title parent caption]] ++
     (match State.layer_feedback layer with

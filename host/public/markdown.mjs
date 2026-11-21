@@ -2,6 +2,7 @@ import { boundary } from './model-boundary.mjs';
 import * as smd from './vendor/streaming-markdown.mjs';
 
 const displayJobs = new Map();
+const landingJobs = new Set();
 let displayId = 0;
 let displayFrame = null;
 function paint(time) {
@@ -9,9 +10,20 @@ function paint(time) {
   const start = performance.now();
   // A history page can introduce many Markdown instances at once. They share
   // a main-thread budget instead of each claiming a whole animation frame.
-  for (const [id, callback] of [...displayJobs]) {
-    if (performance.now() - start >= 6) break;
-    if (displayJobs.delete(id)) callback(time);
+  const last = displayId;
+  const run = id => {
+    const callback = displayJobs.get(id);
+    displayJobs.delete(id);
+    landingJobs.delete(id);
+    callback(time);
+  };
+  for (const id of landingJobs) {
+    if (id > last || performance.now() - start >= 6) break;
+    run(id);
+  }
+  for (const id of displayJobs.keys()) {
+    if (id > last || performance.now() - start >= 6) break;
+    run(id);
   }
   if (displayJobs.size && displayFrame === null) displayFrame = requestAnimationFrame(paint);
 }
@@ -22,6 +34,7 @@ export function scheduleDisplay(callback) {
   return id;
 }
 export function cancelDisplay(id) {
+  landingJobs.delete(id);
   displayJobs.delete(id);
   if (!displayJobs.size && displayFrame !== null) { cancelAnimationFrame(displayFrame); displayFrame = null; }
 }
@@ -34,6 +47,7 @@ export class PacedText {
     this.finished = null;
     this.completion = new Promise(resolve => { this.resolveCompletion = resolve; });
     this.prefixWaiters = new Set();
+    this.priorityLength = 0;
     this.metrics = { characters: 0, batches: 0, largestBatch: 0, maxParseMs: 0 };
   }
   append(text) {
@@ -61,7 +75,14 @@ export class PacedText {
     }
   }
   schedule() {
-    if (!this.stopped && this.scheduled === null) this.scheduled = this.frame(time => this.tick(time));
+    if (!this.stopped && this.scheduled === null) {
+      this.scheduled = this.frame(time => this.tick(time));
+      if (this.frame === scheduleDisplay && this.visible < this.priorityLength) landingJobs.add(this.scheduled);
+    }
+  }
+  prioritize(length) {
+    this.priorityLength = Math.max(this.priorityLength, length);
+    if (this.frame === scheduleDisplay && displayJobs.has(this.scheduled)) landingJobs.add(this.scheduled);
   }
   tick(time) {
     this.scheduled = null;
@@ -268,6 +289,7 @@ export class Markdown {
     this.settled = new Promise(resolve => { this.resolveSettled = resolve; });
     let ordinal = 0n;
     const codeSources = new Map();
+    const changedCode = new Set();
     const document = root.ownerDocument;
     const showPreviewFailure = source => {
       source.frame.dataset.interactivePreviewFailed = '';
@@ -298,13 +320,24 @@ export class Markdown {
       if (source.status) showPreviewFailure(source);
     };
     const reportCode = () => {
-      for (const [ordinal, source] of codeSources) {
-        if (!source.node) continue;
+      for (const source of changedCode) {
         const text = source.node.textContent;
-        if (source.text !== text) { source.text = text; options.codeSource?.(ordinal, text); }
+        if (source.text !== text) { source.text = text; options.codeSource?.(source.ordinal, text); }
       }
+      changedCode.clear();
     };
     const stack = [{ node: root, type: smd.DOCUMENT }];
+    let linksChanged = false;
+    const setLink = (node, href) => {
+      if (node.getAttribute('href') === href) return;
+      node.setAttribute('href', href);
+      linksChanged = true;
+    };
+    const publishChunk = () => {
+      reportCode();
+      if (linksChanged) { linksChanged = false; options.onLinksChanged?.(); }
+      options.onChange?.();
+    };
     const close = (completed) => {
       const entry = stack.pop();
       delete entry.node.dataset.pending;
@@ -312,11 +345,12 @@ export class Markdown {
       if (entry.type === smd.IMAGE && entry.imageURL) {
         const image = document.createElement('img');
         image.alt = entry.node.textContent;
-        image.src = entry.imageURL;
+        image.loading = 'lazy';
         image.decoding = 'async';
         image.addEventListener('load', () => options.onChange?.(), { once: true });
+        image.src = entry.imageURL;
         entry.node.className = 'markdown-image';
-        entry.node.setAttribute('href', entry.imageURL);
+        setLink(entry.node, entry.imageURL);
         entry.node.removeAttribute('aria-label');
         entry.node.replaceChildren(image);
       }
@@ -327,7 +361,7 @@ export class Markdown {
         entry.node.replaceWith(document.createTextNode(source));
         return;
       }
-      if (kind) {
+      if (kind === 'math' || kind === 'code' && entry.node.dataset.language) {
         const pending = decorate(entry.node, kind, entry.node.textContent, entry.node.dataset.language,
           () => !this.disposed, this.decorationController.signal, () => options.onChange?.());
         this.decorations.add(pending);
@@ -354,7 +388,8 @@ export class Markdown {
               options.target?.(targets[name], target);
             }
           }
-          codeSource = Object.assign(codeSources.get(codeOrdinal) ?? {}, { frame: block, node, text: null });
+          codeSource = Object.assign(codeSources.get(codeOrdinal) ?? {}, { frame: block, node, ordinal: codeOrdinal, text: null });
+          changedCode.add(codeSource);
           codeSources.set(codeOrdinal, codeSource);
           pre.append(node); block.append(ui, toolbar, pre); parent.append(block);
         } else {
@@ -379,7 +414,8 @@ export class Markdown {
       },
       end_token: (_, completed = true) => close(completed),
       add_text: (_, text) => {
-        const node = stack.at(-1).node;
+        const { node, codeSource } = stack.at(-1);
+        if (codeSource) changedCode.add(codeSource);
         // Append to the same text node, preserving selection and bounding the
         // DOM-node count independently of upstream token chunking.
         if (node.lastChild?.nodeType === 3) node.lastChild.appendData(text);
@@ -392,7 +428,7 @@ export class Markdown {
         }
         if ([smd.HREF, smd.SRC].includes(attr)) {
           const href = safeHref(value);
-          if (href) { node.setAttribute('href', href); node.setAttribute('target', '_blank'); node.setAttribute('rel', 'noopener noreferrer'); }
+          if (href) { setLink(node, href); node.setAttribute('target', '_blank'); node.setAttribute('rel', 'noopener noreferrer'); }
         } else if (attr === smd.LANG) {
           node.dataset.language = value.split(/\s/)[0].slice(0, 40);
           const entry = stack.at(-1);
@@ -424,15 +460,21 @@ export class Markdown {
     this.buffer = new PacedText((chunk, caughtUp) => {
       smd.parser_write(parser, chunk);
       if (!this.buffer.done && caughtUp) delete root.dataset.markdownParsing;
-      reportCode(); options.onChange?.();
+      publishChunk();
     }, () => {
       smd.parser_end(parser);
       while (stack.length > 1) close(false);
       delete root.dataset.markdownParsing;
-      reportCode(); options.onChange?.();
+      publishChunk();
       this.parserEnded = true;
       this.settleIfFinished();
     }, options);
+  }
+  prioritizeReadingPassage(length = this.buffer.target.length) {
+    this.buffer.prioritize(length);
+  }
+  whenTextReady(length) {
+    return this.buffer.whenCaughtUp(length);
   }
   get text() { return this.buffer.target; }
   append(text) {

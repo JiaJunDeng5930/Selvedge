@@ -572,7 +572,7 @@ Definition service_step snapshot input state:=
  (* DEFENSE: A directory dialog can outlive a submission that makes its editor busy. *)
  if directory_input_allowed snapshot input state then
  let state:=match input with
- |Services.OpenSettings=>let navigation:=SS.navigation_state state in
+ |Services.OpenSettings|Services.OpenModelSettings _=>let navigation:=SS.navigation_state state in
    let state:=match SS.layers navigation with
     |layer::rest=>match SS.layer_panel layer with SS.NavigationPanel GlobalMenu=>
       SS.with_next_layer(N.succ(SS.next_layer state))(SS.with_navigation(set SS.layers(fun _=>rest)navigation)state)

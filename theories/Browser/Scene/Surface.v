@@ -46,14 +46,6 @@ Inductive task_history_card :=
 Definition task_tool_label face :=
  if String.eqb (task_tool_argument face) "" then task_tool_name face else task_tool_argument face.
 
-Record placement (Action : Type) := Placement {
-  placement_target : string;
-  placement_control : control Action
-}.
-Arguments Placement {Action}.
-Arguments placement_target {Action}.
-Arguments placement_control {Action}.
-
 Inductive meaning (Action : Type) :=
 | SettingEntry (owner : editor) (property : UX.property owner) (action : control Action)
 | ActivityContent (expanded : bool) (audit : list Audit.face)
@@ -75,7 +67,7 @@ Inductive meaning (Action : Type) :=
 | DirectoryBrowserLocation (value : string)
 | PanelToggle (expanded : bool) (action : control Action)
 | CardContent (face : card_face)
-| MovableCard (face : card_face) (destinations : list (placement Action))
+| MovableCard (enabled : bool) (receive : json -> option Action)
 | SummaryList
 | Region
 | ReadingTimeline (view : NavigationIdentity.task_view) (generation : N)
@@ -306,14 +298,7 @@ Definition resolve_meaning {A} (content : meaning A) gesture value : option A :=
   | Gesture.Dismiss, ActivityGroup _ _ _ behavior
   | Gesture.Dismiss, LayerRegion behavior
   | Gesture.Dismiss, NavigationRegion _ behavior => dismiss_layer behavior value
-  | Gesture.Place, MovableCard _ destinations =>
-      match as_string value with
-      | None => None
-      | Some target =>
-          match find (fun placement => String.eqb target (placement_target placement)) destinations with
-          | None => None | Some placement => press_control (placement_control placement)
-          end
-      end
+  | Gesture.Place, MovableCard true receive => receive value
   | _, _ => None
   end.
 
@@ -351,9 +336,6 @@ Definition modal_nodes {A} (value : surface A) := filter is_modal_node (overlays
 Definition map_receiver {A B} (f : A -> B) (receive : json -> option A) value :=
   option_map f (receive value).
 
-Definition map_placement {A B} (f : A -> B) (value : placement A) :=
-  Placement (placement_target value) (map_control f (placement_control value)).
-
 Definition map_meaning {A B} (f : A -> B) (value : meaning A) : meaning B :=
   match value with
   | SettingEntry owner property action => SettingEntry owner property (map_control f action)
@@ -376,7 +358,7 @@ Definition map_meaning {A B} (f : A -> B) (value : meaning A) : meaning B :=
   | DirectoryBrowserLocation value => DirectoryBrowserLocation value
   | PanelToggle expanded action => PanelToggle expanded (map_control f action)
   | CardContent face => CardContent face
-  | MovableCard face destinations => MovableCard face (map (map_placement f) destinations)
+  | MovableCard enabled receive => MovableCard enabled (map_receiver f receive)
   | SummaryList => SummaryList
   | Region => Region
   | ReadingTimeline view generation => ReadingTimeline view generation
@@ -461,7 +443,6 @@ Definition meaning_actions {A}(content:meaning A):list A:=match content with
 |TaskHistoryCard _ _ action|PanelToggle _ action|WorkChoice _ _ action|SkillSuggestion _ action|Choice _ _ _ action|Activate action=>[control_input action]
 |EffortRange options=>map(fun entry=>control_input(snd entry))options
 |ActivityGroup _ _ _ behavior|LayerRegion behavior|NavigationRegion _ behavior=>[layer_dismissal behavior]
-|MovableCard _ destinations=>map(fun placement=>control_input(placement_control placement))destinations
 |Graphic drawing=>fold_right(fun primitive rest=>match primitive with
   |Graphics.Hitbox _ _ _ _ _ _ action=>action::rest|_=>rest end)[](Graphics.primitives drawing)
 |InteractiveTable table=>fold_right(fun column rest=>match Components.column_sort column with
