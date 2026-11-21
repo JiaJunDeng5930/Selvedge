@@ -390,7 +390,7 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
 }
 
 /** Read image bytes through the Task's filesystem sandbox, then retain their immutable identity. */
-export async function runReadImage(arguments_, { signal, execution, readOnlyPaths, managedWorktreeRoot, environment, home }) {
+export async function readImageBytes(arguments_, { signal, execution, readOnlyPaths, managedWorktreeRoot, environment }) {
   signal?.throwIfAborted();
   const { path: filename, detail, timeout, maximum } = boundary('effect.image_arguments', { arguments: arguments_ });
   const quoted = "'" + filename.replaceAll("'", "'\"'\"'") + "'";
@@ -435,5 +435,13 @@ export async function runReadImage(arguments_, { signal, execution, readOnlyPath
     await launch.cleanup();
   }
   signal?.throwIfAborted();
-  return { value: { content: [await storeImageContent(home, path.basename(filename), Buffer.concat(chunks, bytes), detail)] }, error: false };
+  return { name: path.basename(filename), bytes: Buffer.concat(chunks, bytes), detail };
+}
+
+export async function retainReadImage(home, { name, bytes, detail }) {
+  return { value: { content: [await storeImageContent(home, name, bytes, detail)] }, error: false };
+}
+
+export async function runReadImage(arguments_, options) {
+  return retainReadImage(options.home, await readImageBytes(arguments_, options));
 }

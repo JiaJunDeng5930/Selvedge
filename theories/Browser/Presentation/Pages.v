@@ -94,6 +94,8 @@ Definition approval_node s task parent operation :=
      [group_title key(Read.operation_tool operation);information key "approval-status" Information.Description status];
     region key "approval-details" "" Roles.Section
      (approval_arguments key operation ++
+      (match Read.operation_environment operation with
+       |Some environment=>[read_only key "workspace-machine" "Workspace machine" environment]|None=>[]end) ++
       (match Read.operation_directory operation with
        |Some directory=>[read_only key "directory" "Default working directory" directory]|None=>[]end) ++
       if human then [] else [read_only key "reviewer" "Reviewer model"

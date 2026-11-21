@@ -28,6 +28,7 @@ import { profileCatalog, compactionSettings } from './config.mjs';
 import { withAccountModels } from './chatgpt-models.mjs';
 import { connectionGrants } from './chatgpt-plugin.mjs';
 import { WebRequestStore } from './chatgpt-web-store.mjs';
+import { ExecutionEnvironments } from './shared-execution.mjs';
 import { RemoteControl } from './remote-control.mjs';
 import { observeWorkspaceGit } from './worktrees.mjs';
 import { createTaskWorkspace, archiveTaskWorkspace, reconcileTaskWorkspace, rollbackTaskWorkspaceCreation,
@@ -98,6 +99,7 @@ export class Service extends EventEmitter {
       service.journal = journal ?? await Journal.open(path.join(home, 'journal.sqlite'));
       service.description = service.journal.description;
       service.limits = service.description.limits;
+      service.executionEnvironments = new ExecutionEnvironments(config.execution_environments ?? []);
       service.project = await snapshotProject(service.cwd, service.limits);
       service.instructions = { configured: config.instructions,
         global: await snapshotGlobalInstructions(home, service.limits) };
@@ -392,10 +394,18 @@ export class Service extends EventEmitter {
     // read/write effect can run while the original process is still starting.
     const arguments_ = materializeCallArguments(effect.call);
     const session = this.#processRegistry.register(key, arguments_.mode ?? 'pipe');
-    const prepared = this.#resourceWorkspace(effect.execution.resource, signal).then(({ managedWorktreeRoot, environment }) =>
-      startBash(arguments_, this.limits, { signal, execution: effect.execution, managedWorktreeRoot, environment,
-        onOutput: readOutput => this.#scheduleToolOutput(activity, readOutput),
-        readOnlyPaths: [this.home], ...(environment ? {} : { artifactDirectory: path.join(this.home, 'artifacts') }) }));
+    const prepared = Promise.resolve().then(async () => {
+      const onOutput = readOutput => this.#scheduleToolOutput(activity, readOutput);
+      const { execution } = effect;
+      if (execution.workspace.environment) {
+        return this.executionEnvironments.get(execution.workspace.environment, signal).peer.operation(
+          this.#sharedOperationId(effect), 'bash', arguments_, execution,
+          { signal, onOutput, onDiagnostic: message => this.notify({ type: 'diagnostic', message }) });
+      }
+      const { managedWorktreeRoot, environment } = await this.#resourceWorkspace(execution.resource, signal);
+      return startBash(arguments_, this.limits, { signal, execution, managedWorktreeRoot, environment, onOutput,
+        readOnlyPaths: [this.home], ...(environment ? {} : { artifactDirectory: path.join(this.home, 'artifacts') }) });
+    });
     session.ready = prepared.then(({ read, write }) => { session.read = read; session.write = write; },
       error => {
         this.#processRegistry.failed(key, { code: error.code ?? 'command_start_failed', message: error.message });
@@ -415,7 +425,7 @@ export class Service extends EventEmitter {
     try {
       const { session, pending } = this.#processRegistry.lookup(`${naturalKey(effect.task_id)}:${naturalKey(arguments_.operation_id)}`);
       if (reading) {
-        const value = session.read ? session.read(arguments_.cursor) : pending;
+        const value = session.read ? await session.read(arguments_.cursor) : pending;
         return { error: false, value: { operation_id: arguments_.operation_id, ...value } };
       }
       await session.ready;
@@ -460,12 +470,17 @@ export class Service extends EventEmitter {
       const performed = await performEffect(effect, {
         workspace: effect => this.#performWorkspace(effect, signal, handle),
         context: async effect => {
-          const { environment } = await this.#resourceWorkspace(effect.resource, signal);
+          const { environment } = await this.#executionWorkspace(effect.settings.workspace, effect.resource, signal);
           const observations = await observeContextSources(effect, { home: this.home, config: this.declaredConfig, limits: this.limits, signal, environment,
             onDiagnostic: message => this.notify({ type: 'diagnostic', message }) });
           return { observations };
         },
         chatgpt: async effect => {
+          const { execution } = effect;
+          if (execution.workspace.environment) {
+            return this.executionEnvironments.get(execution.workspace.environment, signal).peer.operation(
+              `${this.journal.namespace}:connection:${naturalKey(effect.operation_id)}`, 'bash', effect.arguments, execution, { signal }).result;
+          }
           const resource = await this.#resourceWorkspace(effect.execution.resource, signal);
           return startBash(effect.arguments, this.limits, { signal, execution: effect.execution, ...resource, readOnlyPaths: [this.home] }).result;
         },
@@ -510,6 +525,10 @@ export class Service extends EventEmitter {
           if (effect.tool.source.kind === 'native') {
             if (effect.tool.source.program.kind === 'Process') return this.#runProcess(effect, signal, activity);
             if (effect.tool.source.program.kind === 'ReadImage') {
+              if (effect.execution.workspace.environment) {
+                return this.executionEnvironments.readImage(this.#sharedOperationId(effect),
+                  materializeCallArguments(effect.call), effect.execution, { signal, home: this.home });
+              }
               const executionOptions = { signal, execution: effect.execution,
                 ...await this.#resourceWorkspace(effect.execution.resource, signal), readOnlyPaths: [this.home], home: this.home };
               return runReadImage(materializeCallArguments(effect.call), executionOptions);
@@ -601,6 +620,16 @@ export class Service extends EventEmitter {
         ? rollbackTaskWorkspaceCreation(effect, { ...this.#workspaceOptions(), message: 'Cloud workspace completion exceeds the kernel boundary' })
         : boundary('effect.completion', { effect, result: { ok: false, root: completion.root,
           message: 'Managed worktree completion exceeds the kernel boundary; the checkout has been retained' } }), handle);
+  }
+
+  #sharedOperationId(effect) {
+    return `${this.journal.namespace}:${naturalKey(effect.task_id)}:${naturalKey(effect.ticket)}`;
+  }
+
+  #executionWorkspace(workspace, resource, signal) {
+    return workspace.environment
+      ? { environment: this.executionEnvironments.get(workspace.environment, signal) }
+      : this.#resourceWorkspace(resource, signal);
   }
 
   async #resourceWorkspace(resource, signal) {
@@ -768,8 +797,11 @@ export class Service extends EventEmitter {
         const result = await this.journal.execute({ kind: 'command', command: { op: 'resolve_workspace', ...selection } });
         // DEFENSE: A selected cloud resource can be ambiguous, unavailable or archived before directory observation.
         if (!result.reply.ok) throw new Error(result.reply.error.message);
-        const resource = result.reply.result.resource;
-        return { resource, workspace_binding: result.reply.result.workspace_binding, ...await this.#resourceWorkspace(resource) };
+        const { resource, workspace_binding } = result.reply.result;
+        const selected = selection.workspace;
+        // DEFENSE: A shared directory is borrowed from its receiver. Local checkout setup cannot operate on it.
+        if (selected?.environment && plan.worktree) throw new TypeError('A shared execution directory cannot provision a managed worktree');
+        return { resource, workspace_binding, ...await this.#executionWorkspace(selected ?? {}, resource) };
       },
       projectWorkspace, localGuidance,
     });
@@ -1020,7 +1052,8 @@ export class Service extends EventEmitter {
   }
 
   #browserProgram(program) {
-    return { ...program, configured_cloud_backend: this.config.cloud?.backend ?? null };
+    return { ...program, configured_cloud_backend: this.config.cloud?.backend ?? null,
+      execution_environments: this.executionEnvironments.choices() };
   }
 
   browserSnapshot() {
@@ -1075,9 +1108,11 @@ export class Service extends EventEmitter {
         let environment;
         let outcome;
         try {
-          environment = await this.#observationEnvironment(plan);
+          environment = plan.environment === undefined
+            ? await this.#observationEnvironment(plan) : this.executionEnvironments.get(plan.environment);
           const location = await browseDirectoryLocation(plan, () => boundary('browser.observation', {
-            phase: 'resolve', plan, task_environment_present: Boolean(environment), task_root: environment?.root
+            phase: 'resolve', plan, task_environment_present: Boolean(environment),
+            task_root: plan.environment === undefined ? environment?.root : '/'
           }), async location => (await canonicalWorkspace({ roots: [location] })).primary_root);
           const result = await browseDirectories(location, this.limits.frame_bytes, { filesystem: environment?.filesystem });
           outcome = result.ok ? { ok: true, value: result } : result;
@@ -1088,19 +1123,22 @@ export class Service extends EventEmitter {
         return boundary('browser.observation', { phase: 'complete', kind: plan.kind, ...outcome });
       },
       directories: async plan => {
-        const environment = await this.#observationEnvironment(plan);
+        const environment = plan.workspace.environment
+          ? this.executionEnvironments.get(plan.workspace.environment) : await this.#observationEnvironment(plan);
         try {
           const workspace = await canonicalWorkspace(plan.workspace, { filesystem: environment?.filesystem });
           const primary = workspace.primary_root ?? workspace.roots[0];
           const guidance = primary ? await snapshotProject(primary, this.limits, { filesystem: environment?.filesystem }) : null;
-          return boundary('browser.observation', { phase: 'complete', kind: plan.kind, value: { workspace, guidance } });
+          return boundary('browser.observation', { phase: 'complete', kind: plan.kind, value: {
+            workspace: { ...workspace, ...(plan.workspace.environment ? { environment: plan.workspace.environment } : {}) }, guidance } });
         } finally { await environment?.filesystem.close(); }
       },
       skillCatalog: async plan => {
         let environment;
         let outcome;
         try {
-          environment = await this.#observationEnvironment(plan);
+          environment = plan.workspace.environment
+            ? this.executionEnvironments.get(plan.workspace.environment) : await this.#observationEnvironment(plan);
           const workspace = await canonicalWorkspace(plan.workspace, { filesystem: environment?.filesystem });
           const skills = await observeSkillCatalog(workspace,
             { home: this.home, config: this.declaredConfig, limits: this.limits, environment });
@@ -1189,6 +1227,7 @@ export class Service extends EventEmitter {
     this.#cancelRunning({ kind: 'shutdown' }, new Error('Server stopped'));
     settled.push(...await Promise.allSettled([...this.#running.values()].map(active => active.promise)));
     settled.push(...await Promise.allSettled([this.#activation]));
+    this.executionEnvironments?.close();
     this.#processRegistry.clear();
     settled.push(...await Promise.allSettled([...this.#providerCancellations]));
     settled.push(...await Promise.allSettled([...this.#servers.values(), ...this.#plugins.values()].map(client => client.close())));

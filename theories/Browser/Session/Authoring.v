@@ -502,6 +502,13 @@ Definition apply_activity snapshot occurrence (owner:editor) (assignment:Activit
   |EO.ApplyAndReturn=>append updated(adopt_navigation snapshot(Navigation.leave_request occurrence owner(result_state updated)))
   |_=>updated end end
  else keep state|None=>keep state end.
+Definition clear_directory_entry owner (state:SS.state) :=
+ let state:=SS.save_draft(set Draft.directory_entry(fun _=>"")(SS.current_draft state owner))state in
+ SS.with_navigation(set SS.layers(fun layers=>match layers with
+  |layer::rest=>match SS.layer_panel layer with
+    |SS.PropertyPanel actual _|SS.EditorPanel actual=>if same_editor owner actual then
+       set SS.layer_parameter_buffer(fun _=>None)layer::rest else layers
+    |_=>layers end|[]=>[]end)(SS.navigation_state state))state.
 Definition change_workspace snapshot owner change state:=
  if Parameters.editable owner Fields.WorkspaceDirectories then
  let draft:=SS.current_draft state owner in
@@ -521,12 +528,7 @@ Definition change_workspace snapshot owner change state:=
     |Input.InheritWorkspace=>None end in
    match updated with
    |Some body=>let updated:=SS.save_draft(Draft.with_body body draft)state in
-    let updated:=match change with Input.AddDirectory _=>
-      let updated:=SS.save_draft(set Draft.directory_entry(fun _=>"")(SS.current_draft updated owner))updated in
-      SS.with_navigation(set SS.layers(fun layers=>match layers with
-       |layer::rest=>match SS.layer_panel layer with
-         |SS.PropertyPanel actual _|SS.EditorPanel actual=>if same_editor owner actual then set SS.layer_parameter_buffer(fun _=>None)layer::rest else layers
-         |_=>layers end|[]=>[]end)(SS.navigation_state updated))updated
+    let updated:=match change with Input.AddDirectory _=>clear_directory_entry owner updated
       |_=>updated end in keep updated
    |None=>fail state "The working directory change is not valid."end end end
  else fail state "A running task keeps its committed workspace.".
@@ -535,10 +537,30 @@ Definition directory_editor_ready owner state:=
  |Some _=>negb(SS.pending_editor owner state)&&Parameters.editable owner Fields.WorkspaceDirectories&&
    existsb(fun field=>if Parameters.field_eq_dec field Fields.WorkspaceDirectories then true else false)(Parameters.fields owner)
  |None=>false end.
+Definition on_current_workspace_machine snapshot state owner environment :=
+ match SO.workspace_for_edit snapshot (SS.current_draft state owner) with
+ |inr workspace=>Selvedge.Kernel.Workspace.same_environment workspace
+    (Selvedge.Kernel.Domain.ExecutionWorkspace [] None environment)
+ |inl _=>false end.
+Definition choose_workspace_machine snapshot owner environment state :=
+ if directory_editor_ready owner state then
+ let draft:=SS.current_draft state owner in
+ match SO.workspace_for_edit snapshot draft with
+ |inl reason=>fail state reason
+ |inr workspace=>
+   if Selvedge.Kernel.Workspace.same_environment workspace
+     (Selvedge.Kernel.Domain.ExecutionWorkspace [] None environment)
+   then keep state else
+   match Values.choose_workspace_environment snapshot (Draft.contents draft) workspace environment with
+   |Some body=>keep(clear_directory_entry owner (SS.save_draft(Draft.with_body body draft)state))
+   |None=>fail state "The workspace machine is unavailable." end
+ end else keep state.
 Definition directory_input_allowed snapshot input state:=match input with
- |Services.OpenDirectory owner _ _=>directory_editor_ready owner state
+ |Services.OpenDirectory owner _ _ environment=>directory_editor_ready owner state &&
+   on_current_workspace_machine snapshot state owner environment
  |Services.ChooseDirectory=>match Services.directory(SS.service_state state)with
   |Resource.Loaded _ request _=>directory_editor_ready(Services.directory_editor request)state &&
+    on_current_workspace_machine snapshot state (Services.directory_editor request) (Services.directory_environment request) &&
     SO.directory_selection_allowed(SO.directory_preview snapshot state)
   |_=>false end
  |Services.VisitDirectory _|Services.GoDirectory|Services.DirectoryListed _ _|Services.WriteDirectoryLocation _=>
@@ -631,6 +653,7 @@ Definition step snapshot input state:option result:=match input with
  Some (keep (SS.save_draft (Draft.with_feedback (Draft.DuplicateWorkflowNodeName index name) edited) state))
 |Input.ActivityAssignment occurrence owner assignment=>Some(apply_activity snapshot occurrence owner assignment state)
 |Input.ActivityWorkspaceChange occurrence change=>Some(match activity_owner occurrence state with Some(owner,_)=>change_workspace snapshot owner change state|None=>keep state end)
+|Input.ChooseWorkspaceMachine owner environment=>Some(choose_workspace_machine snapshot owner environment state)
 |Input.ActivityComplete occurrence=>Some(match activity_owner occurrence state with
  |Some(owner,request)=>if EditorContext.activity_complete snapshot state owner request then
    match SS.layers(SS.navigation_state state)with

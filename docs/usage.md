@@ -191,6 +191,62 @@ or cleanup. If reclamation fails, the task retains the failure and resource asso
 persisted allocation receipt with the same task resource.
 Archiving the owning task recycles its cloud instance after active IO has settled.
 
+### Shared execution environments
+
+A task can use the workspace of a second Selvedge installation over an
+authenticated TLS WebSocket. In the working-directory settings of a new task
+or a Project, choose the directory machine and add or browse directories on
+that machine. A task can inherit its Project's configured workspace. The task,
+conversation, model call and existing Bash
+approval flow stay with the task service. Bash, terminal I/O and reads of the
+workspace use the receiver's filesystem and sandbox. MCP services use their
+configured host.
+
+Create a private token file on the receiver and copy it privately to the task
+machine. Use a TLS certificate valid for the receiver's address and listen on
+an interface reachable from the task machine.
+
+```sh
+(umask 077; openssl rand -base64 32 | tr '/+' '_-' | tr -d '=\n' > /path/to/execution-token)
+bun host/cli.mjs --home /path/to/receiver-home receive-execution \
+  --host 192.168.1.10 --port 4443 --cert-file /path/to/receiver.pem \
+  --key-file /path/to/receiver-key.pem --token-file /path/to/execution-token
+```
+
+The receiver trusts the paired task service to send execution parameters
+produced by the regular Selvedge task workflow. An approved escalation or
+Full Access runs with the receiver process's OS identity. Choose that identity
+and its readable files accordingly. The receiver home stores durable operation
+receipts, including retained results, and should be private.
+
+On the task machine, open **设置 → 任务 → 远程执行连接** and add the receiver.
+Enter a machine name, its WSS address and the local token file path. Set a
+local CA file path when the receiver uses a private CA, then click **添加**.
+Restart the task service to apply changes to the connections. You can also set
+the connection in `config.json`.
+
+```json
+{
+  "format": "selvedge-rocq-config-1",
+  "execution_environments": [
+    {
+      "id": "build-machine",
+      "url": "wss://192.168.1.10:4443/execution",
+      "token_file": "/path/on/task-machine/execution-token",
+      "ca_file": "/path/on/task-machine/receiver-ca.pem"
+    }
+  ]
+}
+```
+
+Keep the environment ID stable for the same receiver. CLI and API callers can
+select it with `settings.workspace.environment` and supply paths on the
+receiver, for example
+`--settings '{"workspace":{"roots":["/path/on/receiver/project"],"environment":"build-machine"}}'`.
+The workspace stays bound if its receiver disconnects. A repeated operation
+ID retrieves the original result. If a receiver restarts before recording a
+result, Selvedge reports that the operation may already have run.
+
 ## Use it on a project
 
 The service launch directory supplies the default workspace for a new task that

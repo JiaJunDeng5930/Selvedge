@@ -56,7 +56,7 @@ Definition section_design section : settings_section_design :=
    [("tool-sources", "", ConfigurationSettings [["plugins"]; ["skills"]])]
  | SettingsTasks => SectionDesign None
    [("limits", "任务限制", ConfigurationSettings [["max_fork"]; ["max_descendants"]]);
-    ("workspaces", "", ConfigurationSettings [["cloud"]])]
+    ("workspaces", "", ConfigurationSettings [["cloud"]; ["execution_environments"]])]
  | SettingsContext => SectionDesign None
    [("compaction", "上下文压缩",
       ConfigurationSettings [["compaction"; "enabled"]; ["compaction"; "background_percent"];
@@ -113,6 +113,7 @@ Definition copy path : string * string :=
  | ["max_fork"] => ("直接分支上限", "每个对话能创建的直接分支数。")
  | ["max_descendants"] => ("分支总数上限", "从同一根对话派生的全部分支数。")
  | ["cloud"] => ("云端工作区", "通过腾讯云为对话创建工作区。")
+ | ["execution_environments"] => ("远程执行连接", "连接变更在本机服务重启后生效。")
  | ["compaction"; "enabled"] => ("自动压缩", "接近模型的上下文上限时，摘要较早的内容。")
  | ["compaction"; "background_percent"] => ("后台压缩阈值（%）", "达到阈值后在后台压缩，对话可继续运行。")
  | ["compaction"; "blocking_percent"] => ("等待压缩阈值（%）", "达到阈值后，等压缩完成再发送下一次请求。")
@@ -269,12 +270,7 @@ Definition skills_setting parent services entry :=
       (ConfigurationForms.assign path) ::
     match changes with [] => [] | _ => [region id "setting-feedback" "" Roles.DialogActions changes] end).
 
-Definition child_items path value : list (string * json) :=
- match Configuration.collection_root path with
- | Some None => Common.object_fields value
- | Some (Some wrapper) => Common.object_fields (Common.get value wrapper)
- | None => []
- end.
+Definition child_items path value := value_or [] (Configuration.collection_members path value).
 Definition meaningful text := negb (String.eqb text "").
 Definition detail_join left right :=
  if meaningful left then if meaningful right then left ++ " · " ++ right else left else right.
@@ -290,6 +286,7 @@ Definition item_detail path value :=
  | ["reasoning_evaluators"] => detail_join
      (value_or "vercel" (as_string (Common.get value "provider"))) (Common.text (Common.get value "model"))
  | ["mcp"] | ["plugins"] => Common.text (Common.get value "command")
+ | ["execution_environments"] => Common.str value "url"
  | ["chatgpt_plugin"] =>
    let count := List.length (Common.items (Common.get value "project_ids")) in
    show_natural (N.of_nat count) ++ " 个项目"
@@ -319,6 +316,9 @@ Definition summary_lines parent path value : list (node Input.input) :=
    is a separate layer and returns to the same entry point when it closes. *)
 Definition setting_entry_parent path := part settings_root (Config.setting_key path).
 Definition edit_item_key name := part "edit" name.
+Definition remove_item_key name := part "remove" name.
+Definition remove_from_overview path :=
+ match path with ["execution_environments"] => true | _ => false end.
 Definition editor_trigger path key := part (setting_entry_parent path) key.
 Definition editor_button_with_status path key caption label status input : node Input.input :=
  let id := editor_trigger path key in
@@ -384,8 +384,11 @@ Definition collection_add services path item :=
 Definition collection_reset_has_effect entry :=
  is_resettable entry &&
  match Configuration.collection_root (Config.setting_path entry), Config.setting_value entry with
- | Some None, JObject [] => false
- | Some (Some wrapper), JObject [(key, JObject [])] => negb (String.eqb key wrapper)
+ | Some (Configuration.ObjectEntries None), JObject [] => false
+ | Some (Configuration.ObjectEntries (Some wrapper)), JObject [(key, JObject [])] => negb (String.eqb key wrapper)
+ | Some (Configuration.ArrayEntries _), value =>
+     match Configuration.collection_members (Config.setting_path entry) value with
+     |Some _=>false |None=>true end
  (* DEFENSE: Editable snapshots can reflect malformed file contents. Keep
     Reset available for recovery even when there are no readable entries. *)
  | _, _ => true
@@ -410,8 +413,12 @@ Definition collection_setting parent services entry item (page_collection : bool
  let '(label, description) := copy path in
  let entry_row '(name, value) :=
    row list_id (part "entry" name) name (item_detail path value)
-     [editor_button path (edit_item_key name) "编辑" ("编辑「" ++ name ++ "」") enabled
-       (Services.SelectConfigurationItem path name)] [] in
+     ([editor_button path (edit_item_key name) "编辑" ("编辑「" ++ name ++ "」") enabled
+        (Services.SelectConfigurationItem path name)] ++
+      if remove_from_overview path then
+        [editor_button path (remove_item_key name) "移除" ("移除「" ++ name ++ "」") enabled
+          (Services.BeginRemoveConfigurationItem path name)]
+      else [])%list [] in
  let entries_body := named_region id "settings-entries" label (match entries with
     | [] => [note list_id "description" (if collection_reset_has_effect entry
                 then "无法读取" ++ label ++ "列表。"
@@ -645,9 +652,10 @@ Definition configuration_action parent key caption label emphasis (enabled : boo
 (* The fields describe the object and can scroll. Operations on the whole
    object share the fixed footer with the decision, outside the field order.
    A write's result belongs with the decision that initiated it. *)
-Definition configuration_dialog generation id section caption trigger fallback view
+Definition configuration_dialog generation id section caption trigger fallback view (show_discard : bool)
   (fields object_actions : list (node Input.input)) primary : node Input.input :=
  let dirty := Configuration.has_unsaved_work view in
+ let discard := show_discard && dirty in
  let ready := negb (Configuration.pending view) in
  let footer := part id "actions" in
  let controls := part footer "settings-editor-actions" in
@@ -660,8 +668,8 @@ Definition configuration_dialog generation id section caption trigger fallback v
     dialog_actions id (write_status footer view ++
       [named_region footer "settings-editor-actions" "" (object_actions ++
         [named_region controls "settings-editor-decisions" ""
-          [configuration_action id "cancel" (if dirty then "放弃" else "取消")
-             (if dirty then "放弃更改" else "取消") Secondary ready Services.CancelConfigurationEdit;
+          [configuration_action id "cancel" (if discard then "放弃" else "取消")
+             (if discard then "放弃更改" else "取消") Secondary ready Services.CancelConfigurationEdit;
            primary]])])].
 
 Definition configuration_save id entry view enabled :=
@@ -682,7 +690,8 @@ Definition configuration_save id entry view enabled :=
 Definition collection_editor generation id section entry view enabled item : list (node Input.input) :=
  let path := Config.setting_path entry in
  let add := editor_trigger path "begin-add" in
- let dialog caption trigger := configuration_dialog generation id section caption trigger add view in
+ let remove_on_list := remove_from_overview path in
+ let dialog caption trigger := configuration_dialog generation id section caption trigger add view (negb remove_on_list) in
  match Configuration.new_item view with
  | Some (name, value) =>
    [dialog ("新建" ++ item) add
@@ -699,10 +708,15 @@ Definition collection_editor generation id section entry view enabled item : lis
      match lookup name (Configuration.collection_entries view) with
      | Some source => [dialog ("编辑「" ++ name ++ "」") trigger
          [ConfigurationForms.item_fields path id source view enabled]
-         [ConfigurationForms.button id "remove-item" ("移除" ++ item) enabled (Services.RemoveConfigurationItem name)]
+         (if remove_on_list then []
+           else [ConfigurationForms.button id "remove-item" ("移除" ++ item) enabled (Services.RemoveConfigurationItem name)])
          (configuration_save id entry view enabled)]
-     | None => [dialog ("移除「" ++ name ++ "」？") trigger
-         [note id "description" ("此" ++ item ++ "将从设置中移除。")] []
+     | None =>
+       let trigger := if remove_on_list then editor_trigger path (remove_item_key name) else trigger in
+       [dialog ("移除「" ++ name ++ "」？") trigger
+         [note id "description" (if remove_on_list then
+           "本机服务重启后，使用此连接的工作目录将无法访问。"
+           else "此" ++ item ++ "将从设置中移除。")] []
          (configuration_action id "confirm-remove" "移除" ("移除" ++ item) Destructive
            (save_enabled view enabled) Services.SetConfiguration)]
      end
@@ -736,7 +750,7 @@ Definition configuration_editor s : list (node Input.input) :=
          end in
        let restore := if Configuration.dirty view then []
                       else reset_button id entry enabled "恢复默认" in
-       [configuration_dialog generation id section label trigger (part settings_root "close") view
+       [configuration_dialog generation id section label trigger (part settings_root "close") view true
          fields restore
          (configuration_save id entry view enabled)]
      end

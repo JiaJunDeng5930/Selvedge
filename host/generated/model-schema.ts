@@ -371,7 +371,7 @@ export type BrowserObservationPlan =
   | {"kind": "streams"; }
   | {"kind": "workspace-git"; "primary": string; "task_id"?: JsonValue}
   | {"kind": "cloud-repository"; "primary": string}
-  | {"kind": "browse-directories"; "path": JsonValue; "default_path": boolean; "project_root": JsonValue; "task_id"?: JsonValue}
+  | {"kind": "browse-directories"; "path": JsonValue; "default_path": boolean; "project_root": JsonValue; "environment"?: string; "task_id"?: JsonValue}
   | {"kind": "directories"; "workspace": JsonValue; "task_id"?: JsonValue}
   | {"kind": "skill-catalog"; "workspace": JsonValue; "task_id"?: JsonValue};
 export function decodeBrowserObservationPlan(input: unknown): BrowserObservationPlan {
@@ -380,7 +380,7 @@ export function decodeBrowserObservationPlan(input: unknown): BrowserObservation
     case "streams": exactFields(source, ["kind"]); return {"kind": "streams"};
     case "workspace-git": exactFields(source, ["kind","primary","task_id"]); return {"kind": "workspace-git", "primary": decodeText(source["primary"]), ...(source["task_id"] === undefined ? {} : {"task_id": decodeJson(source["task_id"])})};
     case "cloud-repository": exactFields(source, ["kind","primary"]); return {"kind": "cloud-repository", "primary": decodeText(source["primary"])};
-    case "browse-directories": exactFields(source, ["kind","path","default_path","project_root","task_id"]); return {"kind": "browse-directories", "path": decodeJson(source["path"]), "default_path": decodeBoolean(source["default_path"]), "project_root": decodeJson(source["project_root"]), ...(source["task_id"] === undefined ? {} : {"task_id": decodeJson(source["task_id"])})};
+    case "browse-directories": exactFields(source, ["kind","path","default_path","project_root","environment","task_id"]); return {"kind": "browse-directories", "path": decodeJson(source["path"]), "default_path": decodeBoolean(source["default_path"]), "project_root": decodeJson(source["project_root"]), ...(source["environment"] === undefined ? {} : {"environment": decodeText(source["environment"])}), ...(source["task_id"] === undefined ? {} : {"task_id": decodeJson(source["task_id"])})};
     case "directories": exactFields(source, ["kind","workspace","task_id"]); return {"kind": "directories", "workspace": decodeJson(source["workspace"]), ...(source["task_id"] === undefined ? {} : {"task_id": decodeJson(source["task_id"])})};
     case "skill-catalog": exactFields(source, ["kind","workspace","task_id"]); return {"kind": "skill-catalog", "workspace": decodeJson(source["workspace"]), ...(source["task_id"] === undefined ? {} : {"task_id": decodeJson(source["task_id"])})};
     // DEFENSE: External boundary values must name a declared BrowserObservationPlan variant.

@@ -81,6 +81,9 @@ Definition frozen_preview snapshot task := match task_settings task snapshot wit
  (Context.InheritedSandbox(Selvedge.Kernel.Domain.settings_sandbox settings))
  (Context.InheritedApproval(Selvedge.Kernel.Domain.settings_approval settings))
  (Context.InheritedGuidance(Selvedge.Kernel.Guidance.json(Selvedge.Kernel.Domain.settings_guidance settings))) end.
+Definition shared_execution_environments snapshot :=
+ List.fold_right (fun value rest => match as_string value with
+ | Some id => id :: rest | None => rest end) [] (items "execution_environments" snapshot).
 Definition observe_field snapshot (value:Draft.draft) (field:Fields.field) : Fields.observed :=
  let prospective configuration:=Fields.ContextValue(context_preview snapshot configuration)(catalog snapshot) in
  match Draft.contents value with
@@ -143,7 +146,9 @@ Definition workspace_for_edit snapshot draft : string + Selvedge.Kernel.Domain.w
    |Some workspace=>inr workspace|None=>inl "The working directories have not been observed." end
  end.
 Definition workspace_git_request snapshot (draft:Draft.draft) : option (editor * string) :=
- primary<-bind(workspace_for snapshot draft)Selvedge.Kernel.Domain.workspace_primary;;
+ workspace<-workspace_for snapshot draft;;
+ if Workspace.on_shared_environment workspace then None else
+ primary<-Selvedge.Kernel.Domain.workspace_primary workspace;;
  Some(Draft.owner draft,primary).
 Definition workspace_git_request_matches (request:editor * string)
     (observation:resource (editor * string) bool) : bool :=

@@ -161,7 +161,7 @@ Proof.
    Parsed Reference Owned Intersects Inside.
  assert (Cloud : WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend tree) = true).
  { unfold WorkspaceBinding.cloud_intersects in Intersects.
-   apply andb_true_iff in Intersects; exact (proj1 Intersects). }
+   repeat rewrite andb_true_iff in Intersects; tauto. }
  unfold Tasks.resolve_settings; cbn zeta.
  rewrite NoProject, Parsed, NoObservation, Explicit.
  unfold WorkspaceBinding.select_bound_workspace; rewrite Reference, Owned, Intersects, Inside.

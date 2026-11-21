@@ -30,6 +30,7 @@ Inductive input :=
 | ActivitySearch(occurrence:N)(query:string)
 | ActivityParameter(occurrence:N)(buffer:string) | ActivityComplete(occurrence:N)
 | ActivityWorkspaceChange(occurrence:N)(change:workspace_change)
+| ChooseWorkspaceMachine(owner:editor)(environment:option string)
 | Navigate(destination:route) | SelectWork(work:option N) | CreateWork
 | NewCard(stage:Selvedge.Features.Domain.board_stage)(trigger:string)
 | OpenEditor(owner:editor)(trigger:string) | OpenBoard(kind:State.board_panel)(trigger:string)

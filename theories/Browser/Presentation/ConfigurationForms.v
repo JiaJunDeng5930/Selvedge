@@ -111,7 +111,7 @@ Definition collection_item path : option string :=
  | ["reasoning_evaluators"] => Some "评估器"
  | ["mcp"] => Some "服务器"
  | ["plugins"] => Some "插件"
- | ["chatgpt_plugin"] => Some "连接"
+ | ["chatgpt_plugin"] | ["execution_environments"] => Some "连接"
  | _ => None
  end.
 
@@ -135,6 +135,10 @@ Definition collection_item_fields path parent source view enabled commit : list 
        text fields "api_key_env" "API 密钥环境变量";
        field_row fields "evaluator-retries" (fun row =>
          [number row "timeout_ms" "超时（ms）"; number row "max_attempts" "最大尝试次数"])]))%list
+ | ["execution_environments"] =>
+   [text_field parent "url" "连接地址（wss://）" source enabled commit;
+    text_field parent "token_file" "令牌文件路径" source enabled commit;
+    text parent "ca_file" "CA 证书文件路径（可选）"]
  | ["chatgpt_plugin"] =>
    [text_field parent "token_env" "令牌环境变量" source enabled commit;
     list_member parent "project_ids" "允许访问的项目" "项目 ID" (JString "") source enabled
@@ -156,7 +160,8 @@ Definition collection_item_fields path parent source view enabled commit : list 
  end.
 
 Definition new_item_field path parent name enabled : node Input.input :=
- let label := match path with ["profiles"] => "配置名称" | _ => "名称" end in
+ let label := match path with
+ | ["profiles"] => "配置名称" | ["execution_environments"] => "机器名称" | _ => "名称" end in
  ModelProfiles.field parent "item-name" label false name None enabled
    Services.EditConfigurationItemName.
 

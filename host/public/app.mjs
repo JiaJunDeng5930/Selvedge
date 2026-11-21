@@ -1682,7 +1682,8 @@ async function execute(effect) {
       return body.available;
     });
     case 'list_directory': return settled('directory_listed', effect.ticket, async () => {
-      return post('/api/browser/observation', taskObservation(effect, { kind: 'browse-directories', path: effect.path }));
+      return post('/api/browser/observation', taskObservation(effect, { kind: 'browse-directories', path: effect.path,
+        ...(effect.environment === undefined ? {} : { environment: effect.environment }) }));
     });
     case 'preview': return settled('previewed', effect.ticket, async () => {
       const blob = await request(`/api/board/attachments/${encodeURIComponent(effect.file.id)}`, {}, true);

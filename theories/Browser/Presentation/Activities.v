@@ -92,7 +92,7 @@ Definition decision_node {e} pending show_consequences occurrence parent query s
   match shared_explanation with
   |Some text=>[information identity "shared-explanation" Information.Description text]
   |None=>[]end).
-Definition workspace_nodes {e} s occurrence parent (members:UX.collection e) :=
+Definition workspace_nodes snapshot {e} s occurrence parent (members:UX.collection e) :=
  let workspace:=UX.collection_workspace members in
  let roots:=Domain.workspace_roots workspace in
  let editable:=Parameters.editable e Fields.WorkspaceDirectories in
@@ -101,9 +101,7 @@ Definition workspace_nodes {e} s occurrence parent (members:UX.collection e) :=
   then "工作目录" else "工作目录（可选）" | _=>"" end in
  let buffer:=match find(fun layer=>N.eqb occurrence(State.layer_occurrence layer))(State.layers(State.navigation_state s))with
  |Some layer=>value_or ""(State.layer_parameter_buffer layer)|None=>""end in
- Node parent "workspace-collection" heading Roles.Section(WorkspaceCollection e members)
- ((match e with Identity.Project _=>[group_title parent heading]|_=>[]end)++
-  map(fun path=>let key:=part parent path in
+ let directories:=map(fun path=>let key:=part parent path in
   let primary:=match Domain.workspace_primary workspace with Some root=>String.eqb path root|None=>false end in
   Node key "workspace-member"path Roles.Section(WorkspaceMember e members path)
    [region key "workspace-member-copy" "" Roles.Section
@@ -116,7 +114,10 @@ Definition workspace_nodes {e} s occurrence parent (members:UX.collection e) :=
        ((if primary then [] else [declared key Roles.Button(secondary "primary" "设为主目录"
           (Input.ActivityWorkspaceChange occurrence(Input.ChoosePrimaryDirectory path)))]) ++
         [declared key Roles.Button(secondary "remove" "移除目录"
-          (Input.ActivityWorkspaceChange occurrence(Input.RemoveDirectory path)))])%list else [])])roots ++
+          (Input.ActivityWorkspaceChange occurrence(Input.RemoveDirectory path)))])%list else [])])roots in
+ Node parent "workspace-collection" heading Roles.Section(WorkspaceCollection e members)
+ ((match e with Identity.Project _=>[group_title parent heading]|_=>[]end)++
+  (if editable then Editors.workspace_directory_controls snapshot s parent e workspace directories else directories)++
   if editable then
    (if String.eqb buffer ""then[]else[information parent "unadded-directory" Information.Status
      Observation.unadded_project_directory])++
@@ -133,7 +134,7 @@ Definition workspace_nodes {e} s occurrence parent (members:UX.collection e) :=
        [declared parent Roles.Button(secondary "clear" "清空"(Input.ActivityParameter occurrence ""))] in
     let browse:=declared parent Roles.Button(Control "browse" "浏览…" Secondary
        (Input.ServiceInput(Services.OpenDirectory e
-         (if String.eqb buffer ""then value_or ""(Domain.workspace_primary workspace)else buffer)(part parent "browse")))
+         (if String.eqb buffer ""then value_or ""(Domain.workspace_primary workspace)else buffer)(part parent "browse")(Domain.workspace_environment workspace)))
        (if State.pending_editor e s then Unavailable "请等待当前操作完成。" else Available)) in
     let actions more:=region parent "directory-entry-actions" ""Roles.Toolbar (add::clear++more)%list in
     match e with
@@ -323,12 +324,15 @@ Fixpoint relation_nodes {e} snapshot (s:State.state) occurrence parent query req
        (secondary "source/open" (configuration_source_label e++"…")(Input.InspectSource e request(part key "source/open")))])]end
    |_=>[]end
  |Observation.CompoundContent,Act.CollectionMembers members=>
-   workspace_nodes s occurrence(part parent "workspace")members::
-   (match e with Identity.Project _=>
-     (* The project commit footer shows the Git check beside the disabled action. *)
-     match Editors.field_node snapshot s e parent Fields.CreateWorktree with
-     |Some checkbox=>[checkbox]|None=>[]end
-   |_=>[]end)
+   workspace_nodes snapshot s occurrence(part parent "workspace")members::
+   (match Domain.workspace_environment (UX.collection_workspace members) with
+    |Some _=>[]
+    |None=>match e with Identity.Project _=>
+      (* The project commit footer shows the Git check beside the disabled action. *)
+      match Editors.field_node snapshot s e parent Fields.CreateWorktree with
+      |Some checkbox=>[checkbox]|None=>[]end
+    |_=>[]end
+    end)
  |Observation.CompoundContent,Act.AssessedAction action outcome=>
    let assessment:=UX.Assessment(UX.action_identity_of action)outcome in
    let draft:=State.current_draft s e in
@@ -386,6 +390,7 @@ Definition run_environment_choices snapshot (s:State.state) e occurrence parent 
       (Control "worktree" label Secondary
         (Input.ActivityAssignment occurrence e(Act.Assignment subject(UX.alternative_value next)))
         (domain_availability(UX.alternative_availability next))))[]]
+  |[_],_,_=>[]
   |_,_,_=>map(candidate_node false false false None occurrence parent decision)alternatives
   end end.
 Definition run_environment_menu snapshot (s:State.state) e occurrence parent behavior :=
@@ -420,7 +425,7 @@ Definition workspace_menu snapshot (s:State.state) e occurrence parent behavior:
  Node parent "workspace-settings" "工作目录"Roles.Menu(LayerRegion behavior)
   (workspace_context_header s e occurrence parent "工作目录"::
    (match Observation.observe_collection snapshot s e with
-    |Some members=>[workspace_nodes s occurrence(part parent "workspace")members]
+    |Some members=>[workspace_nodes snapshot s occurrence(part parent "workspace")members]
     |None=>[read_only parent "unavailable" "工作目录" "无法读取工作目录。"]end)++
    [])%list.
 Definition workspace_request request:=match request with

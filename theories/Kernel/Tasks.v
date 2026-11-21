@@ -56,7 +56,8 @@ Definition resolve_settings (model : profile) (source : option settings_request)
    from committed caller, environment or project observations may be reused. *)
 Definition observed_creation_roots (selected caller : task_settings) (value : world) :=
  let roots_in reference space :=
-   if WorkspaceBinding.same_environment (settings_resource selected) reference value
+   if Workspace.same_environment (settings_workspace selected) space &&
+      WorkspaceBinding.same_environment (settings_resource selected) reference value
    then workspace_roots space else [] in
  let defaults := creation_defaults (world_environment value) in
  roots_in (settings_resource caller) (settings_workspace caller) ++
@@ -69,7 +70,8 @@ Definition no_resource_observation (options : option settings_request) :=
 Definition native_creation_allowed (options : option settings_request) (selected caller : task_settings) (value : world) :=
  let no_guidance := match options with None => true | Some request =>
    match guidance_observation request with None => true | Some _ => false end end in
- Workspace.may_delegate selected caller && no_guidance && no_resource_observation options &&
+ (Workspace.same_environment (settings_workspace selected) (settings_workspace caller) &&
+  Workspace.may_delegate selected caller) && no_guidance && no_resource_observation options &&
  forallb (fun root => existsb (String.eqb root) (observed_creation_roots selected caller value))
    (workspace_roots (settings_workspace selected)).
 Definition initial_project_guidance (settings : task_settings) := Guidance.initial (settings_guidance settings).

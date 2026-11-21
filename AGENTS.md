@@ -40,6 +40,16 @@ its only purpose is to feed the next operation, use the direct equivalent.
 Keep an intermediate value that has a separate use. Run `bun run audit:paths`
 for the full project report.
 
+For any UI change, visually check the changed area and its affected interaction
+states at each size and text scale combination in the
+[viewport matrix](scripts/browser-screenshots/catalog.mjs). Use the existing
+[browser screenshot tool](CONTRIBUTING.md#browser-screenshots) where it covers
+the changed state, or open that state directly in a browser at the same sizes.
+Keep the review focused on the changed area, including its affected dialogs,
+menus and scroll positions. Check readability, clipping, overlap and whether
+actions remain visible or reachable by scrolling. Fix regressions and recheck
+the affected sizes. Report the visual evidence and any unverified sizes.
+
 Choose the earliest sufficient assurance owner for each property: domain
 construction and language design, then types and proofs, then public end-to-end
 tests for the remaining observable behavior. Permanent tests use complete public
