@@ -7,19 +7,23 @@ import { buildModel } from '../plugins/selvedge-chatgpt/scripts/build-model.mjs'
 
 const testDirectory = new URL('../tests/', import.meta.url);
 
-async function checkBrowserSetup(tests) {
+async function startBrowserForSuite(tests) {
   const sources = await Promise.all(tests.map(name => readFile(new URL(name, testDirectory), 'utf8')));
   if (!sources.some(source => source.includes('./fixtures/browser.mjs'))) return;
 
-  const { launchChromium } = await import('../tests/fixtures/chromium.mjs');
+  const { launchChromium, startChromiumServer } = await import('../tests/fixtures/chromium.mjs');
+  let server;
   try {
-    const browser = await launchChromium();
+    server = await startChromiumServer();
+    const browser = await launchChromium(server.wsEndpoint());
     try {
       await browser.newPage();
     } finally {
       await browser.close();
     }
+    return server;
   } catch (error) {
+    await server?.close();
     const detail = error instanceof Error ? error.message : String(error);
     throw new Error(`Browser test setup failed before running the selected suite.\n${detail}`);
   }
@@ -29,13 +33,7 @@ export async function runTests(buildResult, selected = process.argv.slice(2)) {
   const files = (await readdir(testDirectory)).filter(name => name.endsWith('.test.mjs')).sort();
   const tests = selected.length ? files.filter(name => selected.includes(name) || selected.includes(`tests/${name}`)) : files;
   if (!tests.length) throw new Error('No end-to-end tests selected');
-  await checkBrowserSetup(tests);
-  const completed = buildResult ?? await build();
-  if (buildResult && !completed.checked) throw new Error('Repository verification requires its checked build result');
-  if (!['kernel', 'host', 'browser', 'interaction'].every(name => completed.targets.includes(name))) {
-    throw new Error('End-to-end tests require all production build targets');
-  }
-  await buildModel({ buildResult: completed });
+  const browserServer = await startBrowserForSuite(tests);
   const active = new Set();
   let interrupted = false;
   const handlers = ['SIGINT', 'SIGTERM'].map(signal => {
@@ -48,9 +46,17 @@ export async function runTests(buildResult, selected = process.argv.slice(2)) {
     return [signal, handler];
   });
   try {
+    const completed = buildResult ?? await build();
+    if (buildResult && !completed.checked) throw new Error('Repository verification requires its checked build result');
+    if (!['kernel', 'host', 'browser', 'interaction'].every(name => completed.targets.includes(name))) {
+      throw new Error('End-to-end tests require all production build targets');
+    }
+    await buildModel({ buildResult: completed });
+    const env = { ...process.env };
+    if (browserServer) env.SELVEDGE_TEST_BROWSER_ENDPOINT = browserServer.wsEndpoint();
     // Bound a hung test without treating a complete browser workflow as a
     // 30-second performance requirement. Individual waits keep their deadlines.
-    const result = await runTestProcess('Selvedge end-to-end tests', [process.execPath, 'test', '--timeout', '120000', ...tests.map(name => `tests/${name}`)], { cwd: root, active });
+    const result = await runTestProcess('Selvedge end-to-end tests', [process.execPath, 'test', '--timeout', '120000', ...tests.map(name => `tests/${name}`)], { cwd: root, active, env });
     const output = `${result.out}\n${result.err}`;
     const passes = [...output.matchAll(/^\s*(\d+) pass\s*$/gm)];
     const failures = [...output.matchAll(/^\s*(\d+) fail\s*$/gm)];
@@ -66,6 +72,7 @@ export async function runTests(buildResult, selected = process.argv.slice(2)) {
   } finally {
     for (const [signal, handler] of handlers) process.off(signal, handler);
     for (const child of active) terminateTestProcessGroup(child);
+    await browserServer?.close();
   }
 }
 

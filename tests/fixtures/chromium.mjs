@@ -22,11 +22,20 @@ async function chromiumExecutable() {
 
 let launchFailure;
 
-export async function launchChromium() {
+async function launchOptions() {
+  return { executablePath: await chromiumExecutable(), headless: true };
+}
+
+export async function startChromiumServer() {
+  return chromium.launchServer({ ...await launchOptions(), host: '127.0.0.1' });
+}
+
+export async function launchChromium(endpoint = process.env.SELVEDGE_TEST_BROWSER_ENDPOINT) {
+  if (endpoint) return chromium.connect(endpoint);
   // DEFENSE: Direct Bun runs can continue after a crashing executable fails the first test.
   if (launchFailure) throw launchFailure;
   try {
-    return await chromium.launch({ executablePath: await chromiumExecutable(), headless: true });
+    return await chromium.launch(await launchOptions());
   } catch (error) {
     launchFailure = error;
     throw error;

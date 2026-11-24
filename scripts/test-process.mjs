@@ -23,12 +23,12 @@ export function terminateTestProcessGroup(proc) {
 }
 
 // Each invocation owns its process group, including descendants holding its pipes.
-export async function runTestProcess(label, command, { cwd, active }) {
+export async function runTestProcess(label, command, { cwd, active, env = process.env }) {
   console.log(`Running ${label}`);
   const started = performance.now();
   let proc;
   try {
-    proc = Bun.spawn(command, { cwd, env: process.env, stdout: 'pipe', stderr: 'pipe', detached: true });
+    proc = Bun.spawn(command, { cwd, env, stdout: 'pipe', stderr: 'pipe', detached: true });
     active.add(proc);
     // Drain both pipes immediately; descendants can keep them open after the parent exits.
     const stdout = collectTestOutput(proc.stdout, process.stdout);

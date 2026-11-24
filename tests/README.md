@@ -27,8 +27,9 @@ having passed; run the corresponding public entry before recording that result.
 fixture and the pinned `playwright-core` dependency. Install Chromium or set
 `SELVEDGE_CHROMIUM_EXECUTABLE_PATH` to its executable. When the selected suite
 uses the fixture, `bun run test` and `bun run verify` check that Chromium can open
-a page before launching the suite. A startup failure stops the run with its
-diagnostic. To select just these workflows, use
+a page before launching the suite. Browser workflows then use that process with
+fresh browser contexts and service homes. A startup failure stops the run with
+its diagnostic. To select just these workflows, use
 `bun run test browser-workflows.test.mjs`.
 They cover Project workspace inheritance versus an explicitly empty selection,
 ordered image content and responsive keyboard navigation, and actual graph
