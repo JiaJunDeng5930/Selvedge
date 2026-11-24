@@ -13,59 +13,30 @@ Import ListNotations.
 
 (** ** Acknowledgement controls publication
 
-    A journal stores admitted inputs and restores the world using the same
-    admission, scheduling and cursor rules as ordinary execution. Replay does
-    not publish physical effects. Queries preserve the
-    world, emit no effects and require no journal row. A committed row must
-    retain the input evaluated by the Worker so recovery reconstructs that
-    execution. The submitted frame is also the retained replay input: one
-    serialization owner avoids a second representation whose interpretation
-    could differ from the committed execution. Replay submits that retained
-    frame and receives the durability marker for each input. The kernel retains
-    the restored world and publishes a snapshot after replay, so constructing
-    intermediate replies and notifications supplies no recovery evidence.
-    Commit observers consume the outcome and
-    its effects; publishing another copy of the submitted input adds no restart
-    authority. Lost remote replies are exercised at the public transport boundary.
-    Recovery and new commands use the kernel
-    built for this service; binding the Worker directly to that bundle keeps
-    execution semantics independent of a private caller-supplied module path.
-    Once a transition fits the transport budget, a journal row is necessary
+    SQLite owns the current committed state. On each commit, the host writes
+    changed tasks, changed shared state and the next sequence in one
+    transaction. Task identities are stable indices. Task creation also
+    records the observed birth time, and later task writes preserve it.
+    Loading these records reconstructs the committed world before the
+    recovery transition handles work that was still outstanding.
+
+    Once a transition fits the transport budget, a commit is necessary
     exactly when the restorable world changes or the decision issues an
     obligation owned by the physical runtime. A refusal without a retained
     receipt, a stale callback, and a repeated observation leave the world and
     cursor intact. A remote refusal can still record its required receipt.
     A scheduler wakeup with unchanged state can run locally because recovery
-    derives runnable work from the retained world. The materiality and
-    transient-safety theorems constrain the selection used by the live packet
-    and by replay of new rows. The checkpoint generator derives comparison
-    from the same typed shape and dependent projections as the recovery image.
-    Its execution, SQLite durability and Worker delivery remain runtime
-    premises exercised by their boundaries.
+    derives runnable work from the retained world.
 
-    Earlier rows may include no-ops and refusals. Upgrading formats 28 and 29
-    annotates their replay rules while retaining the exact input bytes and
-    sequence. Format 28 applies worktree admission to historical ordinary
-    sends, including sends from graph and workflow transitions. The
-    current-format change is committed only after successful replay. An
-    unsupported format stops without interpreting its inputs.
-
-    The journal may cache the extracted world at an acknowledged sequence.
-    Publication replaces one checkpoint after the journal commit; a cache
-    write never authorizes a commit or publishes its effects. Restore admits
-    only a checkpoint authenticated by the private service key and bound to
-    the same journal namespace, input prefix and journal semantics version.
-    The persisted world has a versioned wire shape derived from extracted
+    The stored records have a versioned wire shape derived from extracted
     data declarations. Records and variants use canonical declaration names
     and order independently of the OCaml layout. For dependent values whose
     indices extraction erases, a versioned projection retains the parameters
     needed for admission by the owning Gallina declaration. Changes to a
-    projection's wire contract require a new adapter version. A matching
-    wire shape and semantic version permit restore across kernel bundles.
-    A missing or unusable checkpoint leaves authoritative replay available.
-    Restoring the cached world uses the same replay operation on the suffix.
-    Physical restart tests exercise the cache boundary; the extracted runtime
-    codec and local key custody remain execution premises.
+    projection's wire contract require a new adapter version. Unrecognized
+    schemas, invalid records and gaps in task identities fail startup.
+    The runtime codec, change selection and SQLite durability remain execution
+    premises exercised at the physical service boundary.
 
     Live configuration must carry the domain controller's maintenance
     cancellations into the actual packet decision. That boundary need not
@@ -94,21 +65,18 @@ Import ListNotations.
     These are requirements on the physical transaction, including its storage
     call, returned promise and observers. [tests/journal.test.mjs] checks that
     failed storage cannot publish or launch paid work, and that lost COMMIT
-    acknowledgement retires execution while reopening recovers the accepted
-    input once. [tests/service.test.mjs] covers successful publication through
+    acknowledgement retires execution while reopening exposes the committed
+    state once. [tests/service.test.mjs] covers successful publication through
     the public service and event stream. *)
 
 From Selvedge.Programming Require CommitPacket.
 Export CommitPacket(journal_selection_retains_exactly_the_recovery_obligations,
   journal_transients_preserve_the_world_and_only_wake_the_scheduler,
   journal_material_changes_keep_the_original_decision).
-Export PacketProofs(journal_replay_agrees_with_live_commit,
-  journal_never_commits_an_unchanged_refusal,
+Export PacketProofs(journal_never_commits_an_unchanged_refusal,
   observed_root_planning_retains_the_committed_environment,
   refused_observed_root_planning_retains_no_observations,
-  selected_create_retains_the_committed_environment,
-  historical_send_uses_the_written_admission_rule,
-  historical_replay_does_not_retain_its_execution_mode).
+  selected_create_retains_the_committed_environment).
 
 (** Root creation receives observations with its request. The configured
     catalog is its read authority; it owes no catalog or maintenance update.
@@ -134,20 +102,19 @@ Export ApiProofs(public_unissued_rpc_response_preserves_pending_requests,
 (** ** Planned updates leave a recoverable boundary
 
     A development update builds a separate release while the current service
-    runs. The candidate loads and admits the settings it will use, and replays a
-    read-only snapshot with its own kernel while the current release serves requests.
-    An invalid configuration leaves that listener installed. The candidate
-    closes the read transaction before requesting handoff. Before yielding journal ownership, the host stops
-    issuing scheduler continuations and lets admitted physical operations settle
-    through the ordinary durable callback path. Waiting for user input is already
-    a recoverable task state. Retaining the old release and a pre-start journal
-    backup until publication makes startup failure reversible. Once the
-    candidate owns the journal, it verifies the prepared prefix against the
-    committed inputs and replays the suffix before publishing state or effects.
-    An incompatible read-only replay fails before the current release drains.
-    SQLite schema version and the meaning of replayed inputs have separate
-    compatibility rules. The update command and the browser reconnect are
-    physical host behavior and are verified through public execution. *)
+    runs. The candidate loads and admits the settings it will use, and
+    decodes a consistent read-only view of the stored records while the current
+    release serves requests. An invalid configuration or store leaves that
+    listener installed. The candidate closes the read transaction before
+    requesting handoff. Before yielding database ownership, the host stops
+    issuing scheduler continuations and lets admitted operations settle
+    through the ordinary durable callback path. Waiting for user input is
+    already a recoverable task state. After taking ownership the candidate
+    verifies the service identity and loads the final committed records before
+    publishing state or effects. Retaining the old release and a pre-start
+    database backup until publication makes startup failure reversible.
+    The update command and browser reconnect are physical host behavior and
+    are verified through public execution. *)
 
 (** ** RPC responses retain the issued numeric identity
 

@@ -28,21 +28,13 @@ export class Kernel {
         pending.reject(new ErrorType(message.inputError.message));
         return;
       }
-      if (typeof message === 'boolean') {
-        pending.resolve(message);
-        return;
-      }
-      if (message.checkpoint) {
-        pending.resolve(message.checkpoint);
-        return;
-      }
       try {
-        const { text, programText, reconcileRemote } = message;
-        if (text === undefined) pending.resolve(parseJson(programText));
+        const { text, programText, reconcileRemote, storage } = message;
+        if (text === undefined) pending.resolve({ program: parseJson(programText), storage });
         else {
           const value = parseJson(text);
           if (reconcileRemote) value.reconcileRemote = true;
-          pending.resolve({ value, ...(programText === undefined ? {} : { program: parseJson(programText) }) });
+          pending.resolve({ value, storage, ...(programText === undefined ? {} : { program: parseJson(programText) }) });
         }
       // DEFENSE: An invalid Worker result cannot establish the state of its already executed transition.
       } catch (error) { pending.reject(error); this.#fail(error); }
@@ -55,7 +47,7 @@ export class Kernel {
   }
 
   async initialize() {
-    const { value } = await this.request({ kind: 'command', command: { op: 'describe' } }).result;
+    const { value } = await this.request({ kind: 'command', command: { op: 'describe' } });
     const description = value.reply.result;
     this.maximum = description.limits.frame_bytes;
     return description;
@@ -73,32 +65,18 @@ export class Kernel {
 
   request(input) {
     const text = encodeInput(input, this.maximum);
-    // Journal persists the same admitted frame that this Worker evaluates.
-    return { text, result: this.#submit(text) };
+    return this.#submit(text);
   }
 
-  // Replay checks admission without projecting intermediate worlds while the journal opens.
-  replay(text, replayVersion) {
-    return this.#submit(text, 'replay', replayVersion);
-  }
-
-  observe() {
-    return this.#submit(undefined, 'observe');
-  }
-
-  captureCheckpoint() {
-    return this.#submit(undefined, 'captureCheckpoint');
-  }
-
-  restoreCheckpoint({ schema, payload }) {
-    return this.#submit({ schema, data: payload.toString('latin1') }, 'restoreCheckpoint');
+  loadState(state) {
+    return this.#submit(state, 'loadState');
   }
 
   assess(candidate) {
     return this.#submit(encodeInput(candidate, this.maximum), 'assess');
   }
 
-  #submit(text, operation = 'packet', replayVersion) {
+  #submit(input, operation = 'packet') {
     return new Promise((resolve, reject) => {
       // DEFENSE: The Worker can exit while idle, before the next journal request observes its failure.
       if (this.#failure) throw this.#failure;
@@ -106,7 +84,7 @@ export class Kernel {
       const timer = setTimeout(() => this.#fail(new Error('Kernel transition timed out')), 30_000);
       // Journal owns request serialization through the complete SQLite transaction.
       this.#pending = { resolve, reject, timer };
-      this.#worker.postMessage({ text, operation, replayVersion });
+      this.#worker.postMessage({ input, operation });
     });
   }
 

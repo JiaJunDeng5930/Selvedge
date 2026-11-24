@@ -6,7 +6,7 @@ import { arch, platform, release, tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { performance } from 'node:perf_hooks';
-import { Journal, journalFormat } from '../host/journal.mjs';
+import { Journal, stateSchemaVersion } from '../host/journal.mjs';
 import { targets } from './build-tools.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -66,7 +66,7 @@ export async function collectBenchmarkProvenance() {
     runtime: {
       bun: Bun.version,
       node_compatibility: process.versions.node,
-      journal_format: journalFormat,
+      state_schema_version: stateSchemaVersion,
     },
     package: { name: packageInfo.name, version: packageInfo.version ?? null, package_manager: packageInfo.packageManager ?? null },
     benchmark_code: {
@@ -162,9 +162,9 @@ async function measureWorkload({ taskCount, historyTurns, messageBytes }) {
     const databaseBytes = await fileSize(filename);
     const walBytes = await retainedWalBytes(filename);
 
-    const replayStarted = performance.now();
+    const restoreStarted = performance.now();
     journal = await Journal.open(filename);
-    const replayMs = performance.now() - replayStarted;
+    const restoreMs = performance.now() - restoreStarted;
     assert.equal(journal.sequence, sequence);
     assert.deepEqual((await journal.execute({ kind: 'command', command: { op: 'list' } })).reply.result, before);
     await journal.close();
@@ -174,15 +174,15 @@ async function measureWorkload({ taskCount, historyTurns, messageBytes }) {
       tasks: taskCount,
       history_turns_before_fork: historyTurns,
       message_bytes: messageBytes,
-      committed_inputs: sequence,
-      journal_bytes: databaseBytes + walBytes,
+      commits: sequence,
+      state_bytes: databaseBytes + walBytes,
       database_bytes: databaseBytes,
       wal_bytes: walBytes,
       transition_count: latencies.length,
       median_transition_ms: quantile(latencies, 0.5),
       p95_transition_ms: quantile(latencies, 0.95),
       max_transition_ms: latencies.at(-1),
-      replay_ms: replayMs,
+      restore_ms: restoreMs,
     };
   } finally {
     await journal?.close();
@@ -217,7 +217,7 @@ export async function runRuntimeBenchmark(options = {}) {
       deterministic_external_responses: { context_observations: [], model_text: 'done' },
     },
     measurements,
-    scope: 'Public Journal operations over the current Rocq runtime; each measurement includes SQLite journal commits and deterministic context/model callback inputs. Replay includes Journal.open and committed-input replay. No historical performance threshold is applied.',
+    scope: 'Public Journal operations over the current Rocq runtime; each measurement includes SQLite state commits and deterministic context/model callback inputs. Restore measures Journal.open and direct loading of the committed state. No historical performance threshold is applied.',
   };
   await mkdir(path.join(root, '.workpad'), { recursive: true });
   await writeFile(path.join(root, '.workpad/runtime-benchmark.json'), `${JSON.stringify(report, null, 2)}\n`);

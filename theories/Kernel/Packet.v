@@ -199,25 +199,7 @@ Definition packet (source : json) (value : world) : world * json :=
  CommitPacket.finalize value (select source value)
  else (value,Observation.envelope false (reject "invalid_input" "The complete input exceeds the native frame bound" value)).
 
-Definition replay (source : json) (value : world) : world * bool :=
- if Delivery.fits_json source then
-   let chosen := select source value in
-   (CommitPacket.finalize_world value chosen, CommitPacket.selected_durable chosen)
- else (value, false).
-
-
-(** Live execution and new rows use the same materiality decision. Legacy
-    rows keep their cursor, even when their old decision was a no-op. *)
 Definition journal_packet same_image (source : json) (value : world) : world * json :=
  if Delivery.fits_json source then
    CommitPacket.journal_finalize same_image value (select source value)
  else (value,Observation.envelope false (reject "invalid_input" "The complete input exceeds the native frame bound" value)).
-Definition journal_replay same_image (source : json) (value : world) : world * bool :=
- if Delivery.fits_json source then
-   let chosen := CommitPacket.select_journal same_image value (select source value) in
-   (CommitPacket.finalize_world value chosen, CommitPacket.selected_durable chosen)
- else (value, false).
-Definition replay_format_28 source value :=
- let replayed := with_legacy_send_admission true value in
- let '(next, durable) := replay source replayed in
- (with_legacy_send_admission (world_legacy_send_admission value) next, durable).

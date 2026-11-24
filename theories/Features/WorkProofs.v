@@ -105,7 +105,7 @@ Theorem own_birth_changes_only_ownership : forall origin before
    (world_features (Work.own_birth owner birth value tasks works)))
    (Work.own_birth owner birth value tasks works) = value.
 Proof.
- intros origin before owner birth [sequence tasks ticket environment projects features legacy] TasksFrame WorksFrame.
+ intros origin before owner birth [sequence tasks ticket environment projects features] TasksFrame WorksFrame.
  destruct features; reflexivity.
 Qed.
 Theorem witnessed_root_birth_records_its_work : forall origin before

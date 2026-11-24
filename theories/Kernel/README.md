@@ -1,8 +1,8 @@
 # Task runtime and history
 
 Start with the product operation in `Packet.packet` and its owning definitions.
-The host keeps the world opaque: it starts from `initial` and replays accepted
-input records through the packet entry. Constructors own the state properties
+The host keeps the world opaque. It applies the selected record writes in SQLite
+and loads committed task and shared records into the kernel at startup. Constructors own the state properties
 needed by those operations.
 
 The reusable task and decision construction interfaces live in
@@ -58,7 +58,7 @@ durable continuation. The [task requirements](../../requirements/Tasks.v)
 explain the commit boundary.
 
 `PacketProofs` covers query purity at the exported entry. Physical journal
-persistence, ordered replay and effect execution have their own external boundaries.
+persistence, state restoration and effect execution have their own external boundaries.
 Generic construction properties belong with their interpreter; feature proofs
 cover the additional behavior required by that feature.
 

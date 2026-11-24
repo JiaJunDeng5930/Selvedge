@@ -1,4 +1,4 @@
-(** Derive the checkpoint wire shape and typed OCaml codec from the public
+(** Derive the stored state wire shape and typed OCaml codec from the public
     extracted types loaded by the compiler. Erased dependent values require
     an adapter that preserves and re-admits their declaration-dependent data. *)
 open Types
@@ -19,16 +19,16 @@ type node =
 
 let adapters = [
   "Guidance.t", ("guidance-json-1", "Guidance.json", "Guidance.parse");
-  "ContextTypes.context_key", ("context-key-1", "Checkpoint.encode_context_key", "Checkpoint.decode_context_key");
-  "ContextTypes.snapshot", ("context-snapshot-1", "Checkpoint.encode_context_snapshot", "Checkpoint.decode_context_snapshot");
-  "BoardClock.t", ("board-clock-1", "Checkpoint.encode_board_clock", "Checkpoint.decode_board_clock");
-  "ChatgptArguments.arguments", ("chatgpt-arguments-1", "ChatgptArguments.encode", "Checkpoint.decode_chatgpt_arguments");
-  "Titles.instruction", ("title-instruction-1", "Checkpoint.encode_title_instruction", "Checkpoint.decode_title_instruction");
-  "Codec.settings_request", ("settings-request-1", "Checkpoint.encode_settings_request", "Checkpoint.decode_settings_request");
-  "ConnectionGrants.Grants.t", ("connection-grants-1", "Checkpoint.encode_connection_grants", "Checkpoint.decode_connection_grants");
+  "ContextTypes.context_key", ("context-key-1", "Persistence.encode_context_key", "Persistence.decode_context_key");
+  "ContextTypes.snapshot", ("context-snapshot-1", "Persistence.encode_context_snapshot", "Persistence.decode_context_snapshot");
+  "BoardClock.t", ("board-clock-1", "Persistence.encode_board_clock", "Persistence.decode_board_clock");
+  "ChatgptArguments.arguments", ("chatgpt-arguments-1", "ChatgptArguments.encode", "Persistence.decode_chatgpt_arguments");
+  "Titles.instruction", ("title-instruction-1", "Persistence.encode_title_instruction", "Persistence.decode_title_instruction");
+  "Codec.settings_request", ("settings-request-1", "Persistence.encode_settings_request", "Persistence.decode_settings_request");
+  "ConnectionGrants.Grants.t", ("connection-grants-1", "Persistence.encode_connection_grants", "Persistence.decode_connection_grants");
 ]
 
-let fail reason = failwith ("Cannot derive journal checkpoint: " ^ reason)
+let fail reason = failwith ("Cannot derive stored state: " ^ reason)
 let lookup env name =
   let longident = Longident.unflatten (String.split_on_char '.' name) |> Option.get in
   let _, value = Env.lookup_value ~use:false ~loc:Location.none longident env in
@@ -153,9 +153,9 @@ let read_body = function
   | Variant (owner, cases) -> "match Wire.read_length reader with\n" ^ String.concat "\n" (List.mapi (fun index (name, items) ->
       let items = variables items in
       "  | " ^ string_of_int index ^ " -> " ^ read_values items (ctor owner name (List.map fst items))) cases)
-      ^ "\n  (* DEFENSE: An unknown tag cannot select a constructor in this version. *)\n  | _ -> raise Wire.Invalid_checkpoint"
+      ^ "\n  (* DEFENSE: An unknown tag cannot select a constructor in this version. *)\n  | _ -> raise Wire.Invalid_state"
   | Adapter (version, shape) -> let _, decode = adapter_functions version in
-      "match " ^ decode ^ " (" ^ codec_name "read" shape ^ " reader) with Some value -> value | None -> raise Wire.Invalid_checkpoint"
+      "match " ^ decode ^ " (" ^ codec_name "read" shape ^ " reader) with Some value -> value | None -> raise Wire.Invalid_state"
 
 let same_body shape =
   let compare = match shape with
@@ -184,22 +184,50 @@ let write_file filename write =
   let output = open_out filename in
   Fun.protect ~finally:(fun () -> close_out output) (fun () -> write output)
 
+let world_fields root nodes =
+  match root with
+  | Ref index -> (match nodes.(index) with
+      | Record (owner, fields) -> owner, fields
+      | _ -> fail "kernel world is not a record")
+  | _ -> fail "kernel world has no record declaration"
+
 let () =
   let directory = Sys.argv.(1) and zarith = Sys.argv.(2) in
   Clflags.include_dirs := [directory; zarith];
   Compmisc.init_path ();
   let env = Compmisc.initial_env () in
   let root, nodes = derive env (lookup env (Sys.argv.(3) ^ ".selvedge_kernel_initial")) in
-  write_file (Filename.concat directory "checkpoint-shape.txt") (fun output ->
-    Printf.fprintf output "selvedge-kernel-world-wire-1 %s\n" (shape_text root);
+  let owner, fields = world_fields root nodes in
+  let task = match List.assoc "world_tasks" fields with
+    | List item -> item
+    | _ -> fail "kernel tasks are not an indexed list" in
+  let shared = List.filter (fun (name, _) ->
+    not (String.equal name "world_tasks" || String.equal name "world_sequence")) fields in
+  write_file (Filename.concat directory "state-shape.txt") (fun output ->
+    Printf.fprintf output "selvedge-state-wire-1 %s\n" (shape_text root);
     Array.iteri (fun index node -> Printf.fprintf output "%d %s\n" index (schema_text node)) nodes);
-  write_file (Filename.concat directory "checkpoint_state.ml") (fun output ->
-    Printf.fprintf output "(* Generated from the extracted kernel world. *)\nmodule Wire = Checkpoint_wire\n";
+  write_file (Filename.concat directory "stored_state.ml") (fun output ->
+    Printf.fprintf output "(* Generated from the extracted kernel world. *)\nmodule Wire = State_wire\n";
     let emit direction arguments body = Array.iteri (fun index node ->
       Printf.fprintf output "%s %s_%d %s = %s\n" (if index = 0 then "let rec" else "and") direction index arguments (body node)) nodes in
     emit "write" "output value" write_body;
     emit "read" "reader" read_body;
     emit "same" "left right" same_body;
-    Printf.fprintf output "let same_image = %s\n" (comparison root);
-    Printf.fprintf output "let encode value = let output = Buffer.create 4096 in %s output value; Buffer.contents output\n" (codec_name "write" root);
-    Printf.fprintf output "let decode bytes = let reader = Wire.start bytes in\n  try let value = %s reader in\n  (* DEFENSE: Additional bytes cannot belong to this world image. *)\n  if Wire.remaining reader = 0 then Some value else None\n  with Wire.Invalid_checkpoint -> None\n" (codec_name "read" root))
+    Printf.fprintf output "let same_world = %s\nlet same_task = %s\n" (comparison root) (comparison task);
+    Printf.fprintf output "let tasks value = value.%s\nlet sequence value = value.%s\n"
+      (qualified owner "world_tasks") (qualified owner "world_sequence");
+    Printf.fprintf output "let same_shared left right = %s\n"
+      (conjunction (List.map (fun (name, item) ->
+        let field = qualified owner name in comparison item ^ " left." ^ field ^ " right." ^ field) shared));
+    Printf.fprintf output "let encode write value = let output = Buffer.create 4_096 in write output value; Buffer.contents output\n";
+    Printf.fprintf output "let decode_exn read bytes =\n  let reader = Wire.start bytes in\n  let value = read reader in\n  (* DEFENSE: Trailing bytes cannot belong to the stored record. *)\n  if Wire.remaining reader = 0 then value else raise Wire.Invalid_state\n";
+    Printf.fprintf output "let encode_task = encode %s\nlet decode_task_exn = decode_exn %s\n"
+      (codec_name "write" task) (codec_name "read" task);
+    Printf.fprintf output "let encode_shared = encode (fun output value -> %s)\n"
+      (write_body (Record (owner, shared)));
+    let items = variables (List.map snd shared) in
+    let fields = List.map2 (fun (field, _) (name, _) -> qualified owner field ^ " = " ^ name) shared items in
+    let assignments = (qualified owner "world_tasks" ^ " = tasks") ::
+      (qualified owner "world_sequence" ^ " = sequence") :: fields in
+    Printf.fprintf output "let restore_exn bytes ~sequence ~tasks = decode_exn (fun reader -> %s) bytes\n"
+      (read_values items ("{ " ^ String.concat "; " assignments ^ " }")))

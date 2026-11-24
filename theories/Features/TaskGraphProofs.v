@@ -295,11 +295,11 @@ Theorem actual_delivery_reaches_idle_task : forall source item result task,
 Proof.
  intros source item result task found available idle nonempty.
  unfold DecisionComposition.run, DecisionComposition.transform, DecisionComposition.maintain, TaskGraph.send_delivery; cbn [DecisionComposition.updated_world DecisionComposition.appended_effects].
- rewrite TaskChangesProofs.send_expression. cbv beta zeta. rewrite found, idle, nonempty, available.
+ rewrite TaskChangesProofs.send_expression. cbv beta zeta. rewrite found, idle, nonempty.
  assert (tasks_same : forall id graph receipt value,
    K.find_task id (TaskGraph.record_receipt graph receipt value)=K.find_task id value).
  { intros. unfold K.find_task. now rewrite recording_receipt_preserves_tasks. }
- destruct (world_legacy_send_admission (decision_world result)); cbn; cbn [decision_world].
+ cbn; cbn [decision_world].
  all: rewrite tasks_same.
  all: exists (TaskChange.apply (Tasks.receive_changes [TextPart (delivery_text item)] task) task); split.
  all: try solve [now apply find_put_task with task].

@@ -106,7 +106,7 @@ restarted. A cached committed result can be observed again with that same
 effect identity. A changed body or connection cannot reuse its identity.
 
 Timeout, disconnect and service shutdown only detach observation. On restart,
-native journal replay does not resend prompts or execute tools. An unknown
+Loading committed task state does not resend prompts or execute tools. An unknown
 request blocks a replacement request and reports its retained key and, when
 known, response ID. This prevents an ordinary retry from creating duplicate
 webpage work.

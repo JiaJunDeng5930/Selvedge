@@ -1,14 +1,14 @@
 (** Version 1 wire primitives. Strings are length-prefixed byte strings, and
     exact integers use their decimal spelling. Compound shapes are generated. *)
-exception Invalid_checkpoint
+exception Invalid_state
 
 type reader = { bytes : string; mutable offset : int }
 
 let start bytes = { bytes; offset = 0 }
 let remaining reader = String.length reader.bytes - reader.offset
 let reserve reader length =
-  (* DEFENSE: A checkpoint ending inside a value cannot restore a world. *)
-  if length < 0 || length > remaining reader then raise Invalid_checkpoint;
+  (* DEFENSE: A state ending inside a value cannot restore a world. *)
+  if length < 0 || length > remaining reader then raise Invalid_state;
   let offset = reader.offset in
   reader.offset <- offset + length;
   offset
@@ -28,18 +28,18 @@ let write_big_int output value = write_string output (Big_int_Z.string_of_big_in
 let read_big_int reader =
   let spelling = read_string reader in
   (* DEFENSE: A structurally invalid image can contain a non-integer spelling. *)
-  try Big_int_Z.big_int_of_string spelling with Invalid_argument _ | Failure _ -> raise Invalid_checkpoint
+  try Big_int_Z.big_int_of_string spelling with Invalid_argument _ | Failure _ -> raise Invalid_state
 
 let write_bool output value = write_char output (if value then '\001' else '\000')
 let read_bool reader = match read_char reader with
   | '\000' -> false
   | '\001' -> true
   (* DEFENSE: An invalid tag cannot select a boolean or optional value. *)
-  | _ -> raise Invalid_checkpoint
+  | _ -> raise Invalid_state
 let write_unit output () = write_char output '\000'
 let read_unit reader =
   (* DEFENSE: A unit value occupies a validated byte, as do list elements. *)
-  if read_char reader <> '\000' then raise Invalid_checkpoint
+  if read_char reader <> '\000' then raise Invalid_state
 
 let write_option write output = function
   | None -> write_bool output false
@@ -51,7 +51,7 @@ let write_list write output values =
 let read_list read reader =
   let length = read_length reader in
   (* DEFENSE: Every element occupies bytes, so an impossible count cannot allocate a list. *)
-  if length < 0 || length > remaining reader then raise Invalid_checkpoint;
+  if length < 0 || length > remaining reader then raise Invalid_state;
   let rec loop count values =
     if count = 0 then List.rev values
     else loop (count - 1) (read reader :: values) in

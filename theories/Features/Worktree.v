@@ -43,7 +43,7 @@ Definition environment_notice : string :=
 Definition resource_task (id : N) (backend : WorkspaceBackend.backend) (task : task) :=
  let old:=task_contract task in
  let contract:=Contract (contract_profile old) (contract_tools old) (resource_settings id backend (contract_settings old))
-  (contract_max_fork old) (contract_max_descendants old) (contract_plugins old) (contract_reviewers old) (contract_birth_sequence old) in
+  (contract_max_fork old) (contract_max_descendants old) (contract_plugins old) (contract_reviewers old) in
  let history:=if WorkspaceBackend.cloud backend then task_history task++[EnvironmentNotice environment_notice] else task_history task in
  Task contract (task_current_profile task) (resource_settings id backend (task_current_settings task))
  (match task_lifecycle task with Running activity operations=>Frozen activity operations | other=>other end)
@@ -219,7 +219,7 @@ Definition born_effects {before} (birth : born_start before) :=
 Definition interpret_planned_birth {before : world} (plan : planned_start before) (current : world) :=
  let start := planned_task plan in
  let fresh := next_task current in
- let task := Tasks.start_task start (N.succ (world_sequence current)) in
+ let task := Tasks.start_task start in
  let '(prepared,resource) := match planned_resource plan with
  | UseWorkspace =>
    (match workspace_environment (settings_workspace (task_current_settings task)) with
@@ -490,7 +490,7 @@ Definition install_workspace (phase : lifecycle) (space:workspace) (guidance:Gui
  let old:=task_contract task in
  let frozen:=selected_settings (selected_workspace (primary space) (settings_workspace (contract_settings old))) guidance (contract_settings old) in
  let chosen:=selected_settings space guidance (task_current_settings task) in
- let contract:=Contract (contract_profile old) (contract_tools old) frozen (contract_max_fork old) (contract_max_descendants old) (contract_plugins old) (contract_reviewers old) (contract_birth_sequence old) in
+ let contract:=Contract (contract_profile old) (contract_tools old) frozen (contract_max_fork old) (contract_max_descendants old) (contract_plugins old) (contract_reviewers old) in
  TaskWake.promote (Task contract (task_current_profile task) chosen phase
  (task_history task ++ [SettingsMessage chosen (profile_key (task_current_profile task)) (profile_reasoning (task_current_profile task))])
  (task_queued task) (task_lineage task) (task_side_handoff task) (task_model_cursor task)).

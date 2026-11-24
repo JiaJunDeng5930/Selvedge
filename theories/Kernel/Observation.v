@@ -57,7 +57,7 @@ Definition effect_packet (state : world) (value : effect) := match value with
     Reasoning.sampling model (task_current_profile task);
     (if (0 <? reserve)%N then ContextSelection.assemble selected source scope else ContextSelection.portable_messages source);
     (0 <? reserve)%N;scope;(match selected with ContextSelection.Replacement length _ _ => Some length | _ => None end);
-    reserve;N.of_nat (List.length (task_history task));contract_birth_sequence (task_contract task);
+    reserve;N.of_nat (List.length (task_history task));
     map (fun source => JString (RealtimeContext.name source)) (settings_realtime_context (task_current_settings task));
     map tool_json (contract_tools (task_contract task));ModelRequest.callable request!]
  | RequestReasoning id ticket task => let model := task_current_profile task in Variant.pack ModelDeclarations.reasoning

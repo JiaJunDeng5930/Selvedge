@@ -119,7 +119,7 @@ async function start(directory, launch, writeAtomic, handoff) {
     if (handoff) {
       const result = await Promise.race([prepared, exited]);
       // DEFENSE: A candidate can fail, exit, or time out while replaying the live journal.
-      if (result !== journalPrepared) throw new Error('Candidate could not prepare journal replay', { cause: result });
+      if (result !== journalPrepared) throw new Error('Candidate could not load the committed state', { cause: result });
       await handoff();
       await new Promise((resolve, reject) => {
         child.send(takeJournalOwnership, error => error ? reject(error) : resolve());

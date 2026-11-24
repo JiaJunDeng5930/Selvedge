@@ -12,13 +12,13 @@ const buildDirectory = path.join(root, '.build');
 const digest = value => createHash('sha256').update(value).digest('hex');
 const stateFile = path.join(buildDirectory, 'build-state.json');
 const productionTargets = ['schema', 'kernel', 'host', 'browser', 'interaction'];
-const checkpointModule = 'theories/Kernel/Checkpoint.v';
-const checkpointGenerator = 'scripts/generate-checkpoint-codec.ml';
-const checkpointEntries = [
+const persistenceModule = 'theories/Kernel/Persistence.v';
+const persistenceGenerator = 'scripts/generate-state-codec.ml';
+const persistenceEntries = [
   ...['encode_context_key', 'decode_context_key', 'encode_context_snapshot', 'decode_context_snapshot',
     'encode_board_clock', 'decode_board_clock', 'encode_connection_grants', 'decode_connection_grants',
     'decode_chatgpt_arguments', 'encode_title_instruction', 'decode_title_instruction',
-    'encode_settings_request', 'decode_settings_request'].map(entry => `Kernel.Checkpoint.${entry}`),
+    'encode_settings_request', 'decode_settings_request'].map(entry => `Kernel.Persistence.${entry}`),
   'Kernel.ChatgptArguments.encode', 'Kernel.Guidance.json', 'Kernel.Guidance.parse',
 ];
 const exists = filename => stat(path.join(root, filename)).then(() => true, error => {
@@ -111,7 +111,7 @@ export async function build(options = {}) {
     if (!targets[name]) throw new Error(`Unknown build target: ${name}`);
     return `theories/${targets[name].module.replaceAll('.', '/')}.v`;
   }), ...moduleFiles, ...(selected.length ? ['theories/Foundation/TextJson.v'] : []),
-  ...(selected.includes('kernel') ? [checkpointModule] : [])];
+  ...(selected.includes('kernel') ? [persistenceModule] : [])];
   await mkdir(buildDirectory, { recursive: true });
   for (const filename of moduleFiles) if (!await exists(filename)) throw new Error(`Requested Rocq module is missing: ${filename}`);
   for (const name of selected) {
@@ -296,7 +296,7 @@ export async function build(options = {}) {
         ...(allModules ? Object.values(targets) : selected.map(name => targets[name]))
           .flatMap(target => target.entry.map(entry => `${target.module}.${entry}`)),
         ...(selected.length ? Object.values(jsonEntries) : []),
-        ...(selected.includes('kernel') ? checkpointEntries : [])
+        ...(selected.includes('kernel') ? persistenceEntries : [])
       ] });
     }
     await assertInputsUnchanged();
@@ -319,12 +319,12 @@ export async function build(options = {}) {
         .replaceAll('@MODEL@', target.model).replaceAll('@GLOBAL@', target.global)
         .replaceAll('@ENTRY@', `selvedge_${name}_call`).replaceAll('@MATERIALIZE@', `selvedge_${name}_materialize_native_roots`);
       const jsonIo = (await readInput('runtime/json_io.ml')).toString('utf8');
-      const checkpoint = name === 'kernel' ? {
-        source: (await readInput('runtime/checkpoint_wire.ml')).toString('utf8'),
-        generator: digest(await readInput(checkpointGenerator)),
-        domain: next[checkpointModule],
+      const persistence = name === 'kernel' ? {
+        source: (await readInput('runtime/state_wire.ml')).toString('utf8'),
+        generator: digest(await readInput(persistenceGenerator)),
+        domain: next[persistenceModule],
       } : null;
-      const key = digest(JSON.stringify([extractionIdentity, next[filename], next['theories/Foundation/TextJson.v'], runtime, jsonIo, preparedExtraction, checkpoint]));
+      const key = digest(JSON.stringify([extractionIdentity, next[filename], next['theories/Foundation/TextJson.v'], runtime, jsonIo, preparedExtraction, persistence]));
       const output = `.build/${name}-model.mjs`;
       const actual = [await fingerprint(output)];
       const expected = state[`target:${name}:artifacts`];
@@ -346,15 +346,15 @@ export async function build(options = {}) {
       const jsonAliases = Object.entries(jsonEntries).map(([alias, entry]) => `Definition ${alias} := Selvedge.${entry}.`).join('\n');
       // Separate extraction preserves module aliases used by typed domain surfaces.
       // Each target owns its OCaml units; ocamldep supplies their compilation order.
-      const checkpointImport = checkpoint ? 'From Selvedge.Kernel Require Import Checkpoint.' : '';
-      const checkpoints = checkpoint ? checkpointEntries.map(entry => `Selvedge.${entry}`).join(' ') : '';
-      const extraction = `From Selvedge.${target.module.split('.')[0]} Require Import ${target.module.split('.')[1]}.\nFrom Selvedge.Foundation Require Import TextJson.\n${checkpointImport}\nLoad "runtime/Extraction.v".\n${preparedExtraction}\n${aliases}\n${jsonAliases}\nSet Extraction Output Directory "${directory}".\nSeparate Extraction ${target.entry.map(entry => `selvedge_${name}_${entry}`).join(' ')} ${Object.keys(jsonEntries).join(' ')} ${checkpoints}.\n`;
+      const persistenceImport = persistence ? 'From Selvedge.Kernel Require Import Persistence.' : '';
+      const persistences = persistence ? persistenceEntries.map(entry => `Selvedge.${entry}`).join(' ') : '';
+      const extraction = `From Selvedge.${target.module.split('.')[0]} Require Import ${target.module.split('.')[1]}.\nFrom Selvedge.Foundation Require Import TextJson.\n${persistenceImport}\nLoad "runtime/Extraction.v".\n${preparedExtraction}\n${aliases}\n${jsonAliases}\nSet Extraction Output Directory "${directory}".\nSeparate Extraction ${target.entry.map(entry => `selvedge_${name}_${entry}`).join(' ')} ${Object.keys(jsonEntries).join(' ')} ${persistences}.\n`;
       const extractionFile = path.relative(root, path.join(publicationDirectory, `Extract${target.model}.v`));
       await writeChanged(extractionFile, extraction);
       await run('rocq', ['c', ...flags, extractionFile]);
       await writeChanged(`${directory}/${target.model}.ml`, `include Json\ninclude Extract${target.model}\n`);
       await writeChanged(`${directory}/json_io.ml`, jsonIo);
-      if (!checkpoint) await writeChanged(`${directory}/entry.ml`, runtime);
+      if (!persistence) await writeChanged(`${directory}/entry.ml`, runtime);
       // Extraction and its runtime wrappers share one dependency-ordered unit
       // list. A wrapper is compiled and linked exactly once, like every unit.
       const extracted = (await readdir(path.join(root, directory)))
@@ -366,14 +366,14 @@ export async function build(options = {}) {
         if (await exists(signature)) await run('ocamlfind', [...ocaml, '-c', signature]);
         await run('ocamlfind', [...ocaml, '-c', source]);
       }
-      let checkpointSchema;
-      if (checkpoint) {
+      let persistenceSchema;
+      if (persistence) {
         const zarith = (await run('ocamlfind', ['query', 'zarith'])).trim();
-        await run('ocaml', ['-I', '+compiler-libs', 'ocamlcommon.cma', checkpointGenerator, directory, zarith, `Extract${target.model}`]);
-        checkpointSchema = digest(await readFile(path.join(root, directory, 'checkpoint-shape.txt')));
-        await writeChanged(`${directory}/checkpoint_wire.ml`, checkpoint.source);
+        await run('ocaml', ['-I', '+compiler-libs', 'ocamlcommon.cma', persistenceGenerator, directory, zarith, `Extract${target.model}`]);
+        persistenceSchema = digest(await readFile(path.join(root, directory, 'state-shape.txt')));
+        await writeChanged(`${directory}/state_wire.ml`, persistence.source);
         await writeChanged(`${directory}/entry.ml`, runtime);
-        for (const source of ['checkpoint_wire.ml', 'checkpoint_state.ml', 'entry.ml']) {
+        for (const source of ['state_wire.ml', 'stored_state.ml', 'entry.ml']) {
           const filename = `${directory}/${source}`;
           await run('ocamlfind', [...ocaml, '-c', filename]);
           ordered.push(filename);
@@ -386,12 +386,12 @@ export async function build(options = {}) {
         : name === 'browser' ? 'export const publishBrowserDocument = runtime.publishNativeDocument;\n'
         : name === 'interaction' ? 'export const prepareInteraction = runtime.prepare;\nexport const rebaseInteraction = runtime.rebase;\nexport const preparedInteractionCall = runtime.preparedCall;\nexport const publishNativeDocument = runtime.publishNativeDocument;\nexport const publishNativeRegion = runtime.publishNativeRegion;\nexport const publishNativeStream = runtime.publishNativeStream;\n' : '';
       const exports = name === 'kernel'
-        ? 'export const initial = runtime.initial;\nexport const packet = runtime.packet;\nexport const replay = runtime.replay;\nexport const checkpoint = runtime.checkpoint;\nexport const restoreCheckpoint = runtime.restoreCheckpoint;\nexport const observe = runtime.observe;\nexport const assess = runtime.assess;\n'
+        ? 'export const initial = runtime.initial;\nexport const packet = runtime.packet;\nexport const initialShared = runtime.initialShared;\nexport const restoreState = runtime.restoreState;\nexport const observe = runtime.observe;\nexport const assess = runtime.assess;\n'
         : `export const ${target.exported} = runtime.call;\n${extraExports}`;
       // Keep each runtime and its exports in one atomically replaceable module.
       const runtimeBundle = `${await readFile(stagedRuntime, 'utf8')}\nconst runtime = globalThis.${target.global};\ndelete globalThis.${target.global};\n${exports}`;
-      const bundle = checkpoint
-        ? `${runtimeBundle}export const checkpointSchema = ${JSON.stringify(checkpointSchema)};\n`
+      const bundle = persistence
+        ? `${runtimeBundle}export const persistenceSchema = ${JSON.stringify(persistenceSchema)};\n`
         : runtimeBundle;
       publications.set(output, bundle);
       if (['host','browser','interaction'].includes(name)) {

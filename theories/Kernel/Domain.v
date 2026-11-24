@@ -183,8 +183,7 @@ Record contract := Contract {
   contract_max_fork : N;
   contract_max_descendants : N;
   contract_plugins : list json;
-  contract_reviewers : list profile;
-  contract_birth_sequence : N
+  contract_reviewers : list profile
 }.
 Inductive image_detail := ImageAuto | ImageLow | ImageHigh.
 Record image_asset := ImageAsset {
