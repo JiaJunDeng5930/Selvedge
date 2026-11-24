@@ -33,15 +33,17 @@ Proof. reflexivity. Qed.
     owner; it must not restart that owner's initial focus policy. *)
 Theorem closing_child_restores_owner : forall parent child
  parent_initial parent_restore parent_fallback parent_occurrence
- child_initial child_restore child_fallback child_occurrence eligible,
+ child_initial child_restore child_fallback child_occurrence eligible
+ focused_before focused_after focused_visible root_visible root_eligible,
  String.eqb child parent = false ->
- request
+ physical_request
   [Temporary parent parent_initial parent_restore parent_fallback parent_occurrence;
    Temporary child child_initial child_restore child_fallback child_occurrence]
   [Temporary parent parent_initial parent_restore parent_fallback parent_occurrence]
-  eligible = Some(child_restore,parent_initial).
+  eligible focused_before focused_after focused_visible root_visible root_eligible =
+ Some(child_restore,parent_initial).
 Proof.
- intros. unfold request,top,transition,changed,invalid_retained,same_scope.
+ intros. unfold physical_request,observed_request,request,top,transition,changed,invalid_retained,same_scope.
  simpl. rewrite H,String.eqb_refl. simpl.
  destruct parent_occurrence; simpl; rewrite ?N.eqb_refl; reflexivity.
 Qed.
@@ -92,18 +94,19 @@ Proof.
 Qed.
 
 Theorem hidden_temporary_child_recovers_to_a_visible_root : forall previous identity initial restore fallback occurrence eligible before focused,
+ observed_request previous [Temporary identity initial restore fallback occurrence] eligible before (Some focused) = None ->
  physical_request previous [Temporary identity initial restore fallback occurrence] eligible before (Some focused)
    false true true = Some(identity,identity).
-Proof. reflexivity. Qed.
+Proof. intros. unfold physical_request. now rewrite H. Qed.
 Theorem visible_temporary_focus_keeps_its_scope_policy : forall previous identity initial restore fallback occurrence eligible before after root_visible root_eligible,
  physical_request previous [Temporary identity initial restore fallback occurrence] eligible before after
    true root_visible root_eligible =
  observed_request previous [Temporary identity initial restore fallback occurrence] eligible before after.
-Proof. intros; destruct after; reflexivity. Qed.
+Proof. intros. unfold physical_request. destruct observed_request, after; reflexivity. Qed.
 Theorem document_focus_keeps_its_scope_policy : forall previous eligible before after focused_visible root_visible root_eligible,
  physical_request previous [Document] eligible before after focused_visible root_visible root_eligible =
  observed_request previous [Document] eligible before after.
-Proof. reflexivity. Qed.
+Proof. intros. unfold physical_request. destruct observed_request; reflexivity. Qed.
 
 Theorem first_document_focuses_its_message_input eligible :
  request [] [Document] eligible=Some("composer-message","composer-message").

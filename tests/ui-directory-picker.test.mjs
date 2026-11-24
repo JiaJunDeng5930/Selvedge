@@ -24,7 +24,7 @@ test('the workspace directory browser identifies host directories and supports k
   const folderButton = picker.getByRole('button', { name: folder, exact: true });
   await folderButton.waitFor();
   assert.equal(await location.inputValue(), root);
-  assert.equal(await picker.getByRole('status').count(), 0, 'Ordinary browsing has no Git status');
+  assert.equal(await picker.getByRole('status').filter({ hasText: /Git/ }).count(), 0, 'Ordinary browsing has no Git requirement');
   const nested = picker.getByRole('button', { name: 'Nested folder', exact: true });
   await folderButton.press('Enter');
   await nested.waitFor();

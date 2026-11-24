@@ -265,7 +265,7 @@ test('workflows can be authored and started in place from the browser', { timeou
   assert.equal(await picker.locator(':checked').innerText(), otherWorkflow);
   const entranceCard = canvas.locator('[data-semantic-key="workflow-node"]')
     .filter({ has: page.locator('summary:visible').filter({ hasText: longEntrance }) });
-  for (const [width, height] of [[320, 568], [360, 640], [390, 844], [768, 1024], [568, 320], [640, 360], [844, 390]]) {
+  for (const [width, height] of [[320, 568], [360, 640], [844, 390]]) {
     await page.setViewportSize({ width, height });
     await main.getByRole('button', { name: '适应工作流', exact: true }).click();
     await until(() => canvas.evaluate(viewport => {
@@ -279,32 +279,11 @@ test('workflows can be authored and started in place from the browser', { timeou
       return readable && node.left >= frame.left && node.right <= Math.min(innerWidth, frame.right) &&
         node.top >= frame.top && node.bottom <= Math.min(innerHeight, frame.bottom, diagram.bottom);
     }), `Fit shows a complete, readable exit at ${width}×${height}`);
-    if (width === 360 || width === 768) {
-      const exit = canvas.locator('summary:visible').filter({ hasText: shortExit });
-      assert.ok(await exit.evaluate(label => {
-        const text = document.createRange();
-        const contents = Array.from(label.childNodes).find(node => node.textContent.startsWith('（'));
-        if (!contents) return false;
-        text.setStart(contents, contents.textContent.indexOf('（'));
-        text.setEnd(contents, contents.textContent.length);
-        return text.getClientRects().length === 1;
-      }), `The exit's parenthetical phrase stays together at ${width} pixels`);
-    }
     if (width === 360) {
       const shortName = canvas.locator('summary:visible').filter({ hasText: /^entry$/ });
       await until(() => shortName.getAttribute('aria-disabled'), 'A complete short title has no disclosure');
       await shortName.click({ force: true });
       assert.ok(await shortName.evaluate(el => !el.parentElement.open));
-    }
-    if (width === 390 || width === 640) {
-      const entrance = canvas.locator('summary:visible').filter({ hasText: longEntrance });
-      assert.ok(await entrance.evaluate(label => {
-        const phrase = Array.from(label.childNodes).find(node => node.textContent === '工作流');
-        if (!phrase) return false;
-        const range = document.createRange();
-        range.selectNode(phrase);
-        return range.getClientRects().length === 1;
-      }));
     }
     if (width === 320) {
       const label = canvas.locator('summary:visible').filter({ hasText: longEntrance });

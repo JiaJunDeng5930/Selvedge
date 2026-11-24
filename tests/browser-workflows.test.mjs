@@ -168,7 +168,7 @@ test('Work navigation preserves Project grouping and opens the same conversation
   await seeDestination();
 });
 
-test('Project task creation restores Project workspace inheritance through the browser', async t => {
+test('Project task creation distinguishes restored workspace inheritance from an explicit empty workspace', async t => {
   const { fixture, root, project_id } = await projectWorkspaceFixture(t);
   const { page, command } = fixture;
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
@@ -198,15 +198,11 @@ test('Project task creation restores Project workspace inheritance through the b
   const inheritedTask = (await command({ op: 'read', task_id: inherited })).task;
   assert.equal(inheritedTask.settings.project_id, project_id);
   assert.deepEqual(inheritedTask.settings.workspace, { roots: [root], primary_root: root });
-});
 
-test('Project task creation preserves explicitly empty workspaces through the browser', async t => {
-  const { fixture, root, project_id } = await projectWorkspaceFixture(t);
-  const { page, command } = fixture;
+  await page.getByRole('combobox', { name: 'Message', exact: true }).waitFor();
   await projectTask(page);
-  const environment = await openCreationEnvironment(page);
+  await openCreationEnvironment(page);
   await environment.locator('button[data-logical-key="composer/workspace"]').click();
-  const workspace = page.getByRole('dialog', { name: '工作目录', exact: true });
   await workspace.getByRole('button', { name: '移除目录', exact: true }).click();
   await workspace.getByRole('button', { name: '使用继承的工作目录', exact: true }).waitFor();
   await page.keyboard.press('Escape');
@@ -260,11 +256,26 @@ test('ordered image content and the active composer survive responsive navigatio
 
   const message = page.getByRole('combobox', { name: 'Message', exact: true });
   await message.fill('Keep this unsent draft while narrowing.');
+  const tree = page.getByRole('navigation', { name: 'Task tree', exact: true });
+  await page.getByRole('button', { name: /Collapse.*(?:Task|sidebar)/ }).click();
+  await tree.waitFor({ state: 'hidden' });
+  await page.getByRole('button', { name: /Expand.*(?:Task|sidebar)/ }).click();
+  await tree.waitFor();
+  assert.equal(await message.inputValue(), 'Keep this unsent draft while narrowing.');
   await message.focus();
   const narrowWidth = 390;
   await page.setViewportSize({ width: narrowWidth, height: 900 });
   const tasks = page.getByRole('button', { name: 'Open Task list', exact: true });
   await tasks.waitFor();
+  const composerActions = [
+    page.getByLabel('Attach files', { exact: true }),
+    page.locator('summary[aria-label="Voice"]'),
+    page.getByRole('button', { name: '发送', exact: true }),
+  ];
+  for (const action of composerActions) {
+    const box = await action.boundingBox();
+    assert.ok(box && box.width >= 44 && box.height >= 44, 'Primary composer actions need usable mobile touch targets');
+  }
   assert.equal(await message.evaluate(node => node === document.activeElement), true,
     'A layout change must preserve the user activity instead of opening the Task tree');
   assert.equal(await message.inputValue(), 'Keep this unsent draft while narrowing.');

@@ -1,7 +1,5 @@
 import assert from 'node:assert/strict';
-import { access } from 'node:fs/promises';
-import { constants } from 'node:fs';
-import { chromium } from 'playwright-core';
+import { launchChromium } from './chromium.mjs';
 import { interactiveMarkdownFixture } from './interactive-markdown.mjs';
 import { imagesFixture } from './images.mjs';
 
@@ -22,27 +20,9 @@ export async function enableCreationWorktree(page) {
   return menu;
 }
 
-async function chromiumExecutable() {
-  const requested = process.env.SELVEDGE_CHROMIUM_EXECUTABLE_PATH;
-  if (requested) {
-    await access(requested, constants.X_OK);
-    return requested;
-  }
-  for (const filename of ['/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome']) {
-    try {
-      await access(filename, constants.X_OK);
-      return filename;
-    } catch (error) {
-      // DEFENSE: Linux distributions install Chromium under different executable names.
-      if (error.code !== 'ENOENT') throw error;
-    }
-  }
-  throw new Error('Browser acceptance requires Chromium. Install it or set SELVEDGE_CHROMIUM_EXECUTABLE_PATH.');
-}
-
 /** Only the loopback model is controlled; pages use the complete authenticated server. */
 export async function browserFixture(t, { images = false, taskTitle, cloud = false } = {}) {
-  const browser = await chromium.launch({ executablePath: await chromiumExecutable(), headless: true });
+  const browser = await launchChromium();
   t.after(() => browser.close());
   const fixture = images ? await imagesFixture(t) : await interactiveMarkdownFixture({ taskTitle, cloud });
   if (!images) t.after(() => fixture.close());

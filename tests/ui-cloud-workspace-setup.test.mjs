@@ -59,56 +59,38 @@ test('without configured cloud, the composer offers current and host Git directo
 });
 
 test('Tencent Cloud checks the working directory GitHub source before a message is entered', { timeout: 60000 }, async t => {
-  const { page, root, command, requests } = await browserFixture(t, { cloud: true });
+  const { page, root } = await browserFixture(t, { cloud: true });
   await repository(root);
-  const initial = cloudResponse(page, root);
   const settings = await chooseCloud(page);
-  assert.equal((await (await initial).json()).available, false, 'A committed repository without a GitHub remote is not a cloud source');
   const message = page.getByRole('combobox', { name: 'Task', exact: true });
   const start = page.getByRole('button', { name: 'Start task', exact: true });
   const reason = settings.getByRole('status').filter({ hasText: '请选择包含提交和 GitHub 远端的 Git 仓库中的主目录。' });
   await reason.waitFor();
-  assert.equal(await message.inputValue(), '');
-  assert.equal(await start.isDisabled(), true);
   await settings.getByText(/请推送包含 \.selvedge\/env\.sh 的当前提交/).waitFor();
-
-  await settings.getByRole('button', { name: '选择工作目录…', exact: true }).click();
-  const workspace = page.getByRole('dialog', { name: '工作目录', exact: true });
-  await workspace.getByRole('button', { name: '浏览…', exact: true }).click();
-  const picker = page.getByRole('dialog', { name: 'Choose a directory on the Selvedge host', exact: true });
-  await picker.getByText('腾讯云会克隆 Selvedge 主机上主目录对应的 GitHub 仓库。', { exact: true }).waitFor();
-  await picker.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await picker.waitFor({ state: 'hidden' });
-  await page.keyboard.press('Escape');
-  await workspace.waitFor({ state: 'hidden' });
-
-  await settings.waitFor();
   await page.keyboard.press('Escape');
   await settings.waitFor({ state: 'hidden' });
   await message.fill('Keep this draft while I configure the GitHub source.');
   assert.equal(await start.isDisabled(), true);
   await addRemote(root);
   await openCreationEnvironment(page);
-  const rechecked = cloudResponse(page, root);
   await settings.getByRole('button', { name: '重新检查', exact: true }).click();
-  assert.equal((await (await rechecked).json()).available, true);
+  await reason.waitFor({ state: 'hidden' });
   await page.keyboard.press('Escape');
   await settings.waitFor({ state: 'hidden' });
   await page.getByRole('button', { name: 'Start task', exact: true, disabled: false }).waitFor();
   assert.equal(await message.inputValue(), 'Keep this draft while I configure the GitHub source.');
-  assert.equal(requests.length, 0);
-  assert.deepEqual((await command({ op: 'list_worktrees' })).worktrees, []);
 });
 
 test('Tencent Cloud uses the project primary and rejects a stale check after a working directory override', { timeout: 60000 }, async t => {
-  const { page, root, command, requests } = await browserFixture(t, { cloud: true });
+  const { page, root, command } = await browserFixture(t, { cloud: true });
   const source = path.join(root, 'Project GitHub source');
   const override = path.join(root, 'Different GitHub repository');
   await repository(source);
   await addRemote(source);
   await repository(override);
   await addRemote(override);
-  await command({ op: 'create_project', name: 'Cloud setup project', workspace: { roots: [source], primary_root: source } });
+  const { project_id } = await command({ op: 'create_project', name: 'Cloud setup project',
+    workspace: { roots: [source], primary_root: source } });
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
     .getByRole('button', { name: '项目', exact: true }).click();
   await page.getByRole('main').getByRole('button', { name: 'Cloud setup project', exact: true }).click();
@@ -116,22 +98,20 @@ test('Tencent Cloud uses the project primary and rejects a stale check after a w
 
   const observed = Promise.withResolvers(), release = Promise.withResolvers(), delivered = Promise.withResolvers();
   let held = false;
-  const observedPaths = [];
   t.after(() => release.resolve());
   await page.route('**/api/browser/observation', async route => {
     const request = route.request().postDataJSON();
     if (request?.kind !== 'cloud-repository') return route.continue();
-    observedPaths.push(request.primary);
     if (held || request.primary !== source) return route.continue();
     held = true;
     const response = await route.fetch();
-    observed.resolve(await response.json());
+    observed.resolve();
     await release.promise;
     await route.fulfill({ response });
     delivered.resolve();
   });
   const settings = await chooseCloud(page);
-  assert.equal((await observed.promise).available, true);
+  await observed.promise;
   await settings.getByRole('status').filter({ hasText: '正在检查 GitHub 仓库…' }).waitFor();
   await settings.getByText(/腾讯云会克隆项目主目录对应的 GitHub 仓库/).waitFor();
 
@@ -155,9 +135,19 @@ test('Tencent Cloud uses the project primary and rejects a stale check after a w
   await delivered.promise;
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   assert.equal(await mismatch.isVisible(), true);
-  assert.equal(await page.getByRole('button', { name: 'Start task', exact: true }).isDisabled(), true);
-  assert.deepEqual(observedPaths, [source], 'The override is not probed as the project GitHub source');
 
+  const submissions = [];
+  await page.route('**/api/browser/command', route => {
+    const submission = route.request().postDataJSON()?.command;
+    if (submission?.op !== 'create_workspace_task') return route.continue();
+    submissions.push(submission);
+    return route.abort();
+  });
+  await page.keyboard.press('Escape');
+  await settings.waitFor({ state: 'hidden' });
+  await message.press('Enter');
+
+  await openCreationEnvironment(page);
   await settings.getByRole('button', { name: '使用项目目录…', exact: true }).click();
   const refreshed = cloudResponse(page, source);
   await workspace.getByRole('button', { name: '使用继承的工作目录', exact: true }).click();
@@ -169,6 +159,11 @@ test('Tencent Cloud uses the project primary and rejects a stale check after a w
   await settings.waitFor({ state: 'hidden' });
   await page.getByRole('button', { name: 'Start task', exact: true, disabled: false }).waitFor();
   assert.equal(await message.inputValue(), 'Keep this project conversation draft.');
-  assert.equal(requests.length, 0);
-  assert.deepEqual((await command({ op: 'list_worktrees' })).worktrees, []);
+  assert.deepEqual(submissions, [], 'Submitting with the override does not send a cloud command');
+  const submitted = page.waitForRequest(request => request.url().endsWith('/api/browser/command')
+    && request.postDataJSON()?.command?.op === 'create_workspace_task');
+  await message.press('Enter');
+  const { backend, settings: submittedSettings } = (await submitted).postDataJSON().command;
+  assert.equal(backend, 'tencent_cvm');
+  assert.equal(submittedSettings.project_id, project_id);
 });

@@ -531,7 +531,11 @@ Definition overlay_projection_dirty before after incoming snapshot layer :=
      |_=>true end else match incoming with
      |Some (Input.ReadTimeline _ _ _)|Some (Input.FollowLatest _)|Some (Input.SetDisclosure _ _ _ _)=>false
      |_=>section_changed "authoring" ["drafts";"pending";"mentions";"skills"] before after ||
-         section_changed "services" ["command_assessments";"connection";"directory";"preparations";"workspace_git";"uploads"] before after
+         section_changed "services" ["command_assessments";"connection";"directory";"preparations";
+           "workspace_git";"cloud_repository";"uploads"] before after ||
+         match panel with
+         |Session.BoardFiltersPanel=>state_changed ["board"] before after
+         |_=>false end
      end
    end
  |V.DirectoryOverlay=>section_changed "services" ["directory";"directory_location";"preparations";"workspace_git"] before after ||
@@ -620,7 +624,8 @@ Definition planned_regions (context : prepared) : option region_plan :=
  let dirty_composer:=match owner with Some _=>true|_=>false end ||
    state_changed ["speech"] before context ||
    section_changed "authoring" ["drafts";"pending";"skills";"mentions";"draft_model_manual"] before context ||
-   section_changed "services" ["command_assessments";"uploads";"preparations";"workspace_git";"model_preference";"connection"] before context in
+   section_changed "services" ["command_assessments";"uploads";"preparations";"directory";
+     "workspace_git";"cloud_repository";"model_preference";"connection"] before context in
  let configuring state:=Pages.run_environment_configuring state
    (NewTask(Session.active_work(Session.navigation_state state))) in
  let creation_feedback:=V.creation_editor current &&

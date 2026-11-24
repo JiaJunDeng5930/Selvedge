@@ -136,34 +136,23 @@ async function sendSide(page, question) {
   await message.press('Enter');
 }
 
-test('conversation scope stays anchored and opens a separate named Work editor', async t => {
-  const { page } = await browserFixture(t);
-  const picker = page.getByRole('button', { name: '对话范围 · 全部对话', exact: true });
-  const menu = page.getByRole('menu', { name: '对话范围', exact: true });
-  for (const width of [1280, 390]) {
-    await page.setViewportSize({ width, height: 844 });
-    if (width === 390) await page.getByRole('button', { name: 'Open Task list', exact: true }).waitFor();
-    const anchor = await picker.boundingBox();
-    await picker.click();
-    await menu.getByRole('menuitemradio', { name: '全部对话', exact: true, checked: true })
-      .and(page.locator(':focus')).waitFor();
-    const bounds = await menu.boundingBox();
-    assert.ok(anchor && bounds && bounds.x >= anchor.x - 12 && bounds.x <= anchor.x + 24);
-    assert.ok(bounds.y >= anchor.y + anchor.height && bounds.y < anchor.y + anchor.height + 30);
-    assert.ok(await menu.getByText('0 个对话', { exact: true })
-      .evaluate(count => count.scrollWidth <= count.clientWidth), 'The complete scope count is visible');
-    assert.equal(await menu.evaluate(node => getComputedStyle(node.closest('dialog'), '::backdrop').backgroundColor),
-      'rgba(0, 0, 0, 0)');
-    await page.keyboard.press('Escape');
-    await menu.waitFor({ state: 'hidden' });
-    await picker.and(page.locator(':focus')).waitFor();
-  }
-  await startWork(page, '产品调研', true);
-});
-
 test('late Work creation cannot replace newer creation, navigation, or sidebar visibility choices', { timeout: 60000 }, async t => {
   const fixture = await browserFixture(t);
   const { page, command } = fixture;
+  const scope = page.getByRole('button', { name: '对话范围 · 全部对话', exact: true });
+  const menu = page.getByRole('menu', { name: '对话范围', exact: true });
+  await scope.click();
+  await menu.getByRole('menuitemradio', { name: '全部对话', exact: true, checked: true })
+    .and(page.locator(':focus')).waitFor();
+  await menu.getByText('0 个对话', { exact: true }).waitFor();
+  await page.keyboard.press('Escape');
+  await menu.waitFor({ state: 'hidden' });
+  await scope.and(page.locator(':focus')).waitFor();
+  await startWork(page, '产品调研', true);
+  await page.getByRole('button', { name: '对话范围 · 产品调研', exact: true }).click();
+  await menu.getByRole('menuitemradio', { name: '全部对话', exact: true }).click();
+  await scope.waitFor();
+
   const { task_id } = await command({ op: 'create_idle', profile: 'demo' });
   await selectTask(fixture, task_id);
 

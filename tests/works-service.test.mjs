@@ -22,31 +22,7 @@ async function postCommand(running, command) {
   return result({ reply: await response.json() });
 }
 
-test('HTTP Work creation observes its selected Project workspace before dispatch', async t => {
-  const directory = await realpath(await home(t));
-  const workspace = path.join(directory, 'project 世界');
-  await mkdir(workspace);
-  const guidance = path.join(workspace, 'AGENTS.override.md');
-  await writeFile(guidance, 'Original Project guidance.');
-  const config = validateConfig({ ...defaultConfig, chatgpt: false, port: 0,
-    profiles: { demo: { provider: 'echo', model: 'echo' } } });
-  const running = await startServer({ home: path.join(directory, 'state'), cwd: directory, config });
-  t.after(() => running.close());
-  const post = command => postCommand(running, command);
-  const { project_id } = await post({ op: 'create_project', name: 'Selected Project', workspace: { roots: [workspace] } });
-  await writeFile(guidance, 'Observe this Work Task workspace.');
-  const { work_id } = await post({ op: 'create_work', name: '登录功能\n"世界" 😀' });
-  const { task_id } = await post({ op: 'create_work_task', work_id, profile: 'demo',
-    message: 'Discuss the Work 世界', settings: { project_id } });
-  const page = await taskIdle(running.service, task_id);
-  assert.deepEqual(page.task.settings.workspace, { roots: [workspace], primary_root: workspace });
-  assert.ok(page.messages.some(message => message.type === 'context_change' && message.change.type === 'introduce'
-    && message.change.snapshot.value.fields.path === guidance
-    && message.change.snapshot.value.fields.content === 'Observe this Work Task workspace.'),
-  'The dispatched Work Task receives the file changed after its Project was registered');
-});
-
-test('HTTP Work worktree creation observes the default cwd before dispatch', async t => {
+test('HTTP Work tasks observe the selected Project workspace or the default Git source', async t => {
   const directory = await realpath(await home(t));
   const repository = path.join(directory, 'source checkout');
   await mkdir(repository);
@@ -63,6 +39,10 @@ test('HTTP Work worktree creation observes the default cwd before dispatch', asy
   await writeFile(filename, 'Committed source data.');
   await git('add', 'tracked.txt');
   await git('commit', '-m', 'Initial Work checkout');
+  const workspace = path.join(directory, 'project 世界');
+  await mkdir(workspace);
+  const guidance = path.join(workspace, 'AGENTS.override.md');
+  await writeFile(guidance, 'Original Project guidance.');
   const config = validateConfig({ ...defaultConfig, chatgpt: false, port: 0,
     profiles: { demo: { provider: 'echo', model: 'echo' } } });
   const options = { home: path.join(directory, 'state'), cwd: repository, config };
@@ -70,6 +50,17 @@ test('HTTP Work worktree creation observes the default cwd before dispatch', asy
   t.after(() => running.close());
   const post = command => postCommand(running, command);
   const { work_id } = await post({ op: 'create_work', name: 'Managed checkout Work' });
+  const { project_id } = await post({ op: 'create_project', name: 'Selected Project', workspace: { roots: [workspace] } });
+  await writeFile(guidance, 'Observe this Work Task workspace.');
+  const { task_id: projectTask } = await post({ op: 'create_work_task', work_id, profile: 'demo',
+    message: 'Discuss the Work 世界', settings: { project_id } });
+  const page = await taskIdle(running.service, projectTask);
+  assert.deepEqual(page.task.settings.workspace, { roots: [workspace], primary_root: workspace });
+  assert.ok(page.messages.some(message => message.type === 'context_change' && message.change.type === 'introduce'
+    && message.change.snapshot.value.fields.path === guidance
+    && message.change.snapshot.value.fields.content === 'Observe this Work Task workspace.'),
+  'The dispatched Work Task receives the file changed after its Project was registered');
+
   const { task_id } = await post({ op: 'create_work_task', work_id, create_worktree: true,
     profile: 'demo', message: 'Work in the copied checkout.' });
   let checkout;

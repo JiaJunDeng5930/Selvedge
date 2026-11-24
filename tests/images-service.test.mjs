@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { unlink, writeFile } from 'node:fs/promises';
 import { imagesFixture, imageBase64, imageBytes, largeImageBytes } from './fixtures/images.mjs';
 import { taskIdle } from './support.mjs';
@@ -27,7 +28,15 @@ function assertImageBytes(request, count, detail, expectedBase64 = Array(count).
   }
 }
 
-test('HTTP task images reach the signed-in model on image-only creation, continuation and journal recovery', async t => {
+async function waitForImageRequest(fixture, taskId, count) {
+  const deadline = Date.now() + 10_000;
+  // DEFENSE: A send after restart can await preparation while the task still reports idle.
+  while (fixture.requests.length < count && Date.now() < deadline) await delay(10);
+  assert.equal(fixture.requests.length, count, 'The public operation must reach the signed-in model');
+  await taskIdle(fixture.running.service, taskId);
+}
+
+test('HTTP and board images reach the signed-in model and survive journal recovery', async t => {
   const fixture = await imagesFixture(t);
   const large = largeImageBytes();
   assert.ok(large.length > 3 * 1024 * 1024);
@@ -46,25 +55,36 @@ test('HTTP task images reach the signed-in model on image-only creation, continu
 
   await fixture.restart();
   await fixture.command({ op: 'send', task_id, message: 'Compare the two earlier images.' });
-  await taskIdle(fixture.running.service, task_id);
-  assert.equal(fixture.requests.length, 3);
+  await waitForImageRequest(fixture, task_id, 3);
   assertImageBytes(fixture.requests[2], 2, 'auto', [encoded, encoded]);
-  assert.deepEqual(fixture.upstream.failures, []);
-});
 
-test('a board image attachment becomes model input when its assigned card starts', async t => {
-  const fixture = await imagesFixture(t);
-  const uploaded = await fixture.upload('board evidence.png');
+  const boardAttachment = await fixture.upload('board evidence.png');
   const created = await fixture.command({ op: 'create_card', title: 'Inspect board evidence',
-    description: 'Read the image before deciding.', assignee: `profile/${fixture.profile}`, attachments: [uploaded] });
+    description: 'Read the image before deciding.', assignee: `profile/${fixture.profile}`, attachments: [boardAttachment] });
   const { card_id } = created;
   const card = await fixture.command({ op: 'read_card', card_id });
   await fixture.command({ op: 'run_card', card_id, revision: card.revision });
-  const { task_id } = await fixture.command({ op: 'read_card', card_id });
-  assert.equal(typeof task_id, 'number');
-  await taskIdle(fixture.running.service, task_id);
-  assert.equal(fixture.requests.length, 1);
-  assertImageBytes(fixture.requests[0], 1, 'auto');
+  const { task_id: boardTask } = await fixture.command({ op: 'read_card', card_id });
+  assert.equal(typeof boardTask, 'number');
+  await waitForImageRequest(fixture, boardTask, 4);
+  assertImageBytes(fixture.requests[3], 1, 'auto');
+
+  const unsupportedAttachment = await fixture.upload();
+  const reply = await fixture.rawCommand({ op: 'create', profile: 'text',
+    message: 'Inspect this image.', images: [unsupportedAttachment] });
+  if (reply.ok) {
+    const page = await taskIdle(fixture.running.service, reply.result.task_id);
+    assert.ok(page.messages.some(message => message.role === 'error'
+      && typeof message.content === 'string' && message.content.trim()),
+      'A settled rejected image request must expose an error with an explanation');
+  } else {
+    assert.equal(reply.ok, false);
+    assert.ok(typeof reply.error?.message === 'string' && reply.error.message.trim(),
+      'A rejected image command must expose an explanation');
+  }
+  assert.equal(fixture.requests.length, 4, 'A rejected image must never become another account request');
+  assert.equal(fixture.textBackend.requests.length, 0, 'The unsupported backend must never receive a text-only fallback');
+  assert.deepEqual(fixture.textBackend.failures, []);
   assert.deepEqual(fixture.upstream.failures, []);
 });
 
@@ -123,29 +143,7 @@ test('local and MCP images reach subsequent model turns and preserve their snaps
   await unlink(filename);
   await fixture.restart();
   await fixture.command({ op: 'send', task_id, message: 'Describe the saved image again.' });
-  await taskIdle(fixture.running.service, task_id);
-  assert.equal(fixture.requests.length, 4);
+  await waitForImageRequest(fixture, task_id, 4);
   assertImageBytes(fixture.requests[3], expectedImages.length, undefined, expectedImages);
-  assert.deepEqual(fixture.upstream.failures, []);
-});
-
-test('a text-only backend reports unsupported image input without silently sending a text request', async t => {
-  const fixture = await imagesFixture(t);
-  const uploaded = await fixture.upload();
-  const reply = await fixture.rawCommand({ op: 'create', profile: 'text',
-    message: 'Inspect this image.', images: [uploaded] });
-  if (reply.ok) {
-    const page = await taskIdle(fixture.running.service, reply.result.task_id);
-    assert.ok(page.messages.some(message => message.role === 'error'
-      && typeof message.content === 'string' && message.content.trim()),
-      'A settled rejected image request must expose an error with an explanation');
-  } else {
-    assert.equal(reply.ok, false);
-    assert.ok(typeof reply.error?.message === 'string' && reply.error.message.trim(),
-      'A rejected image command must expose an explanation');
-  }
-  assert.equal(fixture.requests.length, 0, 'A rejected image must never become a text-only external request');
-  assert.equal(fixture.textBackend.requests.length, 0, 'The unsupported backend must never receive a text-only fallback');
-  assert.deepEqual(fixture.textBackend.failures, []);
   assert.deepEqual(fixture.upstream.failures, []);
 });

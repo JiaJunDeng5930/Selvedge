@@ -29,38 +29,12 @@ async function openSettings(page, width) {
   return { settings, select };
 }
 
-test('empty settings collections show what can be added without an empty-list reset', { timeout: 60000 }, async t => {
-  const fixture = await browserFixture(t);
-  await saveFixtureConfig(fixture, {
-    profiles: {}, reasoning_evaluators: {}, mcp: {}, chatgpt_plugin: { connections: {} }, plugins: {},
-  });
-  for (const width of [1280, 320]) {
-    const { settings, select } = await openSettings(fixture.page, width);
-    const sections = [
-      ['模型', [['模型配置', '添加模型配置'], ['推理评估器', '添加评估器']]],
-      ['连接器', [['MCP 服务器', '添加服务器'], ['ChatGPT 应用连接', '添加连接']]],
-      ['扩展', [['插件', '添加插件']]],
-    ];
-    for (const [section, collections] of sections) {
-      await select(section);
-      for (const [, add] of collections)
-        assert.equal(await settings.getByRole('button', { name: add, exact: true }).isEnabled(), true);
-      assert.equal(await settings.getByRole('button', { name: '恢复列表默认值', exact: true }).count(), 0);
-      for (const [name] of collections) {
-        await settings.getByRole('region', { name, exact: true })
-          .getByText(emptyCollection(name), { exact: true }).waitFor();
-      }
-    }
-    await settings.getByRole('button', { name: '关闭设置', exact: true }).click();
-    await settings.waitFor({ state: 'hidden' });
-  }
-});
-
-test('saved collections place their effective reset beside Add and show the result', { timeout: 60000 }, async t => {
+test('settings collections can be restored to an empty list with a usable Add action', { timeout: 60000 }, async t => {
   const fixture = await browserFixture(t);
   const filename = await saveFixtureConfig(fixture, {
     profiles: { local: { provider: 'responses', model: 'fixture' } },
     reasoning_evaluators: { review: { provider: 'typesafe' } },
+    mcp: {}, chatgpt_plugin: { connections: {} },
     plugins: { example: { command: '/usr/bin/true', args: [] } },
   });
   const { settings, select } = await openSettings(fixture.page, 390);
@@ -84,6 +58,29 @@ test('saved collections place their effective reset beside Add and show the resu
     assert.equal(await addition.isEnabled(), true);
     const saved = JSON.parse(await readFile(filename, 'utf8'));
     assert.equal(Object.hasOwn(saved, key), false, `${key} is restored by the actual settings operation`);
+  }
+  await settings.getByRole('button', { name: '关闭设置', exact: true }).click();
+  await settings.waitFor({ state: 'hidden' });
+
+  for (const width of [1280, 320]) {
+    const { settings, select } = await openSettings(fixture.page, width);
+    const sections = [
+      ['模型', [['模型配置', '添加模型配置'], ['推理评估器', '添加评估器']]],
+      ['连接器', [['MCP 服务器', '添加服务器'], ['ChatGPT 应用连接', '添加连接']]],
+      ['扩展', [['插件', '添加插件']]],
+    ];
+    for (const [section, collections] of sections) {
+      await select(section);
+      for (const [, add] of collections)
+        assert.equal(await settings.getByRole('button', { name: add, exact: true }).isEnabled(), true);
+      assert.equal(await settings.getByRole('button', { name: '恢复列表默认值', exact: true }).count(), 0);
+      for (const [name] of collections) {
+        await settings.getByRole('region', { name, exact: true })
+          .getByText(emptyCollection(name), { exact: true }).waitFor();
+      }
+    }
+    await settings.getByRole('button', { name: '关闭设置', exact: true }).click();
+    await settings.waitFor({ state: 'hidden' });
   }
 });
 

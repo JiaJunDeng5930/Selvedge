@@ -1,9 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
-import { gunzipSync } from 'node:zlib';
 import { Service } from '../host/service.mjs';
 import { Journal } from '../host/journal.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
@@ -127,36 +126,35 @@ test('a lost SQLite commit acknowledgement retires the service and reopening exp
 test('an earlier input journal is refused without modifying it', async t => {
   const directory = await home(t);
   const filename = path.join(directory, 'journal.sqlite');
-  const original = gunzipSync(await readFile(new URL('./fixtures/journal-format28-unversioned.sqlite.gz', import.meta.url)));
-  await writeFile(filename, original, { mode: 0o600 });
-  await assert.rejects(Journal.open(filename), /Unsupported Selvedge SQLite state schema version/);
+  const database = new DatabaseSync(filename);
+  try {
+    database.exec("CREATE TABLE legacy_tasks (title TEXT); INSERT INTO legacy_tasks VALUES ('old task')");
+  } finally { database.close(); }
+  const original = await readFile(filename);
+  const options = { home: directory, cwd: directory, config: validateConfig({ ...defaultConfig, chatgpt: false }) };
+  await assert.rejects(Service.open(options), /Unsupported Selvedge SQLite state schema version/);
   assert.deepEqual(await readFile(filename), original);
 });
 
-test('local refusals, stale results and unchanged successes do not advance the stored state', async t => {
+test('a refused service command leaves the SQLite cursor and publication unchanged', async t => {
   const directory = await home(t);
   const filename = path.join(directory, 'journal.sqlite');
-  const journal = await Journal.open(filename);
-  t.after(() => journal.close());
+  const service = await Service.open({ home: directory, cwd: directory,
+    config: validateConfig({ ...defaultConfig, chatgpt: false }) });
+  t.after(() => service.close());
+  const db = new DatabaseSync(filename, { readOnly: true });
+  t.after(() => db.close());
+  const cursor = () => db.prepare('SELECT sequence FROM state').get().sequence;
+  const before = cursor();
   let publications = 0;
-  journal.on('commit', () => publications++);
-  const before = journal.sequence;
-  const refused = await journal.execute({ kind: 'command', command: { op: 'send', task_id: 42, message: 'Do not retain this text' } });
+  service.on('notice', event => { if (event.type === 'commit') publications++; });
+  const refused = await service.command({ op: 'send', task_id: 42, message: 'Do not retain this text' });
   assert.equal(refused.reply.error.code, 'task_not_found');
-  const stale = await journal.execute({ kind: 'model', task_id: 42, ticket: 0, ok: true, items: [] });
-  assert.equal(stale.reply.ok, true);
-  const unchanged = await journal.execute({ kind: 'command', command: { op: 'remote_disable' } });
-  assert.equal(unchanged.reply.ok, true);
-  const emptyWork = await journal.execute({ kind: 'continue' });
-  assert.equal(emptyWork.reply.ok, true);
-  for (const result of [refused, stale, unchanged, emptyWork]) {
-    assert.equal(result.durable, false);
-    assert.equal(result.sequence, before);
-  }
   assert.equal(publications, 0);
-  const db = new DatabaseSync(filename);
-  try { assert.equal(db.prepare('SELECT sequence FROM state').get().sequence, before); }
-  finally { db.close(); }
+  assert.equal(cursor(), before);
+  assert.equal((await service.command({ op: 'create_card', title: 'Commit a card' })).reply.ok, true);
+  assert.equal(publications, 1);
+  assert.ok(cursor() > before);
 });
 
 test('a prepared restart includes commits made while the current service still owns the journal', async t => {

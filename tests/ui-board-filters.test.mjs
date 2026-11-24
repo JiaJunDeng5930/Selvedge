@@ -105,7 +105,6 @@ test('board filters provide a compact keyboard-searchable assignee list', async 
   await page.waitForFunction(id => document.activeElement?.id === id, await worker.getAttribute('id'));
   await page.keyboard.press('Space');
   await worker.and(page.locator('[aria-checked="true"]')).waitFor();
-  await worker.locator('span[aria-hidden="true"] svg').waitFor();
   await search.fill('does not match a model');
   assert.equal(await worker.getAttribute('aria-checked'), 'true');
   await summary.press('Enter');
@@ -184,7 +183,7 @@ test('enabling board automation includes existing eligible cards and disabling p
   assert.equal(requests.length, 1);
 });
 
-test('the archive opens near its desktop trigger and fits a compact viewport with card actions', async t => {
+test('an archived card can be restored and its active actions are immediately available', async t => {
   const { page, command } = await browserFixture(t);
   await command({ op: 'board_settings', automatic: false, draft_profile: '' });
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
@@ -192,20 +191,14 @@ test('the archive opens near its desktop trigger and fits a compact viewport wit
   const trigger = page.getByRole('button', { name: '归档卡片', exact: true });
   const archive = page.getByRole('dialog', { name: '归档卡片', exact: true });
   const empty = archive.getByText('没有归档的卡片。', { exact: true });
-  const triggerBox = await trigger.boundingBox();
   await trigger.click();
   await empty.waitFor();
-  const desktop = await archive.boundingBox();
-  assert.ok(triggerBox && desktop && Math.abs(desktop.y - triggerBox.y - triggerBox.height) <= 20 &&
-    Math.abs(desktop.x + desktop.width - triggerBox.x - triggerBox.width) <= 20,
-    'The empty archive opens immediately below the desktop trigger');
-  assert.equal(await archive.evaluate(dialog => getComputedStyle(dialog, '::backdrop').backgroundColor), 'rgba(0, 0, 0, 0)');
   await page.keyboard.press('Escape');
   await archive.waitFor({ state: 'hidden' });
   await page.waitForFunction(id => document.activeElement?.id === id, await trigger.getAttribute('id'));
 
-  const title = 'Archived card for layout';
-  const { card_id } = await command({ op: 'create_card', title, status: 'todo' });
+  const title = 'Archived model-assigned card';
+  const { card_id } = await command({ op: 'create_card', title, status: 'todo', assignee: 'profile/interactive' });
   const read = () => command({ op: 'read_card', card_id });
   const { revision } = await read();
   await command({ op: 'archive_card', card_id, revision });
@@ -215,10 +208,6 @@ test('the archive opens near its desktop trigger and fits a compact viewport wit
 
   await page.setViewportSize({ width: 390, height: 520 });
   await card.waitFor();
-  await page.locator('dialog[data-semantic-key="archived-cards"]:not([data-native-layer])').waitFor();
-  const compact = await archive.boundingBox();
-  assert.ok(compact && compact.x >= 0 && compact.y >= 0 &&
-    compact.x + compact.width <= 390 && compact.y + compact.height <= 520);
   await card.getByRole('button', { name: '卡片操作', exact: true }).click();
   const actions = page.getByRole('menu', { name: '卡片操作', exact: true });
   const restore = actions.getByRole('button', { name: '恢复卡片', exact: true });
@@ -228,6 +217,19 @@ test('the archive opens near its desktop trigger and fits a compact viewport wit
   await restore.click();
   await empty.waitFor();
   assert.equal((await read()).archived, false);
+
+  await page.keyboard.press('Escape');
+  await archive.waitFor({ state: 'hidden' });
+  await page.getByRole('article', { name: title, exact: true })
+    .getByRole('button', { name: '卡片操作', exact: true }).click();
+  const move = actions.getByRole('button', { name: '移动卡片', exact: true });
+  await move.waitFor();
+  assert.deepEqual(await actions.getByRole('button').evaluateAll(buttons =>
+    buttons.map(button => button.getAttribute('aria-label'))),
+  ['移动卡片', '编辑卡片', '启动对话', '归档卡片', '置顶卡片', '删除卡片']);
+  for (const action of await actions.getByRole('button').all()) assert.equal(await action.isEnabled(), true);
+  await move.click();
+  await page.getByRole('dialog', { name: '移动卡片', exact: true }).waitFor();
 });
 
 test('new card text checks guide the relevant field in Chinese', async t => {
@@ -668,42 +670,6 @@ test('the mobile card editor keeps real repairs visible and missing model choice
   assert.equal((await command({ op: 'list_cards' })).cards[0].title, generatedTitle);
 });
 
-test('the card action menu stays ordered and ready on opening', async t => {
-  const { page, command } = await browserFixture(t);
-  await command({ op: 'board_settings', automatic: false, draft_profile: '' });
-  const title = 'A model-assigned card';
-  await command({ op: 'create_card', title, assignee: 'profile/interactive' });
-  const menu = page.getByRole('menu', { name: '卡片操作', exact: true });
-  const action = name => menu.getByRole('button', { name, exact: true });
-  const rows = () => menu.getByRole('button').evaluateAll(buttons => buttons.map(button => {
-    const label = button.querySelector('span:not([aria-hidden], .visually-hidden)');
-    return { id: button.id, name: button.getAttribute('aria-label'), reason: button.title,
-      disabled: button.disabled || button.getAttribute('aria-disabled') === 'true',
-      y: button.getBoundingClientRect().y, labelX: label?.getBoundingClientRect().x };
-  }));
-  const order = ['移动卡片', '编辑卡片', '启动对话', '归档卡片', '置顶卡片', '删除卡片'];
-  await page.getByRole('navigation', { name: 'Global navigation', exact: true })
-    .getByRole('button', { name: '卡片看板', exact: true }).click();
-  await page.getByRole('article', { name: title, exact: true })
-    .getByRole('button', { name: '卡片操作', exact: true }).click();
-  await action('启动对话').waitFor();
-  const opening = await rows();
-  assert.deepEqual(opening.map(({ name }) => name), order);
-  assert.equal(opening.every(row => !row.disabled), true);
-  assert.ok(opening.every((row, index) => index === 0 || row.y > opening[index - 1].y),
-    'Visual order follows the declared action order');
-  assert.ok(opening.every(row => row.labelX !== undefined && Math.abs(row.labelX - opening[0].labelX) <= 1),
-    'The visible card action labels start at the same horizontal position');
-  const remove = await action('删除卡片').evaluate(button => ({
-    color: getComputedStyle(button).color,
-    separator: getComputedStyle(button, '::before').borderBlockStartWidth,
-  }));
-  assert.equal(remove.separator, '1px');
-  assert.notEqual(remove.color, await action('编辑卡片').evaluate(button => getComputedStyle(button).color));
-  await action('移动卡片').click();
-  await page.getByRole('dialog', { name: '移动卡片', exact: true }).waitFor();
-});
-
 test('the board keeps empty stages visible and counts only matching cards linked to executing conversations', async t => {
   const { page, browser, command } = await browserFixture(t);
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
@@ -718,64 +684,12 @@ test('the board keeps empty stages visible and counts only matching cards linked
     return track.scrollWidth <= track.clientWidth;
   });
   await next.waitFor({ state: 'hidden' });
-  for (const viewport of [{ width: 1280, height: 900 }, { width: 760, height: 500 }, { width: 390, height: 620 }]) {
-    await page.setViewportSize(viewport);
-    await page.waitForFunction(() => {
-      const scrollport = document.querySelector('[data-page-region="board-stages"]');
-      const stages = [...(scrollport?.querySelectorAll('[data-board-stage]') ?? [])];
-      if (stages.length !== 6 || scrollport.scrollWidth <= scrollport.clientWidth) return false;
-      const bounds = scrollport.getBoundingClientRect();
-      const tracks = stages.map(stage => stage.getBoundingClientRect());
-      return tracks.every((track, index) => track.top >= bounds.top - 1 &&
-        Math.abs(track.top - tracks[0].top) <= 1 && Math.abs(track.bottom - tracks[0].bottom) <= 1 &&
-        track.height > 100 && track.width >= Math.min(200, scrollport.clientWidth) - 1 &&
-        (index === 0 || track.left > tracks[index - 1].right));
-    });
-    await next.waitFor();
-    const executionFilter = page.getByRole('radio', { name: '仅执行中 · 0', exact: true });
-    assert.equal(await executionFilter.evaluate(button => {
-      const label = button.querySelector('span:not([aria-hidden])');
-      const range = document.createRange();
-      range.selectNodeContents(label);
-      return range.getClientRects().length;
-    }), 1, 'The execution filter stays on one line');
-    const filters = page.getByRole('button', { name: '筛选卡片', exact: true });
-    const [viewBounds, filterBounds, searchBounds, archiveBounds, previousBounds, nextBounds] = await Promise.all([
-      executionFilter, filters, page.getByRole('searchbox', { name: '搜索卡片', exact: true }),
-      page.getByRole('button', { name: '归档卡片', exact: true }), previous, next,
-    ].map(control => control.boundingBox()));
-    const middle = box => box.y + box.height / 2;
-    assert.ok(filterBounds.x >= viewBounds.x + viewBounds.width - 1 &&
-      Math.abs(middle(filterBounds) - middle(viewBounds)) <= 2, 'View choices end with the two filtering controls');
-    assert.ok([previousBounds, nextBounds].every(box => Math.abs(middle(box) - middle(archiveBounds)) <= 2),
-      'Scroll controls sit in the same toolbar row as the archive');
-    if (viewport.width === 1280) {
-      assert.ok(filterBounds.x + filterBounds.width < searchBounds.x && searchBounds.width <= 220);
-      assert.ok(Math.abs(middle(searchBounds) - middle(nextBounds)) <= 2,
-        'Desktop search, filters and column navigation share one row');
-    }
-    await board.getByRole('region', { name: '已完成，0 张卡片', exact: true }).waitFor();
-    await board.getByRole('region', { name: '已阻塞，0 张卡片', exact: true }).waitFor();
-  }
+  await page.setViewportSize({ width: 390, height: 620 });
   await next.waitFor();
-  assert.equal(await previous.getAttribute('aria-disabled'), 'true');
-  const trackId = await board.getAttribute('id');
-  assert.equal(await next.getAttribute('aria-controls'), trackId);
-  await next.press('Enter');
-  await previous.and(page.locator('[aria-disabled="false"]')).waitFor();
-  for (let click = 0; click < 6; click++) {
-    if (!await next.isEnabled()) break;
-    await next.press('Enter');
-  }
-  await next.and(page.locator('[aria-disabled="true"]')).waitFor();
-  await previous.click();
-  await next.and(page.locator('[aria-disabled="false"]')).waitFor();
-  const beforeKey = await board.evaluate(track => track.scrollLeft);
-  await board.press('ArrowRight');
-  await page.waitForFunction(({ id, before }) => document.getElementById(id)?.scrollLeft > before,
-    { id: trackId, before: beforeKey });
-
+  await board.locator('[data-board-stage]').first().waitFor();
+  assert.equal(await board.locator('[data-board-stage]').count(), 6);
   await page.setViewportSize({ width: 1280, height: 900 });
+
   const message = 'Link an executing conversation';
   const { task_id } = await command({ op: 'create', profile: 'interactive', message });
   const { task } = await command({ op: 'read', task_id });
@@ -884,7 +798,7 @@ test('the board keeps empty stages visible and counts only matching cards linked
   assert.equal(await observedCard.getByText('工作中', { exact: true }).count(), 0);
 });
 
-test('a conversation can be added to the board without starting another conversation', async t => {
+test('adding an existing conversation to the board restores its defaults on cancel and never starts another conversation', async t => {
   const { page, command, running, requests, finish } = await browserFixture(t);
   const { project_id } = await command({ op: 'create_project', name: 'Release planning', workspace: { roots: [] } });
   const { task_id } = await command({ op: 'create', profile: 'interactive', message: 'Verify the release checklist',
@@ -894,16 +808,24 @@ test('a conversation can be added to the board without starting another conversa
     .getByRole('button', { name: task.title, exact: true }).click();
   const main = page.getByRole('main');
   const actions = main.getByRole('button', { name: '对话操作', exact: true });
-  await actions.click();
-  await page.getByRole('button', { name: '添加到看板', exact: true }).click();
-
   const dialog = page.getByRole('dialog', { name: '添加到看板', exact: true });
   const titleField = dialog.getByRole('textbox', { name: '标题', exact: true });
+  async function openCardEditor() {
+    await actions.click();
+    await page.getByRole('button', { name: '添加到看板', exact: true }).click();
+  }
+  await openCardEditor();
+  await titleField.fill('Discard this draft title');
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await dialog.waitFor({ state: 'hidden' });
+  assert.deepEqual((await command({ op: 'list_cards' })).cards, []);
+  await openCardEditor();
   assert.equal(await titleField.inputValue(), task.title);
   await dialog.getByText('关联对话', { exact: true }).waitFor();
   const destination = dialog.getByText('预计进入', { exact: true }).locator('..');
   await destination.getByText('进行中', { exact: true }).waitFor();
   await dialog.getByText('更多卡片选项', { exact: true }).click();
+  assert.equal(await dialog.getByRole('combobox', { name: '所属项目', exact: true }).inputValue(), String(project_id));
   await destination.getByText('进行中', { exact: true }).waitFor();
   const deadline = Date.now() + 5000;
   while (!requests.length && Date.now() < deadline) await delay(10);

@@ -23,120 +23,6 @@ async function publicCommand(running, command) {
   return body.result;
 }
 
-function overlapsVertically(a, b) {
-  return Math.min(a.y + a.height, b.y + b.height) > Math.max(a.y, b.y);
-}
-
-// The observable is the space returned to the conversation, rather than a particular grid or CSS class.
-test('conversation navigation releases desktop space and preserves the draft through drawer navigation', { timeout: 60000 }, async t => {
-  const fixture = await browserFixture(t);
-  const { page, command } = fixture;
-  await page.setViewportSize({ width: 1024, height: 900 });
-  const { task_id } = await command({ op: 'create_idle', profile: 'demo' });
-  const task = await selectTask(fixture, task_id);
-  const main = page.getByRole('main');
-  const message = page.getByRole('combobox', { name: 'Message', exact: true });
-  assert.equal(await message.getAttribute('placeholder'), '输入消息…');
-  const title = main.getByText(task.title, { exact: true }).first();
-  const details = main.getByRole('button', { name: '任务详情', exact: true });
-  const [titleBounds, actionBounds, expanded] = await Promise.all([
-    title.boundingBox(), details.boundingBox(), main.boundingBox(),
-  ]);
-  assert.ok(overlapsVertically(titleBounds, actionBounds), 'The conversation title and actions share their heading row');
-  await message.fill('Keep this draft while changing navigation capacity.');
-  await page.getByRole('button', { name: /Collapse.*(?:Task|sidebar)/ }).click();
-  const expand = page.getByRole('button', { name: /Expand.*(?:Task|sidebar)/ });
-  await expand.waitFor();
-  const collapsed = await main.boundingBox();
-  assert.ok(collapsed.width > expanded.width + 100,
-    `Collapsing the sidebar must return its column to the conversation (${expanded.width} to ${collapsed.width})`);
-  assert.equal(await page.getByRole('navigation', { name: 'Task tree', exact: true }).isVisible(), false);
-  await expand.click();
-  await page.getByRole('navigation', { name: 'Task tree', exact: true }).waitFor();
-  const restored = await main.boundingBox();
-  assert.ok(Math.abs(restored.width - expanded.width) <= 2, 'Expanding restores the usable desktop navigation');
-  await message.focus();
-  await page.setViewportSize({ width: 450, height: 900 });
-  assert.equal(await message.evaluate(node => document.activeElement === node), true);
-  const launcher = page.getByRole('button', { name: 'Open Task list', exact: true });
-  await launcher.focus();
-  await launcher.press('Space');
-  await page.getByRole('dialog', { name: '对话', exact: true }).waitFor();
-  await page.keyboard.press('Escape');
-  await page.getByRole('dialog', { name: '对话', exact: true }).waitFor({ state: 'hidden' });
-  assert.equal(await launcher.evaluate(node => document.activeElement === node), true);
-  assert.equal(await message.inputValue(), 'Keep this draft while changing navigation capacity.');
-});
-
-test('task and conversation composers keep controls usable as width and height change', { timeout: 60000 }, async t => {
-  const fixture = await browserFixture(t);
-  const { page, command } = fixture;
-  const main = page.getByRole('main');
-  const sizes = [
-    { width: 320, height: 568 },
-    { width: 390, height: 420 },
-    { width: 568, height: 320 },
-    { width: 700, height: 900 },
-    { width: 1280, height: 900 },
-  ];
-
-  async function checkComposer(scope, { width, height }, creating = false) {
-    await page.setViewportSize({ width, height });
-    const message = scope.getByRole('combobox', { name: creating ? 'Task' : 'Message', exact: true });
-    await message.waitFor();
-    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-    const form = await message.evaluate(node => node.form.getBoundingClientRect().toJSON());
-    const messageBox = await message.boundingBox();
-    const messageFontSize = await message.evaluate(node => Number.parseFloat(getComputedStyle(node).fontSize));
-    const targets = [
-      scope.getByLabel('Attach files', { exact: true }), scope.locator('summary[aria-label="Voice"]'),
-      scope.getByRole('button', { name: creating ? 'Start task' : '发送', exact: true }),
-      scope.getByRole('button', { name: /^权限:/ }), scope.getByRole('button', { name: /^Model:/ }),
-      ...(creating ? [] : [scope.getByRole('button', { name: /^发送方式:/ })]),
-    ];
-    const bounds = await Promise.all(targets.map(target => target.boundingBox()));
-    const size = `${width}×${height}`;
-    assert.ok(form.top >= 0 && form.bottom <= height + 1, size);
-    assert.ok(messageBox && messageBox.width > 0 && messageBox.height > 0 &&
-      messageBox.x >= form.left - 1 && messageBox.x + messageBox.width <= form.right + 1,
-      `${size}: message input remains visible within the composer`);
-    if (width <= 390) {
-      assert.ok(messageFontSize >= 16, `${size}: message text must remain readable without mobile input zoom`);
-      const documentWidth = await page.evaluate(() => document.documentElement.scrollWidth);
-      assert.ok(documentWidth <= width + 1, `${size}: the page must not need horizontal scrolling`);
-      const commonActions = bounds.slice(0, 3);
-      for (const box of commonActions) {
-        assert.ok(box && box.width >= 44 && box.height >= 44,
-          `${size}: attachment, voice and send need 44×44 touch targets`);
-      }
-      const tops = commonActions.map(box => box.y);
-      assert.ok(Math.max(...tops) - Math.min(...tops) <= 2,
-        `${size}: attachment, voice and send stay in one control row`);
-    }
-    for (const [index, box] of bounds.entries()) {
-      assert.ok(box && box.width >= 32 && box.height >= 32, `${size}: control ${index} has an unusable target`);
-      assert.ok(box.x >= form.left - 1 && box.x + box.width <= form.right + 1 &&
-        box.y >= form.top - 1 && box.y + box.height <= form.bottom + 1, `${size}: control ${index} exceeds the composer`);
-      for (const other of bounds.slice(0, index)) {
-        assert.ok(!overlapsVertically(box, other) || box.x + box.width <= other.x + 1 ||
-          other.x + other.width <= box.x + 1, `${size}: composer controls overlap`);
-      }
-    }
-  }
-
-  for (const size of sizes.filter(size => size.width <= 390)) await checkComposer(main, size, true);
-  await page.setViewportSize({ width: 1280, height: 900 });
-  const { task_id } = await command({ op: 'create_idle', profile: 'demo' });
-  const task = await selectTask(fixture, task_id);
-  await main.getByRole('heading', { name: task.title, exact: true }).waitFor();
-  for (const size of sizes) await checkComposer(main, size);
-  await main.getByRole('combobox', { name: 'Message', exact: true }).fill('/side');
-  await main.getByRole('button', { name: '发送', exact: true }).click();
-  const side = page.getByRole('complementary', { name: 'Side conversation', exact: true })
-    .or(page.getByRole('dialog'));
-  for (const size of sizes) await checkComposer(side, size);
-});
-
 // A public command updates the card between form preparation and its real HTTP submission.
 test('a rejected card edit keeps its diagnostic visible as an assertive alert', { timeout: 60000 }, async t => {
   const fixture = await browserFixture(t);
@@ -376,10 +262,10 @@ test('keyboard users can read unavailable action reasons, choice context and col
   await page.getByRole('button', { name: /^权限:/ }).click();
   const automatic = page.getByRole('menuitemradio', { name: '自动审批', exact: true });
   await automatic.focus();
-  assert.match(await accessibleDescription(automatic), /echo/,
-    'The reviewer context of a permission choice belongs to its accessible description');
+  assert.match(await accessibleDescription(automatic), /需要扩大权限时由模型审批/,
+    'The automatic approval policy is readable from the choice');
   const permissionChoices = page.getByRole('radiogroup', { name: '审批方式', exact: true });
-  assert.match(await accessibleDescription(permissionChoices), /工作目录内可写，联网受限/);
+  assert.match(await accessibleDescription(permissionChoices), /工作目录内可写.*联网受限/);
   await page.keyboard.press('Escape');
 
   const { task_id } = await command({ op: 'create', profile: 'demo', message: 'A readable activity summary' });

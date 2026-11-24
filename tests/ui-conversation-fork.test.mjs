@@ -140,10 +140,8 @@ test('a conversation offers its fork at the end and Cancel restores the reading 
   assert.equal(child.task.parent, task_id);
   assert.ok(JSON.stringify(child.messages).includes(earlier));
   assert.ok(JSON.stringify(child.messages).includes(latest));
-});
 
-test('the side conversation end opens its own fork editor and restores the tail trigger', { timeout: 60000 }, async t => {
-  const { page, command, running } = await browserFixture(t);
+  await page.setViewportSize({ width: 1280, height: 900 });
   const { task_id: parentId } = await command({ op: 'create_idle', profile: 'demo' });
   const { task_id: sideId } = await command({ op: 'open_side_conversation', task_id: parentId, message: 'Separate side question.' });
   const { task: sideTask } = await taskIdle(running.service, sideId);
@@ -153,16 +151,12 @@ test('the side conversation end opens its own fork editor and restores the tail 
   await page.getByRole('button', { name: 'Open Task list', exact: true }).waitFor();
   await page.getByRole('main').getByRole('button', { name: 'Open side conversation', exact: true }).click();
   const side = page.getByRole('dialog', { name: sideTask.title, exact: true });
-  const fork = side.getByRole('region', { name: 'Conversation', exact: true }).getByRole('button', { name: forkActionLabel, exact: true });
-  await fork.waitFor();
-  assert.equal(await fork.locator('svg').count(), 1);
-  assert.equal(await fork.locator('span:not(.visually-hidden)').count(), 0);
-  await fork.press('Enter');
-  const dialog = page.getByRole('dialog', { name: forkActionLabel, exact: true });
+  const sideFork = side.getByRole('region', { name: 'Conversation', exact: true }).getByRole('button', { name: forkActionLabel, exact: true });
+  await sideFork.press('Enter');
   await dialog.getByText(sideTask.title, { exact: true }).waitFor();
   assert.equal(await dialog.getByText(parentTask.title, { exact: true }).count(), 0);
   await page.keyboard.press('Escape');
   await dialog.waitFor({ state: 'hidden' });
-  await expectFocus(page, fork);
+  await expectFocus(page, sideFork);
   assert.equal(await side.isVisible(), true);
 });

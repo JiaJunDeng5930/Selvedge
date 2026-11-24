@@ -210,7 +210,8 @@ Export PlotProof(chart_axis_covers_values, chart_axis_coordinates_reach_both_plo
     interactive preview reserves space and shows a loading status in place
     of its source. The conversation end action waits for pending previews.
     Opening a conversation reveals its available Markdown at the intended
-    reading position as soon as the text is ready. A search hit in a streaming
+    reading position as soon as that passage is ready. Opening at the latest
+    completed reply shows its end. A search hit in a streaming
     reply can be read from its published prefix. Formatting another block
     must not hold up a match in ordinary prose or take focus from an editor.
     Interactive previews
@@ -505,8 +506,9 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     scope DOM IDs and references while preserving logical document authority.
     [exact_focus_target_precedes_aliases], [closing_child_restores_owner] and
     [reader_occurrences_preserve_the_task_reading_position] constrain the requested
-    focus target and retained reading state. The browser performs the physical
-    focus and scroll. Anchored menus refer to their actual trigger.
+    focus target and retained reading state. The child's explicit return
+    target takes priority over recovery from clipped native focus. The browser
+    performs the physical focus and scroll. Anchored menus refer to their actual trigger.
     Menus in the composer share an attachment edge. When there is space below
     the new-conversation composer, they open there to keep the title clear.
     The narrow portrait model picker has a dedicated bottom sheet.

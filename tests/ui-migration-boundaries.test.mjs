@@ -4,51 +4,33 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { browserFixture, openCreationEnvironment } from './fixtures/browser.mjs';
 
-async function postPublicCommand(running, command) {
-  const headers = { authorization: `Bearer ${running.token}`, 'content-type': 'application/json' };
-  return fetch(`${running.address}/api/commands`, {
-    method: 'POST', headers,
-    body: JSON.stringify(command),
-  });
-}
-
-async function publicCommands(running) {
-  const response = await fetch(`${running.address}/api/describe`, {
-    headers: { authorization: `Bearer ${running.token}` },
-  });
-  assert.equal(response.status, 200);
-  const result = await response.json();
-  assert.equal(result.ok, true, JSON.stringify(result));
-  return result.result.commands;
-}
-
 async function openProjectTask(fixture, name, workspace) {
   await fixture.command({ op: 'create_project', name, workspace: { roots: [workspace], primary_root: workspace } });
-  const { page } = fixture;
+  await openProjectDraft(fixture.page, name);
+  await fixture.page.getByRole('button', { name: 'Start task', exact: true }).waitFor();
+}
+
+async function openProjectDraft(page, name) {
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
     .getByRole('button', { name: '项目', exact: true }).click();
   await page.getByRole('main').getByRole('button', { name, exact: true }).click();
   await page.getByRole('main').getByRole('button', { name: '在项目中开始对话', exact: true }).click();
-  await page.getByRole('button', { name: 'Start task', exact: true }).waitFor();
 }
 
-test('a submitted Task survives directory preparation while newer writing and navigation remain intact', async t => {
+test('a captured Project submission preserves its workspace, the newer draft and navigation', async t => {
   const fixture = await browserFixture(t);
   const { page, root, command } = fixture;
   const workspace = path.join(root, 'Captured directory preparation');
   await mkdir(workspace);
-  let release, started, held = false;
-  const preparation = new Promise(resolve => { started = resolve; });
-  const gate = new Promise(resolve => { release = resolve; });
-  t.after(() => release());
-  await page.route('**/api/browser/observation', async route => {
+  const submitted = Promise.withResolvers();
+  const release = Promise.withResolvers();
+  t.after(() => release.resolve());
+  await page.route('**/api/browser/command', async route => {
     const request = route.request().postDataJSON();
-    if (request.kind !== 'directories' || held) return route.continue();
-    held = true;
-    const response = await route.fetch();
-    started();
-    await gate;
-    await route.fulfill({ response });
+    if (request.command?.op !== 'create') return route.continue();
+    submitted.resolve();
+    await release.promise;
+    await route.continue();
   });
   await openProjectTask(fixture, 'Captured submission Project', workspace);
   const environment = await openCreationEnvironment(page);
@@ -68,12 +50,15 @@ test('a submitted Task survives directory preparation while newer writing and na
   const receipt = page.waitForResponse(response => response.url().endsWith('/api/browser/command')
     && response.request().method() === 'POST');
   await page.getByRole('button', { name: 'Start task', exact: true }).click();
-  await preparation;
+  await submitted.promise;
+  await page.getByRole('region', { name: 'Conversation', exact: true })
+    .getByText('Run exactly this captured submission.', { exact: true }).waitFor();
+  await openProjectDraft(page, 'Captured submission Project');
   await draft.fill('Keep this later unsent draft.');
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
     .getByRole('button', { name: '卡片看板', exact: true }).click();
   await page.getByRole('main').getByText('卡片看板', { exact: true }).waitFor();
-  release();
+  release.resolve();
   const response = await receipt;
   assert.equal(response.status(), 200);
   const { reply } = await response.json();
@@ -83,39 +68,8 @@ test('a submitted Task survives directory preparation while newer writing and na
   assert.ok(JSON.stringify(task.messages).includes('Run exactly this captured submission.'));
   assert.ok(!JSON.stringify(task.messages).includes('Keep this later unsent draft.'));
   await page.getByRole('main').getByText('卡片看板', { exact: true }).waitFor();
-  await page.getByRole('navigation', { name: 'Global navigation', exact: true })
-    .getByRole('button', { name: '项目', exact: true }).click();
-  await page.getByRole('main').getByRole('button', { name: 'Captured submission Project', exact: true }).click();
-  await page.getByRole('main').getByRole('button', { name: '在项目中开始对话', exact: true }).click();
+  await openProjectDraft(page, 'Captured submission Project');
   assert.equal(await page.getByRole('combobox', { name: 'Task', exact: true }).inputValue(), 'Keep this later unsent draft.');
-});
-
-test('fixed-prompt board agents are absent from navigation and the public command contract', async t => {
-  const fixture = await browserFixture(t);
-  const { page, running, command } = fixture;
-  const navigation = page.getByRole('navigation', { name: 'Global navigation', exact: true });
-  assert.equal(await navigation.getByRole('button', { name: '智能体', exact: true }).count(), 0);
-
-  const commands = new Set((await publicCommands(running)).map(entry => entry.name));
-  const obsoleteCommands = [
-    { op: 'list_board_agents' },
-    { op: 'save_board_agent', agent: '', revision: 0, name: 'Removed role', profile: fixture.profile,
-      reasoning: 'high', instructions: 'Inspect the workspace.', concurrency: 1 },
-    { op: 'delete_board_agent', agent_id: 123, revision: 0 },
-  ];
-  for (const oldCommand of obsoleteCommands) {
-    assert.equal(commands.has(oldCommand.op), false, oldCommand.op);
-    const response = await postPublicCommand(running, oldCommand);
-    assert.equal(response.status, 400, oldCommand.op);
-  }
-
-  const assigned = await command({ op: 'create_card', title: 'Ordinary endpoint remains assignable',
-    assignee: `profile/${fixture.profile}` });
-  const card = await command({ op: 'read_card', card_id: assigned.card_id });
-  assert.equal(card.assignee, `profile/${fixture.profile}`);
-  const rejected = await postPublicCommand(running, { op: 'create_card', title: 'Removed role identifier',
-    assignee: 'agent/123' });
-  assert.equal(rejected.status, 400);
 });
 
 test('supporting controls compact and stack when measured space shrinks, then recover their full information', async t => {
