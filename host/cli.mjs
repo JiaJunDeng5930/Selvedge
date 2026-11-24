@@ -9,7 +9,7 @@ import { startServer } from './server.mjs';
 import { requestJson, events } from './network.mjs';
 import { parseJson, stringifyJson } from './codec.mjs';
 import { publishBytes } from './file-io.mjs';
-import { receiveExecution } from './shared-execution.mjs';
+import { ExecutionEnvironments, receiveExecution } from './shared-execution.mjs';
 import { provisionRemote } from './remote-control.mjs';
 
 function parseOptions(args) {
@@ -51,20 +51,20 @@ export function commandArguments(spec, args) {
   return result;
 }
 
-function remoteArguments(args, required) {
+function remoteArguments(args, required, command = 'Remote command') {
   const result = {};
   for (let index = 0; index < args.length; index += 2) {
     const option = args[index];
     const name = option.startsWith('--') ? option.slice(2).replaceAll('-', '_') : '';
     // DEFENSE: Remote CLI input must reject unknown, repeated or valueless options before sending a request.
     if (!required.includes(name) || Object.hasOwn(result, name) || args[index + 1] === undefined) {
-      throw new Error('Remote arguments must be the required --name value pairs');
+      throw new Error(`${command} arguments must be the required --name value pairs`);
     }
     result[name] = name === 'permissions' ? parseJson(args[index + 1]) : args[index + 1];
   }
   // DEFENSE: A remote operation may be invoked without one of its required options.
   if (required.some(name => !Object.hasOwn(result, name))) {
-    throw new Error(`Remote command requires ${required.map(name => `--${name.replaceAll('_', '-')}`).join(', ')}`);
+    throw new Error(`${command} requires ${required.map(name => `--${name.replaceAll('_', '-')}`).join(', ')}`);
   }
   return result;
 }
@@ -111,6 +111,47 @@ async function remoteCommand(global, args) {
   console.log(stringifyJson(response.value));
   // DEFENSE: The remote endpoint can return a transport or native rejection; preserve failure in the CLI exit status.
   if (!response.ok || !response.value?.ok) process.exitCode = 1;
+}
+
+async function mcpCommand(global, args) {
+  const [operation, ...rest] = args;
+  const command = `mcp ${operation}`;
+  const usage = 'Usage: mcp export --server SERVER | list --environment MACHINE | import --environment MACHINE --server SERVER --name NAME';
+  // DEFENSE: A user can omit or misspell a subcommand.
+  if (!['export', 'list', 'import'].includes(operation)) throw new Error(usage);
+  const fields = operation === 'export' ? ['server'] : operation === 'list'
+    ? ['environment'] : ['environment', 'server', 'name'];
+  const { environment, server, name } = remoteArguments(rest, fields, command);
+  const current = operation === 'list' ? null : await readServiceConfiguration(global);
+  const settings = await loadConfig(global);
+  const { config } = settings;
+  let change;
+  if (operation === 'export') {
+    const receiver = config.execution_receiver;
+    // DEFENSE: Exporting a server requires an explicitly configured TLS listener.
+    if (!receiver) throw new Error('Configure execution_receiver before exporting an MCP server');
+    if (receiver.mcp_servers.includes(server)) {
+      console.log(`MCP server ${server} is already exported in configuration`);
+      return;
+    }
+    change = { path: ['execution_receiver'], value: { ...receiver, mcp_servers: [...receiver.mcp_servers, server] } };
+  } else {
+    const environments = new ExecutionEnvironments(config.execution_environments);
+    let servers;
+    try {
+      const { peer } = environments.get(environment);
+      servers = await peer.mcpServers(AbortSignal.timeout(10000));
+    } finally { environments.close(); }
+    if (operation === 'list') {
+      console.log(stringifyJson(servers));
+      return;
+    }
+    // DEFENSE: An authenticated receiver can revoke a server or the user can mistype its name.
+    if (!servers.includes(server)) throw new Error(`MCP server ${server} is unavailable on ${environment}`);
+    change = { path: ['shared_mcp'], value: [...config.shared_mcp, { name, environment, server }] };
+  }
+  await changeServiceConfiguration(settings, { ...change, revision: current.revision, operation: 'set' });
+  console.log('MCP configuration saved. Restart the local Selvedge service to apply it.');
 }
 
 export async function main(args = process.argv.slice(2)) {
@@ -216,8 +257,12 @@ export async function main(args = process.argv.slice(2)) {
     await remoteCommand(global, rest);
     return;
   }
+  if (operation === 'mcp') {
+    await mcpCommand(global, rest);
+    return;
+  }
   if (operation === 'help' && rest.length === 0) {
-    console.log('Usage: bun host/cli.mjs [--home PATH] [--config FILE] server|receive-execution|init|login [PROFILE]|models [--refresh]|remote SUBCOMMAND|describe|watch|COMMAND [--field value]\nRun describe against a running server for its executable command schemas. Array arguments use JSON.\nRun remote for relay configuration, pairing and device management commands.\nRun login to use your ChatGPT account models without writing model profiles.');
+    console.log('Usage: bun host/cli.mjs [--home PATH] [--config FILE] server|receive-execution|init|login [PROFILE]|models [--refresh]|remote SUBCOMMAND|mcp SUBCOMMAND|describe|watch|COMMAND [--field value]\nRun describe against a running server for its executable command schemas. Array arguments use JSON.\nRun remote for relay configuration, pairing and device management commands.\nRun mcp to export, list or import shared MCP servers.\nRun login to use your ChatGPT account models without writing model profiles.');
     return;
   }
   const local = await connection(global.home);

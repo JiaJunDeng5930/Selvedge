@@ -226,7 +226,7 @@ Definition interpret_planned_birth {before : world} (plan : planned_start before
     | None => task
     | Some id => append_history [EnvironmentNotice
       ("Workspace operations run on the shared Selvedge environment " ++ id ++
-       ". Model inference and host MCP services run on the task's Selvedge instance.")] task
+       ". Model inference runs on the task's Selvedge instance. MCP tools use their configured servers.")] task
     end,None)
  | ReuseBinding _ tree _ =>
    (if WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend tree) then

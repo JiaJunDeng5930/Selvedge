@@ -119,6 +119,8 @@ Definition configuration_fields definitions instructions :=
     Edit.Setting "chatgpt_plugin" D.Any None;
     setting "remote" D.Any (JBool false);
     setting "execution_environments" SharedExecution.peers (JArray []);
+    setting "execution_receiver" SharedExecution.receiver (JBool false);
+    setting "shared_mcp" SharedExecution.mcp_imports (JArray []);
     setting "cloud" CloudConfiguration.declaration (JBool false);
     setting "compaction" (D.Object policy_fields) compaction_defaults
   ] ++ map (context_entry instructions) (filter context_configured (items definitions)))%list.
@@ -376,6 +378,7 @@ Definition call (definitions : json) (instructions : string)
   else if String.eqb operation "config.evaluator_entry" then success (evaluator_entry source)
   else if String.eqb operation "config.adaptive_policy" then success (adaptive_policy source)
   else if String.eqb operation "config.execution_environments" then SharedExecution.configuration source
+  else if String.eqb operation "config.shared_mcp" then SharedExecution.mcp_configuration source
   else if String.eqb operation "config.cloud" then CloudConfiguration.call source
   else if String.eqb operation "config.remote" then remote source
   else err ("Unknown host model operation: " ++ operation).

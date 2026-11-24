@@ -36,9 +36,14 @@ Definition mcp_icon_fields source tool :=
   | None => [] end.
 Definition remote_tool source tool (mcp : bool) reference :=
   let server := str source "name" in let remote := str tool "name" in
-  if mcp then JObject (List.app [("name",JString ("mcp__" ++ normalize server ++ "__" ++ normalize remote));
+  if mcp then
+    let '(prefix,route) := match field "environment" source with
+    | Some (JString environment) => (Domain.shared_mcp_prefix,
+        [("environment",JString environment);("server",get source "server")])
+    | _ => ("mcp__", [("server",JString server)]) end in
+    JObject ([("name",JString (prefix ++ normalize server ++ "__" ++ normalize remote));
     ("description",if truthy (get tool "description") then get tool "description" else JString ("Call " ++ server ++ "/" ++ remote));
-    ("schema",get tool "inputSchema");("server",JString server);("remote",get tool "name")] (mcp_icon_fields source tool))
+    ("schema",get tool "inputSchema");("remote",get tool "name")] ++ route ++ mcp_icon_fields source tool)%list
   else JObject [("name",JString ("plugin__" ++ server ++ "__" ++ remote));("description",get tool "description");
     ("schema",get tool "inputSchema");("plugin",reference);("remote",get tool "name")].
 Fixpoint collect_tools source mcp reference values previous := match values with

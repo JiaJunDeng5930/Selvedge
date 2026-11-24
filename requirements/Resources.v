@@ -73,7 +73,7 @@ Export WorktreeCompletionProofs(received_creation_binds_or_stops,
     Cloud setup uses the pushed repository commit and project-owned
     [.selvedge/env.sh]. The harness owns cloning, ordering, failure and cleanup;
     credentials remain host bindings. Cloud Bash has Full Access within its
-    selected environment, while MCP servers remain host services. The environment
+    selected environment, while MCP tools use their configured servers. The environment
     notice is recorded in history so provider requests and accounting agree.
     Provider context must retain that recorded guidance. Its explanatory wording
     can evolve without changing the bound environment or execution permissions. *)

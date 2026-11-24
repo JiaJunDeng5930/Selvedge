@@ -1,5 +1,6 @@
 import { Database } from 'bun:sqlite';
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
+import { EventEmitter } from 'node:events';
 import { lstat, opendir, readFile, realpath, stat } from 'node:fs/promises';
 import { createServer } from 'node:https';
 import path from 'node:path';
@@ -54,11 +55,12 @@ const observationMethods = {
 };
 
 /** A paired Selvedge instance can submit its already-authorized workspace effects. */
-export async function receiveExecution({ home, host, port, certFile, keyFile, tokenFile }) {
+export async function receiveExecution({ home, host, port, certFile, keyFile, tokenFile,
+  receiptHome = home, localMcp = new Map(), mcpExports = [], accepting = () => true }) {
   const [cert, key, token] = await Promise.all([readFile(certFile), readFile(keyFile), readToken(tokenFile)]);
   const credential = digest(`Bearer ${token}`);
-  await durableDirectory(home);
-  const db = new Database(path.join(home, 'shared-execution.sqlite'), { create: true });
+  await durableDirectory(receiptHome);
+  const db = new Database(path.join(receiptHome, 'shared-execution.sqlite'), { create: true });
   db.exec(`PRAGMA journal_mode = WAL;
     PRAGMA synchronous = FULL;
     CREATE TABLE IF NOT EXISTS execution_receipts
@@ -72,13 +74,25 @@ export async function receiveExecution({ home, host, port, certFile, keyFile, to
     const action = boundary('effect.execution_start_action', {
       recorded: Boolean(previous), previous: previous?.request ? parseJson(previous.request) : null, incoming: request,
     });
-    if (action === 'reserve') reserve.run(request.operation_id, stringifyJson(request));
+    if (action === 'reserve') {
+      if (!accepting()) throw fail('execution_draining', 'Shared execution receiver is draining');
+      reserve.run(request.operation_id, stringifyJson(request));
+    }
     return action;
   }).immediate;
   const limits = boundary('effect.execution_limits', null);
   const active = new Map();
+  const readOnlyPaths = home === receiptHome ? [home] : [home, receiptHome];
   const processes = new ProcessRegistry();
   const sockets = new WebSocketServer({ noServer: true, maxPayload: maximumFrame });
+  const mcpSubscriptions = new WeakMap();
+  const exported = server => boundary('effect.execution_mcp_exported', { exports: mcpExports, server });
+  function mcpServer(name) {
+    const client = exported(name) ? localMcp.get(name) : undefined;
+    // DEFENSE: An authenticated peer can name a private or discontinued server.
+    if (!client?.available) throw fail('mcp_unavailable', `Shared MCP server is unavailable: ${name}`);
+    return client;
+  }
   const server = createServer({ cert, key }, (_request, response) => {
     response.writeHead(404).end();
   });
@@ -114,7 +128,7 @@ export async function receiveExecution({ home, host, port, certFile, keyFile, to
     const operation = { id, controller: new AbortController(), listeners: new Set([socket]) };
     active.set(id, operation);
     const options = { signal: operation.controller.signal, execution: request.execution,
-      readOnlyPaths: [home], onOutput: read => output(operation, read) };
+      readOnlyPaths, onOutput: read => output(operation, read) };
     operation.result = (async () => {
       let outcome;
       try {
@@ -127,9 +141,11 @@ export async function receiveExecution({ home, host, port, certFile, keyFile, to
             session.write = runtime.write;
             value = await runtime.result;
           } finally { processes.complete(id); }
-        } else {
+        } else if (request.tool === 'read_image') {
           const image = await readImageBytes(request.arguments, options);
           value = { ...image, bytes: image.bytes.toString('base64') };
+        } else {
+          value = await mcpServer(request.server).callRaw(request.name, request.arguments, { signal: options.signal });
         }
         outcome = { value };
       // DEFENSE: Process preparation, image reads and explicit cancellations can fail after reservation.
@@ -149,6 +165,14 @@ export async function receiveExecution({ home, host, port, certFile, keyFile, to
 
   async function perform(socket, { method, params }) {
     if (Object.hasOwn(observationMethods, method)) return observationMethods[method](params);
+    if (method === 'execution.mcp_servers') return mcpExports.filter(name => localMcp.get(name)?.available);
+    if (method === 'execution.mcp_list') {
+      const client = mcpServer(params.server);
+      const observed = mcpSubscriptions.get(socket) ?? new Set();
+      observed.add(params.server);
+      mcpSubscriptions.set(socket, observed);
+      return client.listPage(params.cursor);
+    }
     const operation = active.get(params.operation_id);
     switch (method) {
       case 'execution.start': return begin(params, socket);
@@ -220,7 +244,23 @@ export async function receiveExecution({ home, host, port, certFile, keyFile, to
     });
   // DEFENSE: An occupied port or invalid listener address must release receiver storage.
   } catch (error) { db.close(); throw error; }
-  return { address: server.address(), async close() {
+  const subscriptions = mcpExports.map(name => {
+    const client = localMcp.get(name);
+    const changed = () => {
+      for (const socket of sockets.clients) {
+        if (mcpSubscriptions.get(socket)?.has(name))
+          send(socket, { method: 'execution.mcp_changed', params: { server: name } });
+      }
+    };
+    client.on('toolsChanged', changed);
+    client.on('unavailable', changed);
+    return () => {
+      client.off('toolsChanged', changed);
+      client.off('unavailable', changed);
+    };
+  });
+  return { address: server.address(), pending: () => [...active.values()].map(operation => operation.result), async close() {
+    for (const unsubscribe of subscriptions) unsubscribe();
     const stopped = new Promise(resolve => server.close(resolve));
     for (const socket of sockets.clients) socket.terminate();
     const operations = [...active.values()];
@@ -231,18 +271,23 @@ export async function receiveExecution({ home, host, port, certFile, keyFile, to
   } };
 }
 
-class ExecutionPeer {
+class ExecutionPeer extends EventEmitter {
   #socket;
   #connecting;
   #pending = new Map();
   #output = new Map();
+  #reconnectTimer;
+  #closed = false;
 
   constructor(environment) {
+    super();
     this.environment = environment;
     this.url = new URL(environment.url);
   }
 
   async #connect() {
+    // DEFENSE: A request can race with service shutdown or CLI cleanup.
+    if (this.#closed) throw fail('execution_disconnected', 'Shared execution connection closed');
     if (this.#socket?.readyState === WebSocket.OPEN) return this.#socket;
     this.#connecting ??= this.#open().finally(() => { this.#connecting = undefined; });
     return this.#connecting;
@@ -256,11 +301,16 @@ class ExecutionPeer {
       tls: { ca, rejectUnauthorized: true }, perMessageDeflate: false,
     });
     const closed = () => {
-      if (this.#socket === socket) this.#socket = undefined;
+      const connected = this.#socket === socket;
+      if (connected) this.#socket = undefined;
       for (const [id, request] of this.#pending) {
         if (request.socket !== socket) continue;
         this.#pending.delete(id);
         request.reject(fail('execution_disconnected', 'Shared execution connection closed'));
+      }
+      if (connected && !this.#closed) {
+        this.emit('mcp', false);
+        this.#reconnectMcp();
       }
     };
     socket.addEventListener('close', closed);
@@ -273,6 +323,8 @@ class ExecutionPeer {
         const reply = boundary('effect.execution_response', parseJson(data));
         if (reply.method === 'execution.output') {
           this.#output.get(reply.params.operation_id)?.(reply.params.output);
+        } else if (reply.method === 'execution.mcp_changed') {
+          if (this.#socket === socket) this.emit('mcp', true, reply.params.server);
         } else {
           const request = this.#pending.get(reply.id);
           if (request?.socket !== socket) return;
@@ -291,8 +343,31 @@ class ExecutionPeer {
         socket.addEventListener('close', () => reject(fail('execution_disconnected', 'Shared execution connection closed')), { once: true });
       });
     } finally { clearTimeout(timer); }
+    // DEFENSE: Shutdown can finish while the connection is still handshaking.
+    if (this.#closed) {
+      socket.terminate();
+      throw fail('execution_disconnected', 'Shared execution connection closed');
+    }
     this.#socket = socket;
+    this.emit('mcp', true);
     return socket;
+  }
+
+  watchMcp(listener) {
+    this.on('mcp', listener);
+    if (this.#socket?.readyState === WebSocket.OPEN) listener(true);
+    else this.#reconnectMcp();
+  }
+
+  #reconnectMcp() {
+    // DEFENSE: A receiver can stop while its imported catalog remains configured.
+    // Reconnect only for live catalog subscribers and never retry tool effects here.
+    if (this.#closed || this.#reconnectTimer || !this.listenerCount('mcp')) return;
+    this.#reconnectTimer = setTimeout(() => {
+      this.#reconnectTimer = undefined;
+      this.#connect().catch(() => this.#reconnectMcp());
+    }, 1000);
+    this.#reconnectTimer.unref();
   }
 
   async request(method, params, signal) {
@@ -326,10 +401,27 @@ class ExecutionPeer {
   }
 
   operation(operation_id, tool, arguments_, execution, { signal, onOutput, onDiagnostic }) {
+    return this.#operation(operation_id, { tool, arguments: arguments_, execution }, { signal, onOutput, onDiagnostic });
+  }
+
+  mcpCall(operationId, server, name, arguments_, options) {
+    return this.#operation(operationId, { tool: 'mcp', server, name, arguments: arguments_ }, options).result;
+  }
+
+  async mcpServers(signal) {
+    const servers = await this.#recover('execution.mcp_servers', {}, signal);
+    return boundary('effect.execution_mcp_servers', servers);
+  }
+
+  mcpPage(server, cursor, { signal }) {
+    return this.#recover('execution.mcp_list', cursor === undefined ? { server } : { server, cursor }, signal);
+  }
+
+  #operation(operation_id, request, { signal, onOutput, onDiagnostic }) {
     const handle = { operation_id };
     const update = text => onOutput?.(limit => Array.from(text).slice(-limit).join(''));
     this.#output.set(operation_id, update);
-    const received = this.#recover('execution.start', { ...handle, tool, arguments: arguments_, execution }, signal);
+    const received = this.#recover('execution.start', { ...handle, ...request }, signal);
     const cancel = () => void this.#recover('execution.cancel', handle).catch(error => onDiagnostic?.(error.message));
     signal?.addEventListener('abort', cancel, { once: true });
     const settled = received.then(() => this.#recover('execution.wait', handle, signal))
@@ -362,7 +454,11 @@ class ExecutionPeer {
     return { realpath, stat, lstat, readdir, opendir: readdir, readFile, close() {} };
   }
 
-  close() { this.#socket?.terminate(); }
+  close() {
+    this.#closed = true;
+    clearTimeout(this.#reconnectTimer);
+    this.#socket?.terminate();
+  }
 }
 
 export class ExecutionEnvironments {

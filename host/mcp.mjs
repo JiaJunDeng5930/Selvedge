@@ -20,28 +20,45 @@ export class Mcp extends StdioRpc {
     return this.discover();
   }
 
-  async discover() {
-    // DEFENSE: A server can keep returning empty pages with fresh cursors;
-    // one deadline bounds the whole discovery, including those pages.
-    const signal = AbortSignal.timeout(this.timeoutMs);
-    let catalog = { tools: [] };
-    do {
-      const page = await this.request('tools/list', catalog.nextCursor === undefined ? {} : { cursor: catalog.nextCursor }, { signal });
-      const observed = Array.isArray(page?.tools) ? { ...page, tools: page.tools.map(tool => ({
-        ...tool, icon_observations: observeIcons(tool?.icons),
-      })) } : page;
-      catalog = boundary('plugin.mcp_page', { name: this.name, page: observed, tools: catalog.tools,
-        server_icons: this.#serverIcons, limits: this.limits });
-    } while (catalog.nextCursor !== undefined);
-    return catalog.tools;
+  discover() {
+    return discoverMcp({ name: this.name }, this.limits, this.timeoutMs, this.listPage.bind(this));
+  }
+
+  async listPage(cursor, options) {
+    const page = await this.request('tools/list', cursor === undefined ? {} : { cursor }, options);
+    return { page, serverIcons: this.#serverIcons };
+  }
+
+  callRaw(name, arguments_, options) {
+    return this.request('tools/call', boundary('plugin.mcp_call_request', { name, arguments: arguments_ }), options);
   }
 
   async call(name, arguments_, options) {
-    const value = await this.request('tools/call', boundary('plugin.mcp_call_request', { name, arguments: arguments_ }), {
+    const value = await this.callRaw(name, arguments_, {
       ...options, prepareIncoming: (result, { signal }) => prepareMcpImages(result, this.mediaHome, signal),
     });
     return boundary('plugin.mcp_result', { result: value });
   }
+}
+
+export async function discoverMcp(route, limits, timeoutMs, listPage) {
+  // DEFENSE: A server can keep returning empty pages with fresh cursors;
+  // one deadline bounds the whole discovery, including those pages.
+  const signal = AbortSignal.timeout(timeoutMs);
+  let catalog = { tools: [] };
+  do {
+    const { page, serverIcons } = await listPage(catalog.nextCursor, { signal });
+    const observed = Array.isArray(page?.tools) ? { ...page, tools: page.tools.map(tool => ({
+      ...tool, icon_observations: observeIcons(tool?.icons),
+    })) } : page;
+    catalog = boundary('plugin.mcp_page', { ...route, page: observed, tools: catalog.tools,
+      server_icons: serverIcons, limits });
+  } while (catalog.nextCursor !== undefined);
+  return catalog.tools;
+}
+
+export async function completeSharedMcp(result, home, signal) {
+  return boundary('plugin.mcp_result', { result: await prepareMcpImages(result, home, signal) });
 }
 
 const jpegFrames = new Set([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf]);

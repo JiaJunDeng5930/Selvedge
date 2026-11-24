@@ -11,7 +11,7 @@ import { realpath } from 'node:fs/promises';
 import { Journal, isDefiniteRejection, transactionOutcome } from './journal.mjs';
 import { naturalKey } from './public/json-tokens.mjs';
 import { dispatchEffect, performEffect, modelEffect, workspaceOperation, compactionOperation, workspaceEffect, clockDelay } from './effect-dispatch.ts';
-import { Mcp } from './mcp.mjs';
+import { Mcp, discoverMcp, completeSharedMcp } from './mcp.mjs';
 import { Plugin } from './plugins.mjs';
 import { startBash, runReadImage } from './process.mjs';
 import { ProcessRegistry } from './process-registry.mjs';
@@ -28,7 +28,7 @@ import { profileCatalog, compactionSettings } from './config.mjs';
 import { withAccountModels } from './chatgpt-models.mjs';
 import { connectionGrants } from './chatgpt-plugin.mjs';
 import { WebRequestStore } from './chatgpt-web-store.mjs';
-import { ExecutionEnvironments } from './shared-execution.mjs';
+import { ExecutionEnvironments, receiveExecution } from './shared-execution.mjs';
 import { RemoteControl } from './remote-control.mjs';
 import { observeWorkspaceGit } from './worktrees.mjs';
 import { createTaskWorkspace, archiveTaskWorkspace, reconcileTaskWorkspace, rollbackTaskWorkspaceCreation,
@@ -83,6 +83,7 @@ export class Service extends EventEmitter {
   #catalogTail = Promise.resolve();
   #observationTail = Promise.resolve();
   #catalogRefreshes = new Map();
+  #sharedMcp = new Map();
   #closePromise;
   #streams = [];
   #toolActivity = new Set();
@@ -152,7 +153,9 @@ export class Service extends EventEmitter {
           }).catch(error => service.#fatal(error));
         });
       }));
+      await service.#discoverSharedMcp(config.shared_mcp ?? []);
       await service.#publishCatalog();
+      service.#watchSharedMcp();
       await service.#publishCompactionPolicy();
       const recovery = await service.journal.execute({ kind: 'recover' });
       // DEFENSE: Recovery resends pending model effects; their combined payload can exceed the complete-decision budget and leave recovery uncommitted.
@@ -166,6 +169,15 @@ export class Service extends EventEmitter {
       service.remote = await RemoteControl.open(service, { ...remoteOptions, deferConnect: holdEffects });
       service.audio = audioFactory({ config: () => service.declaredConfig, home, ...audioOptions,
         onEvent: event => service.#audioEvent(event) });
+      const receiver = config.execution_receiver;
+      if (receiver) {
+        service.executionReceiver = await receiveExecution({
+          home, host: receiver.host, port: receiver.port, certFile: receiver.cert_file,
+          keyFile: receiver.key_file, tokenFile: receiver.token_file, receiptHome: receiver.receipt_home,
+          localMcp: service.#servers, mcpExports: receiver.mcp_servers,
+          accepting: () => !service.draining && !service.#closing && !service.#failure,
+        });
+      }
       // DEFENSE: Asynchronous catalog failure can retire a service while startup is awaiting external configuration.
       if (service.#failure) throw service.#failure;
       return service;
@@ -226,6 +238,35 @@ export class Service extends EventEmitter {
     if (!compaction.reply.ok) throw new Error(`Compaction configuration rejected: ${compaction.reply.error.message}`);
   }
 
+  async #discoverSharedMcp(imports) {
+    for (const route of imports) {
+      const { peer } = this.executionEnvironments.get(route.environment);
+      this.#sharedMcp.set(route.name, {
+        route, peer, discover: () => discoverMcp(route, this.limits, this.limits.mcp_timeout_ms,
+          (cursor, options) => peer.mcpPage(route.server, cursor, options)),
+      });
+    }
+    await Promise.all([...this.#sharedMcp].map(async ([name, client]) => {
+      try { this.#catalog.set(name, await client.discover()); }
+      // DEFENSE: A configured receiver can be offline while the local service starts.
+      catch (error) { this.notify({ type: 'diagnostic', message: `MCP ${name}: ${error.message}` }); }
+    }));
+  }
+
+  #watchSharedMcp() {
+    const peers = new Map();
+    for (const client of this.#sharedMcp.values()) {
+      const routes = peers.get(client.peer) ?? [];
+      routes.push(client.route);
+      peers.set(client.peer, routes);
+    }
+    for (const [peer, routes] of peers) peer.watchMcp((available, server) => {
+      for (const route of routes) {
+        if (server === undefined || route.server === server) this.#refreshCatalog(route.name, available);
+      }
+    });
+  }
+
   #refreshCatalog(name, discover) {
     // DEFENSE: An MCP server can send a catalog notification while the update drains existing work.
     if (this.draining) return;
@@ -240,7 +281,8 @@ export class Service extends EventEmitter {
       // DEFENSE: A queued subprocess catalog refresh can outlive service shutdown or a fatal journal failure.
       if (this.#closing || this.#failure) return;
       if (discover) {
-        try { this.#catalog.set(name, await this.#servers.get(name).discover()); }
+        const client = this.#servers.get(name) ?? this.#sharedMcp.get(name);
+        try { this.#catalog.set(name, await client.discover()); }
         // DEFENSE: MCP rediscovery can time out, return malformed tools or lose its process; withdraw that live catalog and diagnose the failure.
         catch (error) { this.#catalog.delete(name); this.notify({ type: 'diagnostic', message: `MCP ${name}: ${error.message}` }); }
       } else this.#catalog.delete(name);
@@ -541,10 +583,17 @@ export class Service extends EventEmitter {
             if (!client) throw new Error('Plugin tool route is unavailable');
             return client.call(effect, { signal });
           }
-          const client = this.#servers.get(effect.tool.source.server);
+          const { environment, server, name } = effect.tool.source;
+          if (environment !== undefined) {
+            const { peer } = this.executionEnvironments.get(environment, signal);
+            const value = await peer.mcpCall(this.#sharedOperationId(effect), server, name,
+              materializeCallArguments(effect.call), { signal, onDiagnostic: message => this.notify({ type: 'diagnostic', message }) });
+            return completeSharedMcp(value, this.home, signal);
+          }
+          const client = this.#servers.get(server);
           // DEFENSE: A frozen tool can name a server removed from configuration.
           if (!client) throw new Error('MCP route is unavailable');
-          return client.call(effect.tool.source.name, materializeCallArguments(effect.call), { signal });
+          return client.call(name, materializeCallArguments(effect.call), { signal });
         },
       });
       if (performed.kind === 'settled') return;
@@ -1194,6 +1243,7 @@ export class Service extends EventEmitter {
         if (this.#closing) throw new Error('Service stopped before update drain completed');
         const operations = [...this.#running.values()].map(active => active.promise);
         operations.push(...this.#providerCancellations);
+        if (this.executionReceiver) operations.push(...this.executionReceiver.pending());
         if (!operations.length) return;
         await wait(Promise.all(operations));
       }
@@ -1221,7 +1271,7 @@ export class Service extends EventEmitter {
     this.#closing = true;
     this.#pauseTimers();
     // DEFENSE: Network/process cleanup can fail; finish releasing all resources, then report every failed close to the caller.
-    const settled = await Promise.allSettled([this.remote?.close(),
+    const settled = await Promise.allSettled([this.remote?.close(), this.executionReceiver?.close(),
       ...[...this.#audioSessions.keys()].map(id => this.#stopAudio(id))]);
     settled.push(...await Promise.allSettled([this.audio?.close()]));
     this.#cancelRunning({ kind: 'shutdown' }, new Error('Server stopped'));

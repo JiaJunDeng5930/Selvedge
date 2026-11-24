@@ -8,14 +8,30 @@
     retrying a start after delivery loss observes the original operation.
     A conflicting operation cannot start under the same durable identity.
     Cancellation that reaches the receiver before a delayed start prevents
-    that start from launching. *)
-From Stdlib Require Import String.
+    that start from launching.
+
+    An installation can share a local MCP server with its paired task service.
+    The local MCP connection remains the authority for tools and process
+    permissions. An import is an installation-wide tool selection, independent
+    of the task Workspace. It identifies the receiver and the exported server.
+    MCP invocations use the same durable operation identity as other shared
+    execution, with admission to a server controlled by the export list. *)
+From Stdlib Require Import String List Bool.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Adapters Require Import SharedExecution.
+From Selvedge.Adapters Require Common.
 From Selvedge.Kernel Require Import Domain State.
 From Selvedge.Kernel Require Import Workspace.
 From Selvedge.Features Require WorkspaceBinding.
 Open Scope string_scope.
+
+Lemma shared_mcp_authority_is_explicit : forall exports server,
+  exported_mcp exports server = true -> In server (map Common.text exports).
+Proof.
+ intros exports server Allowed. unfold exported_mcp, has_name in Allowed.
+ apply existsb_exists in Allowed. destruct Allowed as [name [Member Equal]].
+ apply String.eqb_eq in Equal. now subst name.
+Qed.
 
 Lemma reserved_start_cannot_launch_again : forall request incoming,
   start_action true request incoming <> "reserve".
