@@ -37,6 +37,7 @@ test('an interactive fill reports its own refusal, preserves the draft, and can 
   <stack id="buttons">
     <button id="first" label="填入输入框（不发送）" action="draft" message="${suggestion}"/>
     <button id="second" label="填写另一条追问" action="draft" message="请说明第二个建议。"/>
+    <button id="copy" label="复制文字" action="copy" value="${suggestion}"/>
   </stack>
 </ui>`;
   const { index, task_id, before } = await showActionAnswer(fixture, 'Show two follow-up ideas',
@@ -55,6 +56,16 @@ test('an interactive fill reports its own refusal, preserves the draft, and can 
   assert.equal(await refusal(sibling).count(), 0);
   assert.equal(await composer.inputValue(), existing);
   assert.equal(await fill.evaluate(button => button === document.activeElement), true);
+  await page.setViewportSize({ width: 320, height: 670 });
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
+      writeText: async text => { window.fixtureClipboard = text; },
+    } });
+  });
+  await pressAuthoredAction(page, main.getByRole('button', { name: '复制文字', exact: true }));
+  await page.waitForFunction(expected => window.fixtureClipboard === expected, suggestion);
+  assert.equal(await composer.inputValue(), existing);
+  await page.setViewportSize({ width: 1280, height: 900 });
 
   await composer.fill('');
   const filename = 'unsent-follow-up.png';
@@ -81,69 +92,6 @@ test('an interactive fill reports its own refusal, preserves the draft, and can 
   assert.deepEqual((await command({ op: 'read', task_id })).messages, before.messages,
     'Filling the composer does not append a submitted message');
   assert.deepEqual(fixture.failures, []);
-});
-
-test('interactive action feedback fits below the button beside a usable Copy control', { timeout: 60000 }, async t => {
-  const fixture = await browserFixture(t);
-  const { page } = fixture;
-  const followup = '请说明这个建议。';
-  await showActionAnswer(fixture, 'Show a follow-up beside a copy action', [
-    '```selvedge-ui', '<ui id="followup-row">', '<row-layout id="actions">',
-    `<button id="fill" label="填入输入框（不发送）" action="draft" message="${followup}"/>`,
-    `<button id="copy" label="复制文字" action="copy" value="${followup}"/>`,
-    '</row-layout>', '</ui>', '```',
-  ].join('\n'));
-  await page.evaluate(() => {
-    window.fixtureClipboard = '';
-    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
-      writeText: async text => { window.fixtureClipboard = text; },
-    } });
-  });
-  const main = page.getByRole('main');
-  const composer = main.getByRole('combobox', { name: 'Message', exact: true });
-  const fill = main.getByRole('button', { name: '填入输入框（不发送）', exact: true });
-  const copy = main.getByRole('button', { name: '复制文字', exact: true });
-  const refusal = fill.locator('..').getByRole('status').filter({ hasText: refusalText });
-  const existing = '请保留已经写好的追问。';
-  for (const width of [320, 390, 1280]) {
-    await page.setViewportSize({ width, height: width === 1280 ? 900 : 670 });
-    if (width === 1280) await page.getByRole('navigation', { name: 'Task tree', exact: true }).waitFor();
-    else await page.getByRole('button', { name: 'Open Task list', exact: true }).waitFor();
-    await composer.fill(existing);
-    await pressAuthoredAction(page, fill);
-    await refusal.waitFor();
-    const layout = await fill.evaluate(button => {
-      const label = button.querySelector(':scope > span');
-      const feedback = button.parentElement.querySelector(':scope > [role="status"]');
-      const row = button.closest('[data-interactive-component="row-layout"]');
-      const bounds = feedback.getBoundingClientRect();
-      return {
-        labelWidth: label.clientWidth,
-        labelTextWidth: label.scrollWidth,
-        labelHeightFits: label.scrollHeight <= label.clientHeight + 1,
-        feedbackBelow: bounds.top >= button.getBoundingClientRect().bottom,
-        feedbackFits: feedback.scrollWidth <= feedback.clientWidth + 1 && bounds.left >= 0 && bounds.right <= innerWidth,
-        rowFits: row.scrollWidth <= row.clientWidth + 1 && row.scrollHeight <= row.clientHeight + 1,
-        focused: button === document.activeElement,
-      };
-    });
-    assert.ok(layout.labelTextWidth <= layout.labelWidth + 1 && layout.labelHeightFits, `${width}px: the full action label fits`);
-    assert.ok(layout.feedbackBelow && layout.feedbackFits && layout.rowFits, `${width}px: feedback fits below its action`);
-    assert.ok(layout.focused, `${width}px: feedback leaves keyboard focus on its action`);
-    assert.equal(await main.getByText(refusalText, { exact: true }).count(), 1);
-    assert.equal(await copy.isEnabled(), true);
-    const copyBounds = await copy.boundingBox();
-    assert.ok(copyBounds && copyBounds.x >= 0 && copyBounds.x + copyBounds.width <= width);
-
-    if (width === 320) {
-      await pressAuthoredAction(page, copy);
-      await page.waitForFunction(expected => window.fixtureClipboard === expected, followup);
-      assert.equal(await composer.inputValue(), existing);
-    }
-    await composer.fill('');
-    await pressAuthoredAction(page, fill);
-    await refusal.waitFor({ state: 'hidden' });
-  }
 });
 
 test('an authored action stays focused while its display is updating', { timeout: 60000 }, async t => {

@@ -94,24 +94,27 @@ function advertisedFunctions(tools, namespace) {
     ? advertisedFunctions(tool.tools, tool.name) : [{ ...tool, namespace }]);
 }
 
-for (const [description, reviewerAnswer] of [
-  ['a missing reason', '{"decision":"allow"}'],
-  ['an empty reason', '{"decision":"allow","reason":""}'],
-]) {
-  test(`a reviewer allow with ${description} cannot authorize an escalated command`, async t => {
-    const state = { model: '', body: null, reviewerAnswer, reviewerRequests: [], workerCalls: 0 };
-    const fixture = await serviceFixture(t, body => {
-      state.model = body.model;
-      state.body = body;
-      return toolResponse(fixture.marker, state);
-    });
+test('unusable reviewer reasons cannot authorize an escalated command', async t => {
+  const state = { model: '', body: null, reviewerAnswer: null, reviewerRequests: [], workerCalls: 0 };
+  const fixture = await serviceFixture(t, body => {
+    state.model = body.model;
+    state.body = body;
+    return toolResponse(fixture.marker, state);
+  });
+  for (const [description, reviewerAnswer] of [
+    ['a missing reason', '{"decision":"allow"}'],
+    ['an empty reason', '{"decision":"allow","reason":""}'],
+  ]) {
+    state.reviewerAnswer = reviewerAnswer;
+    state.reviewerRequests.length = 0;
+    state.workerCalls = 0;
     const { task_id } = await fixture.create('Write the requested marker.', {
       mode: 'approval-for-me', reviewer_profile: 'judge',
     });
     const page = await fixture.until(
       () => fixture.read(task_id),
       value => value.task.phase === 'idle' && value.task.operations.length === 0,
-      'The reviewed task must settle',
+      description,
     );
 
     assert.equal(state.reviewerRequests.length, 1, 'The configured independent reviewer must receive the request');
@@ -123,8 +126,8 @@ for (const [description, reviewerAnswer] of [
     await assert.rejects(readFile(fixture.marker), { code: 'ENOENT' });
     assert.deepEqual(fixture.reviewer.failures, []);
     assert.deepEqual(fixture.upstream.failures, []);
-  });
-}
+  }
+});
 
 test('the configured reviewer receives the approval payload over HTTP before the command executes', async t => {
   const state = {

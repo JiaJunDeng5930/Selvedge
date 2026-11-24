@@ -302,6 +302,15 @@ test('conversation rows keep one resting dot and identify execution that needs a
   pending.response.end('data: {"type":"response.failed","response":{"status":"failed"}}\n\n');
   await taskIdle(running.service, runningTask);
   await assertNotice(activeEntry, '执行出错');
+  await activeEntry.click();
+  const activity = page.getByRole('main').locator('section[data-expanded]').filter({
+    has: page.getByRole('button', { name: '执行错误', exact: true }),
+  });
+  const disclosure = activity.getByRole('button', { name: '执行错误', exact: true });
+  await disclosure.waitFor();
+  if (await activity.getAttribute('data-expanded') === 'false') await disclosure.click();
+  await activity.getByText('Model stream ended with response.failed', { exact: true }).waitFor();
+  assert.equal(await activity.getByText('执行错误', { exact: true }).count(), 1);
 
   const { task_id: approvalTask } = await command({ op: 'create', profile, message: 'Wait for approval.',
     settings: { approval: { mode: 'ask-for-approval' } } });

@@ -256,11 +256,26 @@ test('ordered image content and the active composer survive responsive navigatio
 
   const message = page.getByRole('combobox', { name: 'Message', exact: true });
   await message.fill('Keep this unsent draft while narrowing.');
+  const tree = page.getByRole('navigation', { name: 'Task tree', exact: true });
+  await page.getByRole('button', { name: /Collapse.*(?:Task|sidebar)/ }).click();
+  await tree.waitFor({ state: 'hidden' });
+  await page.getByRole('button', { name: /Expand.*(?:Task|sidebar)/ }).click();
+  await tree.waitFor();
+  assert.equal(await message.inputValue(), 'Keep this unsent draft while narrowing.');
   await message.focus();
   const narrowWidth = 390;
   await page.setViewportSize({ width: narrowWidth, height: 900 });
   const tasks = page.getByRole('button', { name: 'Open Task list', exact: true });
   await tasks.waitFor();
+  const composerActions = [
+    page.getByLabel('Attach files', { exact: true }),
+    page.locator('summary[aria-label="Voice"]'),
+    page.getByRole('button', { name: '发送', exact: true }),
+  ];
+  for (const action of composerActions) {
+    const box = await action.boundingBox();
+    assert.ok(box && box.width >= 44 && box.height >= 44, 'Primary composer actions need usable mobile touch targets');
+  }
   assert.equal(await message.evaluate(node => node === document.activeElement), true,
     'A layout change must preserve the user activity instead of opening the Task tree');
   assert.equal(await message.inputValue(), 'Keep this unsent draft while narrowing.');

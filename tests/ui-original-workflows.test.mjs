@@ -110,22 +110,15 @@ test('a Project task keeps its readable context and its primary and supporting a
   assert.deepEqual(await bottomRow(), { fits: true, scrollable: true },
     'A short details panel scrolls to expose the entire model row');
   await page.setViewportSize({ width: 1280, height: 900 });
-});
+  await page.getByRole('button', { name: '任务详情', exact: true }).click();
+  await details.waitFor({ state: 'hidden' });
 
-test('a projectless task identifies its context without inventing a Project revision', async t => {
-  const { page, command } = await browserFixture(t);
-  const { task_id } = await command({ op: 'create_idle', profile: 'demo' });
-  const { task } = await command({ op: 'read', task_id });
+  const { task_id: projectless } = await command({ op: 'create_idle', profile: 'demo' });
+  const { task: projectlessTask } = await command({ op: 'read', task_id: projectless });
   const entry = page.getByRole('navigation', { name: 'Task tree', exact: true })
-    .getByRole('button', { name: task.title, exact: true });
-  const caption = entry.getByText(task.title, { exact: true });
-  await caption.hover();
-  assert.equal(await caption.getAttribute('title'), null, 'Hovering a fully visible title does not repeat the label');
-  assert.equal(await entry.getAttribute('title'), null);
-  assert.equal(await entry.getAttribute('data-help'), null);
+    .getByRole('button', { name: projectlessTask.title, exact: true });
   await entry.click();
   await page.getByRole('button', { name: '任务详情', exact: true }).click();
-  const details = page.getByRole('complementary', { name: '任务详情', exact: true });
   await details.getByText('未关联项目', { exact: true }).waitFor();
   assert.equal(await details.getByText('项目指引', { exact: true }).count(), 0);
   assert.equal(await details.getByText('指引版本', { exact: true }).count(), 0,

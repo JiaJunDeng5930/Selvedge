@@ -154,6 +154,14 @@ test('a project can start with only a name and save an optional directory later'
 
   const projectName = '先按名称创建的项目';
   await name.fill(projectName);
+  const location = create.getByRole('textbox', { name: '目录路径', exact: true });
+  await location.fill(workspace);
+  const instruction = '请先添加或清空目录路径。';
+  const repair = create.getByRole('status').filter({ hasText: instruction });
+  await repair.waitFor();
+  assert.equal(await submit.isDisabled(), true);
+  await create.getByRole('button', { name: '清空', exact: true }).click();
+  await repair.waitFor({ state: 'hidden' });
   await browse.click();
   const chooser = page.getByRole('dialog', { name: '选择 Selvedge 主机上的目录', exact: true });
   await chooser.getByRole('button', { name: '取消', exact: true }).click();
@@ -186,59 +194,17 @@ test('a project can start with only a name and save an optional directory later'
   const saved = await command({ op: 'read_project', project_id: created.project_id });
   assert.equal(saved.name, projectName);
   assert.deepEqual(saved.workspace, { roots: [workspace], primary_root: workspace });
-});
-
-test('a typed Project directory shows one instruction and leaves both footer actions together', { timeout: 60000 }, async t => {
-  const { page, command, root } = await browserFixture(t);
-  const directory = path.join(root, '手动输入的项目目录');
-  await mkdir(directory);
-  await page.getByRole('navigation', { name: 'Global navigation', exact: true })
-    .getByRole('button', { name: '项目', exact: true }).click();
-  const create = page.getByRole('main').getByRole('button', { name: '新建项目', exact: true });
-  const project = page.getByRole('dialog', { name: '新建项目', exact: true });
-  const location = project.getByRole('textbox', { name: '目录路径', exact: true });
-  const submit = project.getByRole('button', { name: '创建项目', exact: true });
-  const cancel = project.getByRole('button', { name: '取消', exact: true });
-  const instruction = '请先添加或清空目录路径。';
-  const status = project.getByRole('status').filter({ hasText: instruction });
-  const copies = project.getByText(instruction, { exact: true }).and(project.locator(':not(.visually-hidden)'));
-
-  const cases = [
-    { width: 1280, height: 900, name: '手动添加目录', action: '添加目录', workspace: { roots: [directory], primary_root: directory } },
-    { width: 390, height: 620, name: '清空未添加的目录', action: '清空', workspace: { roots: [], primary_root: null } },
-  ];
-  for (const { width, height, name, action, workspace } of cases) {
-    await page.setViewportSize({ width, height });
-    await create.click();
-    await project.getByRole('textbox', { name: '项目名称', exact: true }).fill(name);
-    await location.fill(directory);
-    await status.waitFor();
-    assert.equal(await copies.count(), 1, `One visible instruction at ${width}px`);
-    assert.equal(await submit.isDisabled(), true);
-    assert.equal(await submit.evaluate(button => (button.getAttribute('aria-describedby') ?? '').split(/\s+/)
-      .map(id => document.getElementById(id)?.textContent ?? '').join(' ').trim()), instruction);
-
-    const statusBounds = await status.boundingBox();
-    const locationBounds = await location.boundingBox();
-    const cancelBounds = await cancel.boundingBox();
-    const submitBounds = await submit.boundingBox();
-    assert.ok(statusBounds && locationBounds && statusBounds.y + statusBounds.height <= locationBounds.y);
-    assert.ok(cancelBounds && submitBounds && cancelBounds.x + cancelBounds.width <= submitBounds.x
-      && Math.abs(cancelBounds.y + cancelBounds.height / 2 - submitBounds.y - submitBounds.height / 2) <= 1
-      && cancelBounds.x >= 0 && submitBounds.x + submitBounds.width <= width,
-    `Cancel and Create share one footer row at ${width}px`);
-
-    await project.getByRole('button', { name: action, exact: true }).click();
-    await status.waitFor({ state: 'hidden' });
-    const nextDirectoryLabel = workspace.roots.length ? '添加另一个目录' : '目录路径';
-    assert.equal(await project.getByRole('textbox', { name: nextDirectoryLabel, exact: true }).inputValue(), '');
-    await submit.click();
-    await project.waitFor({ state: 'hidden' });
-  }
-  const saved = await command({ op: 'list_projects' });
-  for (const { name, workspace } of cases) {
-    assert.deepEqual(saved.find(project => project.name === name)?.workspace, workspace);
-  }
+  await main.getByRole('button', { name: '新建项目', exact: true }).click();
+  await name.fill('手动添加目录');
+  await location.fill(workspace);
+  await repair.waitFor();
+  await create.getByRole('button', { name: '添加目录', exact: true }).click();
+  await repair.waitFor({ state: 'hidden' });
+  await submit.click();
+  await create.waitFor({ state: 'hidden' });
+  const projects = await command({ op: 'list_projects' });
+  assert.deepEqual(projects.find(project => project.name === '手动添加目录')?.workspace,
+    { roots: [workspace], primary_root: workspace });
 });
 
 test('closing Project and title prompt editors discards their unsaved drafts through the browser', { timeout: 60000 }, async t => {

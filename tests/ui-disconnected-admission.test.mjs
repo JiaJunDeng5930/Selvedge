@@ -25,7 +25,7 @@ async function editorFixture(t) {
   return fixture;
 }
 
-test('a disconnected service keeps the draft and disables Submit', { timeout: 60000 }, async t => {
+test('a disconnect guards both a new draft and an already open confirmation', { timeout: 60000 }, async t => {
   const fixture = await editorFixture(t);
   const { page, running } = fixture;
   const submit = page.getByRole('button', { name: 'Start task', exact: true });
@@ -61,21 +61,14 @@ test('a disconnected service keeps the draft and disables Submit', { timeout: 60
   await retry.continue();
   await notice.waitFor({ state: 'hidden' });
   assert.equal(await draft.inputValue(), text);
-});
 
-test('an open confirmation stays unavailable after disconnect', { timeout: 60000 }, async t => {
-  const fixture = await projectFixture(t);
-  const { page, running } = fixture;
+  await page.getByRole('navigation', { name: 'Global navigation', exact: true })
+    .getByRole('button', { name: '项目', exact: true }).click();
+  await page.getByRole('main').getByRole('region', { name: 'Disconnect admission project', exact: true }).hover();
   await page.getByRole('main').getByRole('button', { name: '项目操作', exact: true }).click();
   await page.getByRole('button', { name: '删除项目', exact: true }).click();
-  const confirm = page.getByRole('dialog').getByRole('button', { name: 'Confirm', exact: true });
-  await confirm.waitFor();
   await page.getByRole('dialog').getByRole('button', { name: 'Confirm', exact: true, disabled: false }).waitFor();
 
-  let commands = 0;
-  page.on('request', request => {
-    if (request.url().endsWith('/api/browser/command') && request.method() === 'POST') commands++;
-  });
   running.disconnect();
   await page.getByRole('dialog').getByRole('button', { name: 'Confirm', exact: true, disabled: true }).waitFor();
   assert.equal(commands, 0, 'The disabled Confirm control must not dispatch a command');
