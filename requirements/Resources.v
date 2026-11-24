@@ -37,6 +37,9 @@ Export WorktreeCompletionProofs(received_creation_binds_or_stops,
     Process input, filesystem observations and image snapshots use this same
     binding. Project observations without a Task binding remain local.
     Cloud commands use the primary root in their captured workspace.
+    In the composer, a cloud run waits for the GitHub check of the selected
+    primary. A Project conversation uses the Project primary. An invalid
+    selection leaves the draft available and shows how to repair it.
     Provisioning, workspace selection and connection-job admission establish
     that primary; forks retain the selected workspace. Recovery metadata
     identifies the resource and does not supply another command directory.

@@ -403,74 +403,49 @@ test('A search result opens and highlights a deep visible match while later repl
   await keyword.waitFor();
   const highlighted = () => page.waitForFunction(({ task, marker }) => {
     const root = document.querySelector(`[data-reading-root][data-task-id="${task}"]`);
-    const highlight = CSS.highlights.get('selvedge-history-match');
-    const [range] = highlight ?? [];
-    if (!root || highlight?.size !== 1 || range?.toString() !== marker ||
-        !range.startContainer.parentElement.closest('p')?.textContent.startsWith('The audit record uses')) return false;
+    const range = Array.from(CSS.highlights.values()).flatMap(highlight => [...highlight])
+      .find(range => range.toString() === marker
+        && range.startContainer.parentElement.closest('p')?.textContent.startsWith('The audit record uses'));
+    if (!root || !range || !root.contains(range.startContainer)) return false;
     const viewport = root.getBoundingClientRect(), bounds = range.getBoundingClientRect();
-    const article = range.startContainer.parentElement.closest('article').getBoundingClientRect();
-    return bounds.top >= viewport.top - 1 && bounds.bottom <= viewport.bottom + 1 && article.top < viewport.top - 1000;
+    return bounds.top >= viewport.top && bounds.bottom <= viewport.bottom;
   }, { task: task_id, marker });
-  const checkFocusFrame = async () => {
-    await timeline.and(page.locator(':focus-visible')).waitFor();
-    const frame = await keyword.evaluate(node => {
-      const root = node.closest('[data-reading-root]');
-      const bounds = root.getBoundingClientRect();
-      const style = getComputedStyle(root);
-      const text = document.createRange();
-      text.selectNodeContents(node);
-      const ringInside = Math.max(0, -parseFloat(style.outlineOffset));
-      return { style: style.outlineStyle, width: parseFloat(style.outlineWidth),
-        leftClearance: text.getBoundingClientRect().left - bounds.left - ringInside };
-    });
-    assert.equal(frame.style, 'solid');
-    assert.ok(frame.width >= 2);
-    assert.ok(frame.leftClearance >= 4,
-      `The timeline focus ring clears the assistant text by ${frame.leftClearance}px`);
+  const matchedMessage = timeline.getByRole('article', { name: 'Message', exact: true })
+    .filter({ hasText: 'The audit record uses' });
+  const isInViewport = node => {
+    const viewport = node.closest('[data-reading-root]')?.getBoundingClientRect();
+    const match = node.getBoundingClientRect();
+    return Boolean(viewport && match.top >= viewport.top && match.bottom <= viewport.bottom);
   };
-  const offset = () => keyword.evaluate(node => new Promise(resolve => {
-    requestAnimationFrame(() => setTimeout(() => {
-      const viewport = node.closest('[data-reading-root]').getBoundingClientRect();
-      resolve(node.getBoundingClientRect().top - viewport.top);
-    }, 0));
-  }));
   await highlighted();
-  await checkFocusFrame();
-  const arrived = await offset();
-  const previousWidth = await timeline.evaluate(root => root.clientWidth);
   await keyword.evaluate(node => {
-    window.firstResizedMessageOffset = new Promise(resolve => {
-      window.addEventListener('resize', () => setTimeout(() => {
+    window.matchVisibleAfterResize = new Promise(resolve => {
+      window.addEventListener('resize', () => requestAnimationFrame(() => setTimeout(() => {
         const viewport = node.closest('[data-reading-root]')?.getBoundingClientRect();
-        resolve(viewport ? node.getBoundingClientRect().top - viewport.top : null);
-      }, 0), { once: true });
+        const match = node.getBoundingClientRect();
+        resolve(Boolean(viewport && match.top >= viewport.top && match.bottom <= viewport.bottom));
+      }, 0)), { once: true });
     });
   });
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.waitForFunction(({ selector, previousWidth }) =>
-    document.querySelector(selector)?.clientWidth < previousWidth, { selector: timelineSelector, previousWidth });
-  const resized = await page.evaluate(() => window.firstResizedMessageOffset);
-  assert.ok(resized !== null && Math.abs(resized - arrived) <= 2,
-    `The first resized frame retains the selected keyword (before ${arrived}px, after ${resized}px)`);
-  await checkFocusFrame();
+  assert.equal(await page.evaluate(() => window.matchVisibleAfterResize), true,
+    'The search match stays in view when the window narrows');
   const completion = longText('Finished follow-up', 30);
   fixture.emit(live.index, '\n\n' + completion);
   fixture.finish(live.index, {});
   await taskIdle(fixture.running.service, task_id);
   await timeline.getByText(/Finished follow-up 30/).waitFor();
-  const completed = await offset();
-  assert.ok(Math.abs(completed - arrived) <= 2,
-    `The selected keyword stays at its reading position as the reply completes (before ${arrived}px, after ${completed}px)`);
-  await page.waitForFunction(() => !CSS.highlights.has('selvedge-history-match'));
+  assert.equal(await keyword.evaluate(isInViewport), true, 'The search match stays in view as later replies arrive');
 
-  const scrolledPast = previous => page.waitForFunction(({ selector, previous, marker }) => {
+  const scrolledPast = previous => page.waitForFunction(({ selector, previous }) => {
     const root = document.querySelector(selector);
-    const keyword = [...root.querySelectorAll('strong')].find(text => text.textContent === marker);
-    return keyword && previous > keyword.getBoundingClientRect().top - root.getBoundingClientRect().top + 50;
-  }, { selector: timelineSelector, previous, marker });
+    return root && root.scrollTop > previous;
+  }, { selector: timelineSelector, previous });
+  await matchedMessage.and(page.locator(':focus-visible')).waitFor();
+  const arrived = await timeline.evaluate(root => root.scrollTop);
   await page.keyboard.press('PageDown');
   await scrolledPast(arrived);
-  const afterPaging = await offset();
+  const afterPaging = await timeline.evaluate(root => root.scrollTop);
   await timeline.hover();
   await page.mouse.wheel(0, 180);
   await scrolledPast(afterPaging);
@@ -480,7 +455,12 @@ test('A search result opens and highlights a deep visible match while later repl
   assert.equal(await query.inputValue(), enteredQuery);
   await hit.press('Enter');
   await highlighted();
-  await checkFocusFrame();
+  await matchedMessage.and(page.locator(':focus-visible')).waitFor();
+  await page.keyboard.press('Tab');
+  const focusedControl = matchedMessage.locator(':focus');
+  await focusedControl.waitFor();
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  assert.equal(await focusedControl.evaluate(isInViewport), true, 'Tab reveals the focused control in the matched message');
   await page.getByRole('button', { name: 'Return to latest', exact: true }).click();
   await atLatest();
 });

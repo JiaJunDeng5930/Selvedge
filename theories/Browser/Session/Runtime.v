@@ -276,9 +276,20 @@ Definition retire_namespace namespace state:=
  let stopped:=Speech.speech_step Speech.Cancel(SS.speech_state state)in
  let closed:=Speech.close_login(Speech.speech_state stopped)in
  let speech:=Speech.idle_with_notice ""(Speech.speech_state closed)in
+ let layers:=SS.layers(SS.navigation_state state)in
+ let keep_draft draft:=match Draft.draft_feedback draft with
+  |Draft.Accepted _ _=>
+   let owner:=Draft.owner draft in
+   negb(Navigation.discard_draft_on_dismiss owner) ||
+   existsb(fun layer=>match SS.layer_panel layer with
+    |SS.EditorPanel current|SS.PropertyPanel current _=>Identity.same_editor owner current
+    |_=>false end)layers
+  |_=>true end in
+ (* Closed editors with accepted saves reopen from the latest committed world. *)
  let authoring:=set SS.history_search(fun search=>SS.Search(SS.keyword search)None None None None None)
    (set SS.awaiting(fun _=>[])
-    (set SS.drafts(map(Draft.with_feedback Draft.Editing))(SS.authoring_state state)))in
+    (set SS.drafts(fun drafts=>map(Draft.with_feedback Draft.Editing)(filter keep_draft drafts))
+      (SS.authoring_state state)))in
  let fresh:=SS.with_authoring authoring
   (SS.with_services services(SS.with_speech speech(SS.with_streams[]
   (SS.with_interactive_state IS.initial

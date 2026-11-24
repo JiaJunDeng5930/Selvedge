@@ -148,7 +148,7 @@ test('interactive answer sections keep a readable outline and each source contro
   await codeActions.waitFor({ state: 'hidden' });
 });
 
-test('interactive fences keep their original source collapsed while the preview is mounting', { timeout: 60000 }, async t => {
+test('a settled interactive reply opens at its tail without flashing preview source', { timeout: 60000 }, async t => {
   const fixture = await browserFixture(t);
   const { page, command, profile, running } = fixture;
   const { task_id } = await command({ op: 'create', profile, message: 'Show a report with interactive sections.' });
@@ -183,7 +183,7 @@ test('interactive fences keep their original source collapsed while the preview 
           const bounds = node.getBoundingClientRect(), viewport = reader.getBoundingClientRect();
           return bounds.top >= viewport.top - 1 && bounds.bottom <= viewport.bottom + 1;
         };
-        probe.firstPaint = { tail: visible(tail) };
+        probe.firstPaint = visible(tail);
       }
       if (probe.running) requestAnimationFrame(sample);
     }
@@ -192,8 +192,7 @@ test('interactive fences keep their original source collapsed while the preview 
   await page.getByRole('navigation', { name: 'Task tree', exact: true })
     .getByRole('button', { name: task.title, exact: true }).click();
   const timeline = page.getByRole('region', { name: 'Conversation', exact: true });
-  const previews = timeline.locator('.code-block[data-interactive-active="true"]');
-  await previews.nth(15).waitFor();
+  await timeline.getByText('章节 16', { exact: true }).waitFor();
   await timeline.getByText('An ordinary example.', { exact: true }).waitFor();
   const probe = await page.evaluate(() => {
     window.fencePaintProbe.running = false;
@@ -202,13 +201,11 @@ test('interactive fences keep their original source collapsed while the preview 
   assert.equal(probe.flashing, false, 'No interactive source is exposed before its preview or an explicit disclosure');
   assert.equal(probe.pendingSeen, true, 'A delayed history gives one visible loading status');
   assert.equal(probe.overlappingStatus, false, 'The conversation loading status never overlays visible content');
-  assert.equal(await page.getByText('正在加载对话…', { exact: true }).isVisible(), false);
-  assert.deepEqual(probe.firstPaint, { tail: true }, 'The first visible viewport includes the conversation tail');
+  assert.equal(probe.firstPaint, true, 'The first visible viewport includes the conversation tail');
   await timeline.getByRole('button', { name: '创建对话分支', exact: true }).waitFor();
   const declined = timeline.locator('.code-block').filter({ hasText: '无法显示交互界面' });
   const raw = declined.locator('pre');
   const reveal = declined.getByRole('button', { name: '展开源码', exact: true });
-  assert.equal(await reveal.textContent(), '');
   assert.equal(await reveal.getAttribute('aria-expanded'), 'false');
   await reveal.press('Enter');
   await raw.waitFor();

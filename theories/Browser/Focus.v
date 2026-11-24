@@ -94,16 +94,16 @@ Definition observed_request previous current eligible focused_before focused_aft
   |_,_,_=>None end
  end.
 
-(** Layout may leave a retained child outside the viewport. The active, visible
-    temporary root remains a reachable focus target without replacing the scope. *)
+(** An activity transition owns its focus target. Physical recovery is for a
+    clipped child whose scope has no focus request of its own. *)
 Definition physical_request previous current eligible focused_before focused_after
   focused_visible root_visible root_eligible :=
- match top current,focused_after with
- |Temporary identity _ _ _ _,Some _=>
-   if negb focused_visible && root_visible && root_eligible
-   then Some(identity,identity)
-   else observed_request previous current eligible focused_before focused_after
- |_,_=>observed_request previous current eligible focused_before focused_after
+ match observed_request previous current eligible focused_before focused_after with
+ |Some target=>Some target
+ |None=>match top current,focused_after with
+   |Temporary identity _ _ _ _,Some _=>
+     if negb focused_visible && root_visible && root_eligible then Some(identity,identity) else None
+   |_,_=>None end
  end.
 
 Definition permits_composer current := match current with Document=>true|Temporary _ _ _ _ _=>false end.

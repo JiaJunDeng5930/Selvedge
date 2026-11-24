@@ -1057,7 +1057,8 @@ dialog[data-semantic-key="side-conversation"] {
   [data-semantic-key="composer/submit"] { grid-area: 2 / 2; }
   [data-semantic-key="composer/accessories"] { grid-area: 2 / 1; }
 }
-@container composer (inline-size < 13rem) {
+/* The tools' touch targets are sized in CSS pixels. */
+@container composer (inline-size < 208px) {
   [data-semantic-key="composer/tools"]:not(:empty) {
     flex-direction: column !important;
     align-items: flex-start !important;
@@ -1115,8 +1116,10 @@ main:has(> [data-page-region="creation-introduction"]) {
 [data-composer-menu] h2[tabindex="-1"] { outline: none; }
 [data-composer-menu]:not([data-anchor-available="false"]) {
   max-block-size: calc(100% - 2 * var(--layer-clearance)) !important;
+  min-block-size: min(3lh, calc((100dvb - anchor-size(height)) / 2 - 2 * var(--layer-clearance))) !important;
   position-area: top span-left !important;
-  position-try-fallbacks: flip-inline !important;
+  position-try-fallbacks: flip-inline, flip-block, flip-block flip-inline,
+    --property-menu-above, --property-menu-below, --native-menu-confined !important;
   align-self: end !important;
   justify-self: end !important;
   inset: auto calc(0px - var(--layer-clearance)) calc(var(--layer-gap) - var(--layer-clearance)) auto !important;

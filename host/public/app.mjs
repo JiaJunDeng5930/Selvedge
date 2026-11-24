@@ -41,9 +41,10 @@ const readingVisits = new WeakMap();
 const readingBlocks = new WeakMap();
 const visibleReadingAnchors = new WeakMap();
 const restoredReadingOffsets = new WeakMap();
-let observedReadingProcesses = new Set();
-const readingProcessResize = new ResizeObserver(() => {
-  // Disclosure transitions resize the content after its document publication.
+let observedReadingGeometry = new Set();
+const readingResize = new ResizeObserver(() => {
+  // Reader reflow and disclosure transitions can change the layout
+  // independently of document publication.
   if (!disposed) layoutReading();
 });
 const selections = new WeakMap();
@@ -465,7 +466,7 @@ function present(mode) {
     layoutReading(true);
     showWorkflowTimes(surface);
   }
-  if (layoutChanged) observeReadingProcesses();
+  if (layoutChanged) observeReadingGeometry();
   if (!renderer.document.measurement_pending) {
     publication = publicationEvent('document', { receipt_generation: generation });
     if (!streamed) {
@@ -761,8 +762,16 @@ const renderer = new Presentation(surface, {
       // DEFENSE: restoring a bookmark emits scroll even when the browser clamps
       // it before asynchronous Markdown mounts. That receipt is not a new user position.
       if (restoredReadingOffsets.get(node) === node.scrollTop) return;
-      if (atReadingBottom(node) && !currentHistoryLocation(node))
-        reachedReadingBottom(key, node, state);
+      if (currentHistoryLocation(node)) {
+        // Reflow can clamp scrollTop before layout restores the hit. A scroll
+        // in the same geometry can come from native focus moving to a control.
+        if (readingLayouts.get(node)?.dimensions !== readingDimensions(node)) {
+          scheduleReadingLayout();
+          return;
+        }
+        retireHistoryLocation(node);
+      }
+      if (atReadingBottom(node)) reachedReadingBottom(key, node, state);
       else requestReadingAnchor(key, node);
     }
   },
@@ -869,6 +878,7 @@ function codeStep(entry, input) {
 const readingKey = node => node.dataset.taskId;
 const readingTop = node => node.getBoundingClientRect().top + node.clientTop;
 const atReadingBottom = node => node.scrollHeight - node.clientHeight - node.scrollTop <= 1;
+const readingDimensions = node => `${node.clientWidth},${node.clientHeight},${node.scrollHeight}`;
 function reachedReadingBottom(key, node, state) {
   if (state.intent !== 'history') return;
   retireHistoryLocation(node);
@@ -1170,11 +1180,11 @@ function scheduleReadingLayout() {
     if (!disposed) { retryHistoryLocation(); layoutReading(); }
   });
 }
-function observeReadingProcesses() {
-  const mounted = new Set(surface.querySelectorAll('[data-reading-root] [data-task-process]'));
-  for (const process of observedReadingProcesses) if (!mounted.has(process)) readingProcessResize.unobserve(process);
-  for (const process of mounted) if (!observedReadingProcesses.has(process)) readingProcessResize.observe(process);
-  observedReadingProcesses = mounted;
+function observeReadingGeometry() {
+  const mounted = new Set(surface.querySelectorAll('[data-reading-root], [data-reading-root] [data-task-process]'));
+  for (const node of observedReadingGeometry) if (!mounted.has(node)) readingResize.unobserve(node);
+  for (const node of mounted) if (!observedReadingGeometry.has(node)) readingResize.observe(node);
+  observedReadingGeometry = mounted;
 }
 function revealNewReaders() {
   if (revealingReader) return;
@@ -1197,10 +1207,11 @@ function waitingForReadingPassage(reader) {
   const pending = passage?.querySelector('.markdown[data-markdown-parsing]');
   if (!pending) return false;
   const markdown = renderer.nodeRecords.get(pending)?.markdown;
-  if (markdown) markdown.prioritizeReadingPassage(savedPassage ? markdown.text.length : 0);
-  // A saved offset may be far into this message. The live end can show its
-  // available prefix while the normal follow behavior keeps it aligned.
-  return Boolean(savedPassage) || !pending.hasChildNodes();
+  const waitForPassage = Boolean(savedPassage) || markdown?.sourceComplete;
+  if (markdown) markdown.prioritizeReadingPassage(waitForPassage ? markdown.text.length : 0);
+  // A saved offset or a completed reply's end may be beyond the first
+  // Markdown batch. Only an open reply can start at its available prefix.
+  return waitForPassage || !pending.hasChildNodes();
 }
 function layoutReading(initialOnly = false) {
   const modal = activeModal();
@@ -1229,12 +1240,12 @@ function layoutReading(initialOnly = false) {
     const bookmarkNode = block?.anchor === anchor && anchor?.contains(block.node) ? block.node : anchor;
     const location = currentHistoryLocation(node);
     const hit = location?.range && firstRangeRect(location.range);
-    const signature = JSON.stringify([node.dataset.readerGeneration, node.clientWidth, node.clientHeight,
-      node.scrollHeight, dock?.getBoundingClientRect().height ?? 0,
+    const dimensions = readingDimensions(node);
+    const signature = JSON.stringify([node.dataset.readerGeneration, dimensions, dock?.getBoundingClientRect().height ?? 0,
       bookmarkNode ? bookmarkNode.getBoundingClientRect().top - readingTop(node) + node.scrollTop : null,
       hit ? hit.top - readingTop(node) + node.scrollTop : null]);
-    if (readingLayouts.get(node) === signature && node.style.getPropertyValue('scroll-padding-block-end') !== '') continue;
-    readingLayouts.set(node, signature);
+    if (readingLayouts.get(node)?.signature === signature && node.style.getPropertyValue('scroll-padding-block-end') !== '') continue;
+    readingLayouts.set(node, { dimensions, signature });
     readingStep(node.dataset.key, node, 'layout');
     if (completing && location) revealHistoryLocation(location);
   }
@@ -1844,7 +1855,7 @@ window.addEventListener('pagehide', event => {
   editorRepair.dispose(); physical.dispose(); renderer.dispose(); storage.flush();
   clearInterval(clockRefresh); document.removeEventListener('visibilitychange', refreshClock);
   boardTrackResize.disconnect();
-  readingProcessResize.disconnect();
+  readingResize.disconnect();
   for (const timer of timers) clearTimeout(timer);
   for (const entry of codeBlocks.values()) for (const physical of entry.views.values()) physical.renderer?.dispose();
   for (const controller of transfers.values()) controller.abort();

@@ -916,7 +916,7 @@ dialog[data-editor-repair-inline] > form[data-semantic-key="editor"] [data-seman
 }
 [data-semantic-key="board-filters"] [data-semantic-key="filter-assignee-options"] button {
   inline-size: 100% !important;
-  block-size: var(--assignee-row-size) !important;
+  block-size: auto !important;
   min-block-size: var(--assignee-row-size) !important;
   flex: none !important;
   justify-content: start !important;
@@ -938,9 +938,8 @@ dialog[data-editor-repair-inline] > form[data-semantic-key="editor"] [data-seman
 }
 [data-semantic-key="filter-assignee-options"] button > span:not([aria-hidden]) {
   display: block !important;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal !important;
 }
 @media (pointer: coarse) {
   [data-semantic-key="board-filters"] [data-semantic-key="filter-assignee-options"] {

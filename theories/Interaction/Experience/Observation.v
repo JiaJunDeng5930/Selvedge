@@ -489,11 +489,13 @@ Definition run_environment_problem_for snapshot state draft : option run_environ
  else
  problem<-FieldsObservation.worktree_submission_problem snapshot(EC.git_observation(EC.observed state))draft;;
  Some(RunEnvironmentProblem "workspace_git_unavailable" (run_environment_git_message problem) None false).
-Definition run_environment_obstruction snapshot e (draft:Draft.draft):option(obstruction e):=
+Definition run_environment_obstruction snapshot state e (draft:Draft.draft):option(obstruction e):=
  match e with
  |Identity.NewTask _=>
-   if FieldsObservation.cloud_workspace_requested draft && negb(FieldsObservation.cloud_workspace_configured snapshot)
-   then Some(requirement_obstruction e (Some Fields.TaskEnvironment) "cloud_backend_unavailable" "此 Selvedge 主机尚未配置腾讯云 CVM。")
+   if FieldsObservation.cloud_workspace_requested draft then
+    problem<-run_environment_problem_for snapshot state draft;;
+    Some(requirement_obstruction e (Some Fields.TaskEnvironment)
+      (environment_problem_code problem) (environment_problem_message problem))
    else None
  |_=>None end.
 Definition model_requirements snapshot e profile effort:list(obstruction e):=
@@ -642,7 +644,7 @@ Definition draft_requirements snapshot state e:list(obstruction e):=
  (match FieldsObservation.draft_context draft with None=>[]|Some _=>
   match FieldsObservation.draft_preview snapshot draft with Context.ContextUnavailable reason=>
    [requirement_obstruction e(Some Fields.ContextOrigin)"context_unavailable" reason]|_=>[]end end)++
- (match run_environment_obstruction snapshot e draft with Some cause=>[cause]|None=>[]end)++
+ (match run_environment_obstruction snapshot state e draft with Some cause=>[cause]|None=>[]end)++
  record_requirements snapshot e(Draft.contents draft)++body_requirements snapshot e(Draft.contents draft).
 Definition assessment_obstructions {e}(outcome:assessment_result e):list(obstruction e):=
  match outcome with PreparationBlocked first rest=>first::rest|_=>[]end.

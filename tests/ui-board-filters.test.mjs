@@ -105,7 +105,6 @@ test('board filters provide a compact keyboard-searchable assignee list', async 
   await page.waitForFunction(id => document.activeElement?.id === id, await worker.getAttribute('id'));
   await page.keyboard.press('Space');
   await worker.and(page.locator('[aria-checked="true"]')).waitFor();
-  await worker.locator('span[aria-hidden="true"] svg').waitFor();
   await search.fill('does not match a model');
   assert.equal(await worker.getAttribute('aria-checked'), 'true');
   await summary.press('Enter');

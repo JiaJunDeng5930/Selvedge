@@ -477,6 +477,7 @@ export class Markdown {
     return this.buffer.whenCaughtUp(length);
   }
   get text() { return this.buffer.target; }
+  get sourceComplete() { return this.buffer.done; }
   append(text) {
     this.buffer.append(text);
     if (this.buffer.visible < this.buffer.target.length) this.root.dataset.markdownParsing = '';
