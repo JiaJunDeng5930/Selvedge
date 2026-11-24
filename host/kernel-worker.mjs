@@ -3,25 +3,22 @@ import * as model from '../.build/kernel-model.mjs';
 
 let world = model.initial();
 let projectedWorld = world;
-parentPort.on('message', ({ text: input, operation, replayVersion }) => {
+parentPort.on('message', ({ input, operation }) => {
   try {
-    if (operation === 'observe') {
-      parentPort.postMessage({ programText: model.observe(world) });
-      projectedWorld = world;
+    if (operation === 'loadState') {
+      // DEFENSE: A different durable schema cannot be decoded as this world's records.
+      if (input !== null && input.schema !== model.persistenceSchema) throw new Error('Unsupported Selvedge stored state schema');
+      const restored = input === null ? model.initial() : model.restoreState(String(input.sequence), input.shared, input.tasks);
+      // DEFENSE: A truncated or invalid stored record cannot initialize the Worker.
+      if (restored === null) throw new Error('Invalid Selvedge stored state');
+      world = projectedWorld = restored;
+      parentPort.postMessage({
+        programText: model.observe(world),
+        ...(input === null ? { storage: { schema: model.persistenceSchema, shared: model.initialShared() } } : {}),
+      });
       return;
     }
-    if (operation === 'captureCheckpoint') {
-      parentPort.postMessage({ checkpoint: { schema: model.checkpointSchema, data: model.checkpoint(world) } });
-      return;
-    }
-    if (operation === 'restoreCheckpoint') {
-      const restored = input.schema === model.checkpointSchema ? model.restoreCheckpoint(input.data) : null;
-      if (restored !== null) world = restored;
-      parentPort.postMessage(restored !== null);
-      return;
-    }
-    const output = operation === 'replay' ? model.replay(replayVersion, input, world)
-      : operation === 'assess' ? model.assess(input, world) : model.packet(input, world);
+    const output = operation === 'assess' ? model.assess(input, world) : model.packet(input, world);
     if (output.inputError) {
       parentPort.postMessage({ inputError: output.inputError });
       return;
@@ -31,11 +28,7 @@ parentPort.on('message', ({ text: input, operation, replayVersion }) => {
       return;
     }
     world = output.world;
-    if (operation === 'replay') {
-      parentPort.postMessage(output.durable);
-      return;
-    }
-    const receipt = { text: output.envelope, reconcileRemote: output.reconcileRemote };
+    const receipt = { text: output.envelope, reconcileRemote: output.reconcileRemote, storage: output.storage };
     // The journal already owns the projection of this immutable world handle.
     if (world === projectedWorld) parentPort.postMessage(receipt);
     else {

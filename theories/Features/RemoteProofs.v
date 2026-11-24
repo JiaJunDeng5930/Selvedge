@@ -151,7 +151,7 @@ Qed.
 
 Lemma remote_registry_store : forall remote value,
  Remote.registry (Remote.store remote value) = remote.
-Proof. intros remote [seq tasks ticket env projects features legacy]. destruct features; reflexivity. Qed.
+Proof. intros remote [seq tasks ticket env projects features]. destruct features; reflexivity. Qed.
 
 Lemma authorize_command_mutation command request state required :
  Remote.required_rights command=Some required -> F.may_read required=false ->

@@ -501,7 +501,7 @@ export class Service extends EventEmitter {
             realtime: () => {
               if (!effect.realtime_context.length) return undefined;
               const now = Date.now();
-              return { now, current_time: new Date(now).toISOString(), started_at: this.journal.observedAt(effect.birth_sequence) };
+              return { now, current_time: new Date(now).toISOString(), started_at: this.journal.taskCreatedAt(effect.task_id) };
             },
             onObservation: value => { observation = value; },
             onDelta: (text, output_index) => this.#publishStreamNotice({ type: 'delta', task_id: effect.task_id, ticket: effect.ticket, output_index, text }),

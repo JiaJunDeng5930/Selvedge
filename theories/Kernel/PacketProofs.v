@@ -120,50 +120,21 @@ Proof.
  - repeat split; reflexivity.
 Qed.
 
-Theorem replay_recovers_the_packet_world_and_durability source value :
- fst (Packet.replay source value) = fst (Packet.packet source value) /\
- field "durable" (snd (Packet.packet source value)) =
- Some (JBool (snd (Packet.replay source value))).
-Proof.
- unfold Packet.replay, Packet.packet.
- destruct (Delivery.fits_json source); [|split; reflexivity].
- destruct (Packet.select source value) as [durable admitted input result].
- split; [reflexivity|].
- cbn [CommitPacket.finalize CommitPacket.selected_durable CommitPacket.selected_admitted
-   CommitPacket.selected_source CommitPacket.selected_decision fst snd].
- unfold Notifications.envelope.
- destruct (durable && admitted); [|reflexivity].
- destruct (Notifications.batch input value result) as [|notice rest]; [reflexivity|].
- destruct (Delivery.fits_json _); reflexivity.
-Qed.
-
-(** Replay of the current journal commits the same world and cursor decision
-    as its actual live entry. An uncommitted reply is not a replay record. *)
-Theorem journal_replay_agrees_with_live_commit same_image source value :
- Packet.journal_replay same_image source value =
- (fst (Packet.journal_packet same_image source value),
-  match field "durable" (snd (Packet.journal_packet same_image source value)) with
-  | Some (JBool durable) => durable | _ => false end).
-Proof.
- unfold Packet.journal_replay, Packet.journal_packet.
- destruct (Delivery.fits_json source); [|reflexivity].
- unfold CommitPacket.journal_finalize, CommitPacket.finalize.
- cbn [fst snd]. rewrite NotificationsProofs.notification_envelopes_preserve_the_durability_flag.
- reflexivity.
-Qed.
-
 Theorem journal_never_commits_an_unchanged_refusal same_image source before code reason :
  same_image before before = true ->
  Delivery.fits_json source = true ->
  CommitPacket.selected_decision (Packet.select source before) = State.reject code reason before ->
- Packet.journal_replay same_image source before = (before,false).
+ fst (Packet.journal_packet same_image source before) = before /\
+ field "durable" (snd (Packet.journal_packet same_image source before)) = Some (JBool false).
 Proof.
- intros Same Fits Refused. unfold Packet.journal_replay. rewrite Fits.
- unfold CommitPacket.select_journal, CommitPacket.needs_commit. rewrite Refused.
+ intros Same Fits Refused. unfold Packet.journal_packet. rewrite Fits.
+ unfold CommitPacket.journal_finalize, CommitPacket.select_journal, CommitPacket.needs_commit.
+ rewrite Refused.
  cbn [State.reject State.decision_effects State.decision_world existsb orb].
  rewrite Same. cbn [negb].
- destruct (CommitPacket.selected_durable (Packet.select source before)); [|reflexivity].
- unfold Delivery.deliver_with_status. destruct (Delivery.fits false _); reflexivity.
+ destruct (CommitPacket.selected_durable (Packet.select source before)).
+ - unfold Delivery.deliver_with_status. destruct (Delivery.fits false _); split; reflexivity.
+ - split; reflexivity.
 Qed.
 
 Local Transparent DeferredCommit.select.
@@ -195,16 +166,3 @@ Proof.
  apply DeferredCommitProofs.a_noncommitting_unchanged_candidate_has_no_effect; reflexivity.
 Qed.
 Local Opaque DeferredCommit.select.
-
-Theorem historical_send_uses_the_written_admission_rule before task contents :
- let historical := with_legacy_send_admission true before in
- Tasks.send_result task contents historical = Tasks.input_result Tasks.AppendInput task contents historical.
-Proof. reflexivity. Qed.
-
-Theorem historical_replay_does_not_retain_its_execution_mode source before :
- world_legacy_send_admission (fst (Packet.replay_format_28 source before)) =
- world_legacy_send_admission before.
-Proof.
- unfold Packet.replay_format_28.
- destruct (Packet.replay source (with_legacy_send_admission true before)); reflexivity.
-Qed.

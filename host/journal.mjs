@@ -1,12 +1,11 @@
 import { DatabaseSync } from 'node:sqlite';
 import { EventEmitter } from 'node:events';
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { chmod } from 'node:fs/promises';
 import path from 'node:path';
 import { Kernel, isKernelInputRejection } from './kernel.mjs';
 import { integer } from './codec.mjs';
 import { durableDirectory } from './control-records.mjs';
-import { JournalCheckpoint } from './journal-checkpoint.mjs';
 
 const outcomes = new WeakMap();
 export const transactionOutcome = error => outcomes.get(error) ?? 'unknown';
@@ -16,19 +15,32 @@ function rejected(error, outcome) {
   return error;
 }
 
-const replayVersion = 31;
-export const journalFormat = `selvedge-rocq-journal-${replayVersion}`;
-const journalSchemaVersion = 2;
-const legacyVersions = new Map([28, 29, 30].map(version => [`selvedge-rocq-journal-${version}`, version]));
-const checkpointInterval = 128;
+export const stateSchemaVersion = 3;
 
-const schema = {
-  meta: 'CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT',
-  journal: 'CREATE TABLE journal (seq INTEGER PRIMARY KEY CHECK (seq > 0), input TEXT NOT NULL, observed_at INTEGER NOT NULL, replay_version INTEGER NOT NULL) STRICT',
-};
+const schema = `
+  CREATE TABLE state (
+    id INTEGER PRIMARY KEY CHECK (id = 1), namespace TEXT NOT NULL,
+    schema TEXT NOT NULL, sequence INTEGER NOT NULL CHECK (sequence >= 0), data BLOB NOT NULL
+  ) STRICT;
+  CREATE TABLE tasks (
+    id INTEGER PRIMARY KEY CHECK (id >= 0), created_at INTEGER NOT NULL, data BLOB NOT NULL
+  ) STRICT;
+`;
 
-function hashReplayRow(hash, row) {
-  hash.update(`${row.seq}:${row.replay_version}:${Buffer.byteLength(row.input)}:`).update(row.input);
+function readState(database) {
+  // DEFENSE: The database can contain an earlier input journal or a newer schema.
+  const version = database.prepare('PRAGMA user_version').get().user_version;
+  if (version !== stateSchemaVersion) throw new Error(`Unsupported Selvedge SQLite state schema version ${version}`);
+  const record = database.prepare('SELECT namespace, schema, sequence, data FROM state WHERE id = 1').get();
+  // DEFENSE: An externally edited database cannot supply missing or invalid service identity.
+  if (!record || !/^[0-9a-f]{32}$/.test(record.namespace)) throw new Error('Invalid Selvedge state metadata');
+  const tasks = database.prepare('SELECT id, data FROM tasks ORDER BY id').all().map((row, index) => {
+    // DEFENSE: A missing row must not silently assign the next task a different identity.
+    if (row.id !== index) throw new Error('Invalid Selvedge stored task identities');
+    return Buffer.from(row.data).toString('latin1');
+  });
+  return { namespace: record.namespace, schema: record.schema, sequence: integer(record.sequence, 'state sequence'),
+    shared: Buffer.from(record.data).toString('latin1'), tasks };
 }
 
 function closeJournalDatabase(database) {
@@ -60,179 +72,63 @@ export async function withJournalOwnership(filename, action) {
   finally { closeJournalDatabase(lock); }
 }
 
-/** A serialized, durable input journal. It deliberately stores no task table. */
+/** Serializes kernel decisions through the SQLite commit and publication. */
 export class Journal extends EventEmitter {
   #database;
-  #replayVersionColumn = 'replay_version';
   #lock;
   #kernel;
-  #checkpoint;
-  #checkpointAttemptSequence = 0;
-  #prefix = createHash('sha256');
   #tail = Promise.resolve();
   #failure;
   #closing = false;
 
   static async open(filename, { waitForOwnership } = {}) {
     const journal = new Journal();
-    journal.sequence = 0;
-    journal.#checkpoint = new JournalCheckpoint(filename, journalFormat);
+    journal.#kernel = new Kernel();
     try {
-      let prepared;
+      journal.description = await journal.#kernel.initialize();
+      let preparedNamespace;
       if (waitForOwnership) {
-        prepared = await journal.#preload(filename);
+        const reader = new DatabaseSync(filename, { readOnly: true, timeout: 1000 });
+        try {
+          reader.exec('BEGIN');
+          const prepared = readState(reader);
+          await journal.#kernel.loadState(prepared);
+          preparedNamespace = prepared.namespace;
+        } finally { closeJournalDatabase(reader); }
         await waitForOwnership();
       }
       journal.#lock = await acquireJournalOwnership(filename);
       journal.#database = new DatabaseSync(filename, { timeout: 1000 });
-      journal.#database.exec('PRAGMA synchronous=FULL');
-      const upgrading = journal.#prepareReplay();
-      await chmod(filename, 0o600);
-      if (prepared) journal.#verifyPrefix(prepared);
-      else await journal.#initializeReplay();
-      await journal.#replay();
-      journal.program = await journal.#kernel.observe();
-      if (upgrading) {
-        journal.#database.exec(`PRAGMA user_version = ${journalSchemaVersion}; COMMIT`);
+      journal.#database.exec('PRAGMA synchronous=FULL; BEGIN IMMEDIATE');
+      const version = journal.#database.prepare('PRAGMA user_version').get().user_version;
+      if (version === 0 && !journal.#database.prepare('SELECT 1 FROM sqlite_schema LIMIT 1').get()) {
+        // DEFENSE: During handoff the store must still belong to the prepared service.
+        if (preparedNamespace !== undefined) throw new Error('The Selvedge state database changed during update preparation');
+        const { program, storage } = await journal.#kernel.loadState(null);
+        journal.namespace = randomBytes(16).toString('hex');
+        journal.sequence = 0;
+        journal.program = program;
+        journal.#database.exec(schema);
+        journal.#database.prepare('INSERT INTO state VALUES (1, ?, ?, 0, ?)')
+          .run(journal.namespace, storage.schema, Buffer.from(storage.shared, 'latin1'));
+        journal.#database.exec(`PRAGMA user_version = ${stateSchemaVersion}`);
+      } else {
+        const state = readState(journal.#database);
+        // DEFENSE: A replacement store cannot take over the prepared service.
+        if (preparedNamespace !== undefined && preparedNamespace !== state.namespace) {
+          throw new Error('The Selvedge state database changed during update preparation');
+        }
+        // Read the final committed records after ownership transfers.
+        const { program } = await journal.#kernel.loadState(state);
+        Object.assign(journal, { namespace: state.namespace, sequence: state.sequence, program });
       }
-      journal.#database.exec('PRAGMA journal_mode=WAL');
-      await journal.#maintainCheckpoint();
+      await chmod(filename, 0o600);
+      journal.#database.exec('COMMIT; PRAGMA journal_mode=WAL');
       return journal;
-    // DEFENSE: Filesystem, SQLite or replay failures during open must release resources already acquired.
+    // DEFENSE: Filesystem, SQLite or decoder failures during open must release acquired resources.
     } catch (error) {
       await journal.close();
       throw error;
-    }
-  }
-
-  #prepareReplay(readOnly = false) {
-    this.#replayVersionColumn = 'replay_version';
-    const version = this.#database.prepare('PRAGMA user_version').get().user_version;
-    // DEFENSE: A database or update candidate can use a newer schema.
-    if (![0, 1, journalSchemaVersion].includes(version)) {
-      throw new Error(`Unsupported Selvedge SQLite journal schema version ${version}`);
-    }
-    let upgrading = !readOnly && version !== journalSchemaVersion;
-    if (upgrading) {
-      this.#database.exec('BEGIN IMMEDIATE');
-      if (version === 0 && !this.#database.prepare('SELECT 1 FROM sqlite_schema LIMIT 1').get()) {
-        for (const sql of Object.values(schema)) this.#database.exec(sql);
-        const insert = this.#database.prepare('INSERT INTO meta (key, value) VALUES (?, ?)');
-        insert.run('format', journalFormat);
-        insert.run('namespace', randomBytes(16).toString('hex'));
-      }
-    }
-    const entries = this.#database.prepare('SELECT key, value FROM meta ORDER BY key').all();
-    const [format, namespace] = entries;
-    // DEFENSE: An externally edited or damaged database can lack a valid namespace or replay format.
-    if (entries.length !== 2 || format.key !== 'format' || namespace.key !== 'namespace' ||
-        !/^[0-9a-f]{32}$/.test(namespace.value)) {
-      throw new Error('Invalid Selvedge journal metadata');
-    }
-    if (format.value !== journalFormat) {
-      const legacy = legacyVersions.get(format.value);
-      // DEFENSE: Only journals whose historical replay is implemented can be upgraded.
-      const hasRowVersions = version === journalSchemaVersion;
-      if (!legacy || hasRowVersions !== (legacy === 30)) {
-        throw new Error(`Unsupported Selvedge Rocq journal format ${format.value}`);
-      }
-      if (readOnly) {
-        if (!hasRowVersions) this.#replayVersionColumn = `${legacy} AS replay_version`;
-      } else {
-        if (!upgrading) {
-          this.#database.exec('BEGIN IMMEDIATE');
-          upgrading = true;
-        }
-        // An unversioned prefix belongs entirely to the format in its header.
-        if (!hasRowVersions) {
-          this.#database.exec(`ALTER TABLE journal ADD COLUMN replay_version INTEGER NOT NULL DEFAULT ${legacy}`);
-        }
-        this.#database.prepare("UPDATE meta SET value = ? WHERE key = 'format'").run(journalFormat);
-      }
-    } else if (version !== journalSchemaVersion && !upgrading) {
-      // DEFENSE: An externally edited format tag cannot stand in for a completed upgrade.
-      throw new Error('The current journal format requires its current schema version');
-    }
-    this.namespace = namespace.value;
-    return upgrading;
-  }
-
-  async #preload(filename) {
-    this.#database = new DatabaseSync(filename, { readOnly: true, timeout: 1000 });
-    try {
-      this.#database.exec('BEGIN');
-      this.#prepareReplay(true);
-      await this.#initializeReplay();
-      await this.#replay();
-      return { namespace: this.namespace, digest: this.#prefix.copy().digest('hex') };
-    } finally {
-      closeJournalDatabase(this.#database);
-      this.#database = undefined;
-    }
-  }
-
-  #readPrefix(sequence) {
-    const hash = createHash('sha256');
-    for (const row of this.#database.prepare(`SELECT seq, input, ${this.#replayVersionColumn} FROM journal WHERE seq <= ? ORDER BY seq`).iterate(sequence)) {
-      hashReplayRow(hash, row);
-    }
-    return hash;
-  }
-
-  #verifyPrefix(prepared) {
-    // DEFENSE: A journal replaced during the handoff can have a different history at the same cursor.
-    if (this.namespace !== prepared.namespace || this.#readPrefix(this.sequence).digest('hex') !== prepared.digest) {
-      throw new Error('The committed journal prefix changed during update preparation');
-    }
-  }
-
-  async #initializeReplay() {
-    this.#kernel = new Kernel();
-    this.description = await this.#kernel.initialize();
-    await this.#restoreCheckpoint();
-  }
-
-  async #restoreCheckpoint() {
-    let image;
-    try { image = await this.#checkpoint.read(this.namespace); }
-    catch (error) {
-      // DEFENSE: Cache-specific filesystem failures leave the committed input journal available.
-      console.warn(`Journal checkpoint could not be read: ${error.message}`);
-      return;
-    }
-    if (!image) return;
-    const prefix = this.#readPrefix(image.sequence);
-    // DEFENSE: A restored SQLite backup can be older than its sidecar checkpoint.
-    if (prefix.copy().digest('hex') !== image.prefix) return;
-    if (!await this.#kernel.restoreCheckpoint(image)) return;
-    this.sequence = image.sequence;
-    this.#checkpointAttemptSequence = image.sequence;
-    this.#prefix = prefix;
-  }
-
-  async #maintainCheckpoint() {
-    if (this.sequence === 0 || (this.#checkpointAttemptSequence !== 0 &&
-      this.sequence - this.#checkpointAttemptSequence < checkpointInterval)) return;
-    this.#checkpointAttemptSequence = this.sequence;
-    // The journal queue still owns the Worker at the acknowledged sequence.
-    const image = await this.#kernel.captureCheckpoint();
-    try {
-      await this.#checkpoint.write(this.namespace, this.sequence, this.#prefix.copy().digest('hex'), image);
-    } catch (error) {
-      // DEFENSE: The optional cache can fail to publish after the authoritative SQLite commit succeeded.
-      console.warn(`Journal checkpoint could not be written: ${error.message}`);
-    }
-  }
-
-  async #replay() {
-    for (const row of this.#database.prepare(`SELECT seq, input, ${this.#replayVersionColumn} FROM journal WHERE seq > ? ORDER BY seq`).iterate(this.sequence)) {
-      const durable = await this.#kernel.replay(row.input, row.replay_version);
-      // DEFENSE: A stored input that the current kernel no longer admits cannot restore committed work.
-      if (!durable) {
-        throw new Error(`Committed input incompatibility at sequence ${row.seq}: current kernel rejected replay`);
-      }
-      hashReplayRow(this.#prefix, row);
-      this.sequence = row.seq;
     }
   }
 
@@ -268,13 +164,10 @@ export class Journal extends EventEmitter {
       // DEFENSE: A prior SQLite/Worker failure leaves the in-memory world ahead of durable storage; never execute another input.
       if (this.#failure) throw this.#failure;
       const observedAt = Date.now();
-      let inputText;
       let response;
       let pending;
       try {
-        const submitted = this.#kernel.request(input);
-        inputText = submitted.text;
-        pending = submitted.result;
+        pending = this.#kernel.request(input);
       }
       // DEFENSE: Invalid or oversized external JSON fails before the Worker receives a frame or a journal write starts.
       catch (error) {
@@ -300,8 +193,14 @@ export class Journal extends EventEmitter {
       let committing = false;
       try {
         this.#database.exec('BEGIN IMMEDIATE');
-        this.#database.prepare('INSERT INTO journal (seq, input, observed_at, replay_version) VALUES (?, ?, ?, ?)')
-          .run(sequence, inputText, observedAt, replayVersion);
+        const { shared, tasks } = response.storage;
+        const writeTask = this.#database.prepare(`
+          INSERT INTO tasks (id, created_at, data) VALUES (?, ?, ?)
+          ON CONFLICT (id) DO UPDATE SET data = excluded.data
+        `);
+        for (const task of tasks) writeTask.run(task.id, observedAt, Buffer.from(task.data, 'latin1'));
+        this.#database.prepare('UPDATE state SET sequence = ?, data = coalesce(?, data) WHERE id = 1')
+          .run(sequence, shared === null ? null : Buffer.from(shared, 'latin1'));
         committing = true;
         this.#database.exec('COMMIT');
       // DEFENSE: A write before COMMIT is definitely uncommitted; an error during COMMIT leaves its durable outcome unknown.
@@ -311,19 +210,12 @@ export class Journal extends EventEmitter {
       }
       this.program = response.program;
       this.sequence = sequence;
-      hashReplayRow(this.#prefix, { seq: sequence, input: inputText, replay_version: replayVersion });
       const committed = { sequence, program: this.program, ...response.value };
       this.#publish('commit', committed, browserRequest);
       return committed;
     });
     // DEFENSE: execute's caller receives the failure; queue cleanup must still reach close and later callers' explicit poisoned-world rejection.
-    this.#tail = result.then(async decision => {
-      if (decision.durable) {
-        try { await this.#maintainCheckpoint(); }
-        // DEFENSE: A crashed Worker cannot continue from its last commit even if capture exposed the failure.
-        catch (error) { this.#poison(error); }
-      }
-    }, () => {});
+    this.#tail = result.catch(() => {});
     return result;
   }
 
@@ -335,8 +227,8 @@ export class Journal extends EventEmitter {
     }
   }
 
-  observedAt(sequence) {
-    return this.#database.prepare('SELECT observed_at FROM journal WHERE seq = ?').get(sequence).observed_at;
+  taskCreatedAt(taskId) {
+    return this.#database.prepare('SELECT created_at FROM tasks WHERE id = ?').get(integer(taskId, 'task ID')).created_at;
   }
 
   assertEventCursor(after) {
@@ -350,8 +242,8 @@ export class Journal extends EventEmitter {
     integer(limit, 'event page size');
     // DEFENSE: An authenticated history request can ask for a page outside the supported 1..100 range.
     if (limit < 1 || limit > 100) throw new RangeError('Invalid event page');
-    return this.#database.prepare('SELECT seq FROM journal WHERE seq > ? ORDER BY seq LIMIT ?')
-      .all(after, limit).map(row => ({ sequence: row.seq }));
+    const first = Math.max(1, after + 1);
+    return Array.from({ length: Math.min(limit, this.sequence - first + 1) }, (_, index) => ({ sequence: first + index }));
   }
 
   abort(error) { this.#kernel.abort(error); }

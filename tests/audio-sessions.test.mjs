@@ -173,7 +173,7 @@ test('a failed speech journal write publishes no acceptance and reopens with onl
   assert.deepEqual(committed.map(message => [message.item_id, message.content]), [['prefix', 'acknowledged speech']]);
   const database = new DatabaseSync(path.join(directory, 'journal.sqlite'));
   try {
-    database.exec("CREATE TRIGGER reject_speech_write BEFORE INSERT ON journal BEGIN SELECT RAISE(ABORT, 'speech disk write failed'); END");
+    database.exec("CREATE TRIGGER reject_speech_write BEFORE UPDATE ON state BEGIN SELECT RAISE(ABORT, 'speech disk write failed'); END");
     socket.provider({ type: 'turn.done', turn: { role: 'user', id: 'rejected', transcript: 'uncommitted request' } });
     socket.provider({ type: 'turn.done', turn: { role: 'user', id: 'suffix', transcript: 'must not commit after failure' } });
     socket.provider({ type: 'delegation.created', item: { type: 'delegation', target: 'client', id: 'unaccepted-work', user_bidi_turn_id: 'rejected', content: [] } });

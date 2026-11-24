@@ -258,7 +258,7 @@ cd /absolute/path/to/project
 bun /absolute/path/to/Selvedge/host/cli.mjs --home /absolute/path/to/task-home server
 ```
 
-The journal records each task's canonical roots and execution settings. Restarting
+Each stored task retains its canonical roots and execution settings. Restarting
 from a different directory cannot reinterpret existing tasks' relative paths;
 only new unprojected tasks use the new launch default. Tasks can select different
 workspaces in the same service. A task fork does not create a Git worktree or copy
@@ -522,34 +522,26 @@ release in the foreground. For a server started directly with `bun host/cli.mjs
 server` or a release that predates managed updates, stop it once after its tools
 finish, then run the update command.
 
-The old release serves its existing address during the build and while the
-candidate replays a read-only snapshot of the journal. The service then pauses
-task scheduling and displays the operations it is waiting for. After they settle,
-the candidate verifies the prepared journal prefix, replays the newly committed
-inputs and starts serving. A long-running command can keep the update waiting.
-Tasks awaiting input or approval keep that state and are available after
-reconnecting. The browser reconnects to the same address and restores the
-current view and draft text when it loads the new release.
+The old release serves its existing address while the candidate builds and
+checks a consistent read of the state database. Before yielding the service
+address, the running release pauses task scheduling and lets active operations
+settle. Once it owns the database, the candidate loads the latest committed
+records and starts serving. Tasks awaiting input or approval keep that state
+and are available after reconnecting. The browser reconnects to the same address
+and restores the current view and draft text when it loads the new release.
 
-A failure preparing the journal leaves the current service running. Once it
-yields ownership, the updater keeps a backup. A startup failure at that stage
-restores the journal and starts the previous release with its last working
-configuration. The command reports the failure. Managed releases and their
-service logs live under `releases/` in the service home.
+A failure checking the stored state leaves the current service running. A
+startup failure after the old service yields ownership restores the database
+backup and restarts the previous release with its working configuration.
+Managed releases and their logs live under `releases/` in the service home.
 
 ## Persistence
 
-Back up the service home, including its journal, attachments and retained provider
-receipts. The journal commits admitted inputs before dispatching external effects.
-Restart can load the latest verified checkpoint and replay the later inputs
-with the current kernel without executing their effects. The journal remains
-the recovery authority. A checkpoint can be reused across kernel builds when
-its versioned state format and the journal semantics match. A missing, damaged,
-or incompatible checkpoint falls back to replay and is rebuilt from the journal.
-The journal upgrades known SQLite schema versions during startup and
-validates replay before committing a migration. An update that changes the
-meaning of stored inputs requires a new replay format and an explicit conversion
-for each supported previous format. Unknown formats are rejected.
+The service home contains the SQLite state database, attachments and provider
+receipts. Each commit saves the changed task and shared records together before
+dispatching external effects. On restart the service loads the stored records,
+then handles operations that were still outstanding. An incompatible database
+format or invalid stored record fails startup.
 
 Recovery cannot undo completed external effects or make arbitrary Bash edits
 transactional. Concurrent commands and editors need their own revision checks,

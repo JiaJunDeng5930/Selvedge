@@ -18,7 +18,7 @@ Module G := Selvedge.Generated.Commands.
 
 Lemma sharing_registry_store : forall sharing value,
  Chatgpt.registry (Chatgpt.store sharing value) = sharing.
-Proof. intros sharing [seq tasks ticket env projects features legacy]. destruct features; reflexivity. Qed.
+Proof. intros sharing [seq tasks ticket env projects features]. destruct features; reflexivity. Qed.
 
 Lemma lookup_replaced_job : forall id job state,
  Chatgpt.find_job id (Chatgpt.replace_job id job state) = Some job.

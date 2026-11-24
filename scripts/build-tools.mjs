@@ -7,7 +7,7 @@ export const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const buildDirectory = path.join(root, '.build');
 export const targets = {
   schema: { module: 'Adapters.ModelSchema', model: 'SchemaModel', entry: ['call'], global: '__selvedgeSchema', exported: 'call' },
-  kernel: { module: 'Kernel.Packet', model: 'KernelModel', entry: ['initial', 'journal_packet', 'journal_replay', 'replay', 'replay_format_28', 'world_json', 'assess', 'remote_reconciliation_needed'], global: '__selvedgeKernel' },
+  kernel: { module: 'Kernel.Packet', model: 'KernelModel', entry: ['initial', 'journal_packet', 'world_json', 'assess', 'remote_reconciliation_needed'], global: '__selvedgeKernel' },
   host: { module: 'Adapters.Api', model: 'HostModel', entry: ['call'], global: '__selvedgeHost', exported: 'call' },
   browser: { module: 'Browser.Runtime', model: 'BrowserModel', entry: ['call', 'native_document', 'materialize_native_roots'], global: '__selvedgeBrowser', exported: 'browserCall' },
   interaction: { module: 'Browser.Application', model: 'InteractionModel', entry: ['call', 'prepare', 'rebase', 'prepared_call', 'native_document', 'native_region', 'native_stream', 'materialize_native_roots'], global: '__selvedgeInteraction', exported: 'interactionCall' }

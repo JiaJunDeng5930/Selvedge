@@ -86,10 +86,10 @@ Definition initial_history (environment : environment) (chosen : profile) (setti
   | Some snapshot => [ContextObservation (Introduce snapshot)] | None => [] end) ++
  [SettingsMessage settings (profile_key chosen) (profile_reasoning chosen)].
 Definition make_task (chosen : profile) (settings : task_settings) (contents : content)
- (idle : bool) (environment : environment) (birth_sequence : N) :=
+ (idle : bool) (environment : environment) :=
  let contract := Contract chosen (environment_tools environment) settings
    (environment_max_fork environment) (environment_max_descendants environment)
-   (environment_plugins environment) (environment_profiles environment) birth_sequence in
+   (environment_plugins environment) (environment_profiles environment) in
  Task contract chosen settings (Running (if idle then Idle else WantsModel) [])
   (initial_history environment chosen settings ++ if idle then [] else [UserMessage contents])
   [] [] None 0.
@@ -163,9 +163,9 @@ Definition resolve_start (name : string) (reasoning : option string)
      end
    end
  end.
-Definition start_task (plan : resolved_start) (birth_sequence : N) :=
+Definition start_task (plan : resolved_start) :=
  make_task (start_profile plan) (start_settings plan) (start_contents plan)
-   (start_idle plan) (start_environment plan) birth_sequence.
+   (start_idle plan) (start_environment plan).
 Definition receive_changes (contents : content) (value : task) : list TaskChange.edit :=
  match task_lifecycle value with
  | Archived _ => []
@@ -257,7 +257,7 @@ Definition input_command_result (requires_workspace : bool) (mode : input_mode) 
    end end.
 Definition input_result := input_command_result true.
 Definition send_result id contents value :=
- input_command_result (world_legacy_send_admission value) AppendInput id contents value.
+ input_command_result false AppendInput id contents value.
 Definition send (id : N) (contents : content) (value : world) :=
  CommandResult.decide value (send_result id contents value).
 Definition steer_result := input_result ReplaceInput.
@@ -369,11 +369,11 @@ Definition optional_input (contents : option content) :=
  match contents with Some contents => [UserMessage contents] | None => [] end.
 Definition side_input (contents : content) := if content_nonempty contents then Some contents else None.
 Definition fork_child (owner parent_id : N) (parent : task) (contents : option content) (settings : task_settings)
- (side : bool) (birth_sequence : N) :=
+ (side : bool) :=
  let chosen := task_current_profile parent in
  let contract := Contract chosen (contract_tools (task_contract parent)) settings
   (contract_max_fork (task_contract parent)) (contract_max_descendants (task_contract parent))
-  (contract_plugins (task_contract parent)) (contract_reviewers (task_contract parent)) birth_sequence in
+  (contract_plugins (task_contract parent)) (contract_reviewers (task_contract parent)) in
  let history := fork_child_history owner parent_id parent settings side in
  Task contract chosen settings
  (Running (match contents with Some _ => WantsModel | None => Idle end) [])
@@ -390,20 +390,20 @@ Definition fork_child_receipt (entry : fork_entry) (start owner : N) (invocation
 (* This fork owns its ordered birth suffix before feature maintenance can
    append independent roots to the same registry. *)
 Fixpoint constructed_children (count : nat) (id : N) (parent : task) (messages : list content)
- (settings : task_settings) (entry : fork_entry) (start owner : N) (invocation : call) (birth_sequence : N) : list task :=
+ (settings : task_settings) (entry : fork_entry) (start owner : N) (invocation : call) : list task :=
  match count with
  | O => []
  | S count =>
    let message := hd_error messages in
    fork_child_receipt entry start owner invocation
-     (fork_child owner id parent message settings false birth_sequence) ::
-   constructed_children count id parent (tl messages) settings entry start (N.succ owner) invocation birth_sequence
+     (fork_child owner id parent message settings false) ::
+   constructed_children count id parent (tl messages) settings entry start (N.succ owner) invocation
  end.
 Definition fork_children (count : nat) (id : N) (parent : task) (messages : list content)
  (settings : task_settings) (entry : fork_entry) (invocation : call) (value : world) : world :=
  let start := next_task value in
  with_tasks (world_tasks value ++
-   constructed_children count id parent messages settings entry start start invocation (N.succ (world_sequence value))) value.
+   constructed_children count id parent messages settings entry start start invocation) value.
 Definition same_approval (left right : approval_policy) :=
  match left, right with
  | FullAccess, FullAccess | AskForApproval, AskForApproval => true
@@ -508,8 +508,7 @@ Definition open_side (id : N) (contents : content) (value : world) :=
    else if ancestors_fit (id :: task_lineage task) 1 value then
      CommandResult.map (fun _ =>
        CommandResult.Change (JObject [("task_id", number (next_task value))])
-         (append_task (fork_child (next_task value) id task (side_input contents) (task_current_settings task) true
-           (N.succ (world_sequence value))) value) [])
+         (append_task (fork_child (next_task value) id task (side_input contents) (task_current_settings task) true) value) [])
        (admit_input reference)
    else CommandResult.refuse "side_unavailable" "The parent task has no remaining descendant capacity"
  end).

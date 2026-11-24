@@ -8,13 +8,10 @@ private to that worker.
 
 `journal.mjs` serializes requests through their complete transaction and owns
 its private `kernel.mjs` connection, which retires the worker after a failed or
-timed out transition. The journal commits an admitted input before publishing
-its decision or starting an effect. On reopen it replays inputs through the current
-extracted kernel and receives a durability marker per input. Admission and scheduling
-are shared with ordinary execution. The journal reads the restored snapshot after replay.
-`journal.mjs` migrates known SQLite storage versions while holding the single
-writer lock. It validates the separate input replay format and replays the
-candidate records before committing the migration.
+timed out transition. The journal commits the changed records before publishing
+its decision or starting an effect. On reopen it loads the committed task and
+shared records into the Worker. During managed updates, the candidate validates
+a read-only view, then loads the final records after acquiring the writer lock.
 
 `server.mjs` and `cli.mjs` expose the service. Browser snapshots use domain JSON
 at `/api/browser/state`; commands use `/api/browser/command`, and observations
@@ -30,7 +27,7 @@ their Rocq proofs.
 current scheduler's response to the hypothetical save. The worker evaluates
 the same pure command interpreter used by submission against its current world,
 then discards the hypothetical decision. Assessment is serialized after pending
-journal work; it does not append a journal row, replace the world or dispatch
+journal work; it does not write state, replace the world or dispatch
 effects. Clients discard responses for an older draft or world observation and
 still submit through the ordinary command boundary. Filesystem preparation and
 external execution are not predicted by this read-only operation.

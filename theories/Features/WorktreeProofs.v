@@ -26,12 +26,12 @@ Theorem store_changes_only_worktree_registry : forall tree value,
    (set F.feature_worktrees (fun _ => F.feature_worktrees (world_features value))
       (world_features (Worktree.store tree value))) (Worktree.store tree value) = value.
 Proof.
- intros tree [sequence tasks ticket environment projects features legacy].
+ intros tree [sequence tasks ticket environment projects features].
  destruct features; reflexivity.
 Qed.
 Lemma store_preserves_tasks : forall tree value,
  world_tasks (Worktree.store tree value) = world_tasks value.
-Proof. intros tree [sequence tasks ticket environment projects features legacy]; destruct features; reflexivity. Qed.
+Proof. intros tree [sequence tasks ticket environment projects features]; destruct features; reflexivity. Qed.
 Lemma completing_bindings_preserves_the_owner : forall owner space guidance value task,
  find_task owner value = Some task ->
  find_task owner (Worktree.complete_bindings owner space guidance value) = Some task.
@@ -261,7 +261,7 @@ Theorem successful_initialization_binds_pending_owner : forall backend before st
  Runtime.can_schedule_task (next_task before) initialized=false.
 Proof.
  intros backend before start admitted.
- pose proof (provisioned_birth_binds_pending_owner backend before (Tasks.start_task start (N.succ (world_sequence before)))) as Birth.
+ pose proof (provisioned_birth_binds_pending_owner backend before (Tasks.start_task start)) as Birth.
  cbv zeta in Birth |- *.
  destruct backend; cbn [Worktree.interpret_planned_birth Worktree.born_world Worktree.planned_task Worktree.planned_resource
    TaskBirth.birth_prepared TaskBirth.birth_world] in *.
@@ -328,7 +328,7 @@ Theorem planned_birth_changes_only_tasks_and_worktrees : forall before (plan:Wor
      (fun _ => F.feature_worktrees (world_features current)) (world_features result)) result) = current.
 Proof.
  intros before [start resource admitted] current.
- destruct resource; destruct current as [sequence tasks ticket environment projects features legacy];
+ destruct resource; destruct current as [sequence tasks ticket environment projects features];
  destruct features; reflexivity.
 Qed.
 Theorem an_observed_binding_takes_priority_over_automatic_worktree_preference :

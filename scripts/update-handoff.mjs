@@ -5,7 +5,7 @@ export const journalPrepared = 'journal-prepared';
 export const takeJournalOwnership = 'take-journal-ownership';
 
 export async function waitForJournalOwnership() {
-  // DEFENSE: The updater can exit before the candidate finishes read-only replay.
+  // DEFENSE: The updater can exit before the candidate finishes read-only state validation.
   if (!process.connected) throw new Error('Updater disconnected before journal handoff');
   const controller = new AbortController();
   const disconnected = () => controller.abort(new Error('Updater disconnected before journal handoff'));

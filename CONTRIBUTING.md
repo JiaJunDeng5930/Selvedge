@@ -70,11 +70,8 @@ find the affected states and the corresponding capture log.
 
 ## Persistent data
 
-There is one current SQLite schema and one current journal replay format. A
-supported older format is converted under exclusive ownership before ordinary
-service execution. Write explicit migrations when changing a supported format
-and validate replay before committing them. Reject unknown formats and preserve
-the previous data when startup cannot complete.
+There is one current SQLite state schema. Keep stored records tied to the owning
+domain declarations. Refuse unsupported formats before running recovery.
 
 ## Requirements and reviews
 
