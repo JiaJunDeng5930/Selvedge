@@ -1,7 +1,7 @@
 import { boundary } from './public/model-boundary.mjs';
 
-// Codex selects the model catalog by the released CLI's semantic version.
-const codexClientVersion = '0.167.1';
+// Codex requests the catalog with its semantic version, without the prerelease suffix.
+const codexClientVersion = '0.171.0';
 
 export function modelsURL(endpoint) {
   const url = new URL(endpoint);
