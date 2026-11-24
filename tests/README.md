@@ -23,11 +23,13 @@ Chromium instance through Playwright and the application's HTTP entry. A passed
 Rocq proof or successful module build does not report a physical scenario as
 having passed; run the corresponding public entry before recording that result.
 
-`browser-workflows.test.mjs` uses the pinned `playwright-core` dependency with
-a system Chromium executable. Install Chromium, or set
-`SELVEDGE_CHROMIUM_EXECUTABLE_PATH` to its executable, before running the suite;
-missing browser setup fails explicitly. To run these workflows alone, use
-`bun test tests/browser-workflows.test.mjs --timeout 30000` after the build.
+`browser-workflows.test.mjs` and the other browser tests use the shared browser
+fixture and the pinned `playwright-core` dependency. Install Chromium or set
+`SELVEDGE_CHROMIUM_EXECUTABLE_PATH` to its executable. When the selected suite
+uses the fixture, `bun run test` and `bun run verify` check that Chromium can open
+a page before launching the suite. A startup failure stops the run with its
+diagnostic. To select just these workflows, use
+`bun run test browser-workflows.test.mjs`.
 They cover Project workspace inheritance versus an explicitly empty selection,
 ordered image content and responsive keyboard navigation, and actual graph
 node actions with owner-local persistence and atomic rejection of invalid

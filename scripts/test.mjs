@@ -1,20 +1,41 @@
-import { readdir } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { build, root } from './build.mjs';
 import { runTestProcess, terminateTestProcessGroup } from './test-process.mjs';
 import { buildModel } from '../plugins/selvedge-chatgpt/scripts/build-model.mjs';
 
+const testDirectory = new URL('../tests/', import.meta.url);
+
+async function checkBrowserSetup(tests) {
+  const sources = await Promise.all(tests.map(name => readFile(new URL(name, testDirectory), 'utf8')));
+  if (!sources.some(source => source.includes('./fixtures/browser.mjs'))) return;
+
+  const { launchChromium } = await import('../tests/fixtures/chromium.mjs');
+  try {
+    const browser = await launchChromium();
+    try {
+      await browser.newPage();
+    } finally {
+      await browser.close();
+    }
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`Browser test setup failed before running the selected suite.\n${detail}`);
+  }
+}
+
 export async function runTests(buildResult, selected = process.argv.slice(2)) {
+  const files = (await readdir(testDirectory)).filter(name => name.endsWith('.test.mjs')).sort();
+  const tests = selected.length ? files.filter(name => selected.includes(name) || selected.includes(`tests/${name}`)) : files;
+  if (!tests.length) throw new Error('No end-to-end tests selected');
+  await checkBrowserSetup(tests);
   const completed = buildResult ?? await build();
   if (buildResult && !completed.checked) throw new Error('Repository verification requires its checked build result');
   if (!['kernel', 'host', 'browser', 'interaction'].every(name => completed.targets.includes(name))) {
     throw new Error('End-to-end tests require all production build targets');
   }
   await buildModel({ buildResult: completed });
-  const files = (await readdir(new URL('../tests/', import.meta.url))).filter(name => name.endsWith('.test.mjs')).sort();
-  const tests = selected.length ? files.filter(name => selected.includes(name) || selected.includes(`tests/${name}`)) : files;
-  if (!tests.length) throw new Error('No end-to-end tests selected');
   const active = new Set();
   let interrupted = false;
   const handlers = ['SIGINT', 'SIGTERM'].map(signal => {
