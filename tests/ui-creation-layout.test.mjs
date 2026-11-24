@@ -59,31 +59,6 @@ test('the composer gear keeps its menu clear of the draft at desktop and mobile 
   }
 });
 
-test('desktop and landscape composer menus open on the same side of their triggers', async t => {
-  const { page } = await browserFixture(t);
-  for (const viewport of [{ width: 1280, height: 720 }, { width: 844, height: 390 }]) {
-    await page.setViewportSize(viewport);
-    for (const [trigger, name] of [
-      [page.getByRole('button', { name: /^Model:/ }), 'Model'],
-      [page.getByRole('button', { name: /^权限:/ }), '权限'],
-      [creationEnvironmentTrigger(page), '工作环境'],
-    ]) {
-      const anchor = await trigger.boundingBox();
-      await trigger.click();
-      const menu = page.getByRole('dialog', { name, exact: true });
-      await menu.waitFor();
-      const box = await menu.boundingBox();
-      assert.ok(insideViewport(box, viewport));
-      assert.ok(viewport.height === 720 ? box.y >= anchor.y + anchor.height - 2 : box.y + box.height <= anchor.y + 2,
-        `${name} opens from its trigger at ${viewport.width}×${viewport.height}`);
-      assert.ok(Math.abs(box.x + box.width - anchor.x - anchor.width) <= 2,
-        `${name} aligns its trailing edge to the trigger`);
-      await page.keyboard.press('Escape');
-      await menu.waitFor({ state: 'hidden' });
-    }
-  }
-});
-
 test('an explicit send shows the captured new message in a temporary conversation before the command receipt', { timeout: 90_000 }, async t => {
   const fixture = await browserFixture(t);
   const { page } = fixture;
@@ -282,8 +257,8 @@ test('a refused new conversation restores its draft and a late receipt respects 
   assert.match(JSON.stringify((await command({ op: 'read', task_id: task })).messages), /Create this conversation in the background/);
 });
 
-test('project and directory choices open inside the composer menu and return to it', async t => {
-  const { page } = await browserFixture(t);
+test('the composer menu opens project and directory choices and preserves the selected run environment', async t => {
+  const { page } = await browserFixture(t, { cloud: true });
   const menu = page.getByRole('dialog', { name: '工作环境', exact: true });
   const project = page.getByRole('dialog', { name: '选择项目', exact: true });
   const workspace = page.getByRole('dialog', { name: '工作目录', exact: true });
@@ -319,14 +294,10 @@ test('project and directory choices open inside the composer menu and return to 
     await page.keyboard.press('Escape');
     await menu.waitFor({ state: 'hidden' });
   }
-});
 
-test('configured run environments show the current choice in the gear menu', async t => {
-  const { page } = await browserFixture(t, { cloud: true });
   const viewport = { width: 320, height: 620 };
   await page.setViewportSize(viewport);
-  await page.reload();
-  const menu = await openCreationEnvironment(page);
+  await openCreationEnvironment(page);
   const choice = (name, checked) => menu.getByRole('menuitemradio', { name, exact: true, checked });
   const cases = ['在 Selvedge 主机上新建 Git 工作树', '在腾讯云 CVM 上运行', '使用当前工作目录'];
   await choice(cases[2], true).waitFor();

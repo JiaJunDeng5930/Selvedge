@@ -168,7 +168,7 @@ test('Work navigation preserves Project grouping and opens the same conversation
   await seeDestination();
 });
 
-test('Project task creation restores Project workspace inheritance through the browser', async t => {
+test('Project task creation distinguishes restored workspace inheritance from an explicit empty workspace', async t => {
   const { fixture, root, project_id } = await projectWorkspaceFixture(t);
   const { page, command } = fixture;
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
@@ -198,15 +198,11 @@ test('Project task creation restores Project workspace inheritance through the b
   const inheritedTask = (await command({ op: 'read', task_id: inherited })).task;
   assert.equal(inheritedTask.settings.project_id, project_id);
   assert.deepEqual(inheritedTask.settings.workspace, { roots: [root], primary_root: root });
-});
 
-test('Project task creation preserves explicitly empty workspaces through the browser', async t => {
-  const { fixture, root, project_id } = await projectWorkspaceFixture(t);
-  const { page, command } = fixture;
+  await page.getByRole('combobox', { name: 'Message', exact: true }).waitFor();
   await projectTask(page);
-  const environment = await openCreationEnvironment(page);
+  await openCreationEnvironment(page);
   await environment.locator('button[data-logical-key="composer/workspace"]').click();
-  const workspace = page.getByRole('dialog', { name: '工作目录', exact: true });
   await workspace.getByRole('button', { name: '移除目录', exact: true }).click();
   await workspace.getByRole('button', { name: '使用继承的工作目录', exact: true }).waitFor();
   await page.keyboard.press('Escape');

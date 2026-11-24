@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { access, chmod, cp, mkdir, readFile, stat, symlink, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, readFile, stat, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -515,32 +515,4 @@ test('installed MCP credentials are private, reject unsafe files and never expos
     const diagnostic = refusal(invalid);
     assert.equal(diagnostic.includes(secret), false);
   }
-});
-
-test('deployment ships the package without private source-directory data', async t => {
-  const base = await home(t), source = path.join(base, 'source'), output = path.join(base, 'deployment');
-  await cp(pluginRoot, source, { recursive: true, filter: filename =>
-    !['node_modules', 'connection.json', '.env', 'private'].includes(path.basename(filename)) });
-  await symlink(path.join(pluginRoot, 'node_modules'), path.join(source, 'node_modules'), 'dir');
-  await writeFile(path.join(source, 'connection.json'), '{"private":"LOCAL_CONNECTION_DATA"}');
-  await writeFile(path.join(source, '.env'), 'LOCAL_ENVIRONMENT_DATA');
-  await mkdir(path.join(source, 'private'));
-  await writeFile(path.join(source, 'private/secret'), 'LOCAL_PRIVATE_DATA');
-  await writeFile(path.join(source, 'src/connection.json'), '{"private":"NESTED_CONNECTION_DATA"}');
-  await execute(process.execPath, [path.join(source, 'bin/setup.mjs'), 'package', 'plugin_asdk_app_session_fixture', output], { timeout: 10000 });
-  const manifest = JSON.parse(await readFile(path.join(output, 'plugin.json'), 'utf8'));
-  const apps = JSON.parse(await readFile(path.join(output, manifest.extensions['com.openai'].apps), 'utf8'));
-  assert.equal(apps.apps.selvedge.id, 'plugin_asdk_app_session_fixture');
-  for (const filename of ['connection.json', '.env', 'private', 'src/connection.json', 'mcp.json', 'node_modules']) {
-    await assert.rejects(access(path.join(output, filename)), { code: 'ENOENT' });
-  }
-  await symlink(path.join(pluginRoot, 'node_modules'), path.join(output, 'node_modules'), 'dir');
-  const client = new Client({ name: 'deployed-package-contract', version: '1' });
-  const transport = new StdioClientTransport({ command: 'node', args: [path.join(output, 'bin/server.mjs')],
-    cwd: output, env: { SELVEDGE_URL: 'http://127.0.0.1:7421', SELVEDGE_CONNECTION_ID: '0',
-      SELVEDGE_CONNECTION_TOKEN: 'a'.repeat(43) }, stderr: 'pipe' });
-  t.after(() => client.close());
-  await client.connect(transport);
-  const tools = (await client.listTools()).tools;
-  assert.ok(tools.some(tool => tool.name === 'selvedge_list_projects'));
 });

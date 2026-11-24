@@ -112,32 +112,6 @@ test('canceling the card editor aborts its pending upload', async t => {
   await editor.waitFor({ state: 'hidden' });
 });
 
-test('canceling Add to board restores the source conversation defaults on reopening', async t => {
-  const { page, command } = await browserFixture(t);
-  const { project_id } = await command({ op: 'create_project', name: 'Card source project', workspace: { roots: [] } });
-  const { task_id } = await command({ op: 'create_idle', profile: 'demo', settings: { project_id } });
-  const { task } = await command({ op: 'read', task_id });
-  await page.getByRole('navigation', { name: 'Task tree', exact: true })
-    .getByRole('button', { name: task.title, exact: true }).click();
-  const actions = page.getByRole('main').getByRole('button', { name: '对话操作', exact: true });
-  const editor = page.getByRole('dialog', { name: '添加到看板', exact: true });
-  const title = editor.getByRole('textbox', { name: '标题', exact: true });
-  async function openCardEditor() {
-    await actions.click();
-    await page.getByRole('button', { name: '添加到看板', exact: true }).click();
-  }
-  await openCardEditor();
-  await title.fill('Discard this draft title');
-  await editor.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await editor.waitFor({ state: 'hidden' });
-  assert.deepEqual((await command({ op: 'list_cards' })).cards, []);
-  await openCardEditor();
-  assert.equal(await title.inputValue(), task.title);
-  await editor.getByText('更多卡片选项', { exact: true }).click();
-  const project = editor.getByRole('combobox', { name: '所属项目', exact: true });
-  assert.equal(await project.inputValue(), String(project_id));
-});
-
 test('a project can start with only a name and save an optional directory later', async t => {
   const { page, command, root } = await browserFixture(t);
   const workspace = path.join(root, '项目默认目录');

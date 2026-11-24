@@ -1,88 +1,76 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { observeConnection } from '../host/public/connection.mjs';
+import { browserFixture } from './fixtures/browser.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
 import { events } from '../host/network.mjs';
 import { startServer } from '../host/server.mjs';
 import { home } from './support.mjs';
 
-async function subscribed(t) {
-  const connected = Promise.withResolvers();
-  const cancellation = new AbortController();
-  const { readable, writable } = new TransformStream();
-  const writer = writable.getWriter();
-  let current = 0;
-  let requestLatest = 0;
-  let requests = 0;
-  const notices = new Map();
-  const worlds = new Map();
-  const replies = new Map();
-  const waiting = (map, key) => {
-    if (!map.has(key)) map.set(key, Promise.withResolvers());
-    return map.get(key);
-  };
-  const task = observeConnection({
-    request: async () => { requests++; return { sequence: requestLatest }; },
-    fetchEvents: async () => { connected.resolve(); return new Response(readable); },
-    signal: cancellation.signal,
-    namespace: () => 'source',
-    sequence: () => current,
-    snapshot(body) { current = body.sequence; waiting(worlds, current).resolve(); },
-    ready() {},
-    notice(value) { waiting(notices, value.name).resolve(); return false; },
-    refreshNeeded: event => current < Number(event.sequence),
-    commandReply: id => replies.get(id)?.promise,
+test('the board follows other commits and recovers an acknowledged write when its HTTP receipt is lost or stalled', async t => {
+  const { page, command } = await browserFixture(t);
+  await command({ op: 'board_settings', automatic: false, draft_profile: '' });
+  await page.getByRole('navigation', { name: 'Global navigation', exact: true })
+    .getByRole('button', { name: '卡片看板', exact: true }).click();
+
+  const dialog = page.getByRole('dialog', { name: '新建卡片', exact: true });
+  const card = title => page.getByRole('article', { name: title, exact: true });
+  async function submit(title) {
+    await page.getByRole('button', { name: '新建卡片', exact: true }).click();
+    await dialog.getByRole('textbox', { name: '标题', exact: true }).fill(title);
+    await dialog.getByRole('button', { name: '创建卡片', exact: true }).click();
+  }
+  const initial = 'Initial card from another client';
+  await command({ op: 'create_card', title: initial });
+  await card(initial).waitFor();
+
+  let stateReads = 0;
+  page.on('request', request => {
+    if (new URL(request.url()).pathname === '/api/browser/state') stateReads++;
   });
-  t.after(async () => { cancellation.abort(); await writer.close(); await task; });
-  await connected.promise;
-  return {
-    get requests() { return requests; },
-    accept(sequence) { current = sequence; },
-    async commit(sequence, id) {
-      requestLatest = sequence;
-      await writer.write(new TextEncoder().encode(`data: ${JSON.stringify({ type: 'commit', sequence, ...(id ? { browser_request_id: id } : {}) })}\n\n`));
-    },
-    reply: id => waiting(replies, id),
-    world: sequence => waiting(worlds, sequence).promise,
-    async barrier(name) {
-      await writer.write(new TextEncoder().encode(`data: ${JSON.stringify({ type: 'diagnostic', name })}\n\n`));
-      await waiting(notices, name).promise;
-    },
-  };
-}
+  const received = 'Card with a matching receipt';
+  await submit(received);
+  await card(received).waitFor();
+  assert.equal(stateReads, 0, 'The matching command receipt already carries its committed state');
 
-test('a matching live reply can cover only its own commit, without stopping the event stream', async t => {
-  const client = await subscribed(t);
-  const reply = client.reply('first');
-  await client.commit(1, 'first');
-  await client.barrier('one');
-  assert.equal(client.requests, 1);
-  client.accept(1);
-  reply.resolve();
-  await client.barrier('two');
-  assert.equal(client.requests, 1);
-  await client.commit(2, 'another-browser');
-  await client.world(2);
-  assert.equal(client.requests, 2);
-});
+  const unrelated = 'Unrelated committed card';
+  await command({ op: 'create_card', title: unrelated });
+  await card(unrelated).waitFor();
+  assert.ok(stateReads > 0, 'The browser still reads the state for a commit from another client');
 
-test('a lost command receipt falls back to the authenticated world', async t => {
-  const client = await subscribed(t);
-  const reply = client.reply('first');
-  await client.commit(1, 'first');
-  await client.barrier('one');
-  assert.equal(client.requests, 1);
-  reply.resolve();
-  await client.world(1);
-  assert.equal(client.requests, 2);
-});
-
-test('a stalled command receipt does not indefinitely hold publication', async t => {
-  const client = await subscribed(t);
-  client.reply('stalled');
-  await client.commit(1, 'stalled');
-  await client.world(1);
-  assert.equal(client.requests, 2);
+  for (const outcome of ['stalled', 'lost']) {
+    const title = `Committed card with a ${outcome} receipt`;
+    const release = Promise.withResolvers();
+    const delivered = Promise.withResolvers();
+    t.after(() => release.resolve());
+    const url = '**/api/browser/command';
+    const holdReceipt = async route => {
+      if (route.request().postDataJSON()?.command?.title !== title) return route.continue();
+      try {
+        const response = await route.fetch();
+        assert.equal((await response.json()).reply.ok, true);
+        if (outcome === 'lost') await route.abort('failed');
+        else {
+          await release.promise;
+          await route.fulfill({ response });
+        }
+      } finally {
+        delivered.resolve();
+      }
+    };
+    await page.route(url, holdReceipt);
+    const recovered = page.waitForResponse(async response =>
+      new URL(response.url()).pathname === '/api/browser/state' && response.ok() && (await response.text()).includes(title));
+    await submit(title);
+    await recovered;
+    release.resolve();
+    await delivered.promise;
+    await page.unroute(url, holdReceipt);
+    if (outcome === 'lost') {
+      await page.keyboard.press('Escape');
+    }
+    await dialog.waitFor({ state: 'hidden' });
+    await card(title).waitFor();
+  }
 });
 
 test('a browser command marker identifies just its own durable commit', async t => {
