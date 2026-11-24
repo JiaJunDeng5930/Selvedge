@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
+From Selvedge.Foundation Require TextJson.
 From Selvedge.Foundation Require Comparison.
 From Selvedge.Programming Require Import Arguments JsonSchema Schema.
 From Selvedge.Foundation Require Import Utf8.
@@ -130,6 +131,20 @@ Inductive tool_source :=
 | NativeToolSource (parameters : list argument_spec) (program : json)
 | ExtensionToolSource (parameters : JsonSchema.registered) (reference : json) (remote : string)
 | McpToolSource (parameters : json) (server remote : string) (icon : option string).
+(* Local discovery normalizes names to letters, digits and underscores. The
+   hyphen distinguishes the shared route without changing stored tool shape. *)
+Definition shared_mcp_prefix := "mcp__shared-".
+Definition shared_mcp_key environment server :=
+ TextJson.render_json (JArray [JString environment;JString server]).
+Definition mcp_tool_metadata name server remote :=
+ let local := JObject [("server",JString server);("name",JString remote)] in
+ if String.prefix shared_mcp_prefix name then
+   match TextJson.parse_json server with
+   | Some (JArray [JString environment; JString server]) =>
+     JObject [("environment",JString environment);("server",JString server);("name",JString remote)]
+   (* DEFENSE: An inconsistent stored shared route must never select a local server. *)
+   | _ => JNull end
+ else local.
 Record tool := Tool {
   tool_name : string;
   tool_description : string;
@@ -155,7 +170,7 @@ end.
 Definition tool_metadata (value : tool) := match tool_origin value with
 | NativeToolSource _ program => JObject [("kind",JString "native");("program",program)]
 | ExtensionToolSource _ reference remote => JObject [("plugin",reference);("name",JString remote)]
-| McpToolSource _ server remote _ => JObject [("server",JString server);("name",JString remote)]
+| McpToolSource _ server remote _ => mcp_tool_metadata (tool_name value) server remote
 end.
 Definition tool_icon (value : tool) := match tool_origin value with
 | McpToolSource _ _ _ icon => icon

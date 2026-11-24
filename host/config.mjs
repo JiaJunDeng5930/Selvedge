@@ -112,6 +112,8 @@ export function validateConfig(value) {
   observer.execute('config.configuration_extensions', {
     mcp: observer.observe(config.mcp), plugins: observer.observe(config.plugins),
   });
+  profileBoundary('config.shared_mcp', { receiver: config.execution_receiver, imports: config.shared_mcp,
+    mcp: config.mcp, connections: config.execution_environments });
   return config;
 }
 

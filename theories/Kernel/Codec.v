@@ -215,7 +215,15 @@ Definition parse_tool (value : json) : option tool :=
          let icon := match string_field "icon" value with
            | Some src => option_map (fun _ => src) (mcp_icon_mime src)
            | None => None end in
-         Some (Tool name description (McpToolSource schema server remote icon))
+         match field "environment" value with
+         | None => if String.prefix shared_mcp_prefix name then None
+           else Some (Tool name description (McpToolSource schema server remote icon))
+         | Some (JString environment) =>
+           if String.prefix shared_mcp_prefix name &&
+              ArgumentDeclaration.check Workspace.environment_declaration (JString environment)
+           then Some (Tool name description (McpToolSource schema (shared_mcp_key environment server) remote icon))
+           else None
+         | _ => None end
        | _,_ => None end
      | _ => None end
    else None

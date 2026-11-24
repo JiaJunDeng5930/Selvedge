@@ -175,7 +175,7 @@ use `GITHUB_TOKEN` from the service environment through an ephemeral clone
 credential helper; it is removed before the setup script runs.
 
 Cloud Bash uses Full Access. Bash, process sessions, file observations and image
-reads use the task's bound environment; local MCP servers remain host services.
+reads use the task's bound environment. MCP tools use their configured servers.
 The model receives an environment notice describing that distinction. Forked
 tasks share the same bound resource. Archiving a child does not destroy its
 owner's instance, and an instance cannot be recycled while another task uses it.
@@ -246,6 +246,48 @@ receiver, for example
 The workspace stays bound if its receiver disconnects. A repeated operation
 ID retrieves the original result. If a receiver restarts before recording a
 result, Selvedge reports that the operation may already have run.
+
+#### Share an MCP server
+
+Use the regular Selvedge service on the receiver machine to share a server from
+its existing `mcp` configuration. For example, on a Mac already running the
+`cua` MCP server, add this entry to the Mac service's `config.json`.
+
+```json
+{
+  "execution_receiver": {
+    "host": "192.168.1.10",
+    "port": 4443,
+    "cert_file": "/path/to/receiver.pem",
+    "key_file": "/path/to/receiver-key.pem",
+    "token_file": "/path/to/execution-token",
+    "mcp_servers": ["cua"]
+  }
+}
+```
+
+If a standalone `receive-execution` command already owns this port, stop it
+before restarting the regular service with the same endpoint, files and token.
+Set `receipt_home` to the standalone receiver's previous `--home` if it differs
+from the Mac service home. This keeps the existing execution receipts. The
+integrated receiver serves both Bash and the local MCP servers in its
+`mcp_servers` list. You can add a server to that list with
+`bun host/cli.mjs mcp export --server cua`, then restart the Mac service.
+
+On the task machine, add or reuse the remote execution connection. These
+commands discover and import a server from the connection named `mac`.
+
+```sh
+bun host/cli.mjs mcp list --environment mac
+bun host/cli.mjs mcp import --environment mac --server cua --name mac_cua
+```
+
+Restart the task service to apply the import. New tasks can discover and call
+the imported server regardless of their workspace. The Mac service uses the
+same MCP process for local and remote callers. Its MCP credentials and process
+permissions apply to both. A receiver that disconnects withdraws its live tools
+until reconnect and rediscovery. Existing tasks retain their tool definitions
+and target. Update both installations before configuring shared MCP.
 
 ## Use it on a project
 

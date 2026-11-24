@@ -14,6 +14,42 @@ Definition peer := D.Object [
  ("id",true,identifier); ("url",true,D.text);
  ("token_file",true,D.text); ("ca_file",false,D.text)].
 Definition peers := D.BoundedArray 0 32 peer.
+Definition mcp_servers := D.BoundedArray 0 128 D.text.
+Definition receiver_fields := [
+ ("host",true,D.text); ("port",true,D.Natural 0 65535);
+ ("cert_file",true,D.text); ("key_file",true,D.text); ("token_file",true,D.text);
+ ("receipt_home",false,D.text);
+ ("mcp_servers",true,mcp_servers)].
+Definition receiver := D.Union [D.Const (JBool false); D.Object receiver_fields].
+Definition mcp_import := D.Object [
+ ("name",true,D.text); ("environment",true,identifier); ("server",true,D.text)].
+Definition mcp_imports := D.BoundedArray 0 128 mcp_import.
+
+Definition has_name name values := existsb (String.eqb name) values.
+Definition exported_mcp (exports : list json) name := has_name name (map text exports).
+
+Definition mcp_configuration source :=
+ let listener := get source "receiver" in
+ let imports := get source "imports" in
+ let local := map fst (object_fields (get source "mcp")) in
+ let environments := map (fun peer => str peer "id") (items (get source "connections")) in
+ let exports := items (get listener "mcp_servers") in
+ let names := map (fun entry => str entry "name") (items imports) in
+ if negb (D.check receiver listener) then type_error "Invalid execution_receiver configuration"
+ else if is_object listener &&
+   negb (forallb (fun field => Utf8.nonblank (str listener field)) ["host";"cert_file";"key_file";"token_file"] &&
+     (negb (has listener "receipt_home") || Utf8.nonblank (str listener "receipt_home")))
+ then type_error "Execution receiver needs a listen address and TLS and token file paths"
+ else if negb (Schema.unique_names (map text exports) && forallb (fun server => has_name (text server) local) exports)
+ then type_error "Execution receiver can export only distinct local MCP servers"
+ else if negb (D.check mcp_imports imports) then type_error "Invalid shared_mcp configuration"
+ else if negb (Schema.unique_names (local ++ names)%list)
+ then type_error "Shared and local MCP server names must be unique"
+ else if negb (forallb (fun entry => Utf8.nonblank (str entry "name") &&
+      Utf8.nonblank (str entry "server") && has_name (str entry "environment") environments) (items imports))
+ then type_error "Shared MCP needs a name, a configured execution environment and a server name"
+ else success JNull.
+
 Definition endpoint_path := "/execution".
 Definition admitted_endpoint (value : json) :=
  String.eqb (str value "protocol") "wss:" &&
@@ -42,9 +78,14 @@ Definition execution := D.Object [
  ("scope",false,D.Const (JString "project"));
  ("access",true,D.Value (Selvedge.Programming.Schema.KEnum "sandboxed" ["unrestricted"]))].
 Definition operation := [("operation_id",true,identifier)].
-Definition start := D.Object (operation ++ [
+Definition workspace_start := D.Object (operation ++ [
  ("tool",true,D.Value (Selvedge.Programming.Schema.KEnum "bash" ["read_image"]));
  ("arguments",true,D.RawObject); ("execution",true,execution)]).
+Definition mcp_start := D.Object (operation ++ [
+ ("tool",true,D.Const (JString "mcp")); ("server",true,D.text);
+ ("name",true,D.text); ("arguments",true,D.RawObject)]).
+Definition start := D.Union [workspace_start; mcp_start].
+Definition mcp_page := D.Object [("server",true,D.text);("cursor",false,D.text)].
 Definition handle := D.Object operation.
 Definition read_output := D.Object (operation ++ [("cursor",true,D.text)]).
 Definition write_input := D.Object (operation ++ [("input",true,D.RawObject)]).
@@ -56,6 +97,7 @@ Definition directory_list := D.Object [("path",true,Workspace.path_declaration);
 Definition methods : list (string * D.t) := [
  ("execution.start",start); ("execution.read",read_output); ("execution.write",write_input);
  ("execution.wait",handle); ("execution.cancel",handle);
+ ("execution.mcp_servers",D.Object []); ("execution.mcp_list",mcp_page);
  ("execution.realpath",file_path); ("execution.stat",file_path); ("execution.lstat",file_path);
  ("execution.readdir",directory_list); ("execution.read_file",file_read)].
 Definition request_branch (entry : string * D.t) :=
@@ -67,7 +109,9 @@ Definition response := D.Union [
  D.Object [("id",true,identifier);("error",true,D.Object
   [("code",true,identifier);("message",true,D.text)])];
  D.Object [("method",true,D.Const (JString "execution.output"));("params",true,
-   D.Object (operation ++ [("output",true,D.text)]))]].
+   D.Object (operation ++ [("output",true,D.text)]))];
+ D.Object [("method",true,D.Const (JString "execution.mcp_changed"));("params",true,
+   D.Object [("server",true,D.text)])]].
 Definition admit (declaration : D.t) source :=
  if D.check declaration source then success source else type_error "Invalid shared execution message".
 

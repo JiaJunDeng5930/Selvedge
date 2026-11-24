@@ -10,6 +10,9 @@ Definition handlers : list (string * (json -> json)) := [
   ("effect.execution_limits",fun _ => success Limits.boundary_limits);
   ("effect.execution_request",SharedExecution.admit SharedExecution.request);
   ("effect.execution_response",SharedExecution.admit SharedExecution.response);
+  ("effect.execution_mcp_servers",SharedExecution.admit SharedExecution.mcp_servers);
+  ("effect.execution_mcp_exported",fun source => success (JBool
+    (SharedExecution.exported_mcp (items (get source "exports")) (str source "server"))));
   ("effect.execution_start_action",fun source => success (JString
     (SharedExecution.start_action (flag (get source "recorded")) (get source "previous") (get source "incoming"))));
   ("effect.cloud_backend",CloudConfiguration.require_cloud);
