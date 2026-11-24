@@ -31,7 +31,7 @@ test('a discovered Codex model completes multiple turns, independent title gener
   upstream.options.respond = (entry, response) => {
     const url = new URL(entry.url, upstream.address);
     if (url.pathname === '/v1/models') {
-      assert.match(url.searchParams.get('client_version') ?? '', /^\d+\.\d+\.\d+$/);
+      assert.equal(url.searchParams.get('client_version'), '0.171.0');
       response.writeHead(200, { 'content-type': 'application/json' });
       return response.end(JSON.stringify({ models: [{
         slug: model, visibility: 'list', use_responses_lite: true,
