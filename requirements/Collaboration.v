@@ -163,6 +163,7 @@ Export TitleRuntime(issue).
 Export TitleCommit(candidate).
 Export TitleProofs(admitted_title_issues_observed_request,
   explicit_title_profile_uses_only_saved_key,
+  title_scope_preserves_the_first_resolvable_task,
   title_configuration_preserves_generation_entries,
   title_recovery_keeps_execution_state,
   title_recovery_keeps_saved_instructions).

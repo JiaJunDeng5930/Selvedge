@@ -228,11 +228,6 @@ let () =
     emit "read" "reader" read_body;
     emit "same" "left right" same_body;
     Printf.fprintf output "let same_world = %s\nlet same_task = %s\n" (comparison root) (comparison task);
-    Printf.fprintf output "let same_publication_dependencies left right = %s\n"
-      (conjunction (List.map (fun name ->
-        let field = feature_prefix ^ qualified feature_owner name in
-        comparison (List.assoc name feature_fields) ^ " left." ^ field ^ " right." ^ field)
-        ["feature_titles"; "feature_task_owners"]));
     Printf.fprintf output "let feature_matches name before = match name with\n";
     List.iter (fun (name, shape) ->
       let field = feature_prefix ^ qualified feature_owner name in
@@ -246,15 +241,15 @@ let () =
         function_name (comparison (List.assoc name fields)) field field)
       ["same_environment", "world_environment"; "same_projects", "world_projects"];
     Printf.fprintf output "let task_lineage value = value.%s\n" (qualified task_owner "task_lineage");
-    Printf.fprintf output "let same_task_contract left right = %s left.%s right.%s\n"
-      (comparison contract) contract_field contract_field;
-    Printf.fprintf output "let encode_task_contract = encode (fun output value -> %s output value.%s)\n"
-      (codec_name "write" contract) contract_field;
     Printf.fprintf output "let task_history value = value.%s\n" (qualified task_owner "task_history");
     Printf.fprintf output "let encode write value = let output = Buffer.create 4_096 in write output value; Buffer.contents output\n";
     Printf.fprintf output "let decode_exn read bytes =\n  let reader = Wire.start bytes in\n  let value = read reader in\n  (* DEFENSE: Trailing bytes cannot belong to the stored record. *)\n  if Wire.remaining reader = 0 then value else raise Wire.Invalid_state\n";
     Printf.fprintf output "let encode_task_metadata = encode (fun output value -> %s)\n"
       (write_body (Record (task_owner, metadata)));
+    Printf.fprintf output "let same_task_contract left right = %s left.%s right.%s\n"
+      (comparison contract) contract_field contract_field;
+    Printf.fprintf output "let encode_task_contract = encode (fun output value -> %s output value.%s)\n"
+      (codec_name "write" contract) contract_field;
     Printf.fprintf output "let encode_history = encode %s\nlet decode_history_exn = decode_exn %s\n"
       (codec_name "write" history) (codec_name "read" history);
     let items = variables (List.map snd metadata) in

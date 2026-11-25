@@ -41,6 +41,9 @@ Definition experience_settings_json (value : task_settings) :=
 Definition task_label_fields id value features := [
  ("work_id", optional_number (task_owner id value features));
  ("title", JString (Features.task_title id value features))].
+Definition named_titles value :=
+ map (fun item => (Selvedge.Features.Domain.title_task item,Features.named_title_entry item))
+   (Selvedge.Features.Domain.feature_titles (world_features value)).
 Definition task_summary (id : N) (value : task) (features : Selvedge.Features.Domain.state) := JObject ([
  ("id", number id); ("parent", optional_number (hd_error (task_lineage value)));
  ("side_parent", optional_number (task_side_parent value));

@@ -126,6 +126,25 @@ let depends_on_changed_task feature owners world changes =
         ids in
     List.exists (fun change -> Hashtbl.mem ids change.id) changes
 
+let changed_title_ids before next =
+  let changed = Hashtbl.create 1 in
+  if not (Stored_state.feature_matches "feature_titles" before next) then begin
+    let visible_titles world =
+      let titles = Hashtbl.create 16 in
+      List.iter (fun (id, title) ->
+        let id = Big_int_Z.int_of_big_int id in
+        if not (Hashtbl.mem titles id) then Hashtbl.add titles id title)
+        (Model.selvedge_kernel_named_titles world);
+      titles in
+    let previous = visible_titles before in
+    Hashtbl.iter (fun id title ->
+      let old = Option.join (Hashtbl.find_opt previous id) in
+      if old <> title then Hashtbl.replace changed id ();
+      Hashtbl.remove previous id) (visible_titles next);
+    Hashtbl.iter (fun id title -> if Option.is_some title then Hashtbl.replace changed id ()) previous
+  end;
+  changed
+
 let observe_patch before next changes =
   let observe_row project id task world =
     Json.stringify (project (Big_int_Z.big_int_of_int id) task world) in
@@ -154,19 +173,24 @@ let observe_patch before next changes =
           (Model.selvedge_kernel_history_publication (Big_int_Z.big_int_of_int change.id) messages) in
     Js.Unsafe.set result "appended" (Js.string appended);
     result) changes in
-  let shared_dependencies_changed = not (Stored_state.same_publication_dependencies before next) in
+  let title_ids = changed_title_ids before next in
+  let ownership_changed = not (Stored_state.feature_matches "feature_task_owners" before next) in
+  let reference id task =
+    let capacity_changed = fork_changed id task in
+    if Hashtbl.mem changed id || not (ownership_changed || capacity_changed || Hashtbl.mem title_ids id)
+    then None else
+    let observe = observe_row (Model.selvedge_kernel_task_publication_references capacity_changed) in
+    let current = observe id task next in
+    if String.equal current (observe id task before) then None else Some (row id current) in
   let references =
-    if shared_dependencies_changed || Hashtbl.length ancestors > 0 then
-      List.filter_map (fun (id, task) ->
-        let capacity_changed = fork_changed id task in
-        if Hashtbl.mem changed id || not (shared_dependencies_changed || capacity_changed)
-        then None else
-        let observe = observe_row (Model.selvedge_kernel_task_publication_references capacity_changed) in
-        let current = observe id task next in
-        if String.equal current (observe id task before) then None
-        else Some (row id current))
+    if ownership_changed || Hashtbl.length ancestors > 0 then
+      List.filter_map (fun (id, task) -> reference id task)
         (List.mapi (fun id task -> id, task) (Model.selvedge_kernel_task_registry_contents before))
-    else [] in
+    else
+      Hashtbl.to_seq_keys title_ids |> List.of_seq |> List.sort Int.compare
+      |> List.filter_map (fun id ->
+        Option.bind (Model.selvedge_kernel_task_registry_lookup (Big_int_Z.big_int_of_int id) before)
+          (reference id)) in
   let catalog_changed = not (Stored_state.same_environment before next) in
   let membership_changed change =
     let project = Model.selvedge_kernel_publication_project change.task in

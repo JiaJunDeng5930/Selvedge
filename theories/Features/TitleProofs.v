@@ -1,11 +1,13 @@
 From Selvedge.Programming Require RequestTypes.
 From Selvedge.Programming Require TaskScope.
+From Selvedge.Kernel Require TitleCommit.
 From Selvedge.Programming Require Import CompletionProofs.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Kernel Require Import Domain State FeatureAdmissionProofs.
 From Selvedge.Features Require Import Domain State TitleRuntime.
 Import ListNotations.
 Open Scope list_scope.
+Open Scope string_scope.
 Module F:=Selvedge.Features.Domain.
 
 Definition execution_core (value : world) :=
@@ -63,6 +65,41 @@ Proof.
    apply andb_true_iff in Admits as [Key Ordinary].
    apply String.eqb_eq in Key. split; [symmetry; exact Key|exact Ordinary].
  - exact (IH Chosen).
+Qed.
+
+Lemma a_selected_title_profile_belongs_to_the_available_catalog task before selected :
+ FeatureRequestAdmission.selected_title_profile task before = Some selected ->
+ TitleCommit.title_profiles_available before = true.
+Proof.
+ unfold FeatureRequestAdmission.selected_title_profile, TitleCommit.title_profiles_available.
+ remember (environment_profiles (world_environment before)) as profiles.
+ intros Chosen. apply existsb_exists.
+ exists selected.
+ destruct (F.title_agent_profile (F.feature_title_settings (world_features before))).
+ - apply find_some in Chosen as [Member Compatible].
+   split; [exact Member|].
+   apply Bool.andb_true_iff in Compatible as [_ Ordinary].
+   unfold FeatureRequestAdmission.ordinary_profile in Ordinary.
+   apply Bool.andb_true_iff in Ordinary as [Provider _]. exact Provider.
+ - destruct (find _ profiles) as [preferred|] eqn:Preferred.
+   + inversion Chosen; subst preferred.
+     apply find_some in Preferred as [Member Compatible]. split; [exact Member|].
+     repeat rewrite Bool.andb_true_iff in Compatible.
+     unfold FeatureRequestAdmission.capable_profile.
+     assert (Provider : String.eqb (profile_provider selected) "chatgpt" = true) by tauto.
+     now apply String.eqb_eq in Provider; rewrite Provider.
+   + apply find_some in Chosen as [Member Compatible].
+     split; [exact Member|now apply Bool.andb_true_iff in Compatible as [_ Compatible]].
+Qed.
+
+Theorem title_scope_preserves_the_first_resolvable_task before :
+ TitleCommit.resolve before = TaskScope.first_matching before FeatureRequestAdmission.resolve_title_at.
+Proof.
+ unfold TitleCommit.resolve.
+ destruct (TitleCommit.title_profiles_available before) eqn:Available; [reflexivity|].
+ destruct (TaskScope.first_matching before FeatureRequestAdmission.resolve_title_at) as [plan|]; [|reflexivity].
+ pose proof (a_selected_title_profile_belongs_to_the_available_catalog _ _ _
+   (FeatureRequestAdmission.title_chosen plan)) as Found. congruence.
 Qed.
 
 (** Normalization is title-specific; correlation and once-only settlement are

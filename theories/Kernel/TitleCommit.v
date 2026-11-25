@@ -11,7 +11,12 @@ Module Reference := TaskScope.
 Definition plan := FeatureRequestAdmission.resolved_title.
 Definition reference := @FeatureRequestAdmission.title_reference.
 Arguments reference {before}.
-Definition resolve (before : world) := TaskScope.first_matching before FeatureRequestAdmission.resolve_title_at.
+Definition title_profiles_available before :=
+ existsb FeatureRequestAdmission.capable_profile (environment_profiles (world_environment before)).
+Definition resolve (before : world) :=
+ if title_profiles_available before then
+   TaskScope.first_matching before FeatureRequestAdmission.resolve_title_at
+ else None.
 Definition input (decoded : option Inputs.input) (before : world) :=
  match decoded with Some Continue => resolve before | _ => None end.
 Definition candidate {before : world} (request : plan before) :=

@@ -23,6 +23,7 @@ Open Scope string_scope.
 Definition initial := State.initial.
 Definition task_registry_restore := TaskRegistry.from_list.
 Definition task_registry_contents := State.world_tasks.
+Definition task_registry_lookup := State.find_task.
 Definition task_registry_changes same_tree same_task before after :=
  option_map (map (fun value => (IndexedRegistry.difference_id task value,
    IndexedRegistry.difference_before task value, IndexedRegistry.difference_after task value)))
@@ -36,6 +37,7 @@ Definition task_publication := Publication.task_publication.
 Definition task_history_since cursor task := skipn cursor (task_history task).
 Definition history_publication := Publication.history_json.
 Definition task_publication_references := Publication.task_publication_references.
+Definition named_titles := Publication.named_titles.
 Definition publication_project := Publication.publication_project.
 Definition remote_reconciliation_needed := Notifications.remote_reconciliation_needed.
 Definition query := CommandHandlers.query.
