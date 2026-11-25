@@ -173,6 +173,7 @@ Export CompactionPlanProofs(structured_plan_transports_selected_history_and_summ
   native_unavailable_preserves_full_history_for_summary).
 Export ProviderCompactionProofs(public_structured_summary_appends_its_instruction_after_selected_history).
 Export CompactionProofs(measured_scope_and_reserve_reach_the_executed_request,
+  maintenance_only_visits_known_entries_and_active_tasks,
   validated_compaction_extends_the_committed_history,
   manual_compaction_captures_context_before_any_summary_request,
   manual_compaction_accepts_an_open_prefix_and_waits,
@@ -239,7 +240,11 @@ Export ReasoningProofs(evaluator_tool_evidence_keeps_the_original_json,
     retained state and issued effects establish the command's behavior.
 
     Compaction retains its preparation and measurement state separately from
-    ordinary execution. A workspace observation uses the Task's own request.
+    ordinary execution. Automatic maintenance discovers new work only among
+    active Tasks. Idle Tasks without a saved maintenance record have no
+    outstanding request or cache lease; their next message enters the active
+    scope. Previously recorded jobs and leases keep their own owners.
+    A workspace observation uses the Task's own request.
     The request carries the ticket, source revision and continuation, so a
     stale result, revision retry or wake cannot update a separate copy of the
     same pending request. [maintenance_context_installs_its_exact_continuation]

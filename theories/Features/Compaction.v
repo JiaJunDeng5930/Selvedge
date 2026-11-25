@@ -554,10 +554,12 @@ Fixpoint insert_maintenance_owner (owner : N) (identities : list N) :=
  end.
 Definition maintenance_candidates (value : Selvedge.Kernel.State.world) :=
  let state := registry value in
- if policy_enabled (maintenance_policy state) &&
-    match policy_targets (maintenance_policy state) with [] => false | _ => true end
- then Selvedge.Foundation.Registry.indexed (fun id _ => id) 0 (Selvedge.Kernel.State.world_tasks value)
- else fold_right (fun entry => insert_maintenance_owner (fst entry)) [] (maintenance_entries state).
+ let admitted := if policy_enabled (maintenance_policy state) &&
+     match policy_targets (maintenance_policy state) with [] => false | _ => true end
+   then map fst (Selvedge.Kernel.State.scheduling_tasks value) else [] in
+ (* An idle Task without a maintenance record has neither an outstanding job
+    nor a cache lease. Its next request enters the active Task scope. *)
+ fold_right (fun entry => insert_maintenance_owner (fst entry)) admitted (maintenance_entries state).
 Definition synchronize_all : DecisionComposition.step := fun value effects =>
  let identities := maintenance_candidates value in
  DecisionComposition.and_then (DecisionComposition.each identities synchronize_task) arm_clock value effects.

@@ -23,6 +23,33 @@ Module A := Selvedge.Features.Compaction.
 Module P := Selvedge.Kernel.CompactionPlan.
 Module G := Selvedge.Generated.Commands.
 
+Lemma inserted_maintenance_owner_membership selected owner candidates :
+ In selected (A.insert_maintenance_owner owner candidates) <->
+ selected = owner \/ In selected candidates.
+Proof.
+ induction candidates as [|first rest IH]; cbn; [intuition congruence|].
+ destruct (N.compare owner first) eqn:Order; cbn.
+ - apply N.compare_eq in Order. intuition congruence.
+ - intuition congruence.
+ - rewrite IH. intuition congruence.
+Qed.
+
+Theorem maintenance_only_visits_known_entries_and_active_tasks owner value :
+ In owner (A.maintenance_candidates value) <->
+ In owner (map fst (maintenance_entries (A.registry value))) \/
+ ((policy_enabled (maintenance_policy (A.registry value)) &&
+   match policy_targets (maintenance_policy (A.registry value)) with [] => false | _ => true end) = true /\
+  In owner (map fst (K.scheduling_tasks value))).
+Proof.
+ unfold A.maintenance_candidates.
+ generalize (maintenance_entries (A.registry value)) as entries.
+ destruct (policy_enabled (maintenance_policy (A.registry value)) &&
+   match policy_targets (maintenance_policy (A.registry value)) with [] => false | _ => true end);
+   intro entries;
+   induction entries as [|[id entry] rest IH]; cbn; try solve [intuition congruence];
+   rewrite inserted_maintenance_owner_membership, IH; intuition congruence.
+Qed.
+
 Lemma admitted_maintenance_runs_its_resolved_plan : forall id request before,
  maintenance_admission id request before = true ->
  exists reference : R.maintenance_reference before id request,
