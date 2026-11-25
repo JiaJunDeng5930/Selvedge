@@ -1,5 +1,6 @@
 From Stdlib Require Import String Ascii List Bool NArith.
 From Selvedge.Foundation Require Import Json Utf8 Registry.
+From Selvedge.Foundation Require IndexedRegistry.
 From Selvedge.Programming Require Import OptionObservation.
 From Selvedge.Programming Require CommandResult.
 From Selvedge.Kernel Require Import Domain State Tasks.
@@ -99,7 +100,7 @@ Definition resolve_connection identity project (request : ChatgptArguments.reque
  (fun _ => CommandResult.refuse "project_forbidden" "This connection has no grant for that project").
 
 Definition title_entry (owner : N) (before : world) :=
- find (fun entry => N.eqb owner (F.title_task entry)) (F.feature_titles (world_features before)).
+ IndexedRegistry.Slots.find (IndexedRegistry.key owner) (F.feature_titles (world_features before)).
 Fixpoint split_slash (text part : string) : list string := match text with
  | EmptyString => [part]
  | String ch rest => if Ascii.eqb ch "/"%char then part :: split_slash rest ""
@@ -108,10 +109,12 @@ Definition account_prefix (key : string) := match split_slash key "" with
  | "chatgpt" :: account :: _ :: _ => String.append "chatgpt/" (String.append account "/")
  | _ => "" end.
 Definition capable_profile (selected : profile) := negb (String.eqb (profile_provider selected) "echo").
+Definition explicit_title_profile key configured :=
+ find (fun selected => String.eqb key (profile_key selected) && ordinary_profile selected) configured.
 Definition selected_title_profile (current : task) (before : world) :=
  let configured := environment_profiles (world_environment before) in
  match F.title_agent_profile (F.feature_title_settings (world_features before)) with
- | Some key => find (fun selected => String.eqb key (profile_key selected) && ordinary_profile selected) configured
+ | Some key => explicit_title_profile key configured
  | None =>
    let profile := task_current_profile current in
    let fallback := find (fun selected => String.eqb (profile_key profile) (profile_key selected) && capable_profile selected) configured in

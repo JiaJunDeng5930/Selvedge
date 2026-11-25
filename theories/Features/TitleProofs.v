@@ -54,7 +54,7 @@ Theorem explicit_title_profile_uses_only_saved_key : forall task before key sele
  profile_key selected = key /\ FeatureRequestAdmission.ordinary_profile selected = true.
 Proof.
  intros task before key selected Config Chosen.
- unfold FeatureRequestAdmission.selected_title_profile in Chosen.
+ unfold FeatureRequestAdmission.selected_title_profile, FeatureRequestAdmission.explicit_title_profile in Chosen.
  rewrite Config in Chosen.
  remember (environment_profiles (world_environment before)) as configured eqn:Configured.
  clear Configured.
@@ -73,15 +73,11 @@ Lemma a_selected_title_profile_belongs_to_the_available_catalog task before sele
 Proof.
  unfold FeatureRequestAdmission.selected_title_profile, TitleCommit.title_profiles_available.
  remember (environment_profiles (world_environment before)) as profiles.
- intros Chosen. apply existsb_exists.
- exists selected.
+ intros Chosen.
  destruct (F.title_agent_profile (F.feature_title_settings (world_features before))).
- - apply find_some in Chosen as [Member Compatible].
-   split; [exact Member|].
-   apply Bool.andb_true_iff in Compatible as [_ Ordinary].
-   unfold FeatureRequestAdmission.ordinary_profile in Ordinary.
-   apply Bool.andb_true_iff in Ordinary as [Provider _]. exact Provider.
- - destruct (find _ profiles) as [preferred|] eqn:Preferred.
+ - now rewrite Chosen.
+ - apply existsb_exists. exists selected.
+   destruct (find _ profiles) as [preferred|] eqn:Preferred.
    + inversion Chosen; subst preferred.
      apply find_some in Preferred as [Member Compatible]. split; [exact Member|].
      repeat rewrite Bool.andb_true_iff in Compatible.
@@ -92,12 +88,12 @@ Proof.
      split; [exact Member|now apply Bool.andb_true_iff in Compatible as [_ Compatible]].
 Qed.
 
-Theorem title_scope_preserves_the_first_resolvable_task before :
- TitleCommit.resolve before = TaskScope.first_matching before FeatureRequestAdmission.resolve_title_at.
+Theorem title_scope_preserves_the_first_resolvable_request before :
+ TitleCommit.resolve before = TitleCommit.resolve_waiting before.
 Proof.
  unfold TitleCommit.resolve.
  destruct (TitleCommit.title_profiles_available before) eqn:Available; [reflexivity|].
- destruct (TaskScope.first_matching before FeatureRequestAdmission.resolve_title_at) as [plan|]; [|reflexivity].
+ destruct (TitleCommit.resolve_waiting before) as [plan|]; [|reflexivity].
  pose proof (a_selected_title_profile_belongs_to_the_available_catalog _ _ _
    (FeatureRequestAdmission.title_chosen plan)) as Found. congruence.
 Qed.

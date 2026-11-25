@@ -1,6 +1,7 @@
 From Selvedge.Features Require Workflow WorkflowTypes CompactionTypes.
 From Stdlib Require Import String List NArith.
 From Selvedge.Foundation Require Import Json.
+From Selvedge.Foundation Require IndexedRegistry.
 From Selvedge.Kernel Require Import Numbers Domain Codec Context State Tasks ContextUpdates Observation Workspace.
 From Selvedge.Kernel Require ContextTypes FeatureRequestAdmission.
 From Selvedge.Kernel Require Conversation.
@@ -42,9 +43,14 @@ Definition experience_settings_json (value : task_settings) :=
 Definition task_label_fields id value features := [
  ("work_id", optional_number (task_owner id value features));
  ("title", JString (Features.task_title id value features))].
-Definition named_titles value :=
- map (fun item => (Selvedge.Features.Domain.title_task item,Features.named_title_entry item))
-   (Selvedge.Features.Domain.feature_titles (world_features value)).
+Definition named_title_changes same_tree same_value before after :=
+ let titles value := Selvedge.Features.Domain.feature_titles (world_features value) in
+ option_map (fun changes => map (IndexedRegistry.difference_id _) (filter (fun change =>
+   let previous := match IndexedRegistry.difference_before _ change with
+     | Some status => Features.named_title status | None => None end in
+   match previous, Features.named_title (IndexedRegistry.difference_after _ change) with
+   | None, None => false | Some old, Some current => negb (String.eqb old current) | _, _ => true end) changes))
+  (IndexedRegistry.diff_trie same_tree same_value (titles before) (titles after) 0 1 []).
 Definition task_summary_with_cursor (include_cursor : bool) (id : N) (value : task) (features : Selvedge.Features.Domain.state) := JObject ([
  ("id", number id); ("parent", optional_number (hd_error (task_lineage value)));
  ("side_parent", optional_number (task_side_parent value));

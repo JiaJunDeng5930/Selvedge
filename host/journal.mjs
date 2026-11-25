@@ -18,7 +18,7 @@ function rejected(error, outcome) {
   return error;
 }
 
-export const stateSchemaVersion = 4;
+export const stateSchemaVersion = 5;
 
 const schema = `
   CREATE TABLE state (
@@ -40,6 +40,9 @@ const schema = `
     start INTEGER NOT NULL CHECK (start >= 0), data BLOB NOT NULL,
     PRIMARY KEY (task_id, start)
   ) STRICT, WITHOUT ROWID;
+  CREATE TABLE task_titles (
+    id INTEGER PRIMARY KEY REFERENCES tasks(id), data BLOB NOT NULL
+  ) STRICT;
 `;
 
 function writeStateSections(database, sections) {
@@ -80,8 +83,13 @@ function readState(database) {
     if (row.id !== index) throw new Error('Invalid Selvedge stored state sections');
     return Buffer.from(row.data).toString('latin1');
   });
+  const titles = database.prepare('SELECT id, data FROM task_titles ORDER BY id').all().map(({ id, data }) => {
+    // DEFENSE: An externally edited database can contain a title without a task owner.
+    if (tasks[id] === undefined) throw new Error('Invalid Selvedge stored title owner');
+    return { id, data: Buffer.from(data).toString('latin1') };
+  });
   return { namespace: record.namespace, schema: record.schema, sequence: integer(record.sequence, 'state sequence'),
-    shared, tasks };
+    shared, tasks, titles };
 }
 
 function closeJournalDatabase(database) {
@@ -237,7 +245,7 @@ export class Journal extends EventEmitter {
       try {
         program = applyProgramUpdates(this.program, [response.programUpdate]);
         this.#database.exec('BEGIN IMMEDIATE');
-        const { shared, tasks } = response.storage;
+        const { shared, tasks, titles } = response.storage;
         const insertTask = this.#database.prepare('INSERT INTO tasks (id, created_at, data, history_length) VALUES (?, ?, ?, ?)');
         const updateTask = this.#database.prepare(`
           UPDATE tasks SET data = ?, history_length = history_length + ?
@@ -265,6 +273,13 @@ export class Journal extends EventEmitter {
             }
           }
           if (history !== null) appendHistory.run(task.id, history.start, Buffer.from(history.data, 'latin1'));
+        }
+        if (titles.length) {
+          const writeTitle = this.#database.prepare(`
+            INSERT INTO task_titles (id, data) VALUES (?, ?)
+            ON CONFLICT (id) DO UPDATE SET data = excluded.data
+          `);
+          for (const { id, data } of titles) writeTitle.run(id, Buffer.from(data, 'latin1'));
         }
         writeStateSections(this.#database, shared);
         this.#database.prepare('UPDATE state SET sequence = ? WHERE id = 1').run(sequence);

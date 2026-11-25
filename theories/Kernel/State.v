@@ -27,12 +27,20 @@ Definition side_tasks (value : world) :=
  TaskRegistry.selected_entries (TaskRegistry.side_conversations (world_task_registry value)).
 Definition plugin_tasks (value : world) :=
  TaskRegistry.selected_entries (TaskRegistry.notification_recipients (world_task_registry value)).
+Definition title_tasks (value : world) :=
+ TaskRegistry.selected_entries (TaskRegistry.title_requests (world_task_registry value)).
 Definition with_sequence (replacement : N) (value : world) :=
  set world_sequence (fun _ => replacement) value.
 Definition with_task_registry (replacement : TaskRegistry.t) (value : world) :=
  set world_task_registry (fun _ => replacement) value.
 Definition with_tasks (replacement : list task) (value : world) :=
- with_task_registry (TaskRegistry.from_list replacement) value.
+ with_task_registry (TaskRegistry.extend replacement
+   (TaskRegistry.empty_with_issued_titles (TaskRegistry.issued_titles (world_task_registry value)))) value.
+Definition mark_title_started id value :=
+ with_task_registry (TaskRegistry.title_started id (world_task_registry value)) value.
+Definition restore_title_scope value :=
+ IndexedRegistry.Slots.fold (fun address _ current => mark_title_started (N.pred (N.pos address)) current)
+  (Selvedge.Features.Domain.feature_titles (world_features value)) value.
 Definition with_ticket (replacement : N) (value : world) :=
  set world_next_ticket (fun _ => replacement) value.
 Definition with_environment (replacement : environment) (value : world) :=
@@ -74,7 +82,8 @@ Lemma next_task_as_list value :
 Proof. symmetry; apply IndexedRegistryProofs.contents_length. Qed.
 Lemma world_tasks_replaced tasks value : world_tasks (with_tasks tasks value) = tasks.
 Proof.
- change (IndexedRegistry.contents (TaskRegistry.rows (TaskRegistry.extend tasks TaskRegistry.empty)) = tasks).
+ change (IndexedRegistry.contents (TaskRegistry.rows (TaskRegistry.extend tasks
+   (TaskRegistry.empty_with_issued_titles (TaskRegistry.issued_titles (world_task_registry value))))) = tasks).
  rewrite TaskRegistry.rows_extend. apply IndexedRegistryProofs.contents_from_list.
 Qed.
 Lemma world_tasks_updated id task value :

@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith Numbers.DecimalString.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Foundation Require ScopedRegistry.
+From Selvedge.Foundation Require IndexedRegistry ScopedRegistry.
 From Selvedge.Programming Require Import Schema RequestEnvelope FiniteChoice.
 From Selvedge.Features Require WorkflowTypes.
 From Selvedge.Features Require Import Titles CompactionTypes ConnectionGrants BoardClock.
@@ -103,7 +103,6 @@ Record title_settings := TitleSettings { title_revision : N;
 Definition title_task_prompt value := Titles.instruction_text (title_task_instructions value).
 Definition title_agent_prompt value := Titles.instruction_text (title_agent_instructions value).
 Inductive title_state := TitlePending (request : RequestEnvelope.t (profile * string)) | Named (text : string) | TitleFailed (reason : string).
-Record title_entry := TitleEntry { title_task : N; title_value : title_state }.
 Record state := State {
  feature_board : board;
  feature_works : list work;
@@ -112,7 +111,7 @@ Record state := State {
  feature_worktrees : list worktree;
  feature_remote : remote;
  feature_sharing : connection_state;
- feature_titles : list title_entry;
+ feature_titles : IndexedRegistry.Slots.t title_state;
  feature_title_settings : title_settings;
  feature_compaction : CompactionTypes.state;
  feature_workflows : list (option (@WorkflowTypes.definition graph_message));
@@ -121,7 +120,7 @@ Record state := State {
  feature_ticket_instances : list (N * N)
 }.
 Definition initial := State (Board [] [] false ""%string) [] [] [] []
- (Remote false [] 1 []) (ConnectionState ConnectionGrants.Grants.empty [] 0) []
+ (Remote false [] 1 []) (ConnectionState ConnectionGrants.Grants.empty [] 0) (IndexedRegistry.Slots.empty title_state)
  (TitleSettings 0 Titles.default_board_instructions Titles.default_instructions None) CompactionTypes.initial []
  (ScopedRegistry.empty (@WorkflowTypes.instance_in_progress graph_message)) [] [].
 

@@ -23,6 +23,10 @@ Import ListNotations.
 Open Scope string_scope.
 Definition initial := State.initial.
 Definition task_registry_restore := TaskRegistry.from_list.
+Definition restore_title_scope := State.restore_title_scope.
+Definition title_registry_restore (entries : list (N * Selvedge.Features.Domain.title_state)) :=
+ fold_left (fun titles '(id, title) => IndexedRegistry.Slots.add (IndexedRegistry.key id) title titles)
+  entries (IndexedRegistry.Slots.empty Selvedge.Features.Domain.title_state).
 Definition task_registry_contents := State.world_tasks.
 Definition task_registry_lookup := State.find_task.
 Definition task_registry_changes same_tree same_task before after :=
@@ -40,7 +44,11 @@ Definition task_publication_busy := Domain.task_busy.
 Definition history_changes_bindings := ContextUpdates.history_changes_bindings.
 Definition history_publication := Publication.history_json.
 Definition task_publication_references := Publication.task_publication_references.
-Definition named_titles := Publication.named_titles.
+Definition named_title_changes := Publication.named_title_changes.
+Definition title_registry_changes same_tree same_title before after :=
+ let titles value := Selvedge.Features.Domain.feature_titles (world_features value) in
+ option_map (map (fun change => (IndexedRegistry.difference_id _ change, IndexedRegistry.difference_after _ change)))
+  (IndexedRegistry.diff_trie same_tree same_title (titles before) (titles after) 0 1 []).
 Definition publication_project := Publication.publication_project.
 Definition remote_reconciliation_needed := Notifications.remote_reconciliation_needed.
 Definition query := CommandHandlers.query.

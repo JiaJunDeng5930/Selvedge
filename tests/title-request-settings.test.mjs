@@ -7,6 +7,65 @@ import { Service } from '../host/service.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
 import { home, responsesServer, taskIdle } from './support.mjs';
 
+test('awaiting titles resume when the configured model returns after restart', async t => {
+  const directory = await home(t), requests = [];
+  const key = `SELVEDGE_RESTORED_TITLE_${randomBytes(8).toString('hex')}`;
+  process.env[key] = 'restored-title-fixture';
+  t.after(() => { delete process.env[key]; });
+  const title = await responsesServer(t, () => [], {
+    observeRequest: body => {
+      if (body.text?.format?.name === 'task_title') requests.push(JSON.stringify(body.input));
+    },
+  });
+  const profiles = {
+    worker: { provider: 'echo', model: 'worker' },
+    titles: { provider: 'responses', model: 'title-model', endpoint: title.endpoint, api_key_env: key },
+  };
+  const open = (available = true) => Service.open({ home: directory, cwd: directory, config: validateConfig({
+    ...defaultConfig, chatgpt: false, profiles: available ? profiles : { worker: profiles.worker },
+  }) });
+  let service = await open();
+  t.after(() => service.close());
+  async function command(input) {
+    const { reply } = await service.command(input);
+    assert.equal(reply.ok, true, JSON.stringify(reply));
+    return reply.result;
+  }
+  async function create(message) {
+    const { task_id } = await command({ op: 'create', profile: 'worker', message });
+    await taskIdle(service, task_id);
+    return task_id;
+  }
+  async function named(task_id) {
+    const deadline = Date.now() + 5000;
+    do {
+      if ((await command({ op: 'read', task_id })).task.title === 'Name the task') return;
+      await delay(15);
+    } while (Date.now() < deadline);
+    assert.fail(`Expected a generated title for task ${task_id}`);
+  }
+
+  const { revision, task_prompt, agent_prompt } = await command({ op: 'read_title_settings' });
+  await command({ op: 'configure_title_settings', revision, task_prompt, agent_prompt, agent_profile: 'titles' });
+  const prior = await create('Already named before the title model disappears');
+  await named(prior);
+  await service.close();
+  service = await open(false);
+  const waiting = await create('Waiting for the original configured title model');
+  const archived = await create('Archived before any title was generated');
+  await command({ op: 'archive', task_id: archived });
+  await service.close();
+  service = await open();
+  await named(waiting);
+  await named(prior);
+  const fresh = await create('New work after the original title model returns');
+  await named(fresh);
+  assert.equal(requests.length, 3);
+  assert.ok(requests[0].includes('Already named before'));
+  assert.ok(requests[1].includes('Waiting for the original'));
+  assert.ok(requests[2].includes('New work after'));
+});
+
 test('an adaptive Task generates its independent title with default reasoning and no title evaluation', async t => {
   const directory = await home(t), modelRequests = [], evaluations = [], failures = [];
   const suffix = randomBytes(8).toString('hex');

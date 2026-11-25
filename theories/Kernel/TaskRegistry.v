@@ -1,5 +1,6 @@
 From Stdlib Require Import List NArith Bool Sorting.Mergesort.
 From Selvedge.Foundation Require IndexedRegistry IndexedRegistryProofs.
+From Selvedge.Foundation Require Utf8.
 From Selvedge.Kernel Require Import Domain.
 Import ListNotations.
 Open Scope N_scope.
@@ -16,6 +17,11 @@ Definition side_candidate (value : task) :=
 Definition notification_candidate (value : task) :=
  match contract_plugins (task_contract value) with [] => false | _ => true end.
 
+Definition title_candidate (issued : Slots.t unit) (id : N) (value : task) :=
+ match Slots.find (key id) issued with
+ | Some _ => false
+ | None => negb (task_archived value) && Utf8.nonblank (first_request (task_history value)) end.
+
 Definition index_at (id : N) (source : Slots.t task) := Slots.find (key id) source.
 Definition eligible (accepts : task -> bool) (value : option task) :=
  match value with Some current => if accepts current then value else None | None => None end.
@@ -28,17 +34,25 @@ Record t := Registry {
  scheduling : Slots.t task;
  side_conversations : Slots.t task;
  notification_recipients : Slots.t task;
+ issued_titles : Slots.t unit;
+ title_requests : Slots.t task;
  scheduling_agrees : agrees scheduling_candidate rows scheduling;
  side_conversations_agree : agrees side_candidate rows side_conversations;
- notification_recipients_agree : agrees notification_candidate rows notification_recipients
+ notification_recipients_agree : agrees notification_candidate rows notification_recipients;
+ title_requests_agree : forall id, index_at id title_requests =
+   eligible (title_candidate issued_titles id) (IndexedRegistry.lookup id rows)
 }.
 
 Lemma empty_scope_agrees accepts : agrees accepts IndexedRegistry.empty (Slots.empty task).
 Proof. intros id. unfold index_at, IndexedRegistry.lookup. cbn [IndexedRegistry.empty IndexedRegistry.entries].
  now rewrite !Slots.gempty. Qed.
 
-Definition empty := Registry IndexedRegistry.empty (Slots.empty task) (Slots.empty task) (Slots.empty task)
- (empty_scope_agrees scheduling_candidate) (empty_scope_agrees side_candidate) (empty_scope_agrees notification_candidate).
+Definition empty_with_issued_titles issued : t :=
+ Registry IndexedRegistry.empty (Slots.empty task) (Slots.empty task) (Slots.empty task)
+  issued (Slots.empty task)
+  (empty_scope_agrees scheduling_candidate) (empty_scope_agrees side_candidate)
+  (empty_scope_agrees notification_candidate) (fun id => empty_scope_agrees (title_candidate issued id) id).
+Definition empty := empty_with_issued_titles (Slots.empty unit).
 
 Definition index_task (accepts : task -> bool) id current (scope : Slots.t task) :=
  if accepts current then Slots.add (key id) current scope else
@@ -66,13 +80,15 @@ Proof.
  refine (Registry (IndexedRegistry.put id current (rows table))
   (index_task scheduling_candidate id current (scheduling table))
   (index_task side_candidate id current (side_conversations table))
-  (index_task notification_candidate id current (notification_recipients table)) _ _ _).
+  (index_task notification_candidate id current (notification_recipients table))
+  (issued_titles table) (index_task (title_candidate (issued_titles table) id) id current (title_requests table)) _ _ _ _).
  all: intros other; destruct (N.eq_dec id other) as [Same|Different].
  all: try (subst other; rewrite index_task_at, IndexedRegistryProofs.lookup_put_present by exact Present; reflexivity).
  all: rewrite index_task_at_other, IndexedRegistryProofs.lookup_put_other by exact Different.
  - apply scheduling_agrees.
  - apply side_conversations_agree.
  - apply notification_recipients_agree.
+ - apply title_requests_agree.
 Defined.
 
 Definition append (current : task) (table : t) : t.
@@ -81,7 +97,8 @@ Proof.
  refine (Registry (IndexedRegistry.append current (rows table))
   (index_task scheduling_candidate id current (scheduling table))
   (index_task side_candidate id current (side_conversations table))
-  (index_task notification_candidate id current (notification_recipients table)) _ _ _).
+  (index_task notification_candidate id current (notification_recipients table))
+  (issued_titles table) (index_task (title_candidate (issued_titles table) id) id current (title_requests table)) _ _ _ _).
  all: intros other; destruct (N.eq_dec id other) as [Same|Different].
  all: try (subst other; unfold id; rewrite index_task_at, IndexedRegistryProofs.lookup_append_new; reflexivity).
  all: rewrite index_task_at_other by exact Different.
@@ -89,6 +106,20 @@ Proof.
  - apply scheduling_agrees.
  - apply side_conversations_agree.
  - apply notification_recipients_agree.
+ - apply title_requests_agree.
+Defined.
+
+Definition title_started (id : N) (table : t) : t.
+Proof.
+ refine (Registry (rows table) (scheduling table) (side_conversations table) (notification_recipients table)
+   (Slots.add (key id) tt (issued_titles table)) (Slots.remove (key id) (title_requests table))
+   (scheduling_agrees table) (side_conversations_agree table) (notification_recipients_agree table) _).
+ intro other. unfold index_at, title_candidate.
+ destruct (N.eq_dec id other) as [Same|Different].
+ - subst other. rewrite Slots.grs, Slots.gss. now destruct (IndexedRegistry.lookup id (rows table)).
+ - assert (Address : key other <> key id).
+   { intro Same; apply Different; symmetry; now apply IndexedRegistry.key_injective. }
+   rewrite Slots.gro, Slots.gso by exact Address. apply title_requests_agree.
 Defined.
 
 Definition extend (tasks : list task) (table : t) :=

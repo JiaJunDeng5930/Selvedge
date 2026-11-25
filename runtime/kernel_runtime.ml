@@ -11,7 +11,7 @@ let shared_writes before next =
   |> Array.of_list |> Js.array
 let initial_shared () = shared_writes None (initial ())
 
-let restore_state sequence shared tasks =
+let restore_state sequence shared tasks titles =
   let number row key = Js.float_of_number (Js.Unsafe.get row key) in
   let bytes row = Js.to_bytestring (Js.Unsafe.get row "data") in
   let decode_task row =
@@ -30,7 +30,11 @@ let restore_state sequence shared tasks =
     let sequence = Big_int_Z.big_int_of_string (Js.to_string sequence) in
     let sections = Array.map Js.to_bytestring (Js.to_array shared) in
     let tasks = Model.selvedge_kernel_task_registry_restore tasks in
-    Js.Unsafe.inject (Stored_state.restore_exn sections ~sequence ~tasks)
+    let titles = Model.selvedge_kernel_title_registry_restore
+      (Array.to_list (Array.map (fun row ->
+        Big_int_Z.big_int_of_int (int_of_float (number row "id")), Stored_state.decode_title_exn (bytes row))
+        (Js.to_array titles))) in
+    Js.Unsafe.inject (Model.selvedge_kernel_restore_title_scope (Stored_state.restore_exn sections ~sequence ~tasks ~titles))
   with State_wire.Invalid_state -> Js.Unsafe.inject Js.null
 
 type ('task, 'message) task_change = {
@@ -82,12 +86,23 @@ let task_writes changes =
       "data", Js.Unsafe.inject (Js.bytestring (Stored_state.encode_task_metadata change.task)) |]) changes
   |> Array.of_list |> Js.array
 
+let title_writes before next =
+  match Model.selvedge_kernel_title_registry_changes (==) (==) before next with
+  | Some changes ->
+      changes |> List.map (fun (id, title) -> Js.Unsafe.obj [|
+        "id", Js.Unsafe.inject (Js.number_of_float (Big_int_Z.float_of_big_int id));
+        "data", Js.Unsafe.inject (Js.bytestring (Stored_state.encode_title title)) |])
+      |> Array.of_list |> Js.array
+  (* DEFENSE: Committed titles are retained, including failed or interrupted requests. *)
+  | None -> invalid_arg "The committed title registry cannot lose an owner"
+
 let storage before next changes =
   if Big_int_Z.eq_big_int (Stored_state.sequence before) (Stored_state.sequence next) then
     Js.Unsafe.inject Js.null
   else
     Js.Unsafe.inject (Js.Unsafe.obj [| "shared", Js.Unsafe.inject (shared_writes (Some before) next);
-      "tasks", Js.Unsafe.inject (task_writes changes) |])
+      "tasks", Js.Unsafe.inject (task_writes changes);
+      "titles", Js.Unsafe.inject (title_writes before next) |])
 let input_error name message =
   Js.Unsafe.obj [| "inputError", Js.Unsafe.inject (Js.Unsafe.obj [|
     "name", Js.Unsafe.inject (Js.string name);
@@ -128,22 +143,12 @@ let depends_on_changed_task feature owners world changes =
 
 let changed_title_ids before next =
   let changed = Hashtbl.create 1 in
-  if not (Stored_state.feature_matches "feature_titles" before next) then begin
-    let visible_titles world =
-      let titles = Hashtbl.create 16 in
-      List.iter (fun (id, title) ->
-        let id = Big_int_Z.int_of_big_int id in
-        if not (Hashtbl.mem titles id) then Hashtbl.add titles id title)
-        (Model.selvedge_kernel_named_titles world);
-      titles in
-    let previous = visible_titles before in
-    Hashtbl.iter (fun id title ->
-      let old = Option.join (Hashtbl.find_opt previous id) in
-      if old <> title then Hashtbl.replace changed id ();
-      Hashtbl.remove previous id) (visible_titles next);
-    Hashtbl.iter (fun id title -> if Option.is_some title then Hashtbl.replace changed id ()) previous
-  end;
-  changed
+  match Model.selvedge_kernel_named_title_changes (==) (==) before next with
+  | Some ids ->
+      List.iter (fun id -> Hashtbl.replace changed (Big_int_Z.int_of_big_int id) ()) ids;
+      changed
+  (* DEFENSE: A missing title row violates the scheduler's write-once receipt ownership. *)
+  | None -> invalid_arg "The committed title registry cannot lose an owner"
 
 let observe_patch before next changes =
   let observe_row project id task world =

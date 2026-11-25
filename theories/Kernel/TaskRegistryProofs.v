@@ -50,3 +50,16 @@ Proof.
  - discriminate.
  - destruct Selected as [Same Enabled]. inversion Same; subst; congruence.
 Qed.
+
+Theorem title_scope_matches_the_unissued_task table id task :
+ In (id, task) (selected_entries (title_requests table)) <->
+ IndexedRegistry.lookup id (rows table) = Some task /\ title_candidate (issued_titles table) id task = true.
+Proof.
+ rewrite selected_entry_matches_its_index, title_requests_agree. unfold eligible.
+ destruct (IndexedRegistry.lookup id (rows table)) as [current|]; [|intuition discriminate].
+ destruct (title_candidate (issued_titles table) id current) eqn:Candidate; split.
+ - intro Same. inversion Same; subst. auto.
+ - now intros [Same _].
+ - discriminate.
+ - intros [Same Eligible]. inversion Same; subst. congruence.
+Qed.

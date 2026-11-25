@@ -144,6 +144,7 @@ Export WorkflowProofs(completion_reports_all_paths_at_exits,
 
 From Selvedge.Features Require BoardProofs TitleProofs TitleRuntime.
 From Selvedge.Kernel Require FeatureAdmissionProofs.
+From Selvedge.Kernel Require TaskRegistryProofs.
 From Selvedge.Programming Require FeatureRequestProofs.
 From Selvedge.Kernel Require TitleCommit.
 From Selvedge.Programming Require CardScopeProofs.
@@ -163,9 +164,10 @@ Export FeatureAdmissionProofs(admitted_title_resolves_without_rechecking,
 Export FeatureRequestProofs(every_feature_request_has_its_installed_receiver).
 Export TitleRuntime(issue).
 Export TitleCommit(candidate).
+Export TaskRegistryProofs(title_scope_matches_the_unissued_task).
 Export TitleProofs(admitted_title_issues_observed_request,
   explicit_title_profile_uses_only_saved_key,
-  title_scope_preserves_the_first_resolvable_task,
+  title_scope_preserves_the_first_resolvable_request,
   title_configuration_preserves_generation_entries,
   title_recovery_keeps_execution_state,
   title_recovery_keeps_saved_instructions).

@@ -1,6 +1,7 @@
 From Stdlib Require Import List Bool NArith Lia.
 From Selvedge.Programming Require Import Constructor Focus.
 From Selvedge.Foundation Require Import Registry RegistryProofs KeyedListProofs.
+From Selvedge.Foundation Require IndexedRegistry.
 From Selvedge.Programming Require Import Receiver.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 Import ListNotations.
@@ -26,6 +27,7 @@ Proof.
  intros state input selected; induction selected; intros request before Position; cbn in *;
  unfold lookup in *; cbn in *.
  - now rewrite N.eqb_refl.
+ - apply IndexedRegistry.Slots.gss.
  - apply at_put_at; apply N.leb_le. destruct Position as [Append|[value Found]].
    + rewrite Append; apply N.le_refl.
    + pose proof (registry_lookup_implies_position_bound _ _ _ _ Found); lia.
@@ -45,6 +47,7 @@ Theorem lookup_has_position : forall state input (selected : t state input) requ
 Proof.
  intros state input selected; induction selected; intros request before found Found;
  unfold lookup in *; cbn in *.
+ - exact I.
  - exact I.
  - right; eauto.
  - right; eauto.
@@ -67,6 +70,8 @@ Proof.
  - assert (Other : N.eqb identity (n request) = false) by (apply N.eqb_neq; exact Different).
    rewrite Other. eapply filtering_another_key_preserves_lookup;
    [intros; now apply N.eqb_eq|exact Different].
+ - apply IndexedRegistry.Slots.gso. intro Same.
+   apply Different. now apply IndexedRegistry.key_injective.
  - unfold put_at; destruct (N.eqb n (N.of_nat (List.length before))) eqn:Append.
    + apply N.eqb_eq in Append; subst n. apply registry_append_preserves_other_lookup; exact Different.
    + apply registry_replace_other; congruence.

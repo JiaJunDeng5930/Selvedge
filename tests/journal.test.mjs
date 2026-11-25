@@ -240,7 +240,7 @@ test('the service opens committed task and shared records directly', async t => 
     const before = await taskIdle(service, task);
     assert.match(JSON.stringify(before.messages), /保留对话 🌲/);
     const tables = db.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name").all();
-    assert.deepEqual(tables.map(row => row.name), ['state', 'state_sections', 'task_contracts', 'task_history', 'tasks']);
+    assert.deepEqual(tables.map(row => row.name), ['state', 'state_sections', 'task_contracts', 'task_history', 'task_titles', 'tasks']);
     const originalHistory = storedHistory();
     assert.ok(originalHistory.some(row => row.data.length >= Buffer.byteLength(long)));
     await command({ op: 'freeze', task_id: task });

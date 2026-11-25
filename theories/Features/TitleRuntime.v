@@ -4,6 +4,7 @@ From Selvedge.Programming Require Callback Variant.
 From Selvedge.Programming Require InputRoute.
 From Stdlib Require Import String Ascii List Bool NArith.
 From Selvedge.Foundation Require Import Json Utf8.
+From Selvedge.Foundation Require IndexedRegistry.
 From Selvedge.Programming Require Import Schema Completion.
 From Selvedge.Kernel Require Import Numbers Domain State Tasks.
 From Selvedge.Programming Require Import FeatureRequest.
@@ -34,8 +35,7 @@ Definition handle_configure_title_settings (p : Selvedge.Generated.Commands.conf
 Definition ordinary := FeatureRequestAdmission.ordinary_profile.
 Definition storage (features : Selvedge.Features.Domain.state) owner :=
  Receiver.At.field features Selvedge.Features.Domain.feature_titles
-   (Receiver.At.inject (Selvedge.Features.Domain.TitleEntry owner)
-     (Receiver.At.keyed (Selvedge.Features.Domain.feature_titles features) Selvedge.Features.Domain.title_task)).
+   (Receiver.At.mapped (Selvedge.Features.Domain.feature_titles features) owner).
 Definition protocol (features : Selvedge.Features.Domain.state) owner
  : RequestTypes.located (profile * string) features :=
  RequestTypes.Protocol
@@ -53,7 +53,9 @@ Definition plan {before} (request : FeatureRequestAdmission.resolved_title befor
  FeatureRequest.FeaturePlan channel request.
 Definition issue {before} (request : FeatureRequestAdmission.resolved_title before) : CommandResult.change :=
  let issued := FeatureRequest.feature_issue_change (plan request) in
- CommandResult.Change JNull (CommandResult.change_world issued) (CommandResult.change_effects issued).
+ CommandResult.Change JNull
+   (mark_title_started (TaskScope.owner (FeatureRequestAdmission.title_reference request)) (CommandResult.change_world issued))
+   (CommandResult.change_effects issued).
 Definition reception features id := Completion.direct
  (Receiver.field world_features (Receiver.path (storage features id))).
 Definition completed_name (ok : bool) (text : string)
@@ -72,6 +74,6 @@ Definition completion (received : Callback.decoded ModelDeclarations.TaskTitle) 
 Definition completion_inputs := [InputRoute.callback ModelDeclarations.TaskTitle
  (fun received => Some (completion received))].
 Definition recover (value:world) := Selvedge.Kernel.State.with_features
- (Selvedge.Features.State.with_titles (map (fun item=>match Selvedge.Features.Domain.title_value item with
- | Selvedge.Features.Domain.TitlePending (RequestEnvelope.Envelope _ (_, _))=>Selvedge.Features.Domain.TitleEntry (Selvedge.Features.Domain.title_task item) (Selvedge.Features.Domain.TitleFailed "Interrupted before title generation completed")
+ (Selvedge.Features.State.with_titles (IndexedRegistry.Slots.map (fun item=>match item with
+ | Selvedge.Features.Domain.TitlePending _=>Selvedge.Features.Domain.TitleFailed "Interrupted before title generation completed"
  | _=>item end) (Selvedge.Features.Domain.feature_titles (world_features value))) (world_features value)) value.

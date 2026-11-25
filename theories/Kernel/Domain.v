@@ -257,6 +257,12 @@ Inductive message :=
 | AfterReceipt (owner operation : N) (plugin : json) (outcome : after_outcome)
 | ForkReceipt (owner : N) (invocation : call) (branch : N).
 
+Fixpoint first_request (messages : list message) : string := match messages with
+ | [] => ""
+ | UserMessage parts :: rest => let text := content_text parts in
+   if Utf8.nonblank text then text else first_request rest
+ | _ :: rest => first_request rest end.
+
 Inductive operation_state :=
 | Executing (ticket : N)
 | AwaitingApproval (ticket : N) (reviewer_value : reviewer)
