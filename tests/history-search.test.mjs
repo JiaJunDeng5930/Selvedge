@@ -177,7 +177,10 @@ test('Search finds the displayed conversation title and lets the user retry a lo
   try {
     await query.fill(title);
     await query.press('Enter');
-    await page.getByRole('status').filter({ hasText: /^正在搜索…$/u }).waitFor();
+    const pending = submit.and(page.locator('[aria-busy="true"]'));
+    await pending.waitFor();
+    assert.equal(await pending.evaluate(button => getComputedStyle(button, '::before').animationName), 'interactive-spin');
+    assert.equal(await page.getByRole('status').filter({ hasText: /^正在搜索…$/u }).count(), 0);
     assert.equal(await submit.isDisabled(), true, 'A pending search disables repeated submission');
     await query.press('Enter');
     await until(() => requests, 'the search request');

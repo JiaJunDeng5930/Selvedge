@@ -177,9 +177,50 @@ select[data-surface-role="field"]:not([multiple]) {
 }
 h1, h2, h3, h4, h5, h6, p, ul, ol, dl, dd { margin: 0; }
 [hidden] { display: none !important; }
+[data-overflow-label] {
+  --label-direction: -1;
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+}
+[data-single-line-content] {
+  display: block;
+  flex: none;
+  inline-size: max-content;
+  min-inline-size: 100%;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+[data-label-clipped]:not([data-label-scrolled]) {
+  mask-image: linear-gradient(to right, #000 calc(100% - min(.8em, 35%)), transparent);
+}
+[data-label-clipped]:dir(rtl):not([data-label-scrolled]) {
+  mask-image: linear-gradient(to left, #000 calc(100% - min(.8em, 35%)), transparent);
+}
+[data-overflow-label]:dir(rtl) { --label-direction: 1; }
+[data-label-clipped]:focus-visible {
+  overflow-x: auto;
+  scrollbar-width: none;
+  mask-image: none;
+}
+@media (hover: none) {
+  [data-label-clipped] { overflow-x: auto; scrollbar-width: none; }
+}
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  :is([data-label-clipped]:hover, :is(button, summary, a, [data-workflow-selection]):hover [data-label-clipped]) {
+    mask-image: none;
+  }
+  :is([data-label-clipped]:hover, :is(button, summary, a, [data-workflow-selection]):hover [data-label-clipped]) > [data-single-line-content] {
+    animation: single-line-label-travel var(--label-duration) linear .35s infinite alternate;
+  }
+  button[data-overflow-help]:not([data-help]):hover:has([data-label-clipped])::after { display: none; }
+}
+@keyframes single-line-label-travel {
+  to { translate: calc(var(--label-travel) * var(--label-direction)); }
+}
 [data-native-row-direction="column"] > * { flex-basis: auto; flex-shrink: 0; }
 [data-supporting-form="compact"] [data-summary-role="principal"] {
-  display: block; min-inline-size: 1ch; overflow: hidden; text-overflow: ellipsis;
+  display: block; min-inline-size: 1ch;
 }
 [data-supporting-form="compact"] [data-property-summary] { min-inline-size: 0 !important; }
 /* A menu keeps native content sizing. Anchor positioning first tries below,
@@ -487,9 +528,9 @@ pre, code { font-family: var(--rich-code-font); }
   [data-navigation-owner]:focus-within > [data-navigation-slot="auxiliary"] { visibility: visible; }
 }
 
-/* Shared help projection for keyboard-focusable icon and project-title buttons. */
-button[data-help] { position: relative; anchor-scope: --control-help; }
-button[data-help]::before {
+/* Shared button help for actions, unavailable reasons and measured text overflow. */
+button:is([data-help], [data-overflow-help]) { position: relative; anchor-scope: --control-help; }
+button:is([data-help], [data-overflow-help])::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -500,7 +541,7 @@ button[data-help]::before {
   position-area: top span-all;
   justify-self: center;
 }
-button[data-help]::after {
+button:is([data-help], [data-overflow-help])::after {
   content: attr(data-help);
   display: none;
   position: fixed;
@@ -522,20 +563,21 @@ button[data-help]::after {
   text-align: start;
   pointer-events: none;
 }
-button[data-help]:not([data-help-dismissed]):hover::after,
-button[data-help]:not([data-help-dismissed]):focus-visible::after {
+button[data-overflow-help]:not([data-help])::after { content: attr(data-overflow-help); }
+button:is([data-help], [data-overflow-help]):not([data-help-dismissed]):hover::after,
+button:is([data-help], [data-overflow-help]):not([data-help-dismissed]):focus-visible::after {
   display: block;
   animation: control-help-delay var(--control-help-delay) step-end;
 }
 @keyframes control-help-delay { from { visibility: hidden; } to { visibility: visible; } }
 
 /* Embedded controls otherwise suppress the ring on every focus-visible child. */
-button[data-help]:focus-visible {
+button:is([data-help], [data-overflow-help]):focus-visible {
   outline: var(--control-focus-width, var(--native-focus-width)) solid
     var(--control-focus-ring, var(--native-focus-ring));
   outline-offset: var(--control-focus-offset, var(--native-focus-offset));
 }
-button[data-help][aria-disabled="true"] { cursor: default; }
+button:is([data-help], [data-overflow-help])[aria-disabled="true"] { cursor: default; }
 
 /* The real native file chooser is transparent inside its paperclip label. */
 [data-file-picker]:focus-within {
@@ -815,12 +857,6 @@ dialog[data-semantic-key="side-conversation"] {
   box-shadow: none !important;
 }
 [data-composer-dock] > textarea::placeholder { color: var(--selvedge-muted); }
-[data-composer-dock] > [data-semantic-key="composer/submission-status"] {
-  min-block-size: 1lh;
-  padding-inline: var(--composer-text-inset);
-  color: var(--selvedge-muted) !important;
-  font-size: var(--rich-support-size, .8125rem) !important;
-}
 [data-composer-dock] > [data-semantic-key="assessment"]:empty { display: none !important; }
 [data-composer-dock] > [data-semantic-key="attachments"] {
   flex: 0 1 auto !important;
@@ -848,18 +884,9 @@ dialog[data-semantic-key="side-conversation"] {
   object-fit: contain;
   border-radius: 4px;
 }
-[data-composer-dock] [data-semantic-key^="attachment/"] > [data-semantic-key="name"] {
+[data-composer-dock] [data-semantic-key^="attachment/"] > [data-semantic-key="attachment-name"] {
   flex: 1 1 auto !important;
   min-inline-size: 0 !important;
-}
-[data-composer-dock] [data-semantic-key^="attachment/"] [data-semantic-key="name"] > [data-semantic-key="label"] {
-  display: none !important;
-}
-[data-composer-dock] [data-semantic-key^="attachment/"] [data-semantic-key="name"] > [data-semantic-key="value"] {
-  display: block !important;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 [data-composer-dock] [data-semantic-key^="attachment/"] > button {
   flex: none !important;
@@ -967,11 +994,10 @@ dialog[data-semantic-key="side-conversation"] {
   display: block !important;
   min-inline-size: 0 !important;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 [data-semantic-key="composer/delivery"] > svg:first-child,
-[data-semantic-key="composer/tools"] [data-support-secondary] {
+[data-semantic-key="composer/tools"] > :not([data-semantic-key="composer/model"]) [data-support-secondary] {
   display: none !important;
 }
 [data-semantic-key="composer/submit"] {
@@ -982,7 +1008,7 @@ dialog[data-semantic-key="side-conversation"] {
   border-radius: 8px !important;
 }
 @container composer (inline-size < 28rem) {
-  [data-composer-dock] > :is(textarea, [data-semantic-key="composer/submission-status"]) {
+  [data-composer-dock] > textarea {
     --composer-text-inset: .55rem;
   }
   [data-composer-dock] > textarea {
@@ -1031,7 +1057,8 @@ dialog[data-semantic-key="side-conversation"] {
 }
 @container composer (inline-size < 21rem) {
   [data-semantic-key="composer/model"] { padding-inline: .125rem !important; }
-  [data-semantic-key="composer/model"] > svg { display: none !important; }
+  [data-semantic-key="composer/model"] > svg,
+  [data-semantic-key="composer/model"] [data-support-secondary] { display: none !important; }
   [data-semantic-key="composer/model"] [data-summary-role="principal"] { font-size: .75rem !important; }
   [data-semantic-key="composer/delivery"] {
     flex: none !important;
@@ -1125,10 +1152,8 @@ main:has(> [data-page-region="creation-introduction"]) {
 }
 [data-semantic-key="composer/context"] [data-property-summary] {
   flex: 0 1 auto !important;
-  min-inline-size: min-content !important;
-}
-[data-semantic-key="composer/context"] [data-summary-role="principal"] {
-  white-space: nowrap;
+  min-inline-size: 0 !important;
+  overflow: hidden;
 }
 [data-semantic-key="composer/context"] [data-support-secondary] {
   display: none !important;
@@ -1229,10 +1254,16 @@ main:has(> [data-page-region="creation-introduction"]) {
   background: var(--selvedge-accent) !important;
 }
 [data-semantic-key="composer/submit"][aria-busy="true"] > svg { display: none; }
+[data-semantic-key="history/submit"][aria-busy="true"] { position: relative; }
+[data-semantic-key="history/submit"][aria-busy="true"] > span { visibility: hidden; }
 [data-composer-dock] [data-semantic-key="composer/submit"][aria-busy="true"]::after { content: none; }
-[data-composer-dock] [data-semantic-key="composer/submit"][aria-busy="true"]::before {
+[data-semantic-key="history/submit"][aria-busy="true"]::before {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+}
+:is([data-semantic-key="composer/submit"], [data-semantic-key="history/submit"])[aria-busy="true"]::before {
   content: "";
-  position: static;
   flex: none;
   inline-size: 1rem;
   block-size: 1rem;
@@ -1242,7 +1273,7 @@ main:has(> [data-page-region="creation-introduction"]) {
   animation: interactive-spin .75s linear infinite;
 }
 @media (prefers-reduced-motion: reduce) {
-  [data-semantic-key="composer/submit"][aria-busy="true"]::before { animation: none; }
+  :is([data-semantic-key="composer/submit"], [data-semantic-key="history/submit"])[aria-busy="true"]::before { animation: none; }
 }
 main:has(> [data-page-region="task-graph-entries"]) { overflow-y: auto !important; }
 [data-semantic-key="task-graph/actions"] {

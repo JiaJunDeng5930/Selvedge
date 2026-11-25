@@ -15,8 +15,10 @@ import { findHistoryRange, firstRangeRect } from './history-location.mjs';
 import { createPhysicalMeasurer } from './physical-measurement.mjs';
 import { installModelPickerPreview } from './model-picker.mjs';
 import { installWorkflowViewport, showWorkflowTimes } from './workflow-viewport.mjs';
+import { observeSingleLineLabels } from './single-line-labels.mjs';
 
 const surface = document.getElementById('surface');
+const disposeSingleLineLabels = observeSingleLineLabels(surface);
 installModelPickerPreview(surface);
 const synchronizeWorkflowViewport = installWorkflowViewport(surface);
 const notices = document.getElementById('browser-notices');
@@ -393,11 +395,13 @@ function render(mode = 'region') {
 function refreshPageLayout(previous, offset, routeChanged) {
   const track = surface.querySelector('[data-page-region="board-stages"]');
   const firstLane = track?.firstElementChild ?? null;
-  const controls = track?.parentElement.querySelector('[data-board-scroll-controls]') ?? null;
+  const controls = surface.querySelector('[data-board-scroll-controls]');
   if (controls !== boardScrollControls || track !== boardTrack) {
     boardScrollControls = controls;
-    for (const control of controls?.querySelectorAll('[data-board-scroll], [data-board-stage-jump]') ?? [])
-      control.setAttribute('aria-controls', track.id);
+    for (const control of controls?.querySelectorAll('[data-board-scroll], [data-board-stage-jump]') ?? []) {
+      if (track) control.setAttribute('aria-controls', track.id);
+      else control.removeAttribute('aria-controls');
+    }
   }
   if (track !== boardTrack || firstLane !== boardFirstLane) {
     boardTrackResize.disconnect();
@@ -407,7 +411,7 @@ function refreshPageLayout(previous, offset, routeChanged) {
     if (track) boardTrackResize.observe(track);
     if (firstLane) boardTrackResize.observe(firstLane);
   }
-  if (controls && boardHasOverflow) controls.hidden = false;
+  if (controls) controls.hidden = !(track && boardHasOverflow);
   const current = surface.querySelector(historyResultsSelector);
   historyResultsNode = current;
   if (previous === current && !routeChanged) return;
@@ -1456,18 +1460,40 @@ surface.addEventListener('keydown', event => {
     event.preventDefault();
     return;
   }
-  for (const node of surface.querySelectorAll('[data-help]:hover,[data-help]:focus-visible')) node.setAttribute('data-help-dismissed', '');
+  for (const node of surface.querySelectorAll(':is([data-help],[data-overflow-help]):is(:hover,:focus-visible)')) node.setAttribute('data-help-dismissed', '');
 });
 for (const name of ['pointerout', 'focusout']) surface.addEventListener(name, event => {
   const node = event.target.closest?.('[data-help-dismissed]');
   if (node && !node.contains(event.relatedTarget)) node.removeAttribute('data-help-dismissed');
 });
-surface.addEventListener('pointerover', event => {
+// The DOM supplies clipping and responsive visibility. A button's existing help
+// takes precedence so the measured label uses the same visual channel.
+for (const name of ['pointerover', 'focusin']) surface.addEventListener(name, event => {
+  const button = event.target.closest?.('button');
+  if (button) {
+    if (button.hasAttribute('data-help') || button.getAttribute('aria-busy') === 'true') {
+      button.removeAttribute('data-overflow-help');
+      return;
+    }
+    const label = Array.from(button.querySelectorAll('[data-overflow-label]')).find(node =>
+      node.scrollWidth > node.clientWidth || !node.getClientRects().length);
+    if (label) button.dataset.overflowHelp = label.dataset.overflowLabel;
+    else button.removeAttribute('data-overflow-help');
+    return;
+  }
   const label = event.target.closest?.('[data-overflow-label]');
-  if (label && label.scrollWidth > label.clientWidth) label.title = label.dataset.overflowLabel;
+  if (label && matchMedia('(prefers-reduced-motion: reduce)').matches && label.scrollWidth > label.clientWidth) {
+    label.title = label.dataset.overflowLabel;
+  }
 });
-surface.addEventListener('pointerout', event => {
-  const label = event.target.closest?.('[data-overflow-label]');
+for (const name of ['pointerout', 'focusout']) surface.addEventListener(name, event => {
+  const button = event.target.closest?.('button[data-overflow-help]');
+  if (button && !button.contains(event.relatedTarget)) {
+    if (name === 'focusout' ? !button.matches(':hover') : !button.matches(':focus-visible')) {
+      button.removeAttribute('data-overflow-help');
+    }
+  }
+  const label = event.target.closest?.('[data-overflow-label][title]');
   if (label && !label.contains(event.relatedTarget)) label.removeAttribute('title');
 });
 surface.addEventListener('dragstart', event => {
@@ -1853,7 +1879,7 @@ window.addEventListener('pagehide', event => {
   document.removeEventListener('pointercancel', clearBackdropPress);
   document.removeEventListener('click', dismiss);
   connection?.abort(); chatgptLogin.dispose(); audio.dispose(); toolActivity.dispose(); motion.dispose();
-  editorRepair.dispose(); physical.dispose(); renderer.dispose(); storage.flush();
+  editorRepair.dispose(); physical.dispose(); disposeSingleLineLabels(); renderer.dispose(); storage.flush();
   clearInterval(clockRefresh); document.removeEventListener('visibilitychange', refreshClock);
   boardTrackResize.disconnect();
   readingResize.disconnect();

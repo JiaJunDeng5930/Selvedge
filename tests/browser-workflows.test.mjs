@@ -175,7 +175,9 @@ test('Project task creation distinguishes restored workspace inheritance from an
     .getByRole('button', { name: '项目', exact: true }).click();
   await page.getByRole('main').getByRole('button', { name: 'Acceptance Project', exact: true }).click();
   await page.getByRole('main').getByRole('button', { name: '在项目中开始对话', exact: true }).waitFor();
-  assert.ok((await page.getByRole('main').innerText()).includes(root));
+  const project = page.getByRole('main');
+  await project.getByText(`工作目录 · ${path.basename(root)}`, { exact: true }).click();
+  await project.getByText(root, { exact: true }).waitFor();
   await page.getByText('Use the Project acceptance instructions.', { exact: true }).waitFor();
   await page.getByRole('main').getByRole('button', { name: '在项目中开始对话', exact: true }).click();
   const start = page.getByRole('button', { name: 'Start task', exact: true });
@@ -493,7 +495,12 @@ test('task graph setup creates its conversations in scope and routes replies', {
   }
   await page.setViewportSize(desktop);
   await name.fill('');
-  await expectBlockedBy('请输入转发名称。');
+  const nameReason = dialog.getByText('请输入转发名称。', { exact: true })
+    .and(dialog.locator(':visible'));
+  await nameReason.waitFor();
+  assert.equal(await nameReason.count(), 1);
+  assert.equal(await create.isDisabled(), true);
+  assert.equal(await create.getAttribute('data-help'), null);
   await name.fill('Browser handoff');
   await create.click();
   await dialog.waitFor({ state: 'hidden' });

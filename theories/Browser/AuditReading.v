@@ -5,6 +5,7 @@ From Selvedge.Kernel Require Import Conversation Streams.
 From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Codec Identity Origin CodeSource Audit.
 From Selvedge.Interaction Require TaskHistory.
+From Selvedge.Interaction.Experience Require Read.
 From Selvedge.Browser Require Import DocumentPublication DocumentState Documents ToolAppearance.
 From Selvedge.Programming Require Import Graphics.
 From Selvedge.Interaction.Interactive Require Import Types State.
@@ -106,7 +107,7 @@ Definition retained_part {A} (action:actions A) context retained interactive sta
  let source:=CodeSource.Generated (document_namespace stamp) (document_viewer stamp) (document_origin stamp) false in
  let visible:=negb (document_archived stamp) || document_revealed stamp in
  let notice:=if document_archived stamp then "未完成显示已收起" else
-   match document_ending stamp with Interrupted=>"生成未完成（仅在本次会话保留）"|_=>"输出同步中（仅在本次会话保留）" end in
+   match document_ending stamp with Interrupted=>"回复已中断，仅在本次会话保留"|_=>"输出同步中（仅在本次会话保留）" end in
  List.app [S.Node (identity++"/unfinished-notice") "unfinished-notice" notice R.Content S.Region
    (List.app [fact (identity++"/unfinished-label") notice]
     (List.app (if document_archived stamp then
@@ -137,7 +138,10 @@ Definition invocation_face context task (invocation:TaskHistory.invocation) :=
  let '(label,argument,symbol,icon):=
    if String.eqb name "bash" then
      let command:=text "command" (value_or JNull (field "arguments" (value_or JNull (field "content" source)))) in
-     (name,command,ToolAppearance.shell_symbol command,None)
+     let pending:=bind (TaskHistory.invocation_operation invocation) (Read.observe_operation (context_world context)) in
+     if value_or false (option_map Read.operation_awaiting_approval pending)
+     then (name++" · 等待审批","",ToolAppearance.shell_symbol command,None)
+     else (name,command,ToolAppearance.shell_symbol command,None)
    else match ToolAppearance.native_symbol name with
    |Some symbol=>(name,"",symbol,None)
    |None=>match tool_definition context task name with
@@ -251,8 +255,7 @@ Definition unfinished_nodes {A} (action:actions A) context retained interactive 
    (Documents.task_retained_stamps context retained task) with
  |[]=>[]
  |parts=>[S.Node "unfinished-replies" "unfinished-replies" "未完成回复" R.Content S.Region
-   (S.Node "unfinished-replies/heading" "heading" "未完成回复" R.Content
-     (S.InformationText Information.GroupTitle) []::parts)]
+   parts]
  end.
 Definition task_reading_tail {A} (action:actions A) context retained interactive view : list (S.node A) :=
  let task:=NavigationIdentity.task_view_task view in

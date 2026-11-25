@@ -85,7 +85,8 @@ test('authored task summaries align statuses and values while keeping each item 
     return { width, height, border: style.borderWidth, radius: style.borderRadius };
   });
   assert.equal(await unselected.getAttribute('aria-pressed'), 'false');
-  assert.equal(await unselected.getAttribute('title'), '选中这一项 · 开发组件');
+  assert.equal(await unselected.getAttribute('data-help'), '选中这一项 · 开发组件');
+  assert.equal(await unselected.getAttribute('title'), null);
   assert.equal(await unselected.locator(mark + ' svg').count(), 0);
   await unselected.focus();
   await inProgress.locator('button:enabled:not([aria-disabled="true"])').waitFor();

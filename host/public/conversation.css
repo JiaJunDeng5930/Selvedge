@@ -533,8 +533,11 @@ button[data-tool-call-toggle] {
 }
 [data-tool-group] > [data-task-history-panel] > [data-task-history-body] > :first-child { margin-block-start: 6px; }
 [data-task-commentary] > [data-agent-attribution],
-[data-task-process-shell] + [data-surface-role="assistant-message"] > [data-agent-attribution],
-[data-task-process-shell] + [data-semantic-key="timeline-tail"] > [data-semantic-key="generated-output"] > [data-agent-attribution] {
+:is([data-task-process-shell], [data-surface-role="assistant-message"]) +
+  :is([data-task-process-shell], [data-surface-role="assistant-message"]) > [data-agent-attribution],
+:is([data-task-process-shell], [data-surface-role="assistant-message"]) +
+  [data-semantic-key="timeline-tail"] > [data-semantic-key="generated-output"]:first-child > [data-agent-attribution],
+[data-semantic-key="generated-output"] + [data-semantic-key="generated-output"] > [data-agent-attribution] {
   display: none;
 }
 [data-tool-output] {
