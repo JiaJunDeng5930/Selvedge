@@ -63,7 +63,17 @@ test('conversation search excerpts show rendered text around a match and label s
   await result.getByText('在消息原文中找到匹配', { exact: true }).waitFor();
   assert.doesNotMatch(await result.innerText(), /<ui|hidden-source-token|selvedge-ui/);
   await assistantHit.getByText('助手', { exact: true }).waitFor();
-  await assistantHit.click();
+  const release = Promise.withResolvers();
+  await page.route(url => url.pathname === '/api/browser/state' && url.searchParams.get('history') === String(task_id),
+    async route => {
+      const response = await route.fetch();
+      await release.promise;
+      await route.fulfill({ response });
+    });
+  try {
+    await assistantHit.click();
+    await page.getByText('正在加载对话…', { exact: true }).waitFor();
+  } finally { release.resolve(); }
   const original = page.locator('[data-reading-root] [data-history-match]');
   await original.getByText('Confirm the archive', { exact: true }).waitFor();
   assert.equal(await page.evaluate(() => CSS.highlights?.has('selvedge-history-match')), false);

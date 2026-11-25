@@ -46,10 +46,17 @@ Definition encode_search_page value:=JObject[
  ("ticket",number(search_page_ticket value));("reply",search_reply value)].
 Definition decode_search_page value:=ticket<-natural_field "ticket" value;;
  reply<-field "reply" value;;Some(SearchPage ticket reply).
+Definition encode_search_message (value:N*string):=JObject[
+ ("index",number(fst value));("query",JString(snd value))].
+Definition decode_search_message value:=index<-natural_field "index" value;;
+ query<-string_field "query" value;;Some(index,query).
 Definition encode_search_origin value:=JObject[
- ("work",optional_id(search_origin_work value));("hit",JString(search_origin_hit value))].
+ ("work",optional_id(search_origin_work value));("hit",JString(search_origin_hit value));
+ ("message",DraftCodec.optional_value encode_search_message(search_origin_message value))].
 Definition decode_search_origin value:=work<-bind(field "work" value)decode_id;;
- hit<-string_field "hit" value;;Some(SearchOrigin work hit).
+ hit<-string_field "hit" value;;
+ message<-bind(field "message" value)(DraftCodec.parse_optional decode_search_message);;
+ Some(SearchOrigin work hit message).
 Definition encode_search value:=JObject[("query",JString(keyword value));
  ("project",optional_id(project_filter value));("work",optional_id(work_filter value));
  ("result",DraftCodec.optional_value encode_search_page(search_result value));

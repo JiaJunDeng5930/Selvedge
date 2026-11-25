@@ -239,7 +239,8 @@ Definition core namespace snapshot lagged input state:Authoring.result:=match in
  (set SS.awaiting(map(SS.unknown_outcome ticket reason))(SS.authoring_state state))state)
 |Input.NativeFailed reason=>Authoring.alert_diagnostic state(JString reason)
 |Input.CopyPath path=>Authoring.changed state[Authoring.emit "clipboard"[("text",JString path)]]
-|Input.Snapshot|Input.EnvironmentObserved=>Authoring.keep state
+|Input.Snapshot=>Authoring.resume_history_location snapshot state
+|Input.EnvironmentObserved=>Authoring.keep state
 |Input.Stream source=>apply_stream_observation (decode_stream_observation namespace source) state
 |Input.CodeObserved source=>match Documents.admit_observation(context namespace snapshot state)source(SS.document_retention state)with
  |Documents.AdmittedObservation input retained=>apply_language namespace snapshot lagged input(SS.with_retention retained state)

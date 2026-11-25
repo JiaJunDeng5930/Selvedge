@@ -84,7 +84,8 @@ Record search_page := SearchPage {
 }.
 Record search_origin := SearchOrigin {
   search_origin_work : option N;
-  search_origin_hit : string
+  search_origin_hit : string;
+  search_origin_message : option (N * string)
 }.
 Record search := Search {
   keyword : string;
