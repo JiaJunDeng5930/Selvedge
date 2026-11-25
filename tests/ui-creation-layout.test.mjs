@@ -48,6 +48,52 @@ test('creation controls stay together above the draft at desktop and mobile size
   }
 });
 
+test('a long selected project stays within its creation button and leaves the environment reachable', async t => {
+  const { page, command } = await browserFixture(t);
+  const name = '项目 ' + 'workspace label for horizontal reading '.repeat(5) + '末尾';
+  await command({ op: 'create_project', name, workspace: { roots: [] } });
+  const main = page.getByRole('main');
+  await page.getByRole('navigation', { name: 'Global navigation', exact: true })
+    .getByRole('button', { name: '项目', exact: true }).click();
+  await main.getByRole('button', { name, exact: true }).click();
+  await main.getByRole('button', { name: '在项目中开始对话', exact: true }).click();
+  const form = main.locator('[data-composer-dock]');
+  const project = creationProjectTrigger(page);
+  const caption = project.getByText(name, { exact: true });
+  const workspace = creationEnvironmentTrigger(page);
+  await caption.waitFor();
+
+  for (const viewport of [{ width: 1280, height: 900 }, { width: 320, height: 620 }]) {
+    await page.setViewportSize(viewport);
+    await project.scrollIntoViewIfNeeded();
+    const [trigger, box, environment] = await Promise.all(
+      [project, form, workspace].map(control => control.boundingBox()));
+    assert.ok(insideViewport(trigger, viewport));
+    assert.ok(trigger.x + trigger.width <= box.x + box.width + 1,
+      `The project button stays within the form (${JSON.stringify({ trigger, box })})`);
+    assert.ok(insideViewport(environment, viewport));
+    const label = await caption.evaluate(node => {
+      const clip = node.parentElement;
+      return { width: clip.clientWidth, text: node.offsetWidth,
+        right: clip.getBoundingClientRect().right, overflow: getComputedStyle(clip).overflowX };
+    });
+    assert.ok(label.width > 0 && label.text > label.width, 'The long project name has a visible, bounded area');
+    assert.ok(label.right <= trigger.x + trigger.width + 1 && label.overflow !== 'visible',
+      'The project name cannot be painted over adjacent controls');
+
+    await project.click();
+    const projects = page.getByRole('dialog', { name: '选择项目', exact: true });
+    await projects.waitFor();
+    assert.ok(insideViewport(await projects.boundingBox(), viewport));
+    await page.keyboard.press('Escape');
+    await projects.waitFor({ state: 'hidden' });
+    const menu = await openCreationEnvironment(page);
+    assert.ok(insideViewport(await menu.boundingBox(), viewport));
+    await page.keyboard.press('Escape');
+    await menu.waitFor({ state: 'hidden' });
+  }
+});
+
 test('an explicit send shows the captured new message in a temporary conversation before the command receipt', { timeout: 90_000 }, async t => {
   const fixture = await browserFixture(t);
   const { page } = fixture;

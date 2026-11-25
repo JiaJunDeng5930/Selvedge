@@ -1152,10 +1152,8 @@ main:has(> [data-page-region="creation-introduction"]) {
 }
 [data-semantic-key="composer/context"] [data-property-summary] {
   flex: 0 1 auto !important;
-  min-inline-size: min-content !important;
-}
-[data-semantic-key="composer/context"] [data-summary-role="principal"] {
-  white-space: nowrap;
+  min-inline-size: 0 !important;
+  overflow: hidden;
 }
 [data-semantic-key="composer/context"] [data-support-secondary] {
   display: none !important;
