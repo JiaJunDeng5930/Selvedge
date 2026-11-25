@@ -15,7 +15,7 @@ Module SessionNavigation := Selvedge.Browser.Session.Navigation.
 From Selvedge.Interaction.Submission Require Fields.
 From Selvedge.Browser.Scene Require Import Surface Model Construction.
 From Selvedge.Browser.Presentation Require Import Projection Editors Navigation Collections.
-From Selvedge.Browser.Presentation Require Roles Information Composition.
+From Selvedge.Browser.Presentation Require Roles Information Composition WorkspaceDetails.
 From Selvedge.Browser.Session Require Import EditorContext.
 Import ListNotations.
 Open Scope string_scope.
@@ -108,21 +108,15 @@ Definition worktree_feedback {A} snapshot task parent:list(node A):=match Read.t
  |"create_failed"|"archive_failed"=>[region parent "worktree/error" "Workspace" Roles.Alert
    [read_only (part parent "worktree/error") "message" "Workspace"(String.concat ": "[Read.worktree_caption value;Read.worktree_message value])]]
  |_=>[]end end.
-Definition directory_details parent identity label path : node Input.input :=
- let key:=part parent identity in
- region key "directory-path-entry" "" Roles.Content
-   [Node key "directory-path" (label++" · "++UX.directory_basename path) Roles.Content ContentDisclosure
-     [Node (part key "path") "directory-path-value" "" Roles.Content (Fact path) []];
-    declared key Roles.Button(secondary "copy-path" ("复制"++label++"路径")(Input.CopyPath path))].
 Definition worktree_details snapshot s task parent:=match Read.task_workspace task snapshot with
 |None=>[]|Some value=>List.app
  [read_only parent "worktree/status" "工作区状态"(Read.worktree_caption value);
-  directory_details parent "worktree/source" "源仓库"(Read.worktree_source value)]
+  WorkspaceDetails.directory_details parent "worktree/source" "源仓库"(Read.worktree_source value)]
  (List.app
   (match Read.worktree_root value with None=>[]|Some root=>
    let roots:=value_or [] (option_map (fun context=>Domain.workspace_roots(Read.context_workspace context))
      (Read.task_context task snapshot)) in
-   if existsb (String.eqb root) roots then [] else [directory_details parent "worktree/root" "托管工作区" root] end)
+   if existsb (String.eqb root) roots then [] else [WorkspaceDetails.directory_details parent "worktree/root" "托管工作区" root] end)
  (List.app(if String.eqb(Read.worktree_message value)""then[]else[read_only parent "worktree/error" "工作区"(Read.worktree_message value)])
   (match ObjectActions.worktree_retry_action snapshot s task with
    |Some action=>match ObjectActions.command action with

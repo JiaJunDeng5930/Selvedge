@@ -19,7 +19,7 @@ From Selvedge.Interaction.Submission Require Fields Parameters.
 From Selvedge.Browser.Scene Require Import Surface Model Construction.
 From Selvedge.Interaction.Experience Require Read.
 From Selvedge.Browser.Presentation Require Import Projection Editors Navigation Collections Activities Pages.
-From Selvedge.Browser.Presentation Require Roles Information Composition.
+From Selvedge.Browser.Presentation Require WorkspaceDetails Roles Information Composition.
 From Selvedge.Browser.Session Require Import EditorContext.
 Import ListNotations.
 Open Scope string_scope.
@@ -119,18 +119,10 @@ Definition detail_action_nodes snapshot s subject parent excluded:=List.app (car
  (filter (fun action=>negb (existsb (String.eqb (ObjectActions.action_key action)) excluded))
    (ObjectActions.menu_items snapshot s subject))).
 Definition committed_workspace_facts parent workspace:list(node Input.input) :=
- let primary:=Domain.workspace_primary workspace in
- let roots:=Domain.workspace_roots workspace in
- let selected path:=match primary with Some value=>String.eqb value path|None=>false end in
  (match Domain.workspace_environment workspace with
  |Some environment=>[read_only parent "workspace-machine" "目录所在机器" environment]
  |None=>[]end) ++
- match roots with
- |[]=>[information parent "working-directory" Information.Description "未设置工作目录"]
- |[path]=>[Pages.directory_details parent "working-directory" "工作目录" path]
- |_=>map(fun path=>Pages.directory_details parent ("directory/"++path)
-   (if selected path then "主目录" else "附加目录") path)roots
- end.
+ WorkspaceDetails.workspace_directory_details parent "工作目录" workspace.
 Definition detail_group {A} parent key caption (facts:list(node A)) :=
  region parent key caption Roles.Section (group_title(part parent key)caption::facts).
 Definition context_facts snapshot task parent:list(node Input.input) :=match Read.task_context task snapshot with
@@ -144,7 +136,7 @@ Definition context_facts snapshot task parent:list(node Input.input) :=match Rea
  (match Read.context_project context,Read.context_guidance_root context,Read.context_guidance_revision context with
  |Some _,Some root,Some revision=>List.app
    (if existsb (String.eqb root) (Domain.workspace_roots workspace) then []
-    else [Pages.directory_details parent "project-directory" "指引目录" root])
+    else [WorkspaceDetails.directory_details parent "project-directory" "指引目录" root])
    [read_only parent "guidance-revision" "指引版本" revision]
  |_,_,_=>[]end) in
  let guidance:=match Read.context_instructions context with

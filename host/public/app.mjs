@@ -15,8 +15,10 @@ import { findHistoryRange, firstRangeRect } from './history-location.mjs';
 import { createPhysicalMeasurer } from './physical-measurement.mjs';
 import { installModelPickerPreview } from './model-picker.mjs';
 import { installWorkflowViewport, showWorkflowTimes } from './workflow-viewport.mjs';
+import { observeSingleLineLabels } from './single-line-labels.mjs';
 
 const surface = document.getElementById('surface');
+const disposeSingleLineLabels = observeSingleLineLabels(surface);
 installModelPickerPreview(surface);
 const synchronizeWorkflowViewport = installWorkflowViewport(surface);
 const notices = document.getElementById('browser-notices');
@@ -1480,7 +1482,9 @@ for (const name of ['pointerover', 'focusin']) surface.addEventListener(name, ev
     return;
   }
   const label = event.target.closest?.('[data-overflow-label]');
-  if (label && label.scrollWidth > label.clientWidth) label.title = label.dataset.overflowLabel;
+  if (label && matchMedia('(prefers-reduced-motion: reduce)').matches && label.scrollWidth > label.clientWidth) {
+    label.title = label.dataset.overflowLabel;
+  }
 });
 for (const name of ['pointerout', 'focusout']) surface.addEventListener(name, event => {
   const button = event.target.closest?.('button[data-overflow-help]');
@@ -1875,7 +1879,7 @@ window.addEventListener('pagehide', event => {
   document.removeEventListener('pointercancel', clearBackdropPress);
   document.removeEventListener('click', dismiss);
   connection?.abort(); chatgptLogin.dispose(); audio.dispose(); toolActivity.dispose(); motion.dispose();
-  editorRepair.dispose(); physical.dispose(); renderer.dispose(); storage.flush();
+  editorRepair.dispose(); physical.dispose(); disposeSingleLineLabels(); renderer.dispose(); storage.flush();
   clearInterval(clockRefresh); document.removeEventListener('visibilitychange', refreshClock);
   boardTrackResize.disconnect();
   readingResize.disconnect();

@@ -15,7 +15,7 @@ From Selvedge.Browser.Session Require Import Input ObjectActions.
 From Selvedge.Browser.Session Require State Authoring Services.
 From Selvedge.Browser.Scene Require Import Surface Model Construction.
 From Selvedge.Browser.Presentation Require Import Projection Navigation.
-From Selvedge.Browser.Presentation Require Editors Roles Information Composition TaskGraphCanvas.
+From Selvedge.Browser.Presentation Require Editors Roles Information Composition TaskGraphCanvas WorkspaceDetails.
 Import ListNotations.
 Open Scope string_scope.
 Module BoardDomain := Selvedge.Features.Domain.
@@ -40,18 +40,15 @@ Definition projects_page snapshot s parent :=
 Definition project_page snapshot s parent project :=
  let id:=project_id project in
  let workspace:=project_workspace project in
- let directory path:=if match Domain.workspace_primary workspace with
-   |Some primary=>String.eqb path primary|None=>false end
-   then path++"（主目录）" else path in
  [browse_heading parent
    (page_region parent Composition.ProjectTitle Composition.HeadingPosition [title parent(project_name project)])
    [page_region parent Composition.ProjectActions Composition.HeadingPosition
      [declared parent Roles.Button(secondary "new-task" "在项目中开始对话"(Input.BeginTask(Some id)));
       declared parent Roles.Button(secondary "more" "项目操作"(Input.OpenObjectActions(ProjectActions id)(part parent "more")))]];
   page_region parent Composition.DefaultWorkspace Composition.BodyPosition
-   [read_only parent "workspace-roots" "默认工作目录"
-     (String.concat "
-"(map directory (Domain.workspace_roots workspace)))];
+   [region parent "workspace-roots" "默认工作目录" Roles.Content
+     (information parent "workspace-roots-label" Information.FieldLabel "默认工作目录"::
+      WorkspaceDetails.workspace_directory_details parent "工作目录" workspace)];
   page_region parent Composition.ProjectGuidance Composition.BodyPosition
    [read_only parent "guidance" "项目指引"(value_or "尚未设置"(project_instructions project))];
   page_region parent Composition.ProjectTasks Composition.BodyPosition

@@ -98,8 +98,10 @@ Definition task_history_chevron (expanded:bool) :=
  DOM.Element "" "span" [("data-task-history-chevron","");("aria-hidden","true")] [] [] empty
   (glyph (if expanded then "chevron-down" else "chevron-right")).
 Definition task_tool_header key (face:S.task_tool_face) :=
+ let label:=S.task_tool_label face in
  [task_history_icon key (S.task_tool_symbol face) (S.task_tool_icon face);
-  DOM.Element "" "code" [("data-tool-argument","")] [] [] empty [DOM.Text (S.task_tool_label face)];
+  DOM.Element "" "code" [("data-tool-argument","");("data-overflow-label",label)] [] [] empty
+    (ControlContent.single_line_content [DOM.Text label]);
   task_history_status key (Some face)].
 Definition task_history_face key (face:S.task_tool_face) expanded :=
  let face_key:=NavigationIdentity.key_part (key++"/face")%string (S.task_tool_call face) in
@@ -564,7 +566,7 @@ Definition navigation_title key label children :=
  DOM.Element key "span"
   ([("data-navigation-slot","title")]++ControlContent.single_line_attributes label)
   (ControlContent.single_line_properties++[("flex","1 1 0%");("text-align","start")]) [] empty
-  (match children with []=>[DOM.Text label]|_=>children end).
+  (ControlContent.single_line_content (match children with []=>[DOM.Text label]|_=>children end)).
 Definition navigation_glyph key slot attrs content :=
  DOM.Element key "span" (("data-navigation-slot",slot)::attrs)
   [("display","inline-grid");("place-items","center");("inline-size","16px");
@@ -572,8 +574,7 @@ Definition navigation_glyph key slot attrs content :=
 Definition face_children purpose area role label children :=
  let purpose:=C.action_purpose purpose in
  let text:=match children with []=>
-   [DOM.Element "" "span" [("data-overflow-label",label)] [("min-inline-size","0");("overflow","hidden");
-     ("text-overflow","ellipsis");("white-space","nowrap")] [] empty [DOM.Text label]]
+   [ControlContent.single_line_span "" [("data-overflow-label",label)] [("min-inline-size","0")] label]
    |_=>children end in
  let icon:=match purpose_icon purpose with Some name=>glyph name|None=>[]end in
  match role with
@@ -581,8 +582,8 @@ Definition face_children purpose area role label children :=
  |Roles.WorkOverviewButton count=>artwork "columns"++[DOM.Text(text_number count)]
  |Roles.CompactWorkScope title _=>
    artwork "columns"++
-   [DOM.Element "" "span" (ControlContent.single_line_attributes title)
-     (ControlContent.single_line_properties++[("flex","1 1 0%");("text-align","start")]) [] empty [DOM.Text title]]++
+   [ControlContent.single_line_span "" (ControlContent.single_line_attributes title)
+     (ControlContent.single_line_properties++[("flex","1 1 0%");("text-align","start")]) title]++
    artwork "chevron-down"
  |Roles.GlobalNavigationEntry _ compact=>if compact then icon else icon++[navigation_title "" label children]
  |Roles.CompactNavigationEntry _=>
@@ -822,6 +823,15 @@ Definition grouped_content {A} env activity (key label:string) (grouped:bool)
 Definition compile_element {A} (describe:A->C.purpose) env generation inherited_area activity (source:S.meaning A) view component (value:S.node A) (children:list DOM.node) : DOM.node :=
  let key:=S.node_key value in let label:=S.node_label value in
  let meaning:=S.node_meaning value in let role:=S.node_role value in
+ let single_line:=match source,meaning with
+  |S.PageRegion Composition.ConversationTitle _,S.InformationText Information.SurfaceTitle
+  |S.PageRegion Composition.ProjectTitle _,S.InformationText Information.SurfaceTitle
+  |S.WorkChoice _ _ _,S.InformationText _
+  |_,S.InformationText Information.NavigationCaption=>true
+  |_,S.InformationText Information.FieldValue=>String.eqb (S.semantic_key value) "name"
+  |_,S.InformationText _=>existsb (String.eqb (S.semantic_key value))
+     ["side/parent";"model-name";"task-graph/title";"task-graph/project";"attachment-name"]
+  |_,_=>false end in
  let current_area:=area_for inherited_area role meaning in
  let activity:=match meaning with S.ActivityGroup _ _ _ _|S.ActivityRow _=>true
   |_=>match role with Roles.Button|Roles.SelectedButton=>match current_area with
@@ -852,13 +862,8 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
    if Model.modal_layer behavior then match surface_heading value with
      Some heading=>[("aria-labelledby",heading)]|None=>[]end else []
  |_=>[]end) ++
- (match source,meaning with
-  |S.PageRegion Composition.ConversationTitle _,S.InformationText _
-  |S.WorkChoice _ _ _,S.InformationText _=>ControlContent.single_line_attributes label
-  |_,S.InformationText Information.NavigationCaption=>ControlContent.single_line_attributes label
-  |_,_=>[]end) ++
+ (if single_line then ControlContent.single_line_attributes label else []) ++
  (if String.eqb (S.semantic_key value) "task-commentary" then [("data-task-commentary","")] else []) ++
- NativeAppearance.overflow_attributes (NativeAppearance.style_overflow (NativeAppearance.role_style role)) label ++
  (match meaning with S.ActionUnit _ _=>[("data-focus-owner","aggregate")]|_=>[]end) ++
  (match role with Roles.Timeline=>[("tabindex","0")]|Roles.UserMessage|Roles.AssistantMessage|Roles.Activity=>[("data-reading-anchor","true");("data-reading-identity",reading_identity value)]|Roles.Composer=>[("data-composer-dock","true");("data-focus-owner","aggregate")]|_=>[] end) ++
  (if supporting then ControlContent.support_row_attributes key
@@ -981,7 +986,8 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
    then element "time" [("data-epoch-seconds",label)] [] empty []
    else element (text_tag info) ([("tabindex","-1")] ++
    match info with Information.Status=>[("role","status")]|_=>[]end) [] empty
-   (if String.eqb (S.semantic_key value) "full-path"
+   (if single_line then ControlContent.single_line_content [DOM.Text label]
+    else if String.eqb (S.semantic_key value) "full-path"
     then directory_path_parts "" label else [DOM.Text label])
  |S.ReadOnly text=>if String.eqb (S.semantic_key value) "workflow-instance-dot" then
    DOM.Element key "span" (attrs++[("aria-hidden","true")])
@@ -1350,6 +1356,9 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
    let '(summary, body) :=
      if String.eqb (S.semantic_key value) "workflow-exit-result" then
        (firstn 2 children, skipn 2 children)
+     else if String.eqb (S.semantic_key value) "directory-path" then
+       ([ControlContent.single_line_span "" (ControlContent.single_line_attributes label)
+         ControlContent.single_line_properties label], children)
      else ([DOM.Text label], children) in
    DOM.Element key "details" attrs styles [] empty
      (DOM.Element (key++"/summary")%string "summary" [] [] [] empty summary::body)
@@ -1366,8 +1375,9 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
    element "div" [("data-workflow-workspace","")] [] empty
     [DOM.Element (key++"/controls")%string "div" [("data-workflow-viewport-controls","")] [] [] empty
        [DOM.Element (key++"/selector")%string "div" [("data-workflow-selection","")] [] [] empty
-         [DOM.Element (key++"/selected-name")%string "span" [("data-workflow-selected-name","");("aria-hidden","true")]
-           [] [] empty [];
+         [DOM.Element (key++"/selected-name")%string "span"
+           [("data-workflow-selected-name","");("data-overflow-label","");("aria-hidden","true")]
+           [] [] empty (ControlContent.single_line_content []);
           DOM.Element (key++"/target")%string "select" [("data-workflow-target","");("aria-label","定位工作流")] [] [] empty
            (map (fun '(target,name)=>DOM.Element (key++"/target/"++target)%string "option"
               [("value",target)] [] [] empty [DOM.Text name]) targets)];
@@ -1380,7 +1390,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
          (map (fun '((target,name), graph)=>
           DOM.Element (canvas++"/tile/"++target)%string "div" [("data-workflow-tile",target)] [] [] empty
            [DOM.Element (canvas++"/overview/"++target)%string "button" [("type","button");("data-workflow-open",target)]
-             [] [] empty [DOM.Text name];
+             [] [] empty [ControlContent.single_line_span "" (ControlContent.single_line_attributes name) [] name];
             DOM.Element (canvas++"/preview-body/"++target)%string "div" [("data-workflow-preview-body","")] [] [] empty [graph];
             node_name_panel (canvas++"/node-name/"++target)%string [("data-workflow-preview-detail","")]])
           (combine targets graphs))]]

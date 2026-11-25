@@ -177,9 +177,50 @@ select[data-surface-role="field"]:not([multiple]) {
 }
 h1, h2, h3, h4, h5, h6, p, ul, ol, dl, dd { margin: 0; }
 [hidden] { display: none !important; }
+[data-overflow-label] {
+  --label-direction: -1;
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+}
+[data-single-line-content] {
+  display: block;
+  flex: none;
+  inline-size: max-content;
+  min-inline-size: 100%;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+[data-label-clipped]:not([data-label-scrolled]) {
+  mask-image: linear-gradient(to right, #000 calc(100% - min(.8em, 35%)), transparent);
+}
+[data-label-clipped]:dir(rtl):not([data-label-scrolled]) {
+  mask-image: linear-gradient(to left, #000 calc(100% - min(.8em, 35%)), transparent);
+}
+[data-overflow-label]:dir(rtl) { --label-direction: 1; }
+[data-label-clipped]:focus-visible {
+  overflow-x: auto;
+  scrollbar-width: none;
+  mask-image: none;
+}
+@media (hover: none) {
+  [data-label-clipped] { overflow-x: auto; scrollbar-width: none; }
+}
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  :is([data-label-clipped]:hover, :is(button, summary, a, [data-workflow-selection]):hover [data-label-clipped]) {
+    mask-image: none;
+  }
+  :is([data-label-clipped]:hover, :is(button, summary, a, [data-workflow-selection]):hover [data-label-clipped]) > [data-single-line-content] {
+    animation: single-line-label-travel var(--label-duration) linear .35s infinite alternate;
+  }
+  button[data-overflow-help]:not([data-help]):hover:has([data-label-clipped])::after { display: none; }
+}
+@keyframes single-line-label-travel {
+  to { translate: calc(var(--label-travel) * var(--label-direction)); }
+}
 [data-native-row-direction="column"] > * { flex-basis: auto; flex-shrink: 0; }
 [data-supporting-form="compact"] [data-summary-role="principal"] {
-  display: block; min-inline-size: 1ch; overflow: hidden; text-overflow: ellipsis;
+  display: block; min-inline-size: 1ch;
 }
 [data-supporting-form="compact"] [data-property-summary] { min-inline-size: 0 !important; }
 /* A menu keeps native content sizing. Anchor positioning first tries below,
@@ -843,18 +884,9 @@ dialog[data-semantic-key="side-conversation"] {
   object-fit: contain;
   border-radius: 4px;
 }
-[data-composer-dock] [data-semantic-key^="attachment/"] > [data-semantic-key="name"] {
+[data-composer-dock] [data-semantic-key^="attachment/"] > [data-semantic-key="attachment-name"] {
   flex: 1 1 auto !important;
   min-inline-size: 0 !important;
-}
-[data-composer-dock] [data-semantic-key^="attachment/"] [data-semantic-key="name"] > [data-semantic-key="label"] {
-  display: none !important;
-}
-[data-composer-dock] [data-semantic-key^="attachment/"] [data-semantic-key="name"] > [data-semantic-key="value"] {
-  display: block !important;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 [data-composer-dock] [data-semantic-key^="attachment/"] > button {
   flex: none !important;
@@ -962,7 +994,6 @@ dialog[data-semantic-key="side-conversation"] {
   display: block !important;
   min-inline-size: 0 !important;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 [data-semantic-key="composer/delivery"] > svg:first-child,

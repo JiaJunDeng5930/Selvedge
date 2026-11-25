@@ -74,7 +74,7 @@ Definition attachment_node e parent (file:Domain.attachment) :=
     [Node(part key "image")"image-preview"(Domain.attachment_name file)Roles.Content
       (Image("/api/board/attachments/"++id)(Domain.attachment_name file))[]]
    else [])++
-  [read_only key "name" "File"(Domain.attachment_name file);
+  [information key "attachment-name" Information.OptionLabel (Domain.attachment_name file);
   declared key Roles.Button(secondary "preview" "Preview"(Input.ServiceInput(Services.OpenPreview file(part key "preview"))));
   declared key Roles.Button(secondary "download" "Download"(Input.ServiceInput(Services.Download file)));
   declared key Roles.Button(secondary "remove" "Remove"(Input.RemoveAttachment e id))]).

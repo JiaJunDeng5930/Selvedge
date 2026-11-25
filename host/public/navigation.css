@@ -121,14 +121,6 @@ dialog[data-semantic-key="global-navigation-menu"]::backdrop { background: trans
   block-size: auto !important;
 }
 
-[data-workspace-sidebar] [data-navigation-owner] > button[data-navigation-slot="title"] > span {
-  display: -webkit-box !important;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  white-space: normal !important;
-  overflow-wrap: anywhere;
-}
-
 [data-workspace-sidebar] [data-task-tree-row] [data-navigation-slot="status"] {
   inline-size: max(16px, 1rem) !important;
   block-size: max(16px, 1rem) !important;

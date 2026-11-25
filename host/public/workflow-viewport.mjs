@@ -219,7 +219,8 @@ export function installWorkflowViewport(surface) {
     view(viewport).target = target;
     const picker = workspace.querySelector('[data-workflow-target]');
     const selection = picker.closest('[data-workflow-selection]');
-    selection.querySelector('[data-workflow-selected-name]').textContent = picker.selectedOptions[0].textContent;
+    const label = selection.querySelector('[data-workflow-selected-name] > [data-single-line-content]');
+    label.textContent = picker.selectedOptions[0].textContent;
     selection.removeAttribute('title');
     for (const group of workspace.querySelectorAll('[data-workflow-actions] [data-semantic-key^="workflow/"]')) {
       const hidden = group.dataset.semanticKey !== target;
@@ -244,7 +245,9 @@ export function installWorkflowViewport(surface) {
     const selection = event.target.closest('[data-workflow-selection]');
     if (!selection) return;
     const label = selection.querySelector('[data-workflow-selected-name]');
-    if (label.scrollWidth > label.clientWidth) selection.title = label.textContent;
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches && label.scrollWidth > label.clientWidth) {
+      selection.title = label.textContent;
+    }
   });
   surface.addEventListener('pointerout', event => {
     const selection = event.target.closest('[data-workflow-selection][title]');

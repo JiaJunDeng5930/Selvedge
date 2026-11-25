@@ -75,6 +75,12 @@ Export SurfaceProofs(unavailable_control_cannot_press,
     A control has one visible help channel. Icon-only actions expose their
     names on hover and keyboard focus. The browser supplies the observation
     that a readable caption was clipped before offering its full text.
+    Single-line captions keep the row and neighboring actions fixed. A clipped
+    caption fades at its trailing edge and moves horizontally while hovered,
+    returning to its starting position on pointer exit. Directory summaries
+    show the final component and disclose the complete path. The path and
+    guidance previews use local scrolling beyond their line limits so longer
+    values do not increase the size of surrounding controls.
     A reason already visible beside a field, action, or result stays at that
     location. An in-flight action provides one immediate visual indication in
     the part of the interface that stays mounted until its receipt. *)
