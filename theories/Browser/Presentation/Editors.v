@@ -51,16 +51,19 @@ Definition draft_feedback d :=match Draft.draft_feedback d with
 Definition commit_role {e}(unit:UX.action_unit e)(feedback:option string) :=
  if UX.action_pending unit then Roles.PrimaryButton else
  match feedback with Some _=>Roles.DestructiveButton|None=>Roles.PrimaryButton end.
-Definition assessment_availability {e}(value:UX.assessment e) :=match UX.assessment_outcome value with
-|UX.PreparationReady=>Available|UX.DirectoryObservationRequired _=>NeedsDirectoryObservation
-|UX.PreparationBlocked first rest=>Unavailable
- (String.concat " · " (map(fun obstruction=>UX.obstruction_message obstruction)(first::rest)))end.
-Definition unit_availability {e}(unit:UX.action_unit e)(assessment:UX.assessment e):availability:=
- if UX.action_pending unit then Busy
-  (match Observe.assessment_obstructions(UX.assessment_outcome assessment)with
-   |[]=>"This action is pending"
-   |causes=>String.concat " · "(map UX.obstruction_message causes)end)
- else assessment_availability assessment.
+Definition visible_obstruction_code {e} (cause:option(UX.obstruction e)) :=
+ match cause with Some value=>[UX.obstruction_code value]|None=>[]end.
+Definition assessment_availability {e}(value:UX.assessment e)(visible:list string) :=
+ match UX.assessment_outcome value with
+ |UX.PreparationReady=>Available
+ |UX.DirectoryObservationRequired _=>NeedsDirectoryObservation
+ |UX.PreparationBlocked first rest=>
+   let obstructions:=match visible with []=>first::rest
+     |_=>filter(fun cause=>negb(existsb(String.eqb(UX.obstruction_code cause))visible))(first::rest)end in
+   Unavailable (String.concat " · " (map UX.obstruction_message obstructions))
+ end.
+Definition unit_availability {e}(unit:UX.action_unit e)(assessment:UX.assessment e) visible:availability:=
+ if UX.action_pending unit then Busy "" else assessment_availability assessment visible.
 Definition field_control snapshot (s:Session.state) {e}(subject:UX.subject e) :=
  EditControl(Observe.entry snapshot s subject)(Observe.observe_subject snapshot s subject)
   None(Observe.choices snapshot s subject)
@@ -144,14 +147,27 @@ Definition visible_field_obstruction {e} (outcome:UX.assessment_result e) :=
  match UX.obstruction_target cause with
  |UX.RepairField subject=>Some(subject,cause)
  |UX.RepairEditor=>None end.
-Definition commit_reason {e} parent (assessment:UX.assessment e) : list(node Input.input) :=
+Definition commit_reason {e} parent (assessment:UX.assessment e) (inline_fields:list Fields.field) : list(node Input.input) :=
  match visible_field_obstruction(UX.assessment_outcome assessment)with
  |Some(subject,cause)=>
-   (* The directory entry already displays this instruction beside Add and Clear. *)
-   if String.eqb(UX.obstruction_code cause)Observe.unadded_project_directory_code then []
-   else let role:=match UX.subject_declaration subject with
-    |Fields.CreateWorktree=>Information.Status|_=>Information.Description end in
-    [information parent "editor-commit-reason" role (UX.obstruction_message cause)]
+   (* A project directory entry already displays its own instruction. Ordinary
+      editor footers retain the reason when the browser scrolls its field away. *)
+   let field:=UX.subject_declaration subject in
+   if String.eqb(UX.obstruction_code cause)Observe.unadded_project_directory_code ||
+      existsb (fun candidate=>if Parameters.field_eq_dec candidate field then true else false) inline_fields then []
+   else let role:=match field with Fields.CreateWorktree=>Information.Status|_=>Information.Description end in
+   [information parent "editor-commit-reason" role (UX.obstruction_message cause)]
+ |None=>[]end.
+Definition draft_placeholder_obstructions {e} draft (assessment:UX.assessment e) : list string :=
+ let placeholder:=match Draft.contents draft with
+ |Draft.ProjectBody _ "" _ _=>Some Parameters.project_name_prompt
+ |Draft.CardBody _ _ card false _ _=>
+   if String.eqb (Selvedge.Features.Domain.draft_title card) "" then Some(Parameters.card_title_prompt++"。") else None
+ |_=>None end in
+ match placeholder with
+ |Some text=>map (@UX.obstruction_code e)
+   (filter (fun cause=>String.eqb (UX.obstruction_message cause) text)
+     (Observe.assessment_obstructions (UX.assessment_outcome assessment)))
  |None=>[]end.
 Definition commit_status {e} parent (unit:UX.action_unit e) : list(node Input.input) :=
  if UX.action_pending unit then
@@ -259,12 +275,9 @@ Definition composer_view snapshot (s:Session.state) e parent :=
  let message_label:=match e with NewTask _=>"Task"|_=>"Message"end in
  let submitting:=UX.action_pending unit in
  let status:="正在提交消息…" in
- let availability:=if submitting then Busy status
-  else assessment_availability assessment in
+ let availability:=unit_availability unit assessment
+   (visible_obstruction_code (Observe.action_obstruction (UX.assessment_outcome assessment))) in
  let label:=if submitting then status else submit_label snapshot(Session.current_draft s e)e in
- let progress:=if submitting || Model.available availability then
-  [information parent "composer/submission-status" Information.Status
-   (if submitting then status else "")] else [] in
  let commit:=Control "submit" label Primary(Input.Submit e(part parent "submit"))availability in
  let '(failed, files):=partition (fun item=>match node_role item with Roles.Alert=>true|_=>false end)
    (ServiceControls.file_items e parent s) in
@@ -272,7 +285,7 @@ Definition composer_view snapshot (s:Session.state) e parent :=
   |[]=>[]|items=>[region parent "attachments" "Attachments" Roles.Section items]end in
  let tools:=composer_tools snapshot s e parent in
  Some(Composer.composer parent message_label(commit_role unit feedback)unit subject(field_control snapshot s subject)
-  (progress++attachments++[assessment_nodes parent assessment]++skill_nodes snapshot s e parent)%list
+  (attachments++[assessment_nodes parent assessment]++skill_nodes snapshot s e parent)%list
   [ServiceControls.file_picker e parent s "Attach files";
    ServiceControls.speech_controls s e(Draft.revision(Session.current_draft s e))parent(Session.speech_state s)]
   tools assessment commit feedback)end.
@@ -290,9 +303,8 @@ Definition editor_sections e :=match e with
  ("Attachments",[Fields.CardAttachments])]++match id with
  |None=>[("Creation options",[Fields.ContinueCapture;Fields.AssistedCapture;Fields.AssistanceProfile])]|Some _=>[]end)%list
 |Fork _=>[("Fork",[Fields.ForkCount;Fields.ForkMessages]);execution_section]
-|Compact _=>[("Compaction",[Fields.CompactionSummary])]
 |TaskGraph _ _|WorkflowDefinition _ _=>[("Task graph",[Fields.TaskGraphDeclaration])]
-|WorkflowStart _=>[]
+|Compact _|WorkflowStart _=>[]
 |Identity.Project _|CardForConversation _|WorkName _|TitlePrompts _=>[]end.
 Definition field_section snapshot s e parent name fields:=
  Node(part parent name)name name Roles.Section(ObjectGroup(UX.group_owner e fields))
@@ -444,6 +456,7 @@ Definition section_nodes snapshot s e parent :=
      (field_nodes snapshot s e parent [Fields.TaskGraphDeclaration])])%list
  |WorkflowStart id=>WorkflowForms.start snapshot s parent e id
  |TaskGraph graph work=>graph_editor snapshot s e parent graph work
+ |Compact _=>field_nodes snapshot s e parent [Fields.CompactionSummary]
  |WorkName _=>field_nodes snapshot s e parent [Fields.WorkName]
  |TitlePrompts scope=>title_prompt_fields snapshot s scope parent
  |_=>map(fun '(name,fields)=>field_section snapshot s e parent name fields)(editor_sections e)
@@ -456,9 +469,9 @@ Definition title_prompt_help e parent : list (node Input.input) := match e with
  [information parent "title-prompts/help" Information.Description
    "新建时勾选模型整理，会生成标题和描述。重新生成标题时保留描述。"]
 |_=>[]end.
-Definition editor_view snapshot (s:Session.state) e parent :=
+Definition editor_view snapshot (s:Session.state) (e:Identity.editor) (parent:string) : list (node Input.input) :=
  let draft:=Session.current_draft s e in
- let assessment:=match e with
+ let assessment : UX.assessment e :=match e with
  |WorkflowStart _=>
    let outcome:=match Observe.draft_requirements snapshot s e with
    |cause::rest=>UX.PreparationBlocked cause rest
@@ -467,7 +480,7 @@ Definition editor_view snapshot (s:Session.state) e parent :=
     (if Services.connected (Session.service_state s) then outcome
      else Observe.restrict_outcome "正在重新连接服务…" outcome)
  |_=>Observe.observe_assessment snapshot s e end in
- let unit:=Observe.action_unit_for s e in
+ let unit : UX.action_unit e :=Observe.action_unit_for s e in
  let busy:=UX.action_pending unit in
  let progress:=match e with
  |WorkflowStart _=>match find (Authoring.pending_for_editor e) (Session.awaiting(Session.authoring_state s)) with
@@ -476,10 +489,12 @@ Definition editor_view snapshot (s:Session.state) e parent :=
       |None=>if Session.request_received entry then "服务已收到请求，正在等待启动确认…" else "正在等待启动回执…" end
    |None=>"正在提交…" end
  |_=>"正在提交…" end in
- let availability:=match e with
- |WorkflowStart _=>if busy then Busy "" else unit_availability unit assessment
- |_=>unit_availability unit assessment end in
- let status:=match e with
+ let visible_cause : option (UX.obstruction e) :=match e with
+  |WorkflowStart _=>hd_error(Observe.assessment_obstructions (UX.assessment_outcome assessment))
+  |_=>Observe.attention_obstruction (UX.assessment_outcome assessment)end in
+ let availability:=unit_availability unit assessment
+   (visible_obstruction_code visible_cause++draft_placeholder_obstructions draft assessment)%list in
+ let status : list (node Input.input) :=match e with
  |WorkflowStart workflow=>if busy then
    ([information parent "editor-commit-status" Information.Status progress] ++
    (match find (Authoring.pending_for_editor e) (Session.awaiting(Session.authoring_state s)) with
@@ -492,10 +507,11 @@ Definition editor_view snapshot (s:Session.state) e parent :=
  |_=>commit_status parent unit end in
  let submit:=Control "submit"(submit_label snapshot draft e)Primary(Input.Submit e(part parent "submit"))
   availability in
- let reason:=match e,Draft.draft_feedback draft with
+ let fields : list (node Input.input) :=section_nodes snapshot s e parent in
+ let reason : list (node Input.input) :=match e,Draft.draft_feedback draft with
  |WorkflowStart _,_|_,Draft.DuplicateWorkflowNodeName _ _=>[]
- |_,_=>commit_reason parent assessment end in
- let consequence:=if UX.action_pending unit then [] else match e with
+ |_,_=>commit_reason parent assessment [] end in
+ let consequence : list (node Input.input) :=if UX.action_pending unit then [] else match e with
  |Card card=>match Observe.card_save_consequence snapshot s card draft with
   |Some BoardFacts.SaveLinked|None=>[]
   |Some value=>[information parent "card-save-consequence" Information.Description
@@ -509,26 +525,23 @@ Definition editor_view snapshot (s:Session.state) e parent :=
     |BoardFacts.SaveDraftsThenQueues=>"保存后先生成卡片内容，成功后自动排队。"
     |BoardFacts.SaveLinked=>""end)] end
  |_=>[]end in
- let assessment_feedback:=match e with
+ let assessment_feedback : list (node Input.input) :=match e with
  |WorkflowStart _=>
-   let causes:=Observe.assessment_obstructions (UX.assessment_outcome assessment) in
-   let message:=if busy then "" else match causes with
-   |cause::_=>UX.obstruction_message cause
-   |[]=>"" end in
+   let message:=if busy then "" else value_or "" (option_map (@UX.obstruction_message e) visible_cause) in
    [information parent "workflow-start-feedback" Information.Description message]
  |_=>[assessment_nodes parent assessment] end in
  let feedback:=match e,Draft.draft_feedback draft with
  |WorkflowStart _,Draft.Rejected _ diagnostic=>
    if busy then None else Some(value_or (Codec.diagnostic_message diagnostic) (string_field "message" diagnostic))
  |_,_=>draft_feedback draft end in
- let body := (title_prompt_help e parent ++
-   section_nodes snapshot s e parent ++
+ let body : list (node Input.input) := (title_prompt_help e parent ++
+   fields ++
    assessment_feedback ++
    Composer.action_feedback parent unit feedback)%list in
- let context := match e with
+ let context : list (node Input.input) := match e with
    |TitlePrompts ConversationTitles=>[Settings.editor_context parent Services.SettingsGeneral]
    |_=>[]end in
- let capture:=match e with
+ let capture : list (node Input.input) :=match e with
    |Card None=>field_nodes snapshot s e parent [Fields.ContinueCapture]
    |_=>[]end in
  [dialog_header parent (context ++ [title parent(editor_title e)]);

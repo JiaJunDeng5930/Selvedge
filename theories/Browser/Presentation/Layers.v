@@ -107,7 +107,7 @@ Definition ticket_workflow_launch snapshot s parent card :=
    let launch:=declared parent Roles.PrimaryButton(Control key caption
      Primary (Input.RequestCommand command)
      (if connected then match status with
-      |ObjectActions.InFlight=>Busy caption|_=>Available end
+      |ObjectActions.InFlight=>Busy ""|_=>Available end
       else Unavailable "正在重新连接服务…")) in
    [launch]
  end

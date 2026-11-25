@@ -119,9 +119,11 @@ Definition summary_member {A e} (property : UX.property e) (child : S.node A)
   | S.InformationText Information.FieldValue =>
       [span key [("data-summary-role","principal");
         ("data-summary-subject",summary_subject property false);
-        ("title",text)]
+        ("data-overflow-label",text)]
         inline_properties text]
   | S.InformationText Information.Description =>
+      if match UX.property_kind_of property with
+        |UX.ModelProperty=>String.eqb text "default"|_=>false end then [] else
       [span key [("data-summary-role","secondary");
         ("data-summary-subject",summary_subject property true);
         ("data-support-secondary","true")]
@@ -136,14 +138,14 @@ Definition setting_member {A e} (property : UX.property e) (child : S.node A)
   match S.node_meaning child with
   | S.InformationText Information.FieldLabel =>
       [span key [("data-setting-role","label");("data-setting-subject",subject);
-         ("title",S.node_label child);("data-native-minimum-inline","1ch")]
+         ("data-overflow-label",S.node_label child);("data-native-minimum-inline","1ch")]
        (inline_properties ++ [("flex","1 1 0%");("min-inline-size","0");
          ("display","block");("min-inline-size","1ch");
          ("text-align","start");("overflow","hidden");("text-overflow","ellipsis")])
        (S.node_label child)]
   | S.InformationText Information.FieldValue =>
       [span key [("data-setting-role","value");("data-setting-subject",subject);
-         ("title",S.node_label child);("data-native-minimum-inline","1ch")]
+         ("data-overflow-label",S.node_label child);("data-native-minimum-inline","1ch")]
        (inline_properties ++ [("display","block");("flex","0 1 auto");("min-inline-size","1ch");
          ("overflow","hidden");("text-overflow","ellipsis");("color",Appearance.secondary_text);
          ("text-align","end")]) (S.node_label child)]

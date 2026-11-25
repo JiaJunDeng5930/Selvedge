@@ -58,11 +58,11 @@ Definition unavailable_native_button (value : DOM.node) : Prop :=
  end.
 
 Local Lemma unavailable_control_has_aria_disabled {A} (action : Model.control A)
-    focusable help :
+    focusable :
   Model.available (Model.control_availability action) = false ->
   In ("aria-disabled", "true")
     (Document.control_attributes
-      (focusable || negb (Model.available (Model.control_availability action))) help action).
+      (focusable || negb (Model.available (Model.control_availability action))) action).
 Proof.
  intro Unavailable. unfold Document.control_attributes. rewrite Unavailable, Bool.orb_true_r.
  destruct (Model.control_availability action);

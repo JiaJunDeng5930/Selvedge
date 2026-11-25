@@ -711,10 +711,6 @@ Definition planned_regions (context : prepared) : option region_plan :=
    then [child_change (Some view) ("actions/"++parent) (roots context) (map (fun root=>snd(region_node root)) (roots before))]
    else [] in
  let actions:=flat_map own_actions visible in
- let introduction:=if negb main && V.creation_editor current &&
-   (match incoming with Some (Input.ApplyAssignment _ _)|Some (Input.ServiceInput _) => true|_=>false end)
-   then [child_change None "introduction" (base_roots (some_list(V.view_creation_introduction world current)))
-    (some_list(V.view_creation_introduction (prepared_world before) (prepared_state before)))] else [] in
  let theme:=first || negb(String.eqb (old_theme env before)(document_theme env context)) in
  let fence:=match prepared_region_update context with
    |Some patch=>if region_with_workspace patch then
@@ -746,7 +742,7 @@ Definition planned_regions (context : prepared) : option region_plan :=
    (new_composer++new_approvals++new_source++new_latest)%list in
  let changes := ((if nav then [base "header" headers; base "navigation" sidebar] else []) ++
    (if main then [base "main" main_nodes] else []) ++ (if notices then [base "notices" notice_nodes]else[]) ++
-   layer_changes ++ removed_layers ++ row_changes ++ composer_changes ++ task_changes ++ actions ++ introduction ++ fence)%list in
+   layer_changes ++ removed_layers ++ row_changes ++ composer_changes ++ task_changes ++ actions ++ fence)%list in
  let places:=((if nav then [placement V.workspace_key (Some "workspace-body") headers;
   placement "workspace-body" (Some "main-layout") sidebar] else []) ++
   (if main then [placement "main-layout" (Some (String.append V.workspace_key "/beside"))

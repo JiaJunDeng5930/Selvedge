@@ -516,9 +516,9 @@ Definition reconnect_label := "立即重连".
 Definition local_connection parent services :=
  let id := part (part parent "local") "settings-controls" in
  match Services.connection services with
- | ConnectionReady _ => row parent "local" "本地服务" "当前浏览器已连接 Selvedge。"
+ | ConnectionReady _ => row parent "local" "本地服务" ""
       [information id "service-connected" Information.OptionLabel "已连接"] []
- | ConnectionLoading _ => row parent "local" "本地服务" "正在连接 Selvedge…"
+ | ConnectionLoading _ => row parent "local" "本地服务" ""
       [information id "service-connecting" Information.Status "连接中"] []
  | ConnectionDormant => row parent "local" "本地服务" "将当前浏览器连接到 Selvedge。"
       [button id "connect" "连接" true Services.Connect] []

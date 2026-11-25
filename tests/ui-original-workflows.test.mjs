@@ -19,7 +19,10 @@ test('a Project task keeps its readable context and its primary and supporting a
     .getByRole('button', { name: '项目', exact: true }).click();
   await page.getByRole('main').getByRole('button', { name: 'Harbour 海港', exact: true }).click();
   await page.getByRole('main').getByRole('button', { name: '在项目中开始对话', exact: true }).click();
-  await page.getByText('新建对话 · Harbour 海港', { exact: true }).waitFor();
+  const creation = page.getByRole('main');
+  await creation.getByRole('heading', { name: '新建对话', exact: true }).waitFor();
+  await creation.locator('[data-semantic-key="composer/project"]')
+    .getByText('Harbour 海港', { exact: true }).waitFor();
 
   const message = page.getByRole('combobox', { name: 'Task', exact: true });
   const commit = page.getByRole('button', { name: 'Start task', exact: true });

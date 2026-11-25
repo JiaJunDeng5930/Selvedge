@@ -166,8 +166,10 @@ test('an explicit send shows the captured new message in a temporary conversatio
       const previousBox = await nextSend.boundingBox();
       await nextSend.click();
       await messageReceipt.promise;
-      await status.waitFor();
-      assert.ok(insideViewport(await status.boundingBox(), compact));
+      await pending.waitFor();
+      assert.equal(await status.count(), 0, 'The existing composer has one visible sending indicator');
+      assert.equal(await pending.getAttribute('aria-busy'), 'true');
+      assert.equal(await pending.evaluate(button => getComputedStyle(button, '::before').animationName), 'interactive-spin');
       assert.deepEqual(await pending.boundingBox(), previousBox);
     } finally {
       releaseMessage.resolve();

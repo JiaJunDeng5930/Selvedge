@@ -255,10 +255,9 @@ Definition directory_view snapshot s :=
      (match parent_path with Some _=>Available|None=>Unavailable "" end)) in
    let choose_availability:=match resource with
      |Resource.Loaded _ _ _=>if SO.directory_selection_allowed preview
-      then Available else Unavailable(value_or "" git_status)
-     |Resource.Loading _ _=>Unavailable loading
-     |Resource.Failed _ _ code=>Unavailable(directory_error_message label code)
-     |Resource.Dormant=>Unavailable "" end in
+      then Available else Unavailable ""
+     |Resource.Loading _ _=>Busy ""
+     |Resource.Failed _ _ _|Resource.Dormant=>Unavailable "" end in
    let navigation:=region parent "directory-location-actions" (label "目录导航" "Folder navigation") Roles.Section
         [parent_action;
          Node(part parent "location")"directory-location" (label "目录路径" "Directory") Roles.Field
