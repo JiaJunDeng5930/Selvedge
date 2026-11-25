@@ -112,21 +112,28 @@ let packet source world = with_input source (fun input ->
   |])
 let observe world = Js.string (Json.stringify (Model.selvedge_kernel_world_json world))
 
+let publication_dependencies = Hashtbl.create 3
+
+let depends_on_changed_task feature owners world changes =
+  match changes with
+  | [] -> false
+  | _ ->
+    let ids = match Hashtbl.find_opt publication_dependencies feature with
+      | Some (same_feature, ids) when same_feature world -> ids
+      | _ ->
+        let owners = owners world in
+        let ids = Hashtbl.create (List.length owners) in
+        List.iter (fun id -> Hashtbl.replace ids (Big_int_Z.int_of_big_int id) ()) owners;
+        Hashtbl.replace publication_dependencies feature (Stored_state.feature_matches feature world, ids);
+        ids in
+    List.exists (fun change -> Hashtbl.mem ids change.id) changes
+
 let observe_patch before next changes =
   let observe_row project id task world =
     Json.stringify (project (Big_int_Z.big_int_of_int id) task world) in
   let row id text =
     Js.Unsafe.obj [| "id", Js.Unsafe.inject (Js.number_of_float (float_of_int id));
       "text", Js.Unsafe.inject (Js.string text) |] in
-  let tasks = List.map (fun change ->
-    let project = Model.selvedge_kernel_task_publication (Option.is_none change.previous) in
-    let result = row change.id (observe_row project change.id change.task next) in
-    let appended = match change.history with
-      | None -> "[]"
-      | Some (_, messages) -> Json.stringify
-          (Model.selvedge_kernel_history_publication (Big_int_Z.big_int_of_int change.id) messages) in
-    Js.Unsafe.set result "appended" (Js.string appended);
-    result) changes in
   let changed = Hashtbl.create (List.length changes) in
   let ancestors = Hashtbl.create (List.length changes) in
   List.iter (fun change ->
@@ -134,16 +141,29 @@ let observe_patch before next changes =
     if Option.is_none change.previous then List.iter (fun ancestor ->
       Hashtbl.replace ancestors (Big_int_Z.int_of_big_int ancestor) ())
       (Stored_state.task_lineage change.task)) changes;
+  let fork_changed id task =
+    Hashtbl.length ancestors > 0 &&
+    (Hashtbl.mem ancestors id ||
+      List.exists (fun ancestor -> Hashtbl.mem ancestors (Big_int_Z.int_of_big_int ancestor))
+        (Stored_state.task_lineage task)) in
+  let tasks = List.map (fun change ->
+    let born = Option.is_none change.previous in
+    let project = Model.selvedge_kernel_task_publication born (born || fork_changed change.id change.task) in
+    let result = row change.id (observe_row project change.id change.task next) in
+    let appended = match change.history with
+      | None -> "[]"
+      | Some (_, messages) -> Json.stringify
+          (Model.selvedge_kernel_history_publication (Big_int_Z.big_int_of_int change.id) messages) in
+    Js.Unsafe.set result "appended" (Js.string appended);
+    result) changes in
   let shared_dependencies_changed = not (Stored_state.same_publication_dependencies before next) in
   let references =
     if shared_dependencies_changed || Hashtbl.length ancestors > 0 then
-      let observe = observe_row Model.selvedge_kernel_task_publication_references in
       List.filter_map (fun (id, task) ->
-        let fork_changed = Hashtbl.mem ancestors id ||
-          List.exists (fun ancestor -> Hashtbl.mem ancestors (Big_int_Z.int_of_big_int ancestor))
-            (Stored_state.task_lineage task) in
-        if Hashtbl.mem changed id || not (shared_dependencies_changed || fork_changed)
+        let capacity_changed = fork_changed id task in
+        if Hashtbl.mem changed id || not (shared_dependencies_changed || capacity_changed)
         then None else
+        let observe = observe_row (Model.selvedge_kernel_task_publication_references capacity_changed) in
         let current = observe id task next in
         if String.equal current (observe id task before) then None
         else Some (row id current))
@@ -155,9 +175,31 @@ let observe_patch before next changes =
     let old_project = Option.bind change.previous Model.selvedge_kernel_publication_project in
     not (Option.equal Big_int_Z.eq_big_int project old_project) in
   let projects_changed = not (Stored_state.same_projects before next) || List.exists membership_changed changes in
+  let feature name = not (Stored_state.feature_matches name before next) in
+  let related name owners = depends_on_changed_task name owners next changes in
+  let board_workflow_changed = feature "feature_instances" || feature "feature_ticket_instances" ||
+    feature "feature_ticket_workflows" in
+  let board_tasks_changed = feature "feature_board" || board_workflow_changed ||
+    related "feature_board" Model.selvedge_kernel_board_task_dependencies in
+  let selected_field = function
+    | "sequence" -> true
+    | "compaction" -> feature "feature_compaction" ||
+        related "feature_compaction" Model.selvedge_kernel_compaction_task_dependencies
+    | "title_settings" -> feature "feature_title_settings"
+    | "works" -> feature "feature_works"
+    | "graphs" -> feature "feature_graphs"
+    | "board" -> board_tasks_changed
+    | "card_save_facts" -> board_tasks_changed || catalog_changed || projects_changed
+    | "workflows" -> feature "feature_workflows"
+    | "workflow_instances" -> feature "feature_instances" ||
+        related "feature_instances" Model.selvedge_kernel_workflow_task_dependencies
+    | "ticket_workflows" -> feature "feature_ticket_instances" || feature "feature_ticket_workflows"
+    | "worktrees" -> feature "feature_worktrees"
+    | "remote" -> feature "feature_remote"
+    | _ -> true in
   Js.Unsafe.obj [|
     "shared", Js.Unsafe.inject (Js.string
-      (Json.stringify (Model.selvedge_kernel_shared_publication catalog_changed projects_changed next)));
+      (Json.stringify (Model.selvedge_kernel_shared_publication selected_field catalog_changed projects_changed next)));
     "tasks", Js.Unsafe.inject (Js.array (Array.of_list tasks));
     "references", Js.Unsafe.inject (Js.array (Array.of_list references))
   |]

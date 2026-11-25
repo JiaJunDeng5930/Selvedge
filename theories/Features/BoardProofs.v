@@ -499,6 +499,18 @@ Proof.
    rewrite Linked,Bool.andb_false_r. reflexivity.
 Qed.
 
+Theorem synchronized_cards_preserve_stage_updates : forall value cards,
+  match Board.synchronized_cards value cards with Some updated=>updated | None=>cards end =
+  map (option_map (fun card=>match Board.card_stage_change card value with
+    | Some updated=>updated | None=>card end)) cards.
+Proof.
+ intros value cards; induction cards as [|[card|] rest IH]; cbn [Board.synchronized_cards map option_map].
+ - reflexivity.
+ - destruct (Board.card_stage_change card value), (Board.synchronized_cards value rest);
+     cbn in IH |- *; now rewrite <- IH.
+ - destruct (Board.synchronized_cards value rest); cbn in IH |- *; now rewrite <- IH.
+Qed.
+
 Theorem finish_schedules_remaining_work : forall result id,
  Board.next (Board.synchronize (decision_world result))=Some id ->
  In ContinueScheduling (decision_effects (DecisionComposition.run Board.finish result)).

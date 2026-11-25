@@ -1,4 +1,4 @@
-From Selvedge.Features Require Workflow.
+From Selvedge.Features Require Workflow WorkflowTypes CompactionTypes.
 From Stdlib Require Import String List NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Numbers Domain Codec Context State Tasks ContextUpdates Observation Workspace.
@@ -106,19 +106,20 @@ Definition graph_snapshot id graph :=
  match Features.graph_json id graph with JObject fields=>JObject(fields++
   [("work_id",optional_number(Selvedge.Features.Domain.graph_work graph))])
  |other=>other end.
-Definition fork_observation (id:N)(task:task)(value:world):json:=JObject[
- ("parent_ready",JBool(Tasks.fork_parent_ready Tasks.ManualFork task));
- ("capacities",JArray(map(fun ancestor=>match Tasks.ancestor_capacity value ancestor with
+Definition fork_observation (include_capacity:bool) (id:N)(task:task)(value:world):json:=JObject(
+ [("parent_ready",JBool(Tasks.fork_parent_ready Tasks.ManualFork task))] ++
+ if include_capacity then [("capacities",JArray(map(fun ancestor=>match Tasks.ancestor_capacity value ancestor with
   |None=>JNull|Some(descendants,limit)=>JObject[("descendants",number descendants);("limit",number limit)]end)
-  (id::task_lineage task)))].
-Definition task_snapshot_fields_in_world include_history include_tools id task value :=
+  (id::task_lineage task)))] else []).
+Definition task_snapshot_fields_in_world include_history include_tools include_capacity id task value :=
  match task_snapshot_with_payload include_history include_tools id task (world_features value) with
- |JObject fields=>JObject(fields++[("fork",fork_observation id task value)])|result=>result end.
-Definition task_snapshot_in_world := task_snapshot_fields_in_world true true.
+ |JObject fields=>JObject(fields++[("fork",fork_observation include_capacity id task value)])|result=>result end.
+Definition task_snapshot_in_world := task_snapshot_fields_in_world true true true.
 Definition task_publication := task_snapshot_fields_in_world false.
 
-Definition task_publication_references id task value :=
- JObject (task_label_fields id task (world_features value) ++ [("fork", fork_observation id task value)]).
+Definition task_publication_references (include_capacity:bool) id task value :=
+ JObject (task_label_fields id task (world_features value) ++
+   if include_capacity then [("fork", fork_observation true id task value)] else []).
 (* Keep image bytes on the shared display catalog. Task contracts and provider
    requests carry the ordinary tool metadata. *)
 Definition display_tool_json tool :=
@@ -159,28 +160,60 @@ Definition catalog_publication_fields (value : world) := [
  ("tools", JArray (map display_tool_json (environment_tools (world_environment value))))].
 Definition project_publication_fields (value : world) := [
  ("projects", JArray (projects_json (world_projects value) (world_tasks value)))].
-Definition live_publication_fields (value : world) :=
- let features := world_features value in [
- ("sequence", number (world_sequence value));
- ("compaction",Selvedge.Features.CompactionCodec.state_json (fun id => find_task id value) (Selvedge.Features.Domain.feature_compaction features));
- ("title_settings", Selvedge.Features.Observation.title_settings_json (Selvedge.Features.Domain.feature_title_settings features));
- ("works", JArray (indexed Features.work_json 0 (Selvedge.Features.Domain.feature_works features)));
- ("graphs", JArray (Features.present_values graph_snapshot (Selvedge.Features.Domain.feature_graphs features)));
- ("board", Selvedge.Features.Observation.board_json_in_world value);
- ("card_save_facts", card_save_facts value);
- ("workflows", Workflow.definitions_json value);
- ("workflow_instances", Workflow.instances_json value);
- ("ticket_workflows", Workflow.ticket_bindings_json value);
- ("worktrees", JArray (map Features.worktree_json (Selvedge.Features.Domain.feature_worktrees features)));
- ("remote", Features.remote_json (Selvedge.Features.Domain.feature_remote features))].
+Definition live_publication_projections : list (string * (world -> json)) := [
+ ("sequence", fun value => number (world_sequence value));
+ ("compaction", fun value => Selvedge.Features.CompactionCodec.state_json
+   (fun id => find_task id value) (Selvedge.Features.Domain.feature_compaction (world_features value)));
+ ("title_settings", fun value => Selvedge.Features.Observation.title_settings_json
+   (Selvedge.Features.Domain.feature_title_settings (world_features value)));
+ ("works", fun value => JArray (indexed Features.work_json 0 (Selvedge.Features.Domain.feature_works (world_features value))));
+ ("graphs", fun value => JArray (Features.present_values graph_snapshot (Selvedge.Features.Domain.feature_graphs (world_features value))));
+ ("board", Selvedge.Features.Observation.board_json_in_world);
+ ("card_save_facts", card_save_facts);
+ ("workflows", Workflow.definitions_json);
+ ("workflow_instances", Workflow.instances_json);
+ ("ticket_workflows", Workflow.ticket_bindings_json);
+ ("worktrees", fun value => JArray (map Features.worktree_json (Selvedge.Features.Domain.feature_worktrees (world_features value))));
+ ("remote", fun value => Features.remote_json (Selvedge.Features.Domain.feature_remote (world_features value)))].
 
-Definition shared_publication_fields (catalog_changed projects_changed : bool) value :=
- live_publication_fields value
+Definition project_field value (projection : string * (world -> json)) :=
+ (fst projection, snd projection value).
+
+Definition board_task_dependencies value :=
+ flat_map (fun entry => match entry with
+  | Some card => match Selvedge.Features.Domain.card_task card with Some id => [id] | None => [] end
+  | None => [] end)
+  (Selvedge.Features.Domain.board_cards (BoardFacts.registry value)).
+Definition workflow_task_dependencies value :=
+ flat_map (fun instance =>
+  flat_map (fun path => match WorkflowTypes.path_value path with
+   | WorkflowTypes.Executing _ id _ | WorkflowTypes.Forwarding _ id _ _ => [id]
+   | _ => [] end) (WorkflowTypes.instance_paths instance)) (Workflow.instances value).
+Definition compaction_task_dependencies value :=
+ map fst (Selvedge.Features.CompactionTypes.maintenance_entries
+  (Selvedge.Features.Domain.feature_compaction (world_features value))).
+
+Definition live_publication_fields (selected : string -> bool) (value : world) :=
+ map (project_field value) (filter (fun projection => selected (fst projection)) live_publication_projections).
+
+Theorem live_publication_fields_select_exactly selected value :
+ live_publication_fields selected value =
+ filter (fun field => selected (fst field)) (live_publication_fields (fun _ => true) value).
+Proof.
+ unfold live_publication_fields.
+ generalize live_publication_projections as projections.
+ induction projections as [|[key project] rest IH]; cbn [filter map fst]; [reflexivity|].
+ unfold project_field at 2. cbn [fst snd].
+ destruct (selected key); cbn [map]; now rewrite IH.
+Qed.
+
+Definition shared_publication_fields selected (catalog_changed projects_changed : bool) value :=
+ live_publication_fields selected value
  ++ (if catalog_changed then catalog_publication_fields value else [])
  ++ (if projects_changed then project_publication_fields value else []).
-Definition shared_publication catalog_changed projects_changed value :=
- JObject (shared_publication_fields catalog_changed projects_changed value).
+Definition shared_publication selected catalog_changed projects_changed value :=
+ JObject (shared_publication_fields selected catalog_changed projects_changed value).
 Definition publication_project task := settings_project (task_current_settings task).
 Definition world_json (value : world) :=
  JObject (("tasks", JArray (indexed (fun id task => task_snapshot_in_world id task value) 0 (world_tasks value)))
-   :: shared_publication_fields true true value).
+   :: shared_publication_fields (fun _ => true) true true value).

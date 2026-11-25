@@ -229,6 +229,12 @@ let () =
         let field = feature_prefix ^ qualified feature_owner name in
         comparison (List.assoc name feature_fields) ^ " left." ^ field ^ " right." ^ field)
         ["feature_titles"; "feature_task_owners"]));
+    Printf.fprintf output "let feature_matches name before = match name with\n";
+    List.iter (fun (name, shape) ->
+      let field = feature_prefix ^ qualified feature_owner name in
+      Printf.fprintf output "  | %S -> let previous = before.%s in fun current -> %s previous current.%s\n"
+        name field (comparison shape) field) feature_fields;
+    Printf.fprintf output "  | _ -> invalid_arg \"Unknown feature in publication dependencies\"\n";
     Printf.fprintf output "let tasks value = value.%s\nlet sequence value = value.%s\n"
       (qualified owner "world_tasks") (qualified owner "world_sequence");
     List.iter (fun (function_name, name) ->

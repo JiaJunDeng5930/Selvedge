@@ -21,6 +21,9 @@ Open Scope string_scope.
 Definition initial := State.initial.
 Definition world_json := Publication.world_json.
 Definition shared_publication := Publication.shared_publication.
+Definition board_task_dependencies := Publication.board_task_dependencies.
+Definition workflow_task_dependencies := Publication.workflow_task_dependencies.
+Definition compaction_task_dependencies := Publication.compaction_task_dependencies.
 Definition task_publication := Publication.task_publication.
 Definition task_history_since cursor task := skipn cursor (task_history task).
 Definition history_publication := Publication.history_json.

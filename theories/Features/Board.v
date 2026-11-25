@@ -285,13 +285,29 @@ Definition completion (received : Callback.decoded ModelDeclarations.BoardText) 
  | None => (false,false,ignored) end.
 Definition completion_inputs := [InputRoute.callback ModelDeclarations.BoardText
  (fun received => Some (completion received))].
-Definition synchronize_card (card:Selvedge.Features.Domain.card) (value:world) :=
- if Selvedge.Features.Domain.card_archived card then card else match linked_task card value with None=>card | Some task=>
+Definition card_stage_change (card:Selvedge.Features.Domain.card) (value:world) :=
+ if Selvedge.Features.Domain.card_archived card then None else match linked_task card value with None=>None | Some task=>
  let previous:=Selvedge.Features.Domain.draft_stage (Selvedge.Features.Domain.card_contents card) in
  let next:=BoardFacts.stage_after_task previous task in
- if String.eqb (Selvedge.Features.Domain.stage_name previous) (Selvedge.Features.Domain.stage_name next) then card else revised (with_stage next (Selvedge.Features.Domain.card_contents card)) (Selvedge.Features.Domain.card_updated_at card) card end.
+ if String.eqb (Selvedge.Features.Domain.stage_name previous) (Selvedge.Features.Domain.stage_name next) then None
+ else Some (revised (with_stage next (Selvedge.Features.Domain.card_contents card)) (Selvedge.Features.Domain.card_updated_at card) card) end.
+Fixpoint synchronized_cards (value:world) (cards:list (option Selvedge.Features.Domain.card)) :=
+ match cards with
+ | []=>None
+ | card::rest=>
+   let change:=match card with Some card=>card_stage_change card value | None=>None end in
+   match change,synchronized_cards value rest with
+   | None,None=>None
+   | Some current,None=>Some (Some current::rest)
+   | None,Some updated=>Some (card::updated)
+   | Some current,Some updated=>Some (Some current::updated)
+   end
+ end.
 Definition synchronize (value:world) := let b:=registry value in
- store ((set Selvedge.Features.Domain.board_cards (fun _=>(map (option_map (fun card=>synchronize_card card value)) (Selvedge.Features.Domain.board_cards b))) (b))) value.
+ match synchronized_cards value (Selvedge.Features.Domain.board_cards b) with
+ | Some cards=>store (set Selvedge.Features.Domain.board_cards (fun _=>cards) b) value
+ | None=>value
+ end.
 Definition ready (card:Selvedge.Features.Domain.card) (value:world) := runnable card value &&
  BoardFacts.enrichment_ready card && BoardFacts.automatic_stage (Selvedge.Features.Domain.draft_stage (Selvedge.Features.Domain.card_contents card)).
 Definition priority_rank (p:Selvedge.Features.Domain.priority) :N := match p with Selvedge.Features.Domain.Urgent=>4 | Selvedge.Features.Domain.High=>3 | Selvedge.Features.Domain.Medium=>2 | Selvedge.Features.Domain.Low=>1 | Selvedge.Features.Domain.NoPriority=>0 end.

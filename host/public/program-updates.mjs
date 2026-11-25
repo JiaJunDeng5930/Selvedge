@@ -52,7 +52,7 @@ export function applyProgramUpdates(program, updates) {
       const start = safeInteger(row.value.cursor) - row.appended.length;
       const data = prior?.tools === undefined ? row.value : { tools: prior.tools, ...row.value };
       const history = prefix.length === start ? (row.appended.length ? prefix.concat(row.appended) : prefix) : previous;
-      tasks[id] = installBrowserHistory(data, history);
+      tasks[id] = installBrowserHistory({ ...data, fork: { ...prior?.fork, ...data.fork } }, history);
     }
     for (const row of update.references) {
       const id = safeInteger(row.id);

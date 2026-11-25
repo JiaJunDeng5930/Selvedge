@@ -196,7 +196,11 @@ test('a local browser command publishes the changed task without unrelated conve
     const tasks = receipt.updates.flatMap(update => update.tasks);
     assert.deepEqual(tasks.map(task => task.id), [taskId]);
     assert.equal(tasks[0].value.status, 'frozen');
-    assert.equal((await state()).program.tasks[taskId].status, 'frozen');
+    assert.equal(Object.hasOwn(tasks[0].value.fork, 'capacities'), false);
+    const after = (await state()).program.tasks[taskId];
+    assert.equal(after.status, 'frozen');
+    assert.equal(after.fork.parent_ready, false);
+    assert.deepEqual(after.fork.capacities, snapshot.program.tasks[taskId].fork.capacities);
     return text.length;
   }
 

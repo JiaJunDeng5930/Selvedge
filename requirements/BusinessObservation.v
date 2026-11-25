@@ -12,7 +12,9 @@
     existing command handlers and the browser snapshot. [Read] selects typed
     business information from that snapshot. Project membership follows the
     observed Task settings. Conversation activity keeps its occurrence identity
-    when the browser groups it. *)
+    when the browser groups it. A publication of a local change evaluates
+    only the selected shared projections. The projections use the same facts
+    in a complete snapshot. *)
 
 From Stdlib Require Import String List NArith PeanoNat Lia.
 From Selvedge.Foundation Require Import Json.
@@ -30,6 +32,7 @@ Open Scope string_scope.
 
 Export PacketProofs(actual_admitted_query_delivers_its_observation).
 Export ConversationProofs(summary_assistant_reply_matches_published_message).
+Export Publication(live_publication_fields_select_exactly).
 
 Lemma selected_world_identity collection key id snapshot value :
  World.find_world collection key id snapshot = Some value ->
