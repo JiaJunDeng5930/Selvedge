@@ -175,7 +175,9 @@ test('Project task creation distinguishes restored workspace inheritance from an
     .getByRole('button', { name: '项目', exact: true }).click();
   await page.getByRole('main').getByRole('button', { name: 'Acceptance Project', exact: true }).click();
   await page.getByRole('main').getByRole('button', { name: '在项目中开始对话', exact: true }).waitFor();
-  assert.ok((await page.getByRole('main').innerText()).includes(root));
+  const project = page.getByRole('main');
+  await project.getByText(`工作目录 · ${path.basename(root)}`, { exact: true }).click();
+  await project.getByText(root, { exact: true }).waitFor();
   await page.getByText('Use the Project acceptance instructions.', { exact: true }).waitFor();
   await page.getByRole('main').getByRole('button', { name: '在项目中开始对话', exact: true }).click();
   const start = page.getByRole('button', { name: 'Start task', exact: true });
