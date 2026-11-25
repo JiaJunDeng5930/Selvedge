@@ -3,6 +3,7 @@ From Selvedge.Programming Require InputRoute.
 From Selvedge.Programming Require CommandResult DecisionComposition.
 From Stdlib Require Import String Ascii List Bool NArith PeanoNat.
 From Selvedge.Foundation Require Import Json Utf8.
+From Selvedge.Foundation Require IndexedRegistry OptionList.
 From Selvedge.Programming Require Import Schema Completion.
 From Selvedge.Kernel Require Import Numbers Domain State Codec Tasks Workspace CommandExecution.
 From Selvedge.Programming Require Import FeatureRequest.
@@ -308,13 +309,32 @@ Definition synchronize (value:world) := let b:=registry value in
  | Some cards=>store (set Selvedge.Features.Domain.board_cards (fun _=>cards) b) value
  | None=>value
  end.
-Definition ready (card:Selvedge.Features.Domain.card) (value:world) := runnable card value &&
- BoardFacts.enrichment_ready card && BoardFacts.automatic_stage (Selvedge.Features.Domain.draft_stage (Selvedge.Features.Domain.card_contents card)).
+Definition ready (card:Selvedge.Features.Domain.card) (value:world) :=
+ if BoardFacts.automatic_stage (Selvedge.Features.Domain.draft_stage (Selvedge.Features.Domain.card_contents card)) &&
+    BoardFacts.enrichment_ready card then runnable card value else false.
 Definition priority_rank (p:Selvedge.Features.Domain.priority) :N := match p with Selvedge.Features.Domain.Urgent=>4 | Selvedge.Features.Domain.High=>3 | Selvedge.Features.Domain.Medium=>2 | Selvedge.Features.Domain.Low=>1 | Selvedge.Features.Domain.NoPriority=>0 end.
+Definition queue_candidate_from (lookup : N -> option Selvedge.Features.Domain.card) (value : world) pinned priority id :=
+ match lookup id with
+ | Some card => Bool.eqb pinned (Selvedge.Features.Domain.card_pinned card) &&
+   N.eqb priority (priority_rank (Selvedge.Features.Domain.draft_priority (Selvedge.Features.Domain.card_contents card))) &&
+   ready card value && negb (BoardFacts.has_workflow id value)
+ | None => false end.
+Definition queue_candidate (value : world) := queue_candidate_from (fun id => CardScope.lookup id value) value.
+Definition indexed_card_lookup (rows : IndexedRegistry.t (option Selvedge.Features.Domain.card)) id :=
+ match IndexedRegistry.lookup id rows with Some row => row | None => None end.
+Definition queue_priorities := [4%N;3%N;2%N;1%N;0%N].
+Definition queue_pin_order := [true;false].
 Definition queued (value:world) := let order:=Selvedge.Features.Domain.board_order (registry value) in
- flat_map (fun pinned=>flat_map (fun priority=>filter (fun id=>match CardScope.lookup id value with Some card=>
- Bool.eqb pinned (Selvedge.Features.Domain.card_pinned card) && N.eqb priority (priority_rank (Selvedge.Features.Domain.draft_priority (Selvedge.Features.Domain.card_contents card))) && ready card value && negb (BoardFacts.has_workflow id value) | None=>false end) order) [4%N;3%N;2%N;1%N;0%N]) [true;false].
-Definition next (value:world) := if Selvedge.Features.Domain.board_automatic (registry value) then hd_error (queued value) else None.
+ flat_map (fun pinned => flat_map (fun priority => filter (queue_candidate value pinned priority) order)
+   queue_priorities) queue_pin_order.
+Definition next (value:world) :=
+ if Selvedge.Features.Domain.board_automatic (registry value) then
+   let order := Selvedge.Features.Domain.board_order (registry value) in
+   let rows := IndexedRegistry.from_list (Selvedge.Features.Domain.board_cards (registry value)) in
+   let eligible := queue_candidate_from (indexed_card_lookup rows) value in
+   OptionList.find_map (fun pinned => OptionList.find_map
+     (fun priority => find (eligible pinned priority) order) queue_priorities) queue_pin_order
+ else None.
 Definition save_consequence (id:N) (value:world) : option BoardFacts.save_consequence :=
  match CardScope.lookup id value with None=>None|Some card=>
  let draft:=Selvedge.Features.Domain.card_contents card in

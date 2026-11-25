@@ -5,6 +5,7 @@ From Selvedge.Programming Require CommandResult CardScope.
 From Stdlib Require Import String List Bool NArith Lia.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Foundation Require Import RegistryProofs Json.
+From Selvedge.Foundation Require IndexedRegistry IndexedRegistryProofs OptionList.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Foundation Require Import Utf8.
 From Selvedge.Programming Require Import CompletionProofs.
@@ -584,7 +585,8 @@ Proof.
    unfold Board.run in linked; rewrite Outcome in linked; cbn [CommandResult.decide CommandResult.resolve CommandResult.accept decision_world accept] in linked.
    exists updated. split; [exact linked|].
    unfold Board.ready,Board.runnable,BoardFacts.runnable,BoardFacts.runnable_profile,BoardFacts.unlinked,Board.unlinked.
-   rewrite task_id. rewrite Bool.andb_false_r. reflexivity.
+   rewrite task_id, Bool.andb_false_r.
+   now destruct (BoardFacts.automatic_stage (F.draft_stage (F.card_contents updated)) && BoardFacts.enrichment_ready updated).
  - eexists. split.
    + eapply BoardRelations.board_lookup_after_put_selected. exact found.
    + unfold Board.ready. cbn [F.card_contents F.draft_stage F.card_enrichment Board.with_stage
@@ -654,9 +656,46 @@ Proof.
  { intros pinned priority; apply filter_ext; intro id.
    destruct (CardScope.lookup id value) as [card|]; [|reflexivity].
    destruct priority, (F.draft_priority (F.card_contents card)); reflexivity. }
- unfold Board.queued; cbn [flat_map].
+ unfold Board.queued, Board.queue_candidate, Board.queue_candidate_from, Board.queue_priorities, Board.queue_pin_order; cbn [flat_map].
  rewrite <- (Band true F.Urgent), <- (Band true F.High), <- (Band true F.Medium),
    <- (Band true F.Low), <- (Band true F.NoPriority), <- (Band false F.Urgent),
    <- (Band false F.High), <- (Band false F.Medium), <- (Band false F.Low), <- (Band false F.NoPriority).
  reflexivity.
+Qed.
+
+Local Lemma first_in_filtered_sequence {A} (eligible : A -> bool) values :
+ hd_error (filter eligible values) = find eligible values.
+Proof. induction values as [|first rest IH]; cbn; [reflexivity|now destruct (eligible first)]. Qed.
+
+Local Lemma first_in_ordered_groups {A B} (members : A -> list B) groups :
+ hd_error (flat_map members groups) = OptionList.find_map (fun group => hd_error (members group)) groups.
+Proof.
+ induction groups as [|first rest IH]; cbn; [reflexivity|].
+ destruct (members first); cbn; [exact IH|reflexivity].
+Qed.
+
+Local Lemma same_group_selections {A B} (left right : A -> option B) groups :
+ (forall group, left group = right group) -> OptionList.find_map left groups = OptionList.find_map right groups.
+Proof.
+ intro Same. induction groups as [|first rest IH]; cbn [OptionList.find_map]; [reflexivity|].
+ rewrite Same, IH. reflexivity.
+Qed.
+
+Theorem selecting_the_next_card_follows_the_automatic_queue value :
+ Board.next value = if F.board_automatic (Board.registry value) then hd_error (Board.queued value) else None.
+Proof.
+ unfold Board.next, Board.queued.
+ destruct (F.board_automatic (Board.registry value)); [|reflexivity].
+ rewrite first_in_ordered_groups.
+ apply same_group_selections; intro pin.
+ rewrite first_in_ordered_groups.
+ apply same_group_selections; intro priority.
+ rewrite first_in_filtered_sequence.
+ assert (Lookup : forall id,
+   Board.indexed_card_lookup (IndexedRegistry.from_list (F.board_cards (Board.registry value))) id = CardScope.lookup id value).
+ { intro id. unfold Board.indexed_card_lookup.
+   now rewrite <- IndexedRegistryProofs.contents_lookup, IndexedRegistryProofs.contents_from_list. }
+ generalize (F.board_order (Board.registry value)) as ordered; intro ordered.
+ induction ordered as [|id rest IH]; cbn [find]; [reflexivity|].
+ rewrite IH. unfold Board.queue_candidate, Board.queue_candidate_from. now rewrite Lookup.
 Qed.
