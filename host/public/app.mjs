@@ -45,6 +45,7 @@ const readingVisits = new WeakMap();
 const readingBlocks = new WeakMap();
 const visibleReadingAnchors = new WeakMap();
 const restoredReadingOffsets = new WeakMap();
+const alignedReadingOffsets = new WeakMap();
 let observedReadingGeometry = new Set();
 const readingResize = new ResizeObserver(() => {
   // Reader reflow and disclosure transitions can change the layout
@@ -827,6 +828,11 @@ const renderer = new Presentation(surface, {
       requestReadingAnchor(key, node, type === 'pointer' ? event.pointerId : undefined);
       acceptReading(key, node, browser('reading', { state, event: 'scroll' }));
     } else {
+      const aligned = alignedReadingOffsets.get(node);
+      alignedReadingOffsets.delete(node);
+      // An initial alignment can report its scroll after the reader
+      // has already asked to move away from the latest reply.
+      if (aligned === node.scrollTop) return;
       const state = readingState(key, node);
       if (state.intent !== 'history') return;
       // DEFENSE: restoring a bookmark emits scroll even when the browser clamps
@@ -973,7 +979,11 @@ function acceptReading(key, node, decision, locationTarget, publishIntent = true
       restoredReadingOffsets.delete(node);
       if (previous === 'follow') node.scrollTo({ top: node.scrollTop, left: node.scrollLeft, behavior: 'instant' });
     }
-    else if (effect.type === 'align_latest') node.scrollTo({ top: node.scrollHeight, behavior: effect.animate ? 'smooth' : 'instant' });
+    else if (effect.type === 'align_latest') {
+      const previous = node.scrollTop;
+      node.scrollTo({ top: node.scrollHeight, behavior: effect.animate ? 'smooth' : 'instant' });
+      if (!effect.animate && node.scrollTop !== previous) alignedReadingOffsets.set(node, node.scrollTop);
+    }
     else if (effect.type === 'reserve_composer') node.style.setProperty('scroll-padding-block-end', effect.clearance);
     else if (effect.type === 'cancel_anchor') retireReadingMeasurement(node);
     else if (effect.type === 'locate_message' && locationTarget) {
