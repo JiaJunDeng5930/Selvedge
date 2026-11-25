@@ -148,6 +148,9 @@ function initializationScript(source, root) {
 }
 
 export async function createTaskWorkspace(effect, options = {}) {
+  if (effect.workspace.environment) {
+    return sharedWorktree(effect.workspace.environment, effect, options);
+  }
   if (effect.backend === 'local') return createManagedWorktree(effect, options);
   let files, environment;
   try {
@@ -204,6 +207,10 @@ export async function rollbackTaskWorkspaceCreation(effect, options = {}) {
 }
 
 export async function archiveTaskWorkspace(effect, options = {}) {
+  if (effect.environment) {
+    const { environment, ...worktree } = effect;
+    return sharedWorktree(environment, worktree, options);
+  }
   if (effect.backend === 'local') return archiveManagedWorktree(effect, options);
   let files;
   try {
@@ -219,6 +226,10 @@ export async function archiveTaskWorkspace(effect, options = {}) {
 }
 
 export async function reconcileTaskWorkspace(entry, options = {}) {
+  if (entry.environment) {
+    const { task_id, status, source_root, root } = entry;
+    return sharedWorktree(entry.environment, { kind: 'worktree_recover', task_id, status, source_root, root }, options);
+  }
   if (entry.backend === 'local') return reconcileManagedWorktree(entry, options);
   const { effect } = resource('recovery', { entry, receipt: null });
   let files, receipt, environment;
@@ -254,6 +265,18 @@ export async function reconcileTaskWorkspace(entry, options = {}) {
     if (files) await log(files, `Recovery failed: ${error.message}`, options.onDiagnostic);
     return failed(effect, error, receipt?.root ?? entry.root ?? files?.root ?? null, files);
   } finally { environment?.filesystem.close(); }
+}
+
+async function sharedWorktree(environment, worktree, options) {
+  try {
+    return await options.executionEnvironments.get(environment, options.signal).peer.managedWorktree(options.namespace, worktree, options);
+  } catch (error) {
+    // DEFENSE: A paired receiver can become unavailable before acknowledging a managed worktree operation.
+    const effect = worktree.kind === 'worktree_recover'
+      ? boundary('effect.worktree_recovery_effect', { entry: worktree }) : worktree;
+    return completion(effect, { ok: false, ...(worktree.root == null ? {} : { root: worktree.root }),
+      message: `Shared worktree operation on ${environment} failed: ${String(error.message).toWellFormed()}` });
+  }
 }
 
 /** Resolve a committed association; local paths must never masquerade as a cloud binding. */

@@ -32,7 +32,7 @@ Definition needs_commit_effect (request : effect) :=
  | ExecuteTool _ _ _ _ _ _ _ | RequestApproval _ _ _ _ _
  | CheckTool _ _ _ _ _ | CheckResult _ _ _ _ _ _ _
  | ResetModelSession _ | CancelTask _ | CancelTicket _ _
- | CreateWorktree _ _ _ _ | ArchiveWorktree _ _ _ _
+ | CreateWorktree _ _ _ _ | ArchiveWorktree _ _ _ _ _
  | RequestFeature _ | CancelConnectionJob _ | MaintainContext _ => true
  end.
 Definition needs_commit (same_image : world -> world -> bool) (before : world) (result : decision) :=

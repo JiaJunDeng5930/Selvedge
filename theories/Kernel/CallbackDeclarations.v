@@ -81,7 +81,8 @@ Definition Model := declare "model" identity (Marked "ok" true model_fields) sta
  (fun message context_limit => (message,(if context_limit then Some tt else None,tt))).
 
 Definition created_workspace := D.Object
- [F.required "roots" (D.BoundedArray 0 32 WorkspacePath.declaration);F.required "primary_root" WorkspacePath.declaration].
+ [F.required "roots" (D.BoundedArray 0 32 WorkspacePath.declaration);F.required "primary_root" WorkspacePath.declaration;
+  F.optional "environment" D.text].
 Definition worktree_created_fields (ok : bool) := if ok then
  [F.required "root" WorkspacePath.declaration;F.required "workspace" created_workspace;F.required "guidance" Guidance.declaration]
  else [F.optional "root" D.text;F.required "message" (diagnostic_type standard_diagnostic)].

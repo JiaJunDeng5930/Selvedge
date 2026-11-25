@@ -66,7 +66,7 @@ test('the workspace directory browser identifies host directories and supports k
 });
 
 test('a local worktree picker checks the visited directory before selecting a primary', { timeout: 60000 }, async t => {
-  const { page, root } = await browserFixture(t);
+  const { page, root, command } = await browserFixture(t);
   const ordinary = path.join(root, 'Plain directory');
   const repository = path.join(root, 'Git directory');
   await mkdir(ordinary);
@@ -76,6 +76,11 @@ test('a local worktree picker checks the visited directory before selecting a pr
     '-c', 'user.name=Directory fixture', '-c', 'user.email=directory@example.test', '-C', repository, ...args]);
   await git('init', '--initial-branch=main');
   await git('commit', '--allow-empty', '-m', 'Initial commit');
+  await command({ op: 'create_project', name: 'Git picker project', workspace: { roots: [repository] } });
+  await page.getByRole('navigation', { name: 'Global navigation', exact: true })
+    .getByRole('button', { name: '项目', exact: true }).click();
+  await page.getByRole('main').getByRole('button', { name: 'Git picker project', exact: true }).click();
+  await page.getByRole('main').getByRole('button', { name: '在项目中开始对话', exact: true }).click();
 
   await page.getByRole('combobox', { name: 'Task', exact: true }).fill('Open this conversation in a Git worktree.');
   const environment = await enableCreationWorktree(page);

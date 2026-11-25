@@ -65,7 +65,7 @@ Inductive effect :=
 | CancelTicket (task_id ticket : N)
 | ContinueScheduling
 | CreateWorktree (task_id : N) (source_root : string) (workspace : workspace) (backend : WorkspaceBackend.backend)
-| ArchiveWorktree (task_id : N) (source_root root : string) (backend : WorkspaceBackend.backend)
+| ArchiveWorktree (task_id : N) (source_root root : string) (backend : WorkspaceBackend.backend) (environment : option string)
 | RequestFeature (request : RequestTypes.packet)
 | CancelConnectionJob (operation_id : N)
 | MaintainContext (request : Selvedge.Features.CompactionTypes.effect).

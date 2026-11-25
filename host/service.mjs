@@ -493,6 +493,7 @@ export class Service extends EventEmitter {
         running: running.map((active, index) => ({ generation: active.handle.generation,
           task: active.effect.task_id ?? null, resource: resources[index] ?? null,
           local_overlap: effect.backend === 'local' && !!active.effect.execution && !resources[index] &&
+            (active.effect.execution.workspace.environment ?? null) === (effect.environment ?? null) &&
             active.effect.execution.workspace.roots.some(root => directoriesOverlap(root, effect.root)) })) });
       await Promise.all(plan.awaits.map(generation => this.#running.get(naturalKey(generation))?.promise));
     }
@@ -641,6 +642,7 @@ export class Service extends EventEmitter {
 
   #workspaceOptions(signal) {
     return { home: this.home, limits: this.limits, namespace: this.journal.namespace, cloud: this.config.cloud, signal,
+      executionEnvironments: this.executionEnvironments,
       onDiagnostic: message => this.notify({ type: 'diagnostic', message }) };
   }
 
@@ -696,6 +698,7 @@ export class Service extends EventEmitter {
   async #readyWorkspace(entry, signal) {
     // DEFENSE: A frozen effect or a requested observation can find an archived or unfinished resource.
     if (entry.status !== 'ready') throw new Error('The committed task workspace binding is unavailable');
+    if (entry.environment) return { environment: this.executionEnvironments.get(entry.environment, signal) };
     return entry.backend === 'local' ? { managedWorktreeRoot: entry.root }
       : { environment: await taskWorkspaceEnvironment(entry, this.#workspaceOptions(signal)) };
   }
@@ -848,8 +851,6 @@ export class Service extends EventEmitter {
         if (!result.reply.ok) throw new Error(result.reply.error.message);
         const { resource, workspace_binding } = result.reply.result;
         const selected = selection.workspace;
-        // DEFENSE: A shared directory is borrowed from its receiver. Local checkout setup cannot operate on it.
-        if (selected?.environment && plan.worktree) throw new TypeError('A shared execution directory cannot provision a managed worktree');
         return { resource, workspace_binding, ...await this.#executionWorkspace(selected ?? {}, resource) };
       },
       projectWorkspace, localGuidance,
@@ -861,7 +862,10 @@ export class Service extends EventEmitter {
         observed = await observeWorkspaceCommand(workspaceCommandPlan(withWorkspace), this.limits, { localGuidance });
       }
       const primary = observed.settings.workspace.primary_root ?? observed.settings.workspace.roots[0];
+      const machine = observed.settings.workspace.environment;
       if (command.backend === 'tencent_cvm') {
+        // DEFENSE: Cloud provisioning requires a source repository on the task service host.
+        if (machine) throw new TypeError('Cloud task workspaces require a source on the Selvedge host');
         let projectPrimary = primary;
         if (selectedSettings?.project_id !== undefined && selectedSettings.project_id !== null) {
           const workspace = await projectWorkspace(selectedSettings.project_id);
@@ -870,7 +874,7 @@ export class Service extends EventEmitter {
         // DEFENSE: Cloud setup requires a committed GitHub source at the project's primary workspace.
         if (!await observeCloudRepository(projectPrimary)) throw new TypeError('Cloud task workspaces require a GitHub remote in the project primary workspace');
       // DEFENSE: A requested local worktree workspace may lack a commit to check out.
-      } else if (!await observeWorkspaceGit(primary)) {
+      } else if (!await observeWorkspaceGit(primary, { environment: machine ? this.executionEnvironments.get(machine) : undefined })) {
         throw new TypeError('Create worktree requires a Git repository with an initial commit in the primary workspace');
       }
     }
@@ -1142,7 +1146,8 @@ export class Service extends EventEmitter {
         return { kind: 'streams', namespace: this.journal.namespace, streams: this.browserStreams() };
       },
       workspaceGit: async plan => {
-        const environment = await this.#observationEnvironment(plan);
+        const environment = plan.environment === undefined ? await this.#observationEnvironment(plan)
+          : this.executionEnvironments.get(plan.environment);
         try {
           const available = await observeWorkspaceGit(plan.primary, { environment });
           return boundary('browser.observation', { phase: 'complete', kind: plan.kind, available });

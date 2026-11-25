@@ -4,7 +4,7 @@ import { execFile } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { browserFixture, openCreationEnvironment } from './fixtures/browser.mjs';
+import { browserFixture, creationWorktreeSwitch, openCreationEnvironment } from './fixtures/browser.mjs';
 
 const execute = promisify(execFile);
 const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('GIT_')));
@@ -27,6 +27,7 @@ function cloudResponse(page, primary) {
 async function chooseCloud(page) {
   const settings = await openCreationEnvironment(page);
   await settings.getByRole('menuitemradio', { name: '在腾讯云 CVM 上运行', exact: true }).click();
+  assert.equal(await creationWorktreeSwitch(page).isDisabled(), true);
   return settings;
 }
 
@@ -37,7 +38,7 @@ test('without configured cloud, the composer offers current and host Git directo
     if (request.url().endsWith('/api/browser/observation') && request.postDataJSON()?.kind === 'cloud-repository') probes.push(request);
   });
   const settings = await openCreationEnvironment(page);
-  await settings.getByRole('menuitemcheckbox', { name: '新建工作树', exact: true, checked: false }).waitFor();
+  await creationWorktreeSwitch(page).waitFor();
   assert.equal(await settings.getByText(/腾讯云 CVM/).count(), 0);
   await page.keyboard.press('Escape');
   await settings.waitFor({ state: 'hidden' });

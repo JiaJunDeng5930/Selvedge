@@ -374,9 +374,9 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     opened directory when available.
     A conversation keeps its selected run environment when verification is
     pending or fails. [git_observation_settles_only_the_workspace_check]
-    constrains the actual receipt. A local Git worktree requires verifying
-    that the current primary directory belongs to a repository with a commit.
-    A project requires the same verification when saving a local worktree as
+    constrains the actual receipt. A temporary Git worktree requires verifying
+    that the selected machine's primary directory belongs to a repository with a commit.
+    A project requires the same verification when saving a worktree as
     the default. The directory chooser shows Git readiness before a candidate
     becomes the primary directory. [a_blocked_directory_choice_does_not_change_the_draft]
     constrains the confirmation action. Additional working directories may
@@ -385,11 +385,12 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     settings identify the primary directory for the GitHub source and offer a
     way to correct it. The pushed revision must contain the setup script, and
     the task directories must lie within that repository.
-    The new conversation composer exposes a compact settings icon in its
-    toolbar. The menu displays project, actual directory and run settings
-    with the current choices. Its submenus open at the same anchor and use
-    the same language. Each menu has one visible title. Opening them keeps
-    the composer in place.
+    Above the new conversation input, the Project picker, Workspace picker and
+    temporary worktree switch appear together from the left edge. Project
+    selection supplies the configured Workspace. Workspace selects the machine
+    and directories. A verified host or receiver checkout can be isolated with
+    the switch, while a cloud machine provisions its own checkout. Opening
+    either picker keeps the composer in place.
     Conversation details show the full working directory after expansion,
     prefer line breaks at directory separators and offer to copy it from its
     header row. The details panel grows to fit its facts until it

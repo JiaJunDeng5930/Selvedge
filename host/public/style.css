@@ -1099,12 +1099,42 @@ main:has(> [data-page-region="creation-introduction"]) {
     border-color: var(--selvedge-focus) !important;
   }
 }
-[data-semantic-key="composer/tools"] > [data-semantic-key="composer/environment"] {
-  inline-size: 32px !important;
-  min-inline-size: 32px !important;
+[data-semantic-key="composer/context"] {
+  display: flex !important;
+  flex-flow: row wrap !important;
+  justify-content: flex-start !important;
+  align-items: center !important;
+  gap: .15rem .5rem !important;
+  padding-inline: .35rem !important;
+  background: transparent !important;
+}
+[data-semantic-key="composer/context"] > button {
+  display: inline-flex !important;
+  flex: 0 0 auto !important;
+  inline-size: auto !important;
+  max-inline-size: 100% !important;
+  min-inline-size: 0 !important;
+  justify-content: flex-start !important;
+  gap: .35rem !important;
+  padding-inline: .3rem !important;
+  background-color: transparent !important;
+}
+[data-semantic-key="composer/context"] > button:hover:not([aria-disabled="true"]),
+[data-semantic-key="composer/context"] > button[aria-expanded="true"] {
+  background-color: var(--selvedge-hover) !important;
+}
+[data-semantic-key="composer/context"] [data-property-summary] {
+  flex: 0 1 auto !important;
+  min-inline-size: min-content !important;
+}
+[data-semantic-key="composer/context"] [data-summary-role="principal"] {
+  white-space: nowrap;
+}
+[data-semantic-key="composer/context"] [data-support-secondary] {
+  display: none !important;
+}
+[data-semantic-key="creation-worktree"] > span[aria-hidden="true"] {
   flex: none !important;
-  border-radius: 50% !important;
-  padding: 0 !important;
 }
 [data-composer-menu] {
   inline-size: min(18rem, calc(100dvw - 2 * var(--layer-clearance))) !important;
@@ -1132,14 +1162,21 @@ main:has(> [data-page-region="creation-introduction"]) {
     inset: calc(var(--layer-gap) - var(--layer-clearance)) calc(0px - var(--layer-clearance)) auto auto !important;
   }
 }
-[data-semantic-key="creation-worktree"] > span:last-child {
+[data-composer-menu]:is([data-semantic-key="creation-environment"], [data-semantic-key="project-selection"],
+  [data-semantic-key="workspace-settings"]):not([data-anchor-available="false"]) {
+  position-area: bottom span-right !important;
+  align-self: start !important;
+  justify-self: start !important;
+  inset: calc(var(--layer-gap) - var(--layer-clearance)) auto auto calc(0px - var(--layer-clearance)) !important;
+}
+[data-semantic-key="creation-worktree"] > span[aria-hidden="true"] {
   position: relative;
   inline-size: 28px !important;
   block-size: 16px !important;
   border-radius: 999px;
   background: var(--selvedge-border);
 }
-[data-semantic-key="creation-worktree"] > span:last-child::after {
+[data-semantic-key="creation-worktree"] > span[aria-hidden="true"]::after {
   position: absolute;
   inset-block-start: 2px;
   inset-inline-start: 2px;
@@ -1149,25 +1186,17 @@ main:has(> [data-page-region="creation-introduction"]) {
   background: var(--selvedge-text);
   content: "";
 }
-[data-semantic-key="creation-worktree"][aria-checked="true"] > span:last-child {
+[data-semantic-key="creation-worktree"][aria-checked="true"] > span[aria-hidden="true"] {
   background: var(--selvedge-accent);
 }
-[data-semantic-key="creation-worktree"][aria-checked="true"] > span:last-child::after {
+[data-semantic-key="creation-worktree"][aria-checked="true"] > span[aria-hidden="true"]::after {
   inset-inline-start: 14px;
   background: var(--selvedge-on-accent);
 }
-[data-semantic-key="creation-worktree"] > span:last-child > svg { display: none; }
+[data-semantic-key="creation-worktree"] > span[aria-hidden="true"] > svg { display: none; }
 [data-page-region="composer-input"] > [data-semantic-key="run-environment-status"] {
   color: var(--selvedge-warning) !important;
   overflow-wrap: anywhere;
-}
-@container composer (inline-size < 26rem) {
-  [data-semantic-key="composer/tools"] > [data-semantic-key="composer/environment"] {
-    inline-size: 44px !important;
-    min-inline-size: 44px !important;
-    block-size: 44px !important;
-    min-block-size: 44px !important;
-  }
 }
 @media (max-width: 480px) {
   [data-composer-dock] { border-radius: 16px !important; }

@@ -100,6 +100,43 @@ test('shared execution preserves task permissions and resumes receiver operation
   assert.equal(await readFile(marker, 'utf8'), 'receiver-process');
   assert.equal(provider.failures.length, 0);
 
+  const workspace = { roots: [root], primary_root: root, environment: 'receiver' };
+  const probe = () => service.browserObservation({ kind: 'workspace-git', primary: root, environment: 'receiver' });
+  assert.equal((await probe()).available, false);
+  const git = (...args) => execFileSync('git', ['-C', root, '-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false',
+    '-c', 'user.name=Receiver fixture', '-c', 'user.email=receiver@example.test', ...args], { stdio: 'pipe' });
+  git('init', '--initial-branch=main');
+  git('add', 'AGENTS.md');
+  git('commit', '-m', 'Prepare receiver repository');
+  assert.equal((await probe()).available, true);
+  argumentsForTask = { command: 'printf "%s" "$SELVEDGE_EXECUTION_FIXTURE" > worktree-only' };
+  const created = await service.command({ op: 'create_worktree_task', profile: 'worker', message: 'Run in a receiver worktree.',
+    settings: { workspace, approval: { mode: 'ask-for-approval' }, sandbox: { mode: 'workspace-write', network_access: false } } });
+  assert.equal(created.reply.ok, true, JSON.stringify(created.reply));
+  const task_id = created.reply.result.task_id;
+  async function checkoutWithStatus(status) {
+    let checkout;
+    for (let attempt = 0; attempt < 500; attempt++) {
+      checkout = (await service.command({ op: 'read_worktree', task_id })).reply.result;
+      if (checkout.status === status) return checkout;
+      assert.ok(!checkout.status.endsWith('_failed'), JSON.stringify(checkout));
+      await delay(20);
+    }
+    assert.fail(JSON.stringify(checkout));
+  }
+  const worktree = await checkoutWithStatus('ready');
+  assert.equal(worktree.environment, 'receiver');
+  assert.equal(path.dirname(worktree.root), path.join(directory, 'receiver-home', 'worktrees'));
+  const working = await taskIdle(service, task_id);
+  assert.equal(working.task.settings.workspace.environment, 'receiver');
+  assert.equal(working.task.settings.workspace.primary_root, worktree.root);
+  assert.equal(await readFile(path.join(worktree.root, 'worktree-only'), 'utf8'), 'receiver-process');
+  await assert.rejects(readFile(path.join(root, 'worktree-only')), { code: 'ENOENT' });
+  assert.equal((await service.command({ op: 'archive', task_id })).reply.ok, true);
+  const archived = await checkoutWithStatus('archived');
+  assert.equal(path.dirname(archived.root), path.join(directory, 'receiver-home', 'worktrees', 'archived'));
+  assert.equal(await readFile(path.join(archived.root, 'worktree-only'), 'utf8'), 'receiver-process');
+
   const connection = { tls: { ca: await readFile(cert), rejectUnauthorized: true },
     protocols: ['selvedge-execution-v1'], headers: { Authorization: `Bearer ${await readFile(token, 'utf8')}` } };
   const connect = async () => {

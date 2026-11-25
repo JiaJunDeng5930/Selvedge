@@ -369,7 +369,7 @@ export function decodeHttpPlan(input: unknown): HttpPlan {
 
 export type BrowserObservationPlan =
   | {"kind": "streams"; }
-  | {"kind": "workspace-git"; "primary": string; "task_id"?: JsonValue}
+  | {"kind": "workspace-git"; "primary": string; "environment"?: string; "task_id"?: JsonValue}
   | {"kind": "cloud-repository"; "primary": string}
   | {"kind": "browse-directories"; "path": JsonValue; "default_path": boolean; "project_root": JsonValue; "environment"?: string; "task_id"?: JsonValue}
   | {"kind": "directories"; "workspace": JsonValue; "task_id"?: JsonValue}
@@ -378,7 +378,7 @@ export function decodeBrowserObservationPlan(input: unknown): BrowserObservation
   const source = decodeObject(input);
   switch (source["kind"]) {
     case "streams": exactFields(source, ["kind"]); return {"kind": "streams"};
-    case "workspace-git": exactFields(source, ["kind","primary","task_id"]); return {"kind": "workspace-git", "primary": decodeText(source["primary"]), ...(source["task_id"] === undefined ? {} : {"task_id": decodeJson(source["task_id"])})};
+    case "workspace-git": exactFields(source, ["kind","primary","environment","task_id"]); return {"kind": "workspace-git", "primary": decodeText(source["primary"]), ...(source["environment"] === undefined ? {} : {"environment": decodeText(source["environment"])}), ...(source["task_id"] === undefined ? {} : {"task_id": decodeJson(source["task_id"])})};
     case "cloud-repository": exactFields(source, ["kind","primary"]); return {"kind": "cloud-repository", "primary": decodeText(source["primary"])};
     case "browse-directories": exactFields(source, ["kind","path","default_path","project_root","environment","task_id"]); return {"kind": "browse-directories", "path": decodeJson(source["path"]), "default_path": decodeBoolean(source["default_path"]), "project_root": decodeJson(source["project_root"]), ...(source["environment"] === undefined ? {} : {"environment": decodeText(source["environment"])}), ...(source["task_id"] === undefined ? {} : {"task_id": decodeJson(source["task_id"])})};
     case "directories": exactFields(source, ["kind","workspace","task_id"]); return {"kind": "directories", "workspace": decodeJson(source["workspace"]), ...(source["task_id"] === undefined ? {} : {"task_id": decodeJson(source["task_id"])})};
@@ -543,7 +543,7 @@ export type Effect =
   | {"kind": "cancel_ticket"; "task_id": DomainNatural; "ticket": DomainNatural}
   | {"kind": "continue"; }
   | {"kind": "worktree_create"; "backend": "local" | "tencent_cvm"; "task_id": DomainNatural; "source_root": string; "workspace": JsonValue}
-  | {"kind": "worktree_archive"; "backend": "local" | "tencent_cvm"; "task_id": DomainNatural; "root": string; "source_root": string}
+  | {"kind": "worktree_archive"; "backend": "local" | "tencent_cvm"; "task_id": DomainNatural; "root": string; "source_root": string; "environment"?: string}
   | {"kind": "task_title"; "task_id": DomainNatural; "ticket": DomainNatural; "model": JsonValue; "prompt": string}
   | {"kind": "board_text"; "card_id": DomainNatural; "ticket": DomainNatural; "model": JsonValue; "prompt": string; "retitle": boolean}
   | {"kind": "chatgpt_exec"; "operation_id": DomainNatural; "arguments": JsonValue; "execution": JsonValue}
@@ -569,7 +569,7 @@ export function decodeEffect(input: unknown): Effect {
     case "cancel_ticket": exactFields(source, ["kind","task_id","ticket"]); return {"kind": "cancel_ticket", "task_id": decodeNatural(source["task_id"]), "ticket": decodeNatural(source["ticket"])};
     case "continue": exactFields(source, ["kind"]); return {"kind": "continue"};
     case "worktree_create": exactFields(source, ["kind","backend","task_id","source_root","workspace"]); return {"kind": "worktree_create", "backend": decodeEnum5(source["backend"]), "task_id": decodeNatural(source["task_id"]), "source_root": decodeText(source["source_root"]), "workspace": decodeJson(source["workspace"])};
-    case "worktree_archive": exactFields(source, ["kind","backend","task_id","root","source_root"]); return {"kind": "worktree_archive", "backend": decodeEnum5(source["backend"]), "task_id": decodeNatural(source["task_id"]), "root": decodeText(source["root"]), "source_root": decodeText(source["source_root"])};
+    case "worktree_archive": exactFields(source, ["kind","backend","task_id","root","source_root","environment"]); return {"kind": "worktree_archive", "backend": decodeEnum5(source["backend"]), "task_id": decodeNatural(source["task_id"]), "root": decodeText(source["root"]), "source_root": decodeText(source["source_root"]), ...(source["environment"] === undefined ? {} : {"environment": decodeText(source["environment"])})};
     case "task_title": exactFields(source, ["kind","task_id","ticket","model","prompt"]); return {"kind": "task_title", "task_id": decodeNatural(source["task_id"]), "ticket": decodeNatural(source["ticket"]), "model": decodeJson(source["model"]), "prompt": decodeText(source["prompt"])};
     case "board_text": exactFields(source, ["kind","card_id","ticket","model","prompt","retitle"]); return {"kind": "board_text", "card_id": decodeNatural(source["card_id"]), "ticket": decodeNatural(source["ticket"]), "model": decodeJson(source["model"]), "prompt": decodeText(source["prompt"]), "retitle": decodeBoolean(source["retitle"])};
     case "chatgpt_exec": exactFields(source, ["kind","operation_id","arguments","execution"]); return {"kind": "chatgpt_exec", "operation_id": decodeNatural(source["operation_id"]), "arguments": decodeJson(source["arguments"]), "execution": decodeJson(source["execution"])};

@@ -24,13 +24,17 @@ Definition request_plan (source : json) : json :=
   else if String.eqb (observation_kind request) "streams" && field_count_is 1 request then
     success (Variant.encode_packet (Variant.pack ModelResultDeclarations.browser_streams [!!]))
   else if String.eqb (observation_kind request) "workspace-git" &&
-      request_count_is 2 request then
-    match (match string_field "primary" request with Some "" => string_field "cwd" source | selected => selected end) with
-    | Some primary => success (Variant.encode_packet
-        (Variant.pack ModelResultDeclarations.browser_workspace_git [!primary;field "task_id" request!]))
+      request_count_is (if has request "environment" then 3 else 2) request then
+    let environment := match field "environment" request with
+       |None=>Some None
+       |Some value=>option_map (fun id=>Some (proj1_sig id)) (ArgumentDeclaration.decode Workspace.environment_declaration value)
+       end in
+    match (match string_field "primary" request with Some "" => string_field "cwd" source | selected => selected end),environment with
+    | Some primary,Some environment => success (Variant.encode_packet
+        (Variant.pack ModelResultDeclarations.browser_workspace_git [!primary;environment;field "task_id" request!]))
     (* DEFENSE: A non-text primary, or an empty primary without a text cwd,
        cannot supply the declared workspace root. *)
-    | None => type_error "Expected a workspace root" end
+    | _,_ => type_error "Expected a workspace root and valid machine" end
   else if String.eqb (observation_kind request) "cloud-repository" && field_count_is 2 request then
     match string_field "primary" request with
     | Some primary=>if Workspace.valid_path primary then success (Variant.encode_packet

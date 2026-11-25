@@ -78,7 +78,7 @@ Definition http_action_of_name value := find (fun action => String.eqb value (ht
 Definition http_plans := [http_respond;http_throw;http_observe_content_type] ++ map http_action_declaration all_http_actions.
 Definition task := [OmittableField "task_id" KJson].
 Definition browser_streams := variant "kind" "streams" [] [].
-Definition browser_workspace_git := variant "kind" "workspace-git" (Field "primary" KText::task) [].
+Definition browser_workspace_git := variant "kind" "workspace-git" ([Field "primary" KText;OmittableField "environment" KText]++task) [].
 Definition browser_cloud_repository := variant "kind" "cloud-repository" [Field "primary" KText] [].
 Definition browser_browse_directories := variant "kind" "browse-directories" ([Field "path" KJson;Field "default_path" KBool;Field "project_root" KJson;OmittableField "environment" KText]++task) [].
 Definition browser_directories := variant "kind" "directories" (Field "workspace" KJson::task) [].

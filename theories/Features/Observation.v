@@ -45,13 +45,14 @@ Definition grant_json (value : Selvedge.Features.Domain.remote_grant) := JObject
  ("permissions", rights_json (Selvedge.Features.Domain.grant_rights value))].
 Definition remote_json (value : Selvedge.Features.Domain.remote) := JObject [
  ("enabled", JBool (Selvedge.Features.Domain.remote_enabled value)); ("controllers", JArray (map grant_json (Selvedge.Features.Domain.remote_grants value)))].
-Definition worktree_json (value : Selvedge.Features.Domain.worktree) := JObject [
+Definition worktree_fields (value : Selvedge.Features.Domain.worktree) := [
  ("task_id", number (Selvedge.Features.Domain.worktree_task value)); ("source_root", JString (Selvedge.Features.Domain.worktree_source value));
  ("backend", JString (WorkspaceBackend.name (Selvedge.Features.Domain.worktree_backend value)));
  ("root", optional_string (Selvedge.Features.Domain.worktree_root value)); ("target_primary", JString (Selvedge.Features.Domain.worktree_target_primary value)); ("message", JString (Selvedge.Features.Domain.worktree_message value));
  ("status", JString (match Selvedge.Features.Domain.worktree_state value with
  | Selvedge.Features.Domain.Creating => "creating" | Selvedge.Features.Domain.CreatingArchived => "creating_archived" | Selvedge.Features.Domain.Ready => "ready" | Selvedge.Features.Domain.CreationFailed => "create_failed"
  | Selvedge.Features.Domain.Archiving => "archiving" | Selvedge.Features.Domain.ArchiveFailed => "archive_failed" | Selvedge.Features.Domain.WorktreeArchived => "archived" end))].
+Definition worktree_json value := JObject (worktree_fields value).
 Fixpoint graph_message_json (value : Selvedge.Features.Domain.graph_message) : json :=
  match value with
  | Selvedge.Features.Domain.GraphOutput => JObject [("kind", JString "output")]

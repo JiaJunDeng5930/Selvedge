@@ -1684,7 +1684,8 @@ async function execute(effect) {
       return body;
     });
     case 'workspace_git': return settled('workspace_git_completed', effect.ticket, async () => {
-      const body = await post('/api/browser/observation', taskObservation(effect, { kind: 'workspace-git', primary: effect.primary }));
+      const body = await post('/api/browser/observation', taskObservation(effect, { kind: 'workspace-git', primary: effect.primary,
+        ...(effect.environment === undefined ? {} : { environment: effect.environment }) }));
       if (body.ok === false) throw new Error(body.error);
       return body.available;
     });

@@ -6,6 +6,7 @@ From Selvedge.Kernel Require Import Commands Workspace.
 From Selvedge.Kernel Require CommandDeclarations.
 From Selvedge.Adapters Require Import Common Observation.
 From Selvedge.Host Require Import LocalResources.
+From Selvedge.Interaction Require Origin.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
@@ -142,8 +143,10 @@ Definition child (parent leaf : string) :=
 Definition contains_path (root parent : string) := String.eqb root parent || starts root (child parent "").
 Definition worktree_locations (source : json) :=
   let home := str source "home" in let storage := child home "worktrees" in
-  let name := "task-" ++ decimal (num source "task_id") in
-  type_admit (is_text (get source "home") && starts home "/" && bound (get source "task_id") 0 9007199254740991)
+  let namespace := get source "namespace" in
+  let name := "task-" ++ (if is_null namespace then "" else text namespace ++ "-") ++ decimal (num source "task_id") in
+  type_admit (is_text (get source "home") && starts home "/" && bound (get source "task_id") 0 9007199254740991 &&
+    (is_null namespace || (is_text namespace && Origin.valid_namespace (text namespace))))
     (JObject [("home",JString home);("storage",JString storage);("active",JString (child storage name));
       ("archived",JString (child (child storage "archived") name));
       ("receipt",JString (child (child storage "receipts") (name ++ ".json")))])
@@ -189,8 +192,9 @@ Definition relocated (value : json) (previous next : string) (descendants : bool
 Definition worktree_workspace (source : json) :=
   let workspace := get source "workspace" in let previous := str source "previous" in let next := str source "next" in
   let relocate := fun value => relocated value previous next (boolean_field source "descendants") in
-  success (JObject [("roots",JArray (map relocate (items (get workspace "roots"))));
-    ("primary_root",relocate (get workspace "primary_root"))]).
+  success (JObject ([("roots",JArray (map relocate (items (get workspace "roots"))));
+    ("primary_root",relocate (get workspace "primary_root"))] ++
+    match field "environment" workspace with Some value=>[("environment",value)]|None=>[]end)).
 Definition worktree_recovery_effect (source : json) :=
   let entry := get source "entry" in
   success (JObject [("kind",JString (if existsb (String.eqb (str entry "status")) ["creating";"creating_archived"] then "worktree_create" else "worktree_archive"));

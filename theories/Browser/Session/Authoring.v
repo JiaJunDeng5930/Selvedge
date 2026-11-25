@@ -470,6 +470,10 @@ Definition apply_activity snapshot occurrence (owner:editor) (assignment:Activit
  match activity_owner occurrence state with
  |Some(actual,request)=>if same_editor owner actual then
  let current:=SS.current_draft state owner in
+ let subject:=Activity.assignment_subject assignment in
+ if EditorContext.is_run_environment_request request && SO.worktree_required current &&
+   Json.equal (Schema.encode_value (EM.subject_kind subject) (Activity.assignment_value assignment)) (JString "current")
+ then keep state else
  if Parameters.live_configuration owner(EM.subject_declaration(Activity.assignment_subject assignment))then
  match EO.assignment_available snapshot state assignment with
  |EM.Unavailable reason=>fail state reason
@@ -733,28 +737,28 @@ Definition ensure_workspace_git snapshot state:=
   |_=>if SO.cloud_workspace_requested draft then None else SO.workspace_git_request snapshot draft end in
  match selected with
  |None=>keep(SS.with_services(Services.with_workspace_git Resource.Dormant services)state)
- |Some (owner,path)=>
-  if SO.workspace_git_request_matches (owner,path)(Services.workspace_git services) then keep state else
+ |Some request=>
+  if SO.workspace_git_request_matches request (Services.workspace_git services) then keep state else
   let ticket:=Services.next_ticket services in
   changed(SS.with_services(Services.with_next(N.succ ticket)
-    (Services.with_workspace_git(Resource.Loading ticket(owner,path))services))state)
-    [Services.encode_effect(Services.ObserveWorkspaceGit ticket path owner)]end end.
+    (Services.with_workspace_git(Resource.Loading ticket request)services))state)
+    [Services.encode_effect(Services.ObserveWorkspaceGit ticket request)]end end.
 Definition ensure_cloud_repository snapshot state:=
  let services:=SS.service_state state in
  let owner:=Identity.NewTask(SS.active_work(SS.navigation_state state))in
  let selected:=if existsb(same_editor owner)(visible_editors state)then
   let draft:=SS.current_draft state owner in
   match FO.cloud_source_selection snapshot(EditorContext.directory_result state draft)draft with
-  |Some(inr source)=>Some(owner,FO.cloud_primary source)|_=>None end
+  |Some(inr source)=>Some(FO.GitRequest owner (FO.cloud_primary source) None)|_=>None end
  else None in
  match selected with
  |None=>match Services.cloud_repository services with Resource.Dormant=>keep state
    |_=>keep(SS.with_services(Services.with_cloud_repository Resource.Dormant services)state)end
- |Some(checked_owner,path)=>if SO.workspace_git_request_matches (checked_owner,path)(Services.cloud_repository services)then keep state else
+ |Some request=>if SO.workspace_git_request_matches request (Services.cloud_repository services)then keep state else
   let ticket:=Services.next_ticket services in
   changed(SS.with_services(Services.with_next(N.succ ticket)
-    (Services.with_cloud_repository(Resource.Loading ticket(checked_owner,path))services))state)
-    [Services.encode_effect(Services.ObserveCloudRepository ticket path)]end.
+    (Services.with_cloud_repository(Resource.Loading ticket request)services))state)
+    [Services.encode_effect(Services.ObserveCloudRepository ticket (FO.git_primary request))]end.
 Definition prepare snapshot state:=
  let state:=resolve_creation_model snapshot state in
  let prepared:=fold_left(fun result owner=>let state:=ensure_draft snapshot owner(result_state result)in

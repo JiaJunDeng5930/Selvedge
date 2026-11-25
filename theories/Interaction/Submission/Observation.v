@@ -145,16 +145,18 @@ Definition workspace_for_edit snapshot draft : string + Selvedge.Kernel.Domain.w
  |None=>match workspace_for snapshot draft with
    |Some workspace=>inr workspace|None=>inl "The working directories have not been observed." end
  end.
-Definition workspace_git_request snapshot (draft:Draft.draft) : option (editor * string) :=
+Record git_request := GitRequest { git_editor : editor; git_primary : string; git_environment : option string }.
+Definition workspace_git_request snapshot (draft:Draft.draft) : option git_request :=
  workspace<-workspace_for snapshot draft;;
- if Workspace.on_shared_environment workspace then None else
  primary<-Selvedge.Kernel.Domain.workspace_primary workspace;;
- Some(Draft.owner draft,primary).
-Definition workspace_git_request_matches (request:editor * string)
-    (observation:resource (editor * string) bool) : bool :=
- let '(owner,path):=request in
+ Some(GitRequest (Draft.owner draft) primary (Selvedge.Kernel.Domain.workspace_environment workspace)).
+Definition workspace_git_request_matches (request:git_request)
+    (observation:resource git_request bool) : bool :=
  match resource_request observation with
- |Some(observed_owner,observed_path)=>same_editor owner observed_owner&&String.eqb path observed_path
+ |Some observed=>same_editor (git_editor request) (git_editor observed) &&
+   String.eqb (git_primary request) (git_primary observed) &&
+   match git_environment request,git_environment observed with
+   |None,None=>true|Some first,Some second=>String.eqb first second|_,_=>false end
  |None=>false end.
 Inductive git_problem := GitPrimaryRequired | GitCheckPending | GitRepositoryRequired | GitCheckFailed.
 Definition git_request_problem request observation : option git_problem :=
@@ -218,9 +220,8 @@ Definition worktree_preference snapshot observation (draft:Draft.draft):option(S
   |_=>match Context.context_origin configuration with
    |Context.ProjectDefaults id=>project<-project_by_id id snapshot;;previous<-bool_field "create_worktree" project;;
     let enabled:=match mode with Draft.ManagedWorkspace WorkspaceBackend.Local=>true|_=>false end in
-    let verified_project_primary:=match workspace_git_request snapshot draft,
-      bind(bind(field "workspace" project)Codec.parse_workspace)Selvedge.Kernel.Domain.workspace_primary with
-     |Some(_,checked),Some primary=>String.eqb checked primary|_,_=>false end in
+    let verified_project_primary:=match workspace_for snapshot draft, bind(field "workspace" project)Codec.parse_workspace with
+     |Some selected,Some configured=>Workspace.same_primary selected configured|_,_=>false end in
     if Bool.eqb previous enabled || (enabled && negb verified_project_primary) then None
     else Schema.decode_command Selvedge.Kernel.Commands.command_specs
      (JObject[("op",JString "update_project");("project_id",number id);("create_worktree",JBool enabled)])
