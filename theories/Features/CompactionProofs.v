@@ -393,6 +393,27 @@ Proof.
    destruct demand; destruct queued; reflexivity.
 Qed.
 
+Theorem an_unconfigured_model_without_cache_leaves_no_activity_record id source now task entry value :
+ A.configured_target task (A.registry value) = None ->
+ entry_cache entry = None ->
+ A.activity_result id source now task entry value = None.
+Proof. intros Target Cache. unfold A.activity_result. now rewrite Target, Cache. Qed.
+
+Theorem an_unconfigured_inference_observation_leaves_maintenance_unchanged
+ id ticket revision before result previous task :
+ K.find_task id before = Some previous ->
+ task_activity previous = ObservingContext ticket revision ForInference ->
+ K.find_task id (K.decision_world result) = Some task ->
+ A.cancelled_task id (K.decision_effects result) = false ->
+ A.configured_target task (A.registry (K.decision_world result)) = None ->
+ DecisionComposition.run (A.observe_transition before (Some (id,ticket)) id) result = result.
+Proof.
+ intros Previous Phase Found NotCancelled Target.
+ unfold DecisionComposition.run, DecisionComposition.transform, DecisionComposition.maintain, A.observe_transition.
+ rewrite Previous, Found, NotCancelled, Phase, !N.eqb_refl, Target.
+ destruct result; cbn; now rewrite app_nil_r.
+Qed.
+
 Theorem a_replaced_context_never_consumes_the_new_task_demand :
  forall id ticket revision purpose resume_model before result previous current,
  K.find_task id before = Some previous ->
@@ -406,6 +427,8 @@ Proof.
  unfold DecisionComposition.run, DecisionComposition.transform, DecisionComposition.maintain, A.observe_transition.
  rewrite Previous, Current.
  destruct (A.cancelled_task id (K.decision_effects result)); [|rewrite Phase, Cancelled];
+ unfold A.clear_existing_entry;
+ destruct (A.find_entry id (A.registry (K.decision_world result)));
  split; cbn [A.commit A.commit_change K.decision_world K.decision_effects];
  try rewrite app_nil_r; reflexivity.
 Qed.

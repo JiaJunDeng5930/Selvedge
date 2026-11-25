@@ -174,6 +174,8 @@ Export CompactionPlanProofs(structured_plan_transports_selected_history_and_summ
 Export ProviderCompactionProofs(public_structured_summary_appends_its_instruction_after_selected_history).
 Export CompactionProofs(measured_scope_and_reserve_reach_the_executed_request,
   maintenance_only_visits_known_entries_and_active_tasks,
+  an_unconfigured_model_without_cache_leaves_no_activity_record,
+  an_unconfigured_inference_observation_leaves_maintenance_unchanged,
   validated_compaction_extends_the_committed_history,
   manual_compaction_captures_context_before_any_summary_request,
   manual_compaction_accepts_an_open_prefix_and_waits,
@@ -190,6 +192,11 @@ Export ModelRequestProofs(selected_model_request_uses_the_measured_scope,
 Export ReasoningProofs(evaluator_tool_evidence_keeps_the_original_json,
   model_context_preview_exposes_only_the_public_reasoning_summary,
   model_context_compaction_has_no_public_preview).
+
+(** Ordinary context observations for an unconfigured model neither create
+    maintenance records nor retain a second copy of the observed history.
+    Provider activity from that model only clears a cache lease that was
+    already recorded. Manual requests acquire their own observation. *)
 
 (** ** Replacement input preserves its independent source
 

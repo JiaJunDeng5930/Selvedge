@@ -301,15 +301,23 @@ Definition compact_result (id ticket : N) (task : task) (result : json) (error :
  | None => None end.
 Definition with_now (now : N) (value : Selvedge.Features.CompactionTypes.state) := set maintenance_now (N.max now) value.
 Definition activity_result (id source now : N) (task : task) (entry : entry) (value : Selvedge.Kernel.State.world) :=
- if source <=? N.of_nat (List.length (task_history task)) then
- let cache := match configured_target task (registry value) with
- | Some target => if N.eqb (target_cache_ttl target) 0 then None
-   else Some (CacheObservation (now + target_cache_ttl target)
-     (firstn (N.to_nat source) (task_history task)))
- | None => None end in
- let entry := set entry_cache (fun _ => cache) entry in
- Some (commit id entry (store (with_now now (registry value)) value) [])
- else None.
+ let state := registry value in
+ let target := configured_target task state in
+ (* An unconfigured model cannot create or extend a cache lease. A cache
+    retained from an earlier configuration can still be cleared by its owner. *)
+ match target, entry_cache entry with
+ | None, None => None
+ | _, _ =>
+   if source <=? N.of_nat (List.length (task_history task)) then
+    let cache := match target with
+    | Some target => if N.eqb (target_cache_ttl target) 0 then None
+      else Some (CacheObservation (now + target_cache_ttl target)
+        (firstn (N.to_nat source) (task_history task)))
+    | None => None end in
+    let entry := set entry_cache (fun _ => cache) entry in
+    Some (commit id entry (store (with_now now state) value) [])
+   else None
+ end.
 Definition resolve_task_completion (id : N) (completion : completion) (value : Selvedge.Kernel.State.world) :=
  match Selvedge.Kernel.State.find_task id value with
  | None => None
@@ -496,28 +504,33 @@ Definition finish_context (id : N) (purpose : option reason) (resume_model : boo
      DecisionComposition.from_decision (wait_for_context id purpose entry (Selvedge.Kernel.State.put_task id task value))
  | _, _ => DecisionComposition.from_decision (cancel id task entry value) end.
 
+Definition clear_existing_entry id task value :=
+ match find_entry id (registry value) with
+ | Some entry => DecisionComposition.from_decision (commit id (clear_entry task entry) value [])
+ | None => DecisionComposition.unchanged value end.
+
 Definition observe_transition (before : Selvedge.Kernel.State.world)
  (completed : option (N * N)) (id : N) : DecisionComposition.step := fun value effects =>
- let entry := current_entry id (registry value) in
  let completed_ticket ticket := match completed with
    | Some (owner, received) => N.eqb id owner && N.eqb ticket received
    | None => false end in
  match Selvedge.Kernel.State.find_task id before, Selvedge.Kernel.State.find_task id value with
  | Some previous, Some task =>
    if cancelled_task id (effects) then
-     DecisionComposition.from_decision (commit id (clear_entry task entry) value [])
+     clear_existing_entry id task value
    else match task_activity previous with
    | ObservingContext ticket _ (ForMaintenance purpose resume_model) =>
      if cancelled_ticket id ticket effects then
-       DecisionComposition.from_decision (commit id (clear_entry task entry) value [])
-     else if completed_ticket ticket then finish_context id purpose resume_model task entry value
+       clear_existing_entry id task value
+     else if completed_ticket ticket then finish_context id purpose resume_model task (current_entry id (registry value)) value
      else DecisionComposition.unchanged value
    | ObservingContext ticket _ ForInference =>
      if completed_ticket ticket then
-       match task_activity task, task_lifecycle task with
-       | ReadyForModel, Running _ _ =>
+       match configured_target task (registry value), task_activity task, task_lifecycle task with
+       | Some _, ReadyForModel, Running _ _ =>
+         let entry := current_entry id (registry value) in
          DecisionComposition.from_decision (commit id (with_observation (Some (capture_task task value)) entry) value [])
-       | _, _ => DecisionComposition.unchanged value end
+       | _, _, _ => DecisionComposition.unchanged value end
      else DecisionComposition.unchanged value
    | _ => DecisionComposition.unchanged value end
  | _, _ => DecisionComposition.unchanged value end.
