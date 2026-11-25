@@ -568,6 +568,7 @@ test('workflows can be authored and started in place from the browser', { timeou
   const later = 'Second run with a different input';
   await command({ op: 'start_workflow', workflow_id, entrance: 'start', message: later });
   await page.setViewportSize({ width: 390, height: 844 });
+  await main.getByRole('button', { name: '适应工作流', exact: true }).click();
   const beforeHistory = await transform();
   await main.getByRole('button', { name: '运行记录', exact: true }).click();
   const history = page.getByRole('dialog', { name: '运行记录', exact: true });
