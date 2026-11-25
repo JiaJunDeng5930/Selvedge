@@ -33,6 +33,7 @@ Open Scope string_scope.
 Export PacketProofs(actual_admitted_query_delivers_its_observation).
 Export ConversationProofs(summary_assistant_reply_matches_published_message).
 Export Publication(live_publication_fields_select_exactly).
+Export ContextUpdates(appending_other_events_retains_context_bindings).
 
 Lemma selected_world_identity collection key id snapshot value :
  World.find_world collection key id snapshot = Some value ->

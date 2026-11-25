@@ -69,7 +69,7 @@ Definition observe_history (facts : list ContextTypes.snapshot * bool) (event : 
  let '(bindings,failed):=facts in
  (ContextUpdates.update_bindings bindings event, BoardFacts.observe_failure failed event).
 Definition history_json id history := JArray (map (conversation_message_json id) history).
-Definition task_snapshot_with_payload (include_history include_tools : bool)
+Definition task_snapshot_with_payload (include_history include_tools include_context : bool)
  (id : N) (value : task) (features : Selvedge.Features.Domain.state) :=
  match task_summary id value features with
  | JObject fields =>
@@ -77,15 +77,16 @@ Definition task_snapshot_with_payload (include_history include_tools : bool)
  let busy:=task_busy value in
  (* The context already visits the history. Observe the settled outcome in that
     pass only when it can affect the projected stage. *)
- let '(context,failed):=if busy then (ContextUpdates.bindings history,false)
-   else fold_left observe_history history ([],false) in
+ let '(context,failed):=if include_context then
+   (if busy then (ContextUpdates.bindings history,false) else fold_left observe_history history ([],false))
+   else ([],if busy then false else BoardFacts.latest_failure value) in
  JObject (fields ++
  (if include_tools then [("tools", JArray (map tool_json (contract_tools (task_contract value))))] else []) ++
  [("lineage", JArray (map number (task_lineage value)));
  ("queued_messages", JArray (map content_json (task_queued value)));
- ("guidance",Guidance.json (settings_guidance (task_current_settings value)));
- ("context", JArray (map Context.snapshot_json context));
- ("has_assistant_reply", JBool (existsb Conversation.message_has_assistant_reply history));
+ ("guidance",Guidance.json (settings_guidance (task_current_settings value)))] ++
+ (if include_context then [("context", JArray (map Context.snapshot_json context))] else []) ++
+ [("has_assistant_reply", JBool (existsb Conversation.message_has_assistant_reply history));
  ("execution_failed", JBool failed);
  ("card_link_stage", JString (Selvedge.Features.Domain.stage_name
    (BoardFacts.stage_after_execution BoardFacts.initial_link_stage busy (fun _=>failed))));
@@ -94,7 +95,7 @@ Definition task_snapshot_with_payload (include_history include_tools : bool)
  | _ => JNull end)] ++
  if include_history then [("history", history_json id history)] else [])
  | value => value end.
-Definition task_snapshot := task_snapshot_with_payload true true.
+Definition task_snapshot := task_snapshot_with_payload true true true.
 Definition project_task_count (id : N) (tasks : list task) :=
  N.of_nat (ListCount.count (fun task => match settings_project (task_current_settings task) with
  | Some selected => N.eqb selected id | None => false end) tasks).
@@ -114,10 +115,10 @@ Definition fork_observation (include_capacity:bool) (id:N)(task:task)(value:worl
  if include_capacity then [("capacities",JArray(map(fun ancestor=>match Tasks.ancestor_capacity value ancestor with
   |None=>JNull|Some(descendants,limit)=>JObject[("descendants",number descendants);("limit",number limit)]end)
   (id::task_lineage task)))] else []).
-Definition task_snapshot_fields_in_world include_history include_tools include_capacity id task value :=
- match task_snapshot_with_payload include_history include_tools id task (world_features value) with
+Definition task_snapshot_fields_in_world include_history include_tools include_context include_capacity id task value :=
+ match task_snapshot_with_payload include_history include_tools include_context id task (world_features value) with
  |JObject fields=>JObject(fields++[("fork",fork_observation include_capacity id task value)])|result=>result end.
-Definition task_snapshot_in_world := task_snapshot_fields_in_world true true true.
+Definition task_snapshot_in_world := task_snapshot_fields_in_world true true true true.
 Definition task_publication := task_snapshot_fields_in_world false.
 
 Definition task_publication_references (include_capacity:bool) id task value :=

@@ -50,7 +50,12 @@ export function applyProgramUpdates(program, updates) {
       const previous = prior?.history;
       const prefix = previous ?? [];
       const start = safeInteger(row.value.cursor) - row.appended.length;
-      const data = prior?.tools === undefined ? row.value : { tools: prior.tools, ...row.value };
+      const { tools, context } = prior ?? {};
+      const data = {
+        ...(tools === undefined ? {} : { tools }),
+        ...(context === undefined ? {} : { context }),
+        ...row.value,
+      };
       const history = prefix.length === start ? (row.appended.length ? prefix.concat(row.appended) : prefix) : previous;
       tasks[id] = installBrowserHistory({ ...data, fork: { ...prior?.fork, ...data.fork } }, history);
     }

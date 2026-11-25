@@ -119,6 +119,18 @@ Definition apply_change (change : context_change) (values : list snapshot) : lis
 Definition update_bindings (values:list snapshot) (event:message) :=
  match event with ContextObservation change => apply_change change values | _ => values end.
 Definition bindings (history : list message) := fold_left update_bindings history [].
+Definition history_changes_bindings :=
+ existsb (fun event => match event with ContextObservation _ => true | _ => false end).
+
+Theorem appending_other_events_retains_context_bindings before appended :
+ history_changes_bindings appended = false ->
+ bindings (before ++ appended) = bindings before.
+Proof.
+ unfold bindings, history_changes_bindings. rewrite fold_left_app.
+ generalize (fold_left update_bindings before []) as accepted.
+ induction appended as [|event rest IH]; intros accepted Unchanged; [reflexivity|].
+ destruct event; cbn in Unchanged |- *; try discriminate; now apply IH.
+Qed.
 
 Definition discovery_turn_step turn event := match event with
  | UserMessage _ => N.succ turn

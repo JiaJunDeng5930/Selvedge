@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdir, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import { browserFixture } from './fixtures/browser.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
 import { events } from '../host/network.mjs';
@@ -165,12 +167,16 @@ test('a browser command marker identifies just its own durable commit', async t 
 
 test('a local browser command publishes the changed task without unrelated conversation history', async t => {
   const directory = await home(t);
+  await mkdir(path.join(directory, '.git'));
+  const guidance = 'Workspace rules stay available after a local change.';
+  await writeFile(path.join(directory, 'AGENTS.md'), guidance);
   const config = validateConfig({ ...defaultConfig, chatgpt: false, port: 0,
     profiles: { fixture: { provider: 'echo', model: 'fixture' } } });
   const running = await startServer({ home: directory, cwd: directory, config });
   t.after(() => running.close());
   const { service } = running;
-  const selected = await service.command({ op: 'create_idle', profile: 'fixture' });
+  const selected = await service.command({ op: 'create_idle', profile: 'fixture',
+    settings: { workspace: { roots: [directory], primary_root: directory } } });
   assert.equal(selected.reply.ok, true);
   const taskId = Number(selected.reply.result.task_id);
   const cookie = (await fetch(running.url)).headers.get('set-cookie').split(';')[0];
@@ -196,11 +202,13 @@ test('a local browser command publishes the changed task without unrelated conve
     const tasks = receipt.updates.flatMap(update => update.tasks);
     assert.deepEqual(tasks.map(task => task.id), [taskId]);
     assert.equal(tasks[0].value.status, 'frozen');
+    assert.equal(Object.hasOwn(tasks[0].value, 'context'), false);
     assert.equal(Object.hasOwn(tasks[0].value.fork, 'capacities'), false);
     const after = (await state()).program.tasks[taskId];
     assert.equal(after.status, 'frozen');
     assert.equal(after.fork.parent_ready, false);
     assert.deepEqual(after.fork.capacities, snapshot.program.tasks[taskId].fork.capacities);
+    assert.deepEqual(after.context, snapshot.program.tasks[taskId].context);
     return text.length;
   }
 
@@ -220,8 +228,12 @@ test('a local browser command publishes the changed task without unrelated conve
   await taskIdle(service, taskId);
   const settled = await state();
   assert.ok(JSON.stringify(settled.program.tasks[taskId].history).includes(old));
+  assert.ok(JSON.stringify(settled.program.tasks[taskId].context).includes(guidance));
+  await freezeAtCurrentSequence();
+  assert.equal((await service.command({ op: 'unfreeze', task_id: taskId })).reply.ok, true);
+  const resumed = await state();
   const current = 'New selected conversation message';
-  const { text, receipt } = await submit({ op: 'send', task_id: taskId, message: current }, settled.sequence);
+  const { text, receipt } = await submit({ op: 'send', task_id: taskId, message: current }, resumed.sequence);
   assert.ok(!text.includes(old));
   assert.ok(receipt.updates.some(update => update.tasks.some(row =>
     row.id === taskId && JSON.stringify(row.appended).includes(current))));

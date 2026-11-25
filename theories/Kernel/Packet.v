@@ -5,6 +5,7 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json TextJson.
 From Selvedge.Foundation Require IndexedRegistry.
 From Selvedge.Kernel Require TaskRegistry.
+From Selvedge.Kernel Require ContextUpdates.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Inputs InputDecoder Queries CommandExecution
  Callbacks HookCallbacks Scheduler Recovery Observation Notifications Delivery Limits.
@@ -35,6 +36,7 @@ Definition workflow_task_dependencies := Publication.workflow_task_dependencies.
 Definition compaction_task_dependencies := Publication.compaction_task_dependencies.
 Definition task_publication := Publication.task_publication.
 Definition task_history_since cursor task := skipn cursor (task_history task).
+Definition history_changes_bindings := ContextUpdates.history_changes_bindings.
 Definition history_publication := Publication.history_json.
 Definition task_publication_references := Publication.task_publication_references.
 Definition named_titles := Publication.named_titles.
