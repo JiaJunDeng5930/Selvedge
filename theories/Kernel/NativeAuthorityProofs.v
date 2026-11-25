@@ -126,7 +126,7 @@ Theorem announced_operations_allow_an_independent_model_turn : forall execute pe
    (TaskChange.apply_edit TaskChange.PublishOperations (TaskWake.promote task))].
 Proof.
  intros execute permitted id task rest value operations Found Permitted ObserveAllowed Phase NoReady.
- cbn [Scheduler.find_step]; unfold Scheduler.next_runnable_step; rewrite Permitted.
+ cbn [Scheduler.find_step]; rewrite Scheduler.next_runnable_step_expands, Permitted.
  unfold Scheduler.task_action; rewrite Phase, NoReady.
  eexists; split; [reflexivity|].
  unfold Scheduler.interpret_step, Reasoning.observe_scheduled_context.

@@ -11,13 +11,11 @@ Open Scope string_scope.
 Open Scope list_scope.
 
 Lemma runnable_selection_has_an_actual_step : forall execute permitted tasks first value,
- existsb (fun entry => let '(id,task) := entry in
-   match Scheduler.next_runnable_step permitted id task value with Some _ => true | None => false end)
-   (Selvedge.Foundation.Registry.indexed (fun id task => (id,task)) first tasks) =
+ Scheduler.has_runnable_step permitted first tasks value =
  match Scheduler.find_step execute permitted first tasks value with Some _ => true | None => false end.
 Proof.
  intros execute permitted tasks; induction tasks as [|task rest IH]; intros first value; [reflexivity|].
- cbn [Selvedge.Foundation.Registry.indexed existsb Scheduler.find_step].
+ cbn [Scheduler.has_runnable_step Scheduler.find_step].
  destruct (Scheduler.next_runnable_step permitted first task value); [reflexivity|].
  apply IH.
 Qed.
@@ -306,6 +304,6 @@ Theorem a_blocked_environment_still_admits_archived_settlement :
  Scheduler.next_runnable_step permitted owner task value = Some (Scheduler.OperationStep pending).
 Proof.
  intros permitted owner task value operations pending Blocked ArchivedTask Pending.
- unfold Scheduler.next_runnable_step; rewrite Blocked.
+ rewrite Scheduler.next_runnable_step_expands, Blocked.
  unfold task_operations, lifecycle_operations; rewrite ArchivedTask, Pending; reflexivity.
 Qed.

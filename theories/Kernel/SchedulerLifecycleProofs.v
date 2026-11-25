@@ -17,7 +17,7 @@ Theorem frozen_tasks_without_ready_results_do_not_take_scheduler_steps :
  Scheduler.find_step execute permitted (N.succ id) rest value.
 Proof.
  intros execute permitted id task rest phase operations value Lifecycle NoReady.
- cbn [Scheduler.find_step]. unfold Scheduler.next_runnable_step.
+ cbn [Scheduler.find_step]. rewrite Scheduler.next_runnable_step_expands.
  destruct (permitted id value).
  - unfold Scheduler.task_action; rewrite Lifecycle, NoReady; reflexivity.
  - unfold task_operations, lifecycle_operations; rewrite Lifecycle; cbn; rewrite NoReady; reflexivity.
@@ -36,7 +36,7 @@ Theorem stopped_inference_requests_settle_without_effects :
  task_lifecycle settled = Stopped Idle [].
 Proof.
  intros execute permitted id task rest phase value Owner Permitted Lifecycle [Phase|Phase]; subst phase;
- (cbn [Scheduler.find_step]; unfold Scheduler.next_runnable_step; rewrite Permitted;
+ (cbn [Scheduler.find_step]; rewrite Scheduler.next_runnable_step_expands, Permitted;
  unfold Scheduler.task_action; rewrite Lifecycle; cbn [Scheduler.ready_settlement Scheduler.interpret_step];
  eexists; split; [reflexivity|]; split; [reflexivity|];
  exists (with_activity Idle task); split;
@@ -57,7 +57,7 @@ Theorem stopped_tasks_can_finish_an_already_accepted_call :
  Some (Scheduler.start_call execute id invocation remaining task value).
 Proof.
  intros execute permitted id task rest invocation remaining value Permitted Lifecycle.
- cbn [Scheduler.find_step]; unfold Scheduler.next_runnable_step; rewrite Permitted.
+ cbn [Scheduler.find_step]; rewrite Scheduler.next_runnable_step_expands, Permitted.
  unfold Scheduler.task_action; rewrite Lifecycle; reflexivity.
 Qed.
 
@@ -77,7 +77,7 @@ Theorem a_runnable_task_requests_context_before_inference :
  (world_next_ticket value < world_next_ticket (decision_world result))%N.
 Proof.
  intros execute permitted id task rest value Found Permitted ObserveAllowed Lifecycle.
- cbn [Scheduler.find_step]; unfold Scheduler.next_runnable_step; rewrite Permitted.
+ cbn [Scheduler.find_step]; rewrite Scheduler.next_runnable_step_expands, Permitted.
  unfold Scheduler.task_action; rewrite Lifecycle; cbn [Scheduler.ready_operation Scheduler.interpret_step].
  eexists; split; [reflexivity|]. unfold Scheduler.interpret_step, Reasoning.observe_scheduled_context.
  destruct (observing_selects_the_current_task id value task true Found ObserveAllowed)

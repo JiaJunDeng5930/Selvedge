@@ -248,7 +248,7 @@ Theorem the_actual_scheduler_observes_before_preparing_a_model : forall execute 
  Some (Reasoning.observe_scheduled_context id value).
 Proof.
  intros execute permitted id task rest value operations Permitted RunningTask NoOperation.
- cbn [Scheduler.find_step]; unfold Scheduler.next_runnable_step; rewrite Permitted.
+ cbn [Scheduler.find_step]; rewrite Scheduler.next_runnable_step_expands, Permitted.
  unfold Scheduler.task_action; rewrite RunningTask, NoOperation; reflexivity.
 Qed.
 

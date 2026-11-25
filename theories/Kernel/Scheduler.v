@@ -207,8 +207,23 @@ Definition interpret_step (execute : executor) (id : N) (task : task) (value : w
      (fun task => TaskWake.promote_changes task ++ [TaskChange.ChangePhase Idle]) value)
  end.
 Definition next_runnable_step (permitted : N -> world -> bool) (id : N) (task : task) (value : world) :=
+ let action := task_action task in
+ let settlement := fun (_ : unit) => option_map OperationStep (ready_settlement (task_operations task)) in
+ match action with
+ | Some _ => if permitted id value then action else settlement tt
+ | None => match settlement tt with
+   | Some operation => if permitted id value then None else Some operation
+   | None => None end
+ end.
+Lemma next_runnable_step_expands permitted id task value :
+ next_runnable_step permitted id task value =
  if permitted id value then task_action task
  else option_map OperationStep (ready_settlement (task_operations task)).
+Proof.
+ unfold next_runnable_step.
+ destruct (task_action task), (option_map OperationStep (ready_settlement (task_operations task))),
+   (permitted id value); reflexivity.
+Qed.
 (* A native fork is committed between scheduler transactions. This selection
    recognizes only the next actual runnable task and only its final dispatch
    gate, so before hooks and earlier task work retain their ordering. *)
@@ -253,10 +268,14 @@ Fixpoint find_step (execute : executor) (permitted : N -> world -> bool) (id : N
  match next_runnable_step permitted id task value with
  | Some step => Some (interpret_step execute id task value step)
  | None => find_step execute permitted (N.succ id) rest value end end.
+Fixpoint has_runnable_step (permitted : N -> world -> bool) id tasks value :=
+ match tasks with
+ | [] => false
+ | task :: rest => match next_runnable_step permitted id task value with
+   | Some _ => true | None => has_runnable_step permitted (N.succ id) rest value end
+ end.
 Definition has_runnable_work (permitted : N -> world -> bool) (value : world) :=
- existsb (fun entry => let '(id,task) := entry in
-   match next_runnable_step permitted id task value with Some _ => true | None => false end)
-   (Selvedge.Foundation.Registry.indexed (fun id task => (id,task)) 0 (world_tasks value)).
+ has_runnable_step permitted 0 (world_tasks value) value.
 Definition continue_runnable (permitted : N -> world -> bool) (value : world) (effects : list effect) :=
  if has_runnable_work permitted value then effects ++ [ContinueScheduling] else effects.
 Definition frozen_inference (request : effect) := match request with
