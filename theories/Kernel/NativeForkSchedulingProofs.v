@@ -84,10 +84,10 @@ Qed.
 
 Lemma selected_world_step_belongs_to_its_scope permitted value selected :
  Scheduler.select_world_step permitted value = Some selected ->
- In (Scheduler.selected_owner selected, Scheduler.selected_task selected) (scheduling_tasks value).
+ In (Scheduler.selected_owner selected, Scheduler.selected_task selected) (runnable_tasks value).
 Proof.
  unfold Scheduler.select_world_step.
- generalize (scheduling_tasks value) as work.
+ generalize (runnable_tasks value) as work.
  induction work as [|[id task] rest IH]; [discriminate|].
  cbn [OptionList.find_map].
  destruct (Scheduler.next_runnable_step permitted id task value).
@@ -104,10 +104,10 @@ Proof.
  unfold Scheduler.first_world_native_fork.
  destruct (Scheduler.select_world_step permitted before) as [[id task action]|] eqn:Selected; [|discriminate].
  pose proof (selected_world_step_belongs_to_its_scope _ _ _ Selected) as Member.
- change (In (id,task) (scheduling_tasks before)) in Member.
- unfold scheduling_tasks in Member.
+ change (In (id,task) (runnable_tasks before)) in Member.
+ unfold runnable_tasks in Member.
  apply (TaskRegistryProofs.selected_scope_matches_the_task_rows _ _ _ _ _
-   (TaskRegistry.scheduling_agrees (world_task_registry before))) in Member as [Found _].
+   (TaskRegistry.runnable_agrees (world_task_registry before))) in Member as [Found _].
  unfold Scheduler.selected_native_fork. destruct action; try discriminate;
    intros Ready; cbn in Ready;
    pose proof (a_ready_native_fork_keeps_the_selected_owner id task before step Ready) as Owner;

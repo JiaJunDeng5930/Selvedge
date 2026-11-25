@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require Runnable.
 From Selvedge.Kernel Require TaskWake.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Programming Require TaskChangeProofs TaskResult.
@@ -12,15 +13,16 @@ Open Scope string_scope.
 Theorem frozen_tasks_without_ready_results_do_not_take_scheduler_steps :
  forall execute permitted id task rest phase operations value,
  task_lifecycle task = Frozen phase operations ->
- Scheduler.ready_settlement operations = None ->
+ Runnable.ready_settlement operations = None ->
  Scheduler.find_step execute permitted id (task :: rest) value =
  Scheduler.find_step execute permitted (N.succ id) rest value.
 Proof.
  intros execute permitted id task rest phase operations value Lifecycle NoReady.
  cbn [Scheduler.find_step]. rewrite Scheduler.next_runnable_step_expands.
  destruct (permitted id value).
- - unfold Scheduler.task_action; rewrite Lifecycle, NoReady; reflexivity.
- - unfold task_operations, lifecycle_operations; rewrite Lifecycle; cbn; rewrite NoReady; reflexivity.
+ - unfold Runnable.task_action; rewrite Lifecycle, NoReady; reflexivity.
+ - unfold Runnable.settlement, task_operations, lifecycle_operations.
+   rewrite Lifecycle; cbn; rewrite NoReady; reflexivity.
 Qed.
 
 (* Stop settles the current turn without issuing another inference request. *)
@@ -37,7 +39,7 @@ Theorem stopped_inference_requests_settle_without_effects :
 Proof.
  intros execute permitted id task rest phase value Owner Permitted Lifecycle [Phase|Phase]; subst phase;
  (cbn [Scheduler.find_step]; rewrite Scheduler.next_runnable_step_expands, Permitted;
- unfold Scheduler.task_action; rewrite Lifecycle; cbn [Scheduler.ready_settlement Scheduler.interpret_step];
+ unfold Runnable.task_action; rewrite Lifecycle; cbn [Runnable.ready_settlement Scheduler.interpret_step];
  eexists; split; [reflexivity|]; split; [reflexivity|];
  exists (with_activity Idle task); split;
  [ cbn [Scheduler.interpret_step decision_world Callbacks.acknowledged accept];
@@ -58,7 +60,7 @@ Theorem stopped_tasks_can_finish_an_already_accepted_call :
 Proof.
  intros execute permitted id task rest invocation remaining value Permitted Lifecycle.
  cbn [Scheduler.find_step]; rewrite Scheduler.next_runnable_step_expands, Permitted.
- unfold Scheduler.task_action; rewrite Lifecycle; reflexivity.
+ unfold Runnable.task_action; rewrite Lifecycle; reflexivity.
 Qed.
 
 (* A runnable task actually issues context observation. This positive obligation
@@ -78,7 +80,7 @@ Theorem a_runnable_task_requests_context_before_inference :
 Proof.
  intros execute permitted id task rest value Found Permitted ObserveAllowed Lifecycle.
  cbn [Scheduler.find_step]; rewrite Scheduler.next_runnable_step_expands, Permitted.
- unfold Scheduler.task_action; rewrite Lifecycle; cbn [Scheduler.ready_operation Scheduler.interpret_step].
+ unfold Runnable.task_action; rewrite Lifecycle; cbn [Runnable.ready_operation Scheduler.interpret_step].
  eexists; split; [reflexivity|]. unfold Scheduler.interpret_step, Reasoning.observe_scheduled_context.
  destruct (observing_selects_the_current_task id value task true Found ObserveAllowed)
    as [request [Selected [Owner [Current Intent]]]].

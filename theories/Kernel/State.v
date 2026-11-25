@@ -21,8 +21,10 @@ Record world := World {
 Definition initial := World 0 TaskRegistry.empty 0 empty_environment [] Selvedge.Features.Domain.initial.
 Definition task_rows (value : world) := TaskRegistry.rows (world_task_registry value).
 Definition world_tasks (value : world) := IndexedRegistry.contents (task_rows value).
-Definition scheduling_tasks (value : world) :=
- TaskRegistry.selected_entries (TaskRegistry.scheduling (world_task_registry value)).
+Definition active_tasks (value : world) :=
+ TaskRegistry.selected_entries (TaskRegistry.active (world_task_registry value)).
+Definition runnable_tasks (value : world) :=
+ TaskRegistry.selected_entries (TaskRegistry.runnable (world_task_registry value)).
 Definition side_tasks (value : world) :=
  TaskRegistry.selected_entries (TaskRegistry.side_conversations (world_task_registry value)).
 Definition plugin_tasks (value : world) :=

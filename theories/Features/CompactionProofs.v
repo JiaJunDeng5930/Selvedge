@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require Runnable.
 From Selvedge.Kernel Require TaskWake.
 From Stdlib Require Import String List Bool NArith Lia.
 From Selvedge.Programming Require CommandResult DecisionComposition TaskResult TaskScope.
@@ -39,7 +40,7 @@ Theorem maintenance_only_visits_known_entries_and_active_tasks owner value :
  In owner (map fst (maintenance_entries (A.registry value))) \/
  ((policy_enabled (maintenance_policy (A.registry value)) &&
    match policy_targets (maintenance_policy (A.registry value)) with [] => false | _ => true end) = true /\
-  In owner (map fst (K.scheduling_tasks value))).
+  In owner (map fst (K.active_tasks value))).
 Proof.
  unfold A.maintenance_candidates.
  generalize (maintenance_entries (A.registry value)) as entries.
@@ -71,7 +72,7 @@ Qed.
 Lemma a_blocked_model_waits_with_live_operations : forall id value task operations,
  K.find_task id value = Some task ->
  task_lifecycle task = Running ReadyForModel operations ->
- Scheduler.ready_operation operations = None ->
+ Runnable.ready_operation operations = None ->
  A.blocked task (A.current_entry id (A.registry value)) value = true ->
  A.can_schedule_task id value = false.
 Proof.
@@ -82,7 +83,7 @@ Qed.
 Theorem measuring_model_waits_with_live_operations : forall id value task operations target ticket input stage,
  K.find_task id value = Some task ->
  task_lifecycle task = Running ReadyForModel operations ->
- Scheduler.ready_operation operations = None ->
+ Runnable.ready_operation operations = None ->
  A.enabled_target task (A.registry value) = Some target ->
  C.entry_measurement (A.current_entry id (A.registry value)) = C.Measuring (RequestEnvelope.Envelope ticket (InspectInput input tt stage)) ->
  A.can_schedule_task id value = false.
@@ -96,7 +97,7 @@ Qed.
 Theorem ready_operations_do_not_wait_for_model_measurement : forall id value task operations operation,
  K.find_task id value = Some task ->
  task_lifecycle task = Running ReadyForModel operations ->
- Scheduler.ready_operation operations = Some operation ->
+ Runnable.ready_operation operations = Some operation ->
  A.can_schedule_task id value = true.
 Proof.
  intros id value task operations operation found running ready.

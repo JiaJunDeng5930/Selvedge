@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require Runnable.
 From Selvedge.Kernel Require TaskWake.
 From Selvedge.Kernel Require OperationPublication.
 From Stdlib Require Import String List Bool NArith PeanoNat.
@@ -21,39 +22,32 @@ Proof.
  apply IH.
 Qed.
 
-Lemma unscheduled_registry_tasks_are_not_runnable permitted id task value :
- TaskRegistry.scheduling_candidate task = false ->
- Scheduler.next_runnable_step permitted id task value = None.
-Proof.
- intros Inactive.
- unfold TaskRegistry.scheduling_candidate, task_busy in Inactive.
- apply Bool.orb_false_iff in Inactive as [Busy Queue].
- apply Bool.orb_false_iff in Busy as [Idle Operations].
- apply Bool.negb_false_iff, Nat.eqb_eq, length_zero_iff_nil in Operations.
- rewrite Scheduler.next_runnable_step_expands, Operations.
- destruct (permitted id value); [|reflexivity].
- unfold Scheduler.task_action.
- destruct (task_lifecycle task) eqn:Lifecycle;
- unfold task_operations, task_activity in *; rewrite Lifecycle in *;
- cbn [lifecycle_operations] in Operations; subst operations;
- repeat match goal with phase : activity |- _ => destruct phase end;
- cbn [activity_busy] in Idle; try discriminate;
- destruct (task_queued task); cbn in *; try discriminate; reflexivity.
-Qed.
-
 Theorem registry_scope_contains_every_runnable_task before id task permitted action :
  find_task id before = Some task ->
  Scheduler.next_runnable_step permitted id task before = Some action ->
- In (id,task) (scheduling_tasks before).
+ In (id,task) (runnable_tasks before).
 Proof.
- intros Found Runnable.
- unfold scheduling_tasks.
+ intros Found Selected.
+ unfold runnable_tasks.
  apply (TaskRegistryProofs.selected_scope_matches_the_task_rows _ _ _ _ _
-   (TaskRegistry.scheduling_agrees (world_task_registry before))).
+   (TaskRegistry.runnable_agrees (world_task_registry before))).
  split; [exact Found|].
- destruct (TaskRegistry.scheduling_candidate task) eqn:Active; [reflexivity|].
- rewrite (unscheduled_registry_tasks_are_not_runnable permitted id task before Active) in Runnable.
- discriminate.
+ rewrite Scheduler.next_runnable_step_expands in Selected.
+ unfold Runnable.candidate.
+ destruct (Runnable.task_action task), (Runnable.settlement task), (permitted id before);
+   try discriminate; reflexivity.
+Qed.
+
+Theorem a_task_waiting_on_external_work_is_not_a_scheduling_candidate before id task :
+ find_task id before = Some task ->
+ Runnable.task_action task = None ->
+ Runnable.settlement task = None ->
+ ~ In (id,task) (runnable_tasks before).
+Proof.
+ intros Found Waiting Unsettled Present.
+ apply (TaskRegistryProofs.selected_scope_matches_the_task_rows _ _ _ _ _
+   (TaskRegistry.runnable_agrees (world_task_registry before))) in Present as [_ Eligible].
+ unfold Runnable.candidate in Eligible. now rewrite Waiting, Unsettled in Eligible.
 Qed.
 
 Theorem continuation_tracks_available_work : forall execute permitted value,
@@ -339,10 +333,11 @@ Theorem a_blocked_environment_still_admits_archived_settlement :
  forall permitted owner task value operations pending,
  permitted owner value = false ->
  task_lifecycle task = Archived operations ->
- Scheduler.ready_settlement operations = Some pending ->
- Scheduler.next_runnable_step permitted owner task value = Some (Scheduler.OperationStep pending).
+ Runnable.ready_settlement operations = Some pending ->
+ Scheduler.next_runnable_step permitted owner task value = Some (Runnable.OperationStep pending).
 Proof.
  intros permitted owner task value operations pending Blocked ArchivedTask Pending.
  rewrite Scheduler.next_runnable_step_expands, Blocked.
- unfold task_operations, lifecycle_operations; rewrite ArchivedTask, Pending; reflexivity.
+ unfold Runnable.settlement, task_operations, lifecycle_operations.
+ rewrite ArchivedTask, Pending; reflexivity.
 Qed.

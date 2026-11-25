@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require Runnable.
 From Selvedge.Kernel Require TaskWake.
 From Selvedge.Programming Require TaskChange TaskResult TaskScope TaskScopeProofs.
 From Selvedge.Kernel Require Import CallbackChangesProofs.
@@ -243,13 +244,13 @@ Qed.
 Theorem the_actual_scheduler_observes_before_preparing_a_model : forall execute permitted id task rest value operations,
  permitted id value = true ->
  task_lifecycle task = Running WantsModel operations ->
- Scheduler.ready_operation operations = None ->
+ Runnable.ready_operation operations = None ->
  Scheduler.find_step execute permitted id (task :: rest) value =
  Some (Reasoning.observe_scheduled_context id value).
 Proof.
  intros execute permitted id task rest value operations Permitted RunningTask NoOperation.
  cbn [Scheduler.find_step]; rewrite Scheduler.next_runnable_step_expands, Permitted.
- unfold Scheduler.task_action; rewrite RunningTask, NoOperation; reflexivity.
+ unfold Runnable.task_action; rewrite RunningTask, NoOperation; reflexivity.
 Qed.
 
 Theorem context_completion_requires_the_current_ticket : forall id ticket expected revision continuation observations diagnostic value task,

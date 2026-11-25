@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require Runnable.
 From Selvedge.Kernel Require TaskWake.
 From Selvedge.Programming Require TaskResult TaskScope.
 From Selvedge.Programming Require InputRoute.
@@ -403,7 +404,7 @@ Definition can_schedule_task (id : N) (value : Selvedge.Kernel.State.world) := m
    | Running ReadyForModel operations =>
      (* Ready operations precede the model step. A live asynchronous operation
         alone does not make a changed model input exempt from measurement. *)
-     match Scheduler.ready_operation operations with
+     match Runnable.ready_operation operations with
      | Some _ => true
      | None => negb (blocked task (current_entry id (registry value)) value)
      end
@@ -556,7 +557,7 @@ Definition maintenance_candidates (value : Selvedge.Kernel.State.world) :=
  let state := registry value in
  let admitted := if policy_enabled (maintenance_policy state) &&
      match policy_targets (maintenance_policy state) with [] => false | _ => true end
-   then map fst (Selvedge.Kernel.State.scheduling_tasks value) else [] in
+   then map fst (Selvedge.Kernel.State.active_tasks value) else [] in
  (* An idle Task without a maintenance record has neither an outstanding job
     nor a cache lease. Its next request enters the active Task scope. *)
  fold_right (fun entry => insert_maintenance_owner (fst entry)) admitted (maintenance_entries state).
