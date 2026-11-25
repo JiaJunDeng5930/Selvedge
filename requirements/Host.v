@@ -62,6 +62,13 @@ Import ListNotations.
     neither completion retry nor resource rollback is authorized by uncertainty.
     A failure before COMMIT is a definite rejection.
 
+    A Task metadata update writes no prior conversation messages. An append
+    writes only its new history chunk. The journal commits the Task record,
+    its history offset, and the shared sequence together. Restart admits only
+    a contiguous history ending at the stored offset. Unchanged shared
+    sections are excluded from the storage write, including when the
+    transition advances only a ticket cursor.
+
     These are requirements on the physical transaction, including its storage
     call, returned promise and observers. [tests/journal.test.mjs] checks that
     failed storage cannot publish or launch paid work, and that lost COMMIT

@@ -9,9 +9,13 @@ private to that worker.
 `journal.mjs` serializes requests through their complete transaction and owns
 its private `kernel.mjs` connection, which retires the worker after a failed or
 timed out transition. The journal commits the changed records before publishing
-its decision or starting an effect. On reopen it loads the committed task and
-shared records into the Worker. During managed updates, the candidate validates
-a read-only view, then loads the final records after acquiring the writer lock.
+its decision or starting an effect. Task metadata is stored separately from
+append-only history chunks. Each shared state section has its own record, so
+allocating a ticket does not re-encode feature data or the tool catalog. The
+sequence, task cursor, and new chunks commit together. On reopen it checks
+the chunk offsets and restores the committed
+records into the Worker. During managed updates, the candidate validates a
+read-only view, then loads the final records after acquiring the writer lock.
 
 `server.mjs` and `cli.mjs` expose the service. Browser snapshots use domain JSON
 at `/api/browser/state`; commands use `/api/browser/command`, and observations

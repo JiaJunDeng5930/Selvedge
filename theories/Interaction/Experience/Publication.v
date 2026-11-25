@@ -113,7 +113,6 @@ Definition task_snapshot_fields_in_world include_history id task value :=
  |JObject fields=>JObject(fields++[("fork",fork_observation id task value)])|result=>result end.
 Definition task_snapshot_in_world := task_snapshot_fields_in_world true.
 Definition task_publication := task_snapshot_fields_in_world false.
-Definition task_history_suffix id cursor task := history_json id (skipn cursor (task_history task)).
 
 Definition task_publication_references id task value :=
  JObject (task_label_fields id task (world_features value) ++ [("fork", fork_observation id task value)]).

@@ -192,13 +192,14 @@ Definition finish_measure (id : N) (task : task) (input : capture) (scope : stri
 Definition finish_validation (id : N) (task : task) (input : capture) (purpose : reason) (candidate : artifact)
  (preview : list message) (scope : string) (tokens : N) (budget : token_budget) (entry : entry) (value : Selvedge.Kernel.State.world) :=
  if relevant input task value && ContextSelection.consumes candidate scope then
- if same_history preview (ContextSelection.adopt (captured_history input) candidate (task_history task)) then
+ let selected := ContextSelection.adopt (captured_history input) candidate (task_history task) in
+ if same_history preview selected then
  if (tokens + reserve_tokens budget <=? window_tokens budget) &&
     negb (match candidate with NativeArtifact _ _ _ _ =>
      policy_enabled (maintenance_policy (registry value)) &&
        (window_tokens budget * policy_blocking (maintenance_policy (registry value)) <=? tokens * 100)
      | _ => false end) then
- let task := set task_history (fun _ => preview) task in
+ let task := with_history selected task in
  let entry := set entry_maintained (N.max (useful (captured_history input)))
    (set entry_attempted (N.max (useful (captured_history input)))
    (with_job NoJob (with_measurement (Measured (capture_task task value) scope tokens budget) entry))) in

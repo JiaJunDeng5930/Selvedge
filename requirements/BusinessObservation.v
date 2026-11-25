@@ -125,10 +125,10 @@ Qed.
 
 Theorem local_publication_encodes_the_history_suffix id task before appended :
  Domain.task_history task = (before ++ appended)%list ->
- Publication.task_history_suffix id (List.length before) task =
+ Packet.history_publication id (Packet.task_history_since (List.length before) task) =
  Publication.history_json id appended.
 Proof.
- intro History. unfold Publication.task_history_suffix.
+ intro History. unfold Packet.task_history_since, Packet.history_publication.
  now rewrite History, skipn_app, skipn_all, Nat.sub_diag.
 Qed.
 

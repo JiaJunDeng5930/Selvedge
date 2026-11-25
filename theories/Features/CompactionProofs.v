@@ -722,6 +722,31 @@ Definition compaction_failure_task (current : task) (message : string) :=
  with_activity (match task_activity current with ReadyForModel => Idle | phase => phase end)
    (set task_history (fun history => (history ++ [FailureMessage message])%list) current).
 
+Theorem validated_compaction_extends_the_committed_history :
+ forall id task input purpose candidate preview scope tokens budget entry value,
+ K.find_task id value = Some task ->
+ A.relevant input task value = true -> ContextSelection.consumes candidate scope = true ->
+ A.same_history preview (ContextSelection.adopt (captured_history input) candidate (task_history task)) = true ->
+ ((tokens + reserve_tokens budget <=? window_tokens budget) &&
+  negb (match candidate with NativeArtifact _ _ _ _ =>
+   policy_enabled (maintenance_policy (A.registry value)) &&
+     (window_tokens budget * policy_blocking (maintenance_policy (A.registry value)) <=? tokens * 100)
+  | _ => false end)) = true ->
+ exists next appended,
+ K.find_task id (K.decision_world (A.finish_validation id task input purpose candidate preview scope tokens budget entry value)) = Some next /\
+ task_history next = (task_history task ++ appended)%list.
+Proof.
+ intros id task input purpose candidate preview scope tokens budget entry value Found Relevant Consumes Same Fits.
+ unfold A.finish_validation. rewrite Relevant, Consumes, Same, Fits.
+ destruct (ContextSelectionProofs.adoption_keeps_the_original_history (captured_history input) candidate (task_history task))
+   as [appended History].
+ exists (with_history (ContextSelection.adopt (captured_history input) candidate (task_history task)) task), appended.
+ split.
+ - unfold A.commit, A.acknowledged. cbn -[A.store K.put_task].
+   rewrite storing_maintenance_preserves_tasks. eapply find_put_task; exact Found.
+ - destruct task; exact History.
+Qed.
+
 Theorem compaction_failure_preserves_history_and_retires_its_receivers :
  forall id current entry reason before,
  K.find_task id before = Some current ->

@@ -8,7 +8,7 @@ const buildDirectory = path.join(root, '.build');
 export const targets = {
   schema: { module: 'Adapters.ModelSchema', model: 'SchemaModel', entry: ['call'], global: '__selvedgeSchema', exported: 'call' },
   kernel: { module: 'Kernel.Packet', model: 'KernelModel', entry: ['initial', 'journal_packet', 'world_json',
-    'shared_publication', 'task_publication', 'task_history_suffix', 'task_publication_references',
+    'shared_publication', 'task_publication', 'task_history_since', 'history_publication', 'task_publication_references',
     'publication_project', 'assess', 'remote_reconciliation_needed'],
   global: '__selvedgeKernel' },
   host: { module: 'Adapters.Api', model: 'HostModel', entry: ['call'], global: '__selvedgeHost', exported: 'call' },

@@ -18,32 +18,62 @@ function rejected(error, outcome) {
   return error;
 }
 
-export const stateSchemaVersion = 3;
+export const stateSchemaVersion = 4;
 
 const schema = `
   CREATE TABLE state (
     id INTEGER PRIMARY KEY CHECK (id = 1), namespace TEXT NOT NULL,
-    schema TEXT NOT NULL, sequence INTEGER NOT NULL CHECK (sequence >= 0), data BLOB NOT NULL
+    schema TEXT NOT NULL, sequence INTEGER NOT NULL CHECK (sequence >= 0)
+  ) STRICT;
+  CREATE TABLE state_sections (
+    id INTEGER PRIMARY KEY CHECK (id >= 0), data BLOB NOT NULL
   ) STRICT;
   CREATE TABLE tasks (
-    id INTEGER PRIMARY KEY CHECK (id >= 0), created_at INTEGER NOT NULL, data BLOB NOT NULL
+    id INTEGER PRIMARY KEY CHECK (id >= 0), created_at INTEGER NOT NULL, data BLOB NOT NULL,
+    history_length INTEGER NOT NULL CHECK (history_length >= 0)
   ) STRICT;
+  CREATE TABLE task_history (
+    task_id INTEGER NOT NULL REFERENCES tasks(id),
+    start INTEGER NOT NULL CHECK (start >= 0), data BLOB NOT NULL,
+    PRIMARY KEY (task_id, start)
+  ) STRICT, WITHOUT ROWID;
 `;
+
+function writeStateSections(database, sections) {
+  if (!sections.length) return;
+  const statement = database.prepare(`
+    INSERT INTO state_sections (id, data) VALUES (?, ?)
+    ON CONFLICT (id) DO UPDATE SET data = excluded.data
+  `);
+  for (const { id, data } of sections) statement.run(id, Buffer.from(data, 'latin1'));
+}
 
 function readState(database) {
   // DEFENSE: The database can contain an earlier input journal or a newer schema.
   const version = database.prepare('PRAGMA user_version').get().user_version;
   if (version !== stateSchemaVersion) throw new Error(`Unsupported Selvedge SQLite state schema version ${version}`);
-  const record = database.prepare('SELECT namespace, schema, sequence, data FROM state WHERE id = 1').get();
+  const record = database.prepare('SELECT namespace, schema, sequence FROM state WHERE id = 1').get();
   // DEFENSE: An externally edited database cannot supply missing or invalid service identity.
   if (!record || !/^[0-9a-f]{32}$/.test(record.namespace)) throw new Error('Invalid Selvedge state metadata');
-  const tasks = database.prepare('SELECT id, data FROM tasks ORDER BY id').all().map((row, index) => {
+  const tasks = database.prepare('SELECT id, data, history_length FROM tasks ORDER BY id').all().map((row, index) => {
     // DEFENSE: A missing row must not silently assign the next task a different identity.
     if (row.id !== index) throw new Error('Invalid Selvedge stored task identities');
+    return { data: Buffer.from(row.data).toString('latin1'),
+      length: integer(row.history_length, 'history length'), history: [] };
+  });
+  for (const row of database.prepare('SELECT task_id, start, data FROM task_history ORDER BY task_id, start').all()) {
+    const task = tasks[row.task_id];
+    // DEFENSE: External editing can remove the task owned by a history row.
+    if (task === undefined) throw new Error('Invalid Selvedge stored history owner');
+    task.history.push({ start: integer(row.start, 'history offset'), data: Buffer.from(row.data).toString('latin1') });
+  }
+  const shared = database.prepare('SELECT id, data FROM state_sections ORDER BY id').all().map((row, index) => {
+    // DEFENSE: An omitted section must not shift later sections to other meanings.
+    if (row.id !== index) throw new Error('Invalid Selvedge stored state sections');
     return Buffer.from(row.data).toString('latin1');
   });
   return { namespace: record.namespace, schema: record.schema, sequence: integer(record.sequence, 'state sequence'),
-    shared: Buffer.from(record.data).toString('latin1'), tasks };
+    shared, tasks };
 }
 
 function closeJournalDatabase(database) {
@@ -103,7 +133,7 @@ export class Journal extends EventEmitter {
       }
       journal.#lock = await acquireJournalOwnership(filename);
       journal.#database = new DatabaseSync(filename, { timeout: 1000 });
-      journal.#database.exec('PRAGMA synchronous=FULL; BEGIN IMMEDIATE');
+      journal.#database.exec('PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL; BEGIN IMMEDIATE');
       const version = journal.#database.prepare('PRAGMA user_version').get().user_version;
       if (version === 0 && !journal.#database.prepare('SELECT 1 FROM sqlite_schema LIMIT 1').get()) {
         // DEFENSE: During handoff the store must still belong to the prepared service.
@@ -113,8 +143,8 @@ export class Journal extends EventEmitter {
         journal.sequence = 0;
         journal.program = program;
         journal.#database.exec(schema);
-        journal.#database.prepare('INSERT INTO state VALUES (1, ?, ?, 0, ?)')
-          .run(journal.namespace, storage.schema, Buffer.from(storage.shared, 'latin1'));
+        journal.#database.prepare('INSERT INTO state VALUES (1, ?, ?, 0)').run(journal.namespace, storage.schema);
+        writeStateSections(journal.#database, storage.shared);
         journal.#database.exec(`PRAGMA user_version = ${stateSchemaVersion}`);
       } else {
         const state = readState(journal.#database);
@@ -200,13 +230,27 @@ export class Journal extends EventEmitter {
         program = applyProgramUpdates(this.program, [response.programUpdate]);
         this.#database.exec('BEGIN IMMEDIATE');
         const { shared, tasks } = response.storage;
-        const writeTask = this.#database.prepare(`
-          INSERT INTO tasks (id, created_at, data) VALUES (?, ?, ?)
-          ON CONFLICT (id) DO UPDATE SET data = excluded.data
+        const insertTask = this.#database.prepare('INSERT INTO tasks (id, created_at, data, history_length) VALUES (?, ?, ?, ?)');
+        const updateTask = this.#database.prepare(`
+          UPDATE tasks SET data = ?, history_length = history_length + ?
+          WHERE id = ? AND (? IS NULL OR history_length = ?)
         `);
-        for (const task of tasks) writeTask.run(task.id, observedAt, Buffer.from(task.data, 'latin1'));
-        this.#database.prepare('UPDATE state SET sequence = ?, data = coalesce(?, data) WHERE id = 1')
-          .run(sequence, shared === null ? null : Buffer.from(shared, 'latin1'));
+        const appendHistory = this.#database.prepare('INSERT INTO task_history VALUES (?, ?, ?)');
+        for (const task of tasks) {
+          const { history, id } = task;
+          const data = Buffer.from(task.data, 'latin1');
+          if (task.born) insertTask.run(id, observedAt, data, history?.length ?? 0);
+          else {
+            const cursor = history?.start ?? null;
+            const { changes } = updateTask.run(data, history?.length ?? 0, id, cursor, cursor);
+            // DEFENSE: A missing task or an offset that disagrees with its
+            // committed cursor cannot accept a history append.
+            if (changes !== 1) throw new Error('Selvedge task history cursor changed during submission');
+          }
+          if (history !== null) appendHistory.run(task.id, history.start, Buffer.from(history.data, 'latin1'));
+        }
+        writeStateSections(this.#database, shared);
+        this.#database.prepare('UPDATE state SET sequence = ? WHERE id = 1').run(sequence);
         committing = true;
         this.#database.exec('COMMIT');
       // DEFENSE: A write before COMMIT is definitely uncommitted; an error during COMMIT leaves its durable outcome unknown.

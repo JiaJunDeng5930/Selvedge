@@ -221,11 +221,27 @@ test('the service opens committed task and shared records directly', async t => 
     // Insist on updating only the task that actually changed.
     db.exec(`CREATE TRIGGER untouched_task BEFORE UPDATE ON tasks WHEN old.id = ${untouched}
       BEGIN SELECT RAISE(ABORT, 'unrelated task rewrite'); END`);
-    await command({ op: 'send', task_id: task, message: '保留对话 🌲' });
+    db.exec(`CREATE TRIGGER immutable_history BEFORE UPDATE ON task_history
+      BEGIN SELECT RAISE(ABORT, 'prior history rewrite'); END`);
+    db.exec(`CREATE TRIGGER unchanged_section BEFORE UPDATE ON state_sections WHEN old.data = new.data
+      BEGIN SELECT RAISE(ABORT, 'unchanged shared section rewrite'); END`);
+    const storedHistory = () => db.prepare('SELECT start, data FROM task_history WHERE task_id = ? ORDER BY start').all(task);
+    const taskRecord = () => db.prepare('SELECT history_length, data FROM tasks WHERE id = ?').get(task);
+    await command({ op: 'freeze', task_id: task });
+    const shortMetadata = taskRecord().data.length;
+    await command({ op: 'unfreeze', task_id: task });
+    const long = '保留对话 🌲 ' + 'Prior task history. '.repeat(600);
+    await command({ op: 'send', task_id: task, message: long });
     const before = await taskIdle(service, task);
     assert.match(JSON.stringify(before.messages), /保留对话 🌲/);
     const tables = db.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name").all();
-    assert.deepEqual(tables.map(row => row.name), ['state', 'tasks']);
+    assert.deepEqual(tables.map(row => row.name), ['state', 'state_sections', 'task_history', 'tasks']);
+    const originalHistory = storedHistory();
+    assert.ok(originalHistory.some(row => row.data.length >= Buffer.byteLength(long)));
+    await command({ op: 'freeze', task_id: task });
+    assert.deepEqual(storedHistory(), originalHistory, 'Changing status writes no history chunk');
+    assert.ok(taskRecord().data.length <= shortMetadata + 16, 'Task metadata does not repeat old message content');
+    await command({ op: 'unfreeze', task_id: task });
     await service.close();
 
     service = await Service.open(options);
@@ -234,8 +250,25 @@ test('the service opens committed task and shared records directly', async t => 
     await command({ op: 'send', task_id: task, message: '继续执行' });
     const after = await taskIdle(service, task);
     assert.match(JSON.stringify(after.messages), /继续执行/);
+    assert.deepEqual(storedHistory().slice(0, originalHistory.length), originalHistory);
 
+    const committedRecord = taskRecord();
+    const committedHistory = storedHistory();
+    const sequence = service.journal.sequence;
+    db.exec(`CREATE TRIGGER fail_history_append BEFORE INSERT ON task_history
+      BEGIN SELECT RAISE(ABORT, 'history append failed'); END`);
+    await assert.rejects(command({ op: 'send', task_id: task, message: 'Never committed' }), /history append failed/);
     await service.close();
+    assert.deepEqual(taskRecord(), committedRecord);
+    assert.deepEqual(storedHistory(), committedHistory);
+    assert.equal(db.prepare('SELECT sequence FROM state').get().sequence, sequence);
+    db.exec('DROP TRIGGER fail_history_append');
+
+    const last = committedHistory.at(-1);
+    db.prepare('DELETE FROM task_history WHERE task_id = ? AND start = ?').run(task, last.start);
+    await assert.rejects(Service.open(options), /Invalid Selvedge stored state/);
+    db.prepare('INSERT INTO task_history VALUES (?, ?, ?)').run(task, last.start, last.data);
+
     db.prepare('UPDATE tasks SET data = ? WHERE id = ?').run(Buffer.alloc(0), task);
     await assert.rejects(Service.open(options), /Invalid Selvedge stored state/);
   } finally { db.close(); }

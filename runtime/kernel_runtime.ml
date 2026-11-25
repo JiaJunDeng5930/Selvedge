@@ -3,24 +3,66 @@ module Model = KernelModel
 module Json = Json_io.Make(Model)
 
 let initial () = Model.selvedge_kernel_initial
-let initial_shared () = Js.bytestring (Stored_state.encode_shared (initial ()))
+let shared_writes before next =
+  Stored_state.shared_writes before next
+  |> List.map (fun (id, data) -> Js.Unsafe.obj [|
+       "id", Js.Unsafe.inject (Js.number_of_float (float_of_int id));
+       "data", Js.Unsafe.inject (Js.bytestring data) |])
+  |> Array.of_list |> Js.array
+let initial_shared () = shared_writes None (initial ())
 
 let restore_state sequence shared tasks =
-  let decode_task bytes = Stored_state.decode_task_exn (Js.to_bytestring bytes) in
+  let number row key = Js.float_of_number (Js.Unsafe.get row key) in
+  let bytes row = Js.to_bytestring (Js.Unsafe.get row "data") in
+  let decode_task row =
+    let length, reversed =
+      Array.fold_left (fun (cursor, reversed) chunk ->
+        let messages = Stored_state.decode_history_exn (bytes chunk) in
+        (* DEFENSE: Stored history must be contiguous and each chunk must add messages. *)
+        if number chunk "start" <> float_of_int cursor || messages = [] then raise State_wire.Invalid_state;
+        cursor + List.length messages, List.rev_append messages reversed)
+      (0, []) (Js.to_array (Js.Unsafe.get row "history")) in
+    (* DEFENSE: The task record retains its expected length even if its last chunk is missing. *)
+    if number row "length" <> float_of_int length then raise State_wire.Invalid_state;
+    Stored_state.decode_task_exn (bytes row) (List.rev reversed) in
   try
     let tasks = Array.to_list (Array.map decode_task (Js.to_array tasks)) in
     let sequence = Big_int_Z.big_int_of_string (Js.to_string sequence) in
-    Js.Unsafe.inject (Stored_state.restore_exn (Js.to_bytestring shared) ~sequence ~tasks)
+    let sections = Array.map Js.to_bytestring (Js.to_array shared) in
+    Js.Unsafe.inject (Stored_state.restore_exn sections ~sequence ~tasks)
   with State_wire.Invalid_state -> Js.Unsafe.inject Js.null
+
+type ('task, 'message) task_change = {
+  id : int;
+  previous : 'task option;
+  task : 'task;
+  history : (int * 'message list) option;
+}
+
+let changed_task id previous task =
+  let history = Stored_state.task_history task in
+  let appended = match previous with
+    | Some old when Stored_state.task_history old == history -> None
+    | _ ->
+        (* A committed task only extends its history. Born tasks record their initial prefix. *)
+        let start = match previous with None -> 0 | Some old -> List.length (Stored_state.task_history old) in
+        let messages = Model.selvedge_kernel_task_history_since (Big_int_Z.big_int_of_int start) task in
+        match messages with
+        | [] ->
+            (* DEFENSE: A shortened committed history cannot be written as an append. *)
+            if List.length history <> start then invalid_arg "The committed task history cannot shrink";
+            None
+        | _ -> Some (start, messages) in
+  {id; previous; task; history = appended}
 
 let changed_tasks before next =
   let rec collect id writes previous current =
     if previous == current then writes else
     match previous, current with
     | old :: old_rest, task :: rest ->
-        let writes = if Stored_state.same_task old task then writes else (id, Some old, task) :: writes in
+        let writes = if Stored_state.same_task old task then writes else changed_task id (Some old) task :: writes in
         collect (id + 1) writes old_rest rest
-    | [], task :: rest -> collect (id + 1) ((id, None, task) :: writes) [] rest
+    | [], task :: rest -> collect (id + 1) (changed_task id None task :: writes) [] rest
     | [], [] -> writes
     | _ :: _, [] ->
         (* DEFENSE: Archival keeps task identities, so a shorter registry would
@@ -30,18 +72,23 @@ let changed_tasks before next =
   List.rev (collect 0 [] (Stored_state.tasks before) (Stored_state.tasks next))
 
 let task_writes changes =
-  List.map (fun (id, _, task) ->
-    Js.Unsafe.obj [| "id", Js.Unsafe.inject (Js.number_of_float (float_of_int id));
-      "data", Js.Unsafe.inject (Js.bytestring (Stored_state.encode_task task)) |]) changes
+  let number value = Js.Unsafe.inject (Js.number_of_float (float_of_int value)) in
+  List.map (fun change ->
+    let history = match change.history with
+      | None -> Js.Unsafe.inject Js.null
+      | Some (start, messages) -> Js.Unsafe.inject (Js.Unsafe.obj [|
+          "start", number start; "length", number (List.length messages);
+          "data", Js.Unsafe.inject (Js.bytestring (Stored_state.encode_history messages)) |]) in
+    Js.Unsafe.obj [| "id", number change.id; "history", history;
+      "born", Js.Unsafe.inject (Js.bool (Option.is_none change.previous));
+      "data", Js.Unsafe.inject (Js.bytestring (Stored_state.encode_task_metadata change.task)) |]) changes
   |> Array.of_list |> Js.array
 
 let storage before next changes =
   if Big_int_Z.eq_big_int (Stored_state.sequence before) (Stored_state.sequence next) then
     Js.Unsafe.inject Js.null
   else
-    let shared = if Stored_state.same_shared before next then Js.Unsafe.inject Js.null
-      else Js.Unsafe.inject (Js.bytestring (Stored_state.encode_shared next)) in
-    Js.Unsafe.inject (Js.Unsafe.obj [| "shared", shared;
+    Js.Unsafe.inject (Js.Unsafe.obj [| "shared", Js.Unsafe.inject (shared_writes (Some before) next);
       "tasks", Js.Unsafe.inject (task_writes changes) |])
 let input_error name message =
   Js.Unsafe.obj [| "inputError", Js.Unsafe.inject (Js.Unsafe.obj [|
@@ -71,25 +118,21 @@ let observe_patch before next changes =
   let row id text =
     Js.Unsafe.obj [| "id", Js.Unsafe.inject (Js.number_of_float (float_of_int id));
       "text", Js.Unsafe.inject (Js.string text) |] in
-  let tasks = List.map (fun (id, old, task) ->
-    let result = row id (observe_row Model.selvedge_kernel_task_publication id task next) in
-    let history = Stored_state.task_history task in
-    let appended = match old with
-      | Some previous when Stored_state.task_history previous == history -> "[]"
-      | _ ->
-          (* A committed task's history only grows. Born tasks publish their inherited prefix once. *)
-          let cursor = match old with None -> 0 | Some previous -> List.length (Stored_state.task_history previous) in
-          Json.stringify (Model.selvedge_kernel_task_history_suffix
-            (Big_int_Z.big_int_of_int id) (Big_int_Z.big_int_of_int cursor) task) in
+  let tasks = List.map (fun change ->
+    let result = row change.id (observe_row Model.selvedge_kernel_task_publication change.id change.task next) in
+    let appended = match change.history with
+      | None -> "[]"
+      | Some (_, messages) -> Json.stringify
+          (Model.selvedge_kernel_history_publication (Big_int_Z.big_int_of_int change.id) messages) in
     Js.Unsafe.set result "appended" (Js.string appended);
     result) changes in
   let changed = Hashtbl.create (List.length changes) in
   let ancestors = Hashtbl.create (List.length changes) in
-  List.iter (fun (id, old, task) ->
-    Hashtbl.add changed id ();
-    if Option.is_none old then List.iter (fun ancestor ->
+  List.iter (fun change ->
+    Hashtbl.add changed change.id ();
+    if Option.is_none change.previous then List.iter (fun ancestor ->
       Hashtbl.replace ancestors (Big_int_Z.int_of_big_int ancestor) ())
-      (Stored_state.task_lineage task)) changes;
+      (Stored_state.task_lineage change.task)) changes;
   let shared_dependencies_changed = not (Stored_state.same_publication_dependencies before next) in
   let references =
     if shared_dependencies_changed || Hashtbl.length ancestors > 0 then
@@ -106,9 +149,9 @@ let observe_patch before next changes =
         (List.mapi (fun id task -> id, task) (Stored_state.tasks before))
     else [] in
   let catalog_changed = not (Stored_state.same_environment before next) in
-  let membership_changed (_, previous, task) =
-    let project = Model.selvedge_kernel_publication_project task in
-    let old_project = Option.bind previous Model.selvedge_kernel_publication_project in
+  let membership_changed change =
+    let project = Model.selvedge_kernel_publication_project change.task in
+    let old_project = Option.bind change.previous Model.selvedge_kernel_publication_project in
     not (Option.equal Big_int_Z.eq_big_int project old_project) in
   let projects_changed = not (Stored_state.same_projects before next) || List.exists membership_changed changes in
   Js.Unsafe.obj [|
