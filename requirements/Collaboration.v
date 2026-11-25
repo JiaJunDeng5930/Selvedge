@@ -241,8 +241,9 @@ Export TitleProofs(admitted_title_issues_observed_request,
     [automatic_queue_follows_pin_priority_and_board_order] constrains that actual
     queue. Board eligibility and concurrency belong to [Board]. Filtering
     changes the view, not the stored card. The bounded scheduler requests a
-    continuation when work remains. Automatic title selection uses
-    [FeatureRequestAdmission.resolve_title]. With the default Auto setting,
+    continuation when work remains. Automatic title selection traverses Tasks
+    in registry order and passes the observed task directly to
+    [FeatureRequestAdmission.resolve_title_at]. With the default Auto setting,
     it prefers an ordinary gpt-5.6-luna profile on the Task's ChatGPT account
     and otherwise uses the Task profile when available; an echo profile cannot
     issue a title request. An explicitly saved Agent conversation title model

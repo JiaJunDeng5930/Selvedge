@@ -620,11 +620,34 @@ Definition completion_inputs := [
  InputRoute.callback (ModelDeclarations.Worktree false) (fun received =>
    option_map (fun '(id,observed) => fun value => (true,true,archived_result id observed value))
      (decode_archive_completion received))].
-Definition archive_after (tree:Selvedge.Features.Domain.worktree) : DecisionComposition.step := fun value _ =>
- match Selvedge.Kernel.State.find_task (Selvedge.Features.Domain.worktree_task tree) value with Some task=>if archived task then
+Definition archive_ready_tree (tree:Selvedge.Features.Domain.worktree) (value:world) :=
  match Selvedge.Features.Domain.worktree_phase tree with
  | Selvedge.Features.Domain.TreeCreating (RequestEnvelope.Owned false)=>DecisionComposition.unchanged (store (Selvedge.Features.Domain.with_worktree_phase (Selvedge.Features.Domain.TreeCreating (RequestEnvelope.Owned true)) tree) value)
  | Selvedge.Features.Domain.TreeReady _ _ | Selvedge.Features.Domain.TreeCreateFailed _ _=>DecisionComposition.from_decision (archive_tree tree value)
- | _=>DecisionComposition.unchanged value end else DecisionComposition.unchanged value | None=>DecisionComposition.unchanged value end.
-Definition after_transition (_before:world) : DecisionComposition.step := fun value effects =>
+ | _=>DecisionComposition.unchanged value end.
+Definition archive_after (tree:Selvedge.Features.Domain.worktree) : DecisionComposition.step := fun value _ =>
+ match Selvedge.Kernel.State.find_task (Selvedge.Features.Domain.worktree_task tree) value with
+ | Some task => if archived task then archive_ready_tree tree value else DecisionComposition.unchanged value
+ | None => DecisionComposition.unchanged value
+ end.
+Definition recover_archives : DecisionComposition.step := fun value effects =>
  DecisionComposition.each (Selvedge.Features.Domain.feature_worktrees (world_features value)) archive_after value effects.
+
+Definition archive_cancelled_owner (owner : N) : DecisionComposition.step := fun value _ =>
+ match Selvedge.Kernel.State.find_task owner value with
+ | Some task => if archived task then
+   match lookup owner value with
+   | Some tree => archive_ready_tree tree value
+   | None => DecisionComposition.unchanged value
+   end
+  else DecisionComposition.unchanged value
+ | None => DecisionComposition.unchanged value
+ end.
+Definition cancelled_task_owners (effects : list Selvedge.Kernel.State.effect) :=
+ List.nodup N.eq_dec (List.flat_map (fun effect => match effect with
+   | CancelTask owner => [owner] | _ => [] end) effects).
+Definition after_transition : DecisionComposition.step := fun value effects =>
+ DecisionComposition.each (cancelled_task_owners effects) archive_cancelled_owner value effects.
+Theorem no_worktree_archive_without_owner_cancellation value effects :
+ cancelled_task_owners effects = [] -> after_transition value effects = DecisionComposition.unchanged value.
+Proof. unfold after_transition; intros Empty; now rewrite Empty. Qed.

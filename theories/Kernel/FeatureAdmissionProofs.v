@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Programming Require TaskScope.
+From Selvedge.Programming Require TaskScope TaskScopeProofs.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Foundation Require Import Registry.
@@ -22,12 +22,15 @@ Theorem admitted_title_resolves_without_rechecking : forall owner current before
  TaskScope.selected (title_reference request) = current /\ title_profile request = selected.
 Proof.
  intros owner current before selected Found Absent Live Nonblank Chosen.
- unfold resolve_title.
+ destruct (TaskScopeProofs.selecting_an_existing_task_retains_its_key _ _ _ Found)
+   as [target [Selected [Owner Current]]].
+ unfold resolve_title. rewrite Selected. unfold resolve_title_at.
+ rewrite <- Owner in Absent.
+ rewrite <- Current in Live, Nonblank, Chosen.
  eapply observe_absent; [exact Absent|]; intros Missing.
- eapply observe_present; [exact Found|]; intros Observed.
  destruct (Bool.bool_dec _ true) as [Eligible|Ineligible].
- - eapply observe_present; [exact Chosen|]; intros Selected.
-   eexists; repeat split; reflexivity.
+ - eapply observe_present; [exact Chosen|]; intros ChosenProfile.
+   eexists; repeat split; try reflexivity; assumption.
  - exfalso; apply Ineligible; now rewrite Live,Nonblank.
 Qed.
 
@@ -35,6 +38,9 @@ Theorem a_pending_title_is_not_resolved_again : forall owner before entry,
  title_entry owner before = Some entry -> resolve_title owner before = None.
 Proof.
  intros owner before entry Found; unfold resolve_title.
+ apply TaskScopeProofs.selected_reference_elimination; [|reflexivity].
+ intros target Owner. unfold resolve_title_at.
+ rewrite <- Owner in Found.
  eapply observe_present; [exact Found|]; reflexivity.
 Qed.
 

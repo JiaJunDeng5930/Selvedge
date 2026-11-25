@@ -101,7 +101,7 @@ Definition core_transition (source : Inputs.input) (value : world) :=
  | HookCompleted id ticket outcome => Selvedge.Features.Runtime.after_transition value (HookCallbacks.hook_completed id ticket outcome value)
  | AfterCompleted id operation ticket outcome => Selvedge.Features.Runtime.after_transition value (HookCallbacks.after_completed id operation ticket outcome value)
  | ApprovalCompleted id ticket outcome => Selvedge.Features.Runtime.after_transition value (Callbacks.approval_completed id ticket outcome value)
- | Recover => Selvedge.Features.Runtime.after_transition value (Recovery.recover (Selvedge.Features.Runtime.recover value))
+ | Recover => Selvedge.Features.Runtime.after_recovery_transition value (Recovery.recover (Selvedge.Features.Runtime.recover value))
  | Continue => Selvedge.Features.Runtime.after_transition value (accept JNull value [])
  end.
 Definition input_route := (Inputs.input + (world -> bool * bool * decision))%type.

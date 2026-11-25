@@ -141,11 +141,15 @@ Arguments title_profile {before}.
 Arguments title_absent {before}.
 Arguments title_eligible {before}.
 Arguments title_chosen {before}.
-Definition resolve_title owner before : option (resolved_title before) :=
- observe (title_entry owner before) (fun _ _ => None) (fun Absent =>
- observe (find_task owner before) (fun current Found =>
+Definition resolve_title_at {before} (target : TaskScope.task_reference before) : option (resolved_title before) :=
+ let current := TaskScope.selected target in
+ observe (title_entry (TaskScope.owner target) before) (fun _ _ => None) (fun Absent =>
  match Bool.bool_dec (title_accepts current && Utf8.nonblank (Observation.first_request (task_history current))) true with
  | left Eligible => observe (selected_title_profile current before)
-   (fun selected Chosen => Some (ResolvedTitle before (TaskScope.TaskReference before owner current Found)
-      selected Absent Eligible Chosen)) (fun _ => None)
- | right _ => None end) (fun _ => None)).
+   (fun selected Chosen => Some (ResolvedTitle before target selected Absent Eligible Chosen)) (fun _ => None)
+ | right _ => None end).
+Definition resolve_title owner before : option (resolved_title before) :=
+ match TaskScope.select owner before with
+ | Some target => resolve_title_at target
+ | None => None
+ end.

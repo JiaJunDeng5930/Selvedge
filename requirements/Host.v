@@ -83,9 +83,14 @@ Export PacketProofs(journal_never_commits_an_unchanged_refusal,
     Actual catalog changes retire maintenance only for tasks whose callable
     tools changed. A policy refresh that admits the same policy has no
     maintenance or clock transition. *)
-From Selvedge.Features Require Compaction TaskGraph.
+From Selvedge.Features Require Compaction TaskGraph Worktree.
 Export Compaction(equal_policy_adds_no_clock_or_cancellation).
 Export TaskGraph(after_model_output_without_rules).
+
+(** Ordinary scheduling visits only worktrees owned by cancelled tasks
+    that have entered the archived state. Creation completion handles its
+    own owner, and recovery reconciles all persisted worktrees. *)
+Export Worktree(no_worktree_archive_without_owner_cancellation).
 
 From Selvedge.Adapters Require RpcProofs ApiProofs WebProofs.
 Export WebProofs(web_repeated_identity_has_no_write, web_completed_response_is_not_written_again,

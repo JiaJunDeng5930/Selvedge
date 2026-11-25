@@ -11,14 +11,7 @@ Module Reference := TaskScope.
 Definition plan := FeatureRequestAdmission.resolved_title.
 Definition reference := @FeatureRequestAdmission.title_reference.
 Arguments reference {before}.
-Definition select := FeatureRequestAdmission.resolve_title.
-Fixpoint first (owners : list nat) (before : world) : option (plan before) :=
- match owners with
- | [] => None
- | owner :: rest => match select (N.of_nat owner) before with
-   | Some request => Some request | None => first rest before end
- end.
-Definition resolve (before : world) := first (seq 0 (List.length (world_tasks before))) before.
+Definition resolve (before : world) := TaskScope.first_matching before FeatureRequestAdmission.resolve_title_at.
 Definition input (decoded : option Inputs.input) (before : world) :=
  match decoded with Some Continue => resolve before | _ => None end.
 Definition candidate {before : world} (request : plan before) :=
