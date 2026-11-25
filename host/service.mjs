@@ -2,6 +2,7 @@ import { cloneJson } from './codec.mjs';
 import { boundary } from './public/model-boundary.mjs';
 import { requireAudioAdmission, interpretBrowserObservation, browseDirectoryLocation, dispatchControlResult, interpretAudioControl } from './model-api.ts';
 import { EventEmitter } from 'node:events';
+import { setTimeout as delay } from 'node:timers/promises';
 import { launchEffect, settleEffect } from './effect-lifecycle.ts';
 import { materializeCallArguments } from './public/call-wire.mjs';
 import path from 'node:path';
@@ -38,6 +39,7 @@ import { createTaskWorkspace, archiveTaskWorkspace, reconcileTaskWorkspace, roll
 const TOOL_OUTPUT_INTERVAL_MS = 160;
 const TOOL_OUTPUT_PREVIEW_POINTS = 4096;
 const TOOL_SNAPSHOT_PREVIEW_POINTS = 32768;
+const PROCESS_RESULT_JOIN_MS = 500;
 
 function directoriesOverlap(left, right) {
   return [path.relative(left, right), path.relative(right, left)].some(relative =>
@@ -90,6 +92,7 @@ export class Service extends EventEmitter {
   #toolActivity = new Set();
   #audioSessions = new Map();
   #contextDiscovery = new Map();
+  #recentProcesses = new Map();
 
   static async open({ home, config, cwd = process.cwd(), remoteOptions, audioOptions,
     audioFactory = createChatGPTAudio, holdEffects = false, journal } = {}) {
@@ -400,7 +403,37 @@ export class Service extends EventEmitter {
   #launch(effect, run) {
     const result = launchEffect(observation => this.#dispatchControl(observation), this.#running, effect, run);
     this.#drainProgress?.();
+    if (effect.kind === 'tool' && effect.tool.source.kind === 'native' && effect.tool.source.program.kind === 'Process') {
+      const owner = naturalKey(effect.task_id);
+      const processes = this.#recentProcesses.get(owner) ?? new Set();
+      this.#recentProcesses.set(owner, processes);
+      const process = { result, until: performance.now() + PROCESS_RESULT_JOIN_MS };
+      processes.add(process);
+      return result.finally(() => {
+        processes.delete(process);
+        if (!processes.size) this.#recentProcesses.delete(owner);
+        this.#drainProgress?.();
+      });
+    }
     return result.finally(() => this.#drainProgress?.());
+  }
+
+  async #joinProcessResults(task, signal) {
+    const processes = this.#recentProcesses.get(naturalKey(task));
+    if (!processes) return;
+    // Context preparation overlaps this bounded wait. An early process result
+    // can then be included in the imminent request.
+    const now = performance.now();
+    const joined = [...processes].filter(process => process.until > now);
+    if (!joined.length) return;
+    const deadline = Math.max(...joined.map(process => process.until));
+    const timer = new AbortController();
+    try {
+      await Promise.race([
+        Promise.allSettled(joined.map(process => process.result)),
+        delay(Math.ceil(deadline - now), undefined, { signal: AbortSignal.any([signal, timer.signal]), ref: false }),
+      ]);
+    } finally { timer.abort(); }
   }
 
   #cancelProvider(task) {
@@ -532,9 +565,12 @@ export class Service extends EventEmitter {
             observed = { scope, entries: new Map() };
             this.#contextDiscovery.set(owner, observed);
           }
-          const observations = await observeContextSources(effect, { home: this.home, config: this.declaredConfig, limits: this.limits, signal, environment,
-            discovery: observed.entries,
-            onDiagnostic: message => this.notify({ type: 'diagnostic', message }) });
+          const [observations] = await Promise.all([
+            observeContextSources(effect, { home: this.home, config: this.declaredConfig, limits: this.limits, signal, environment,
+              discovery: observed.entries,
+              onDiagnostic: message => this.notify({ type: 'diagnostic', message }) }),
+            this.#joinProcessResults(effect.task_id, signal),
+          ]);
           return { observations };
         },
         chatgpt: async effect => {

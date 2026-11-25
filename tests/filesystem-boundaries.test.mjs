@@ -29,6 +29,40 @@ async function matchingFiles(directory, bytes) {
   return matches;
 }
 
+test('short process results reach the first continuation while long processes can remain in flight', async t => {
+  const directory = await home(t);
+  const longNotice = Promise.withResolvers();
+  const call = (id, command) => [{ type: 'function_call', name: 'bash', call_id: id,
+    arguments: JSON.stringify({ command }) }];
+  const fixture = await filesystemServer(t, { directory, respond: (body, index) => {
+    if (index === 0) return call('short-result', "printf 'Short process output'");
+    if (index === 2) return call('long-result',
+      "while [ ! -f release-process ]; do sleep 0.05; done; printf 'Long process output'");
+    if (index === 3) longNotice.resolve(body);
+    return answer('The request was received.');
+  } });
+  const start = message => fixture.command({ op: 'create', profile: fixture.profile, message,
+    settings: { approval: { mode: 'full-access' } } });
+  const result = (body, id) => body.input.map(item => {
+    if (item.type === 'function_call_output' && item.call_id === id) return JSON.parse(item.output).value;
+    const delivery = asyncToolResult(item);
+    return delivery?.call_id === id ? delivery.value : undefined;
+  }).find(value => typeof value?.stdout === 'string');
+  const short = await start('Run the short process.');
+  await fixture.idle(short.task_id);
+  assert.equal(fixture.upstream.requests.length, 2);
+  assert.equal(result(fixture.upstream.requests[1], 'short-result')?.stdout, 'Short process output');
+
+  const long = await start('Run the process that waits for the gate.');
+  const continuing = await Promise.race([longNotice.promise,
+    delay(8000, null, { ref: false })]);
+  assert.ok(continuing, 'An in-flight process does not block the next model request until completion');
+  assert.equal(result(continuing, 'long-result'), undefined);
+  await writeFile(path.join(directory, 'release-process'), 'release');
+  await fixture.idle(long.task_id, { completed: () => fixture.upstream.requests.length >= 5 });
+  assert.equal(result(fixture.upstream.requests[4], 'long-result')?.stdout, 'Long process output');
+});
+
 test('HTTP attachment reads preserve uploaded bytes and reject changed bytes or a matching symlink', async t => {
   const fixture = await filesystemServer(t);
   const upload = await fetch(`${fixture.running.address}/api/board/attachments?name=evidence.png`, {
