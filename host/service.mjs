@@ -1,9 +1,10 @@
 import { cloneJson } from './codec.mjs';
 import { boundary } from './public/model-boundary.mjs';
-import { requireAudioAdmission, interpretBrowserObservation, browseDirectoryLocation, dispatchControlResult, interpretAudioControl } from './model-api.ts';
+import { requireAudioAdmission, interpretBrowserObservation, browseDirectoryLocation, interpretAudioControl } from './model-api.ts';
 import { EventEmitter } from 'node:events';
 import { setTimeout as delay } from 'node:timers/promises';
 import { launchEffect, settleEffect } from './effect-lifecycle.ts';
+import { DispatchControl } from './dispatch-control.mjs';
 import { materializeCallArguments } from './public/call-wire.mjs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -65,7 +66,7 @@ export class ServiceDrainingError extends Error {
 export class Service extends EventEmitter {
   #running = new Map();
   #submissions = new Set();
-  #dispatchState = boundary('control.dispatch.initial', {});
+  #effectControl = new DispatchControl();
   #processRegistry = new ProcessRegistry();
   #providerCancellations = new Set();
   #servers = new Map();
@@ -304,9 +305,7 @@ export class Service extends EventEmitter {
   }
 
   #dispatchControl(observation) {
-    const transition = dispatchControlResult(boundary('control.dispatch.step', { state: this.#dispatchState, observation }));
-    this.#dispatchState = transition.state;
-    return transition;
+    return this.#effectControl.step(observation);
   }
 
   #cancelRunning(observation, reason) {

@@ -168,14 +168,17 @@ Export ApiProofs(public_unissued_rpc_response_preserves_pending_requests,
     peer. *)
 
 From Selvedge.Host Require Dispatch DispatchAdapterProofs.
+From Selvedge.Adapters Require HostDispatch.
 Export Dispatch(launch_installs_handle_before_run,
   completion_only_removes_its_generation,
+  selected_dispatch_handles_preserve_effects, selected_dispatch_handles_preserve_head,
   uncertain_never_retries, reduced_callback_never_retries,
   terminal_settlement_prevents_new_work,
   shutdown_never_cancels_provider,
   ticket_provider_cancellation_keeps_registered_handle,
   task_provider_cancellation_only_stops_independent_entries).
 Export DispatchAdapterProofs(dispatch_step_returns_its_next_state).
+Export HostDispatch(dispatch_select_returns_observed_scope).
 
 (** ** Each physical effect keeps its own generation
 
@@ -215,6 +218,12 @@ Export DispatchAdapterProofs(dispatch_step_returns_its_next_state).
     reads it. [dispatch_step_returns_its_next_state] binds the actual control
     response, its effects and its decoded successor to the pure transition;
     an independent codec law would not require the response to include state.
+    The running registry is indexed by physical generation, task and request
+    key. [selected_dispatch_handles_preserve_effects] ensures that the same
+    transition can use exactly the handles selected by the observation.
+    [selected_dispatch_handles_preserve_head] keeps retirement and allocation
+    identical across the complete and selected registries.
+    Only shutdown selects all handles from this registry.
 
     Closing an observer is different from cancelling a provider invocation.
     [shutdown_never_cancels_provider] preserves remote work for recovery.

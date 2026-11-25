@@ -5,7 +5,7 @@ import type { dispatchControlResult } from './model-api.ts';
 
 declare const handleBrand: unique symbol;
 export type EffectHandle = Readonly<{ generation: DomainNatural; [handleBrand]: true }>;
-type ControlResult = ReturnType<typeof dispatchControlResult>;
+type ControlResult = Omit<ReturnType<typeof dispatchControlResult>, 'state'>;
 type Outcome = 'input_limit' | 'output_limit' | 'rejected' | 'uncertain';
 type Control = (observation: unknown) => ControlResult;
 export interface ActiveEffect {
