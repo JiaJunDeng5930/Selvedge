@@ -87,17 +87,21 @@ module Make (M : Model) = struct
 
   (* An immutable JSON object can retain its decoded form at the same depth.
      Bind the cache to one input family and one numeric interpretation. *)
-  let immutable_field_decoder () =
+  let immutable_object_cache () =
     let module Js = Js_of_ocaml.Js in
     let table = Js.Unsafe.new_obj (Js.Unsafe.pure_js_expr "WeakMap") [||] in
-    let object_cache nesting value read =
+    fun nesting value read ->
       let remaining = Big_int_Z.int_of_big_int nesting in
       match Js.Optdef.to_option (Js.Unsafe.meth_call table "get" [| value |]) with
       | Some (depth, cached) when depth = remaining -> cached
       | _ ->
           let decoded = read () in
           ignore (Js.Unsafe.meth_call table "set" [| value; Js.Unsafe.inject (remaining, decoded) |]);
-          decoded in
-    fun value ~number_text ->
-      of_js_at_exn (input_child M.selvedge_input_nesting) value ~number_text ~object_cache
+          decoded
+
+  let immutable_value_decoder () =
+    let object_cache = immutable_object_cache () in
+    fun nesting value ~number_text ->
+      of_js_at_exn nesting value ~number_text ~object_cache
+
 end

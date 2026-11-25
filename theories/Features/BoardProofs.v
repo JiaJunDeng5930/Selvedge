@@ -512,6 +512,33 @@ Proof.
  - destruct (Board.synchronized_cards value rest); cbn in IH |- *; now rewrite <- IH.
 Qed.
 
+Local Lemma unchanged_linked_cards_leave_every_stage value cards :
+ existsb (Board.card_row_stage_changes value) (filter Board.linked_card_row cards) = false ->
+ Board.synchronized_cards value cards = None.
+Proof.
+ induction cards as [|[card|] rest IH]; cbn [filter Board.synchronized_cards Board.linked_card_row]; [easy| |].
+ - destruct (F.card_task card) eqn:Linked.
+   + cbn [existsb Board.card_row_stage_changes]. rewrite Bool.orb_false_iff.
+     intros [Current Rest]. rewrite (IH Rest).
+     now destruct (Board.card_stage_change card value).
+   + intro Rest. rewrite (IH Rest).
+     unfold Board.card_stage_change, Board.linked_task, BoardFacts.linked_task. rewrite Linked.
+     now destruct (F.card_archived card).
+ - intro Rest. now rewrite (IH Rest).
+Qed.
+
+Theorem board_synchronization_keeps_all_stage_updates value :
+ Board.synchronize value =
+ match Board.synchronized_cards value (F.board_cards (Board.registry value)) with
+ | Some cards => Board.store (set F.board_cards (fun _ => cards) (Board.registry value)) value
+ | None => value end.
+Proof.
+ unfold Board.synchronize, Board.observe_linked_card_rows, Json.reuse_observation.
+ destruct (existsb (Board.card_row_stage_changes value)
+   (filter Board.linked_card_row (F.board_cards (Board.registry value)))) eqn:Changed; [reflexivity|].
+ now rewrite (unchanged_linked_cards_leave_every_stage _ _ Changed).
+Qed.
+
 Theorem finish_schedules_remaining_work : forall result id,
  Board.next (Board.synchronize (decision_world result))=Some id ->
  In ContinueScheduling (decision_effects (DecisionComposition.run Board.finish result)).
@@ -584,12 +611,12 @@ Proof.
      as [updated [linked task_id]].
    unfold Board.run in linked; rewrite Outcome in linked; cbn [CommandResult.decide CommandResult.resolve CommandResult.accept decision_world accept] in linked.
    exists updated. split; [exact linked|].
-   unfold Board.ready,Board.runnable,BoardFacts.runnable,BoardFacts.runnable_profile,BoardFacts.unlinked,Board.unlinked.
+   unfold Board.ready,Board.potential_queue_member,Board.runnable,BoardFacts.runnable,BoardFacts.runnable_profile,BoardFacts.unlinked,Board.unlinked.
    rewrite task_id, Bool.andb_false_r.
    now destruct (BoardFacts.automatic_stage (F.draft_stage (F.card_contents updated)) && BoardFacts.enrichment_ready updated).
  - eexists. split.
    + eapply BoardRelations.board_lookup_after_put_selected. exact found.
-   + unfold Board.ready. cbn [F.card_contents F.draft_stage F.card_enrichment Board.with_stage
+   + unfold Board.ready. cbn [Board.potential_queue_member F.card_contents F.draft_stage F.card_enrichment Board.with_stage
        BoardFacts.automatic_stage BoardFacts.enrichment_ready].
      now repeat rewrite Bool.andb_false_r.
 Qed.
@@ -686,6 +713,7 @@ Theorem selecting_the_next_card_follows_the_automatic_queue value :
 Proof.
  unfold Board.next, Board.queued.
  destruct (F.board_automatic (Board.registry value)); [|reflexivity].
+ unfold Board.observe_automatic_queue, Json.reuse_observation, Board.automatic_queue_scope.
  rewrite first_in_ordered_groups.
  apply same_group_selections; intro pin.
  rewrite first_in_ordered_groups.
@@ -695,7 +723,22 @@ Proof.
    Board.indexed_card_lookup (IndexedRegistry.from_list (F.board_cards (Board.registry value))) id = CardScope.lookup id value).
  { intro id. unfold Board.indexed_card_lookup.
    now rewrite <- IndexedRegistryProofs.contents_lookup, IndexedRegistryProofs.contents_from_list. }
+ assert (SameCheck : forall id, Board.queue_candidate_from
+   (Board.indexed_card_lookup (IndexedRegistry.from_list (F.board_cards (Board.registry value)))) value pin priority id =
+   Board.queue_candidate value pin priority id).
+ { intro id. unfold Board.queue_candidate, Board.queue_candidate_from. now rewrite Lookup. }
+ assert (Possible : forall id, Board.queue_candidate value pin priority id = true ->
+   Board.potential_queue_member
+     (Board.indexed_card_lookup (IndexedRegistry.from_list (F.board_cards (Board.registry value))) id) = true).
+ { intro id. rewrite Lookup. unfold Board.queue_candidate, Board.queue_candidate_from.
+   destruct (CardScope.lookup id value) as [card|]; [|discriminate].
+   unfold Board.ready. destruct (Board.potential_queue_member (Some card));
+     [reflexivity|now rewrite Bool.andb_false_r]. }
  generalize (F.board_order (Board.registry value)) as ordered; intro ordered.
- induction ordered as [|id rest IH]; cbn [find]; [reflexivity|].
- rewrite IH. unfold Board.queue_candidate, Board.queue_candidate_from. now rewrite Lookup.
+ induction ordered as [|id rest IH]; cbn [filter find]; [reflexivity|].
+ destruct (Board.potential_queue_member
+   (Board.indexed_card_lookup (IndexedRegistry.from_list (F.board_cards (Board.registry value))) id)) eqn:Potential.
+ - cbn [find]. now rewrite SameCheck, IH.
+ - rewrite IH. destruct (Board.queue_candidate value pin priority id) eqn:Chosen; [|reflexivity].
+   now rewrite (Possible id Chosen) in Potential.
 Qed.

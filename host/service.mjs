@@ -21,7 +21,7 @@ import { observeContextSources, observeSkillCatalog } from './context-sources.mj
 import { requestApproval } from './approvals.mjs';
 import { requestTaskText } from './task-text.mjs';
 import { browserHistoryReply } from './history-preview.mjs';
-import { browserOutline, selectUpdateHistory } from './public/program-updates.mjs';
+import { browserOutline, programTask, programWithTaskArray, selectUpdateHistory } from './public/program-updates.mjs';
 import { observeBoardCommand, observeMessageImages } from './board-files.mjs';
 import { requestModel, requestCompaction, observeModelRequest, cancelModelTask, ContextLimitError } from './providers.mjs';
 import { canonicalWorkspace } from './sandbox.mjs';
@@ -1168,7 +1168,7 @@ export class Service extends EventEmitter {
     let updates = this.journal.programUpdates(after, sequence);
     const publication = { namespace: this.journal.namespace, sequence };
     if (updates === undefined)
-      return { ...publication, program: this.#browserProgram(outline ? browserOutline(program) : program) };
+      return { ...publication, program: this.#browserProgram(outline ? browserOutline(program) : programWithTaskArray(program)) };
     if (historyTasks !== undefined) updates = updates.map(update => selectUpdateHistory(update, historyTasks));
     if (updates.length) {
       const latest = updates.at(-1);
@@ -1188,7 +1188,7 @@ export class Service extends EventEmitter {
     // DEFENSE: A browser history request can race service shutdown or a journal failure.
     if (this.#failure) throw this.#failure;
     if (this.#closing) throw new Error('Service is stopping');
-    const task = this.journal.program.tasks[id];
+    const task = programTask(this.journal.program.tasks, id);
     if (task === undefined) return null;
     // DEFENSE: A requested cursor can exceed the committed history.
     if (after > task.history.length) throw new RangeError('Invalid conversation history cursor');

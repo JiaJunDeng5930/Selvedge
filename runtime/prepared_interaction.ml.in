@@ -10,7 +10,45 @@ let retain context : Js.Unsafe.any =
 let structured source number_text =
   Json.of_js_exn source ~number_text:(fun value -> Js.Unsafe.fun_call number_text [| value |])
 
-let snapshot_world = Json.immutable_field_decoder ()
+let snapshot_nesting = Json.input_child Model.selvedge_input_nesting
+let world_field_nesting = Json.input_child snapshot_nesting
+let task_row_nesting = Json.input_child world_field_nesting
+let snapshot_value = Json.immutable_value_decoder ()
+let packed_world_cache = Json.immutable_object_cache ()
+let packed_task_cache = Json.immutable_object_cache ()
+let task_index_depth = Big_int_Z.int_of_big_int Model.selvedge_interaction_task_index_depth
+
+let is_object value =
+  Js.to_string (Js.typeof value) = "object" && not (Js.Unsafe.strict_equals value Js.null)
+
+let is_array value =
+  Js.to_bool (Js.Unsafe.fun_call (Js.Unsafe.pure_js_expr "Array.isArray") [| value |])
+
+let snapshot_world world ~number_text =
+  let decode nesting value = snapshot_value nesting value ~number_text in
+  let slots = if is_object world then
+      let tasks = Js.Unsafe.get world "tasks" in
+      if is_object tasks && not (is_array tasks) then Js.Unsafe.get tasks "slots" else Js.Unsafe.inject Js.null
+    else Js.Unsafe.inject Js.null in
+  if not (is_array slots) then decode snapshot_nesting world
+  else packed_world_cache snapshot_nesting world (fun () ->
+    (* The index is an in-process representation of the same task list. Its
+       branch arrays do not consume any of a row's original JSON budget. *)
+    let rec read_level depth value =
+      if depth = 0 then decode task_row_nesting value
+      else if Js.Unsafe.strict_equals value Js.null then Model.JNull
+      (* DEFENSE: The structured entry can receive malformed internal indices. *)
+      else if not (is_array value) then Json.raise_input_exn "TypeError" "Invalid browser task index"
+      else packed_task_cache (Big_int_Z.big_int_of_int depth) value (fun () ->
+        let entries = Js.to_array (Js.Unsafe.coerce value) in
+        (* DEFENSE: One index level addresses four bits. A wider array would have unreachable rows. *)
+        if Array.length entries > 16 then Json.raise_input_exn "TypeError" "Invalid browser task index";
+        Model.JArray (Array.fold_right (fun item rows -> read_level (depth - 1) item :: rows) entries [])) in
+    Model.JObject (Array.fold_right (fun key fields ->
+      let name = Json.string_of_js_exn key in
+      let field = if name = "tasks" then Model.JObject ["slots", read_level task_index_depth slots]
+        else decode world_field_nesting (Js.Unsafe.get world key) in
+      (name, field) :: fields) (Js.to_array (Js.object_keys (Js.Unsafe.coerce world))) []))
 
 let snapshot_request source world number_text =
   match structured source number_text with

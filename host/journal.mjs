@@ -6,7 +6,7 @@ import path from 'node:path';
 import { Kernel, isKernelInputRejection } from './kernel.mjs';
 import { integer } from './codec.mjs';
 import { durableDirectory } from './control-records.mjs';
-import { applyProgramUpdates } from './public/program-updates.mjs';
+import { applyProgramUpdates, indexProgramTasks } from './public/program-updates.mjs';
 
 const retainedProgramUpdates = 16;
 
@@ -157,7 +157,7 @@ export class Journal extends EventEmitter {
         const { program, storage } = await journal.#kernel.loadState(null);
         journal.namespace = randomBytes(16).toString('hex');
         journal.sequence = 0;
-        journal.program = program;
+        journal.program = indexProgramTasks(program);
         journal.#database.exec(schema);
         journal.#database.prepare('INSERT INTO state VALUES (1, ?, ?, 0)').run(journal.namespace, storage.schema);
         writeStateSections(journal.#database, storage.shared);
@@ -170,7 +170,7 @@ export class Journal extends EventEmitter {
         }
         // Read the final committed records after ownership transfers.
         const { program } = await journal.#kernel.loadState(state);
-        Object.assign(journal, { namespace: state.namespace, sequence: state.sequence, program });
+        Object.assign(journal, { namespace: state.namespace, sequence: state.sequence, program: indexProgramTasks(program) });
       }
       await chmod(filename, 0o600);
       journal.#database.exec('COMMIT; PRAGMA journal_mode=WAL');

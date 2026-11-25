@@ -162,6 +162,7 @@ Definition prepare request :=
 Definition rebase request context :=
  snapshot<-field "world" request;;
  Some(carry_publication context (context_for_state snapshot (prepared_state context) (prepared_encoding context) (environment request))).
+Definition task_index_depth := World.task_levels.
 Definition with_state context current :=
  let encoded:=SC.encode_state current in
  if Json.equal(prepared_encoding context)encoded then context else
@@ -332,7 +333,10 @@ Definition context_route_changed before after :=
  negb(Json.equal (encode_route(current_route before)) (encode_route(current_route after))) ||
  section_changed "navigation" ["work"] before after.
 Definition world_fields_changed fields before after :=
- changed_fields fields (prepared_world before) (prepared_world after).
+ let prior := prepared_world before in let next := prepared_world after in
+ existsb (fun name => if String.eqb name "tasks" then
+   existsb (fun '(old, fresh) => negb (Json.equal old fresh)) (World.changed_task_rows prior next)
+   else changed_fields [name] prior next) fields.
 Definition task_field_changed fields task before after :=
  changed_fields fields
    (value_or JNull (World.find_task task (prepared_world before)))
@@ -358,13 +362,14 @@ Definition navigation_membership_fields entry :=
  JArray (value_or JNull project::fields).
 Definition navigation_world_changed before after :=
  world_fields_changed ["works";"projects"] before after ||
- let topology context:=JArray(map navigation_membership_fields (items "tasks" (prepared_world context))) in
- negb(Json.equal (topology before) (topology after)).
+ existsb (fun '(old, current) => negb (Json.equal
+   (navigation_membership_fields old) (navigation_membership_fields current)))
+   (World.changed_task_rows (prepared_world before) (prepared_world after)).
 Definition changed_navigation_rows before after :=
- let tasks context:=items "tasks" (prepared_world context) in
  let columns:=["title";"status";"working";"awaitingHuman";"execution_failed"] in
  let changed:=flat_map (fun '(previous,current)=>if changed_fields columns previous current
-   then some_list (Read.observe_task current) else []) (combine (tasks before) (tasks after)) in
+   then some_list (Read.observe_task current) else [])
+   (World.changed_task_rows (prepared_world before) (prepared_world after)) in
  changed.
 Definition main_world_changed before after :=
  match current_route after with
@@ -492,12 +497,12 @@ Definition task_composer_projection_changed task before after :=
  task_workspace_changed task before after ||
  world_fields_changed ["profiles";"defaults";"projects"] before after.
 Definition task_actions_projection_changed task before after :=
- let side_children context:=filter (fun entry=>
-   match natural_field "side_parent" entry with Some id=>N.eqb task id|None=>false end)
-   (items "tasks" (prepared_world context)) in
- let child_ids context:=JArray(map (fun entry=>value_or JNull(field "id" entry)) (side_children context)) in
+ let child_id entry := match natural_field "side_parent" entry with
+   | Some id => if N.eqb task id then value_or JNull (field "id" entry) else JNull
+   | None => JNull end in
  task_field_changed ["status";"status_label";"working";"side_parent";"work_id"] task before after ||
- negb(Json.equal (child_ids before) (child_ids after)).
+ existsb (fun '(old, current) => negb (Json.equal (child_id old) (child_id current)))
+   (World.changed_task_rows (prepared_world before) (prepared_world after)).
 Definition reply_projection_changed task before after :=
  let source context:=Projection.document_context (prepared_world context) (prepared_state context) in
  let retention context:=Session.document_retention (prepared_state context) in

@@ -304,14 +304,27 @@ Fixpoint synchronized_cards (value:world) (cards:list (option Selvedge.Features.
    | Some current,Some updated=>Some (Some current::updated)
    end
  end.
+Definition linked_card_row (row : option Selvedge.Features.Domain.card) :=
+ match row with Some card => match Selvedge.Features.Domain.card_task card with
+   | Some _ => true | None => false end | None => false end.
+Definition observe_linked_card_rows := Json.reuse_observation (fun board =>
+ filter linked_card_row (Selvedge.Features.Domain.board_cards board)).
+Definition card_row_stage_changes value row :=
+ match row with Some card => match card_stage_change card value with
+   | Some _ => true | None => false end | None => false end.
 Definition synchronize (value:world) := let b:=registry value in
+ if existsb (card_row_stage_changes value) (observe_linked_card_rows b) then
  match synchronized_cards value (Selvedge.Features.Domain.board_cards b) with
  | Some cards=>store (set Selvedge.Features.Domain.board_cards (fun _=>cards) b) value
  | None=>value
- end.
+ end else value.
+Definition potential_queue_member (row : option Selvedge.Features.Domain.card) :=
+ match row with Some card =>
+   BoardFacts.automatic_stage (Selvedge.Features.Domain.draft_stage (Selvedge.Features.Domain.card_contents card)) &&
+   BoardFacts.enrichment_ready card
+ | None => false end.
 Definition ready (card:Selvedge.Features.Domain.card) (value:world) :=
- if BoardFacts.automatic_stage (Selvedge.Features.Domain.draft_stage (Selvedge.Features.Domain.card_contents card)) &&
-    BoardFacts.enrichment_ready card then runnable card value else false.
+ if potential_queue_member (Some card) then runnable card value else false.
 Definition priority_rank (p:Selvedge.Features.Domain.priority) :N := match p with Selvedge.Features.Domain.Urgent=>4 | Selvedge.Features.Domain.High=>3 | Selvedge.Features.Domain.Medium=>2 | Selvedge.Features.Domain.Low=>1 | Selvedge.Features.Domain.NoPriority=>0 end.
 Definition queue_candidate_from (lookup : N -> option Selvedge.Features.Domain.card) (value : world) pinned priority id :=
  match lookup id with
@@ -322,15 +335,20 @@ Definition queue_candidate_from (lookup : N -> option Selvedge.Features.Domain.c
 Definition queue_candidate (value : world) := queue_candidate_from (fun id => CardScope.lookup id value) value.
 Definition indexed_card_lookup (rows : IndexedRegistry.t (option Selvedge.Features.Domain.card)) id :=
  match IndexedRegistry.lookup id rows with Some row => row | None => None end.
+Definition automatic_queue_scope (board : Selvedge.Features.Domain.board) :=
+ let rows := IndexedRegistry.from_list (Selvedge.Features.Domain.board_cards board) in
+ (rows, filter (fun id => potential_queue_member (indexed_card_lookup rows id))
+   (Selvedge.Features.Domain.board_order board)).
+Definition observe_automatic_queue := Json.reuse_observation automatic_queue_scope.
 Definition queue_priorities := [4%N;3%N;2%N;1%N;0%N].
 Definition queue_pin_order := [true;false].
 Definition queued (value:world) := let order:=Selvedge.Features.Domain.board_order (registry value) in
  flat_map (fun pinned => flat_map (fun priority => filter (queue_candidate value pinned priority) order)
    queue_priorities) queue_pin_order.
 Definition next (value:world) :=
- if Selvedge.Features.Domain.board_automatic (registry value) then
-   let order := Selvedge.Features.Domain.board_order (registry value) in
-   let rows := IndexedRegistry.from_list (Selvedge.Features.Domain.board_cards (registry value)) in
+ let board := registry value in
+ if Selvedge.Features.Domain.board_automatic board then
+   let '(rows, order) := observe_automatic_queue board in
    let eligible := queue_candidate_from (indexed_card_lookup rows) value in
    OptionList.find_map (fun pinned => OptionList.find_map
      (fun priority => find (eligible pinned priority) order) queue_priorities) queue_pin_order

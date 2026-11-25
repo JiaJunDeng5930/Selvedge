@@ -48,10 +48,22 @@ Qed.
 Theorem observed_task_has_requested_identity snapshot id task :
  Read.find_task id snapshot = Some task -> Read.task_id task = id.
 Proof.
- unfold Read.find_task, World.find_task.
- destruct (World.find_world "tasks" "id" id snapshot) as [value|] eqn:Selected; [|discriminate].
+ unfold Read.find_task.
+ destruct (World.find_task id snapshot) as [value|] eqn:Selected; [|discriminate].
+ assert (Identity : natural_field "id" value = Some id).
+ { unfold World.find_task in Selected.
+   destruct (World.task_slots snapshot) as [slots|]; [|eapply selected_world_identity; exact Selected].
+   revert slots Selected. induction World.task_levels as [|depth IH]; intros slots Selected.
+   - cbn in Selected. destruct (natural_field "id" slots) as [owner|] eqn:Found; [|discriminate].
+     destruct (N.eqb id owner) eqn:Matches; [|discriminate].
+     apply N.eqb_eq in Matches. congruence.
+   - cbn [World.task_at_slot bind] in Selected.
+     destruct (as_array slots) as [values|]; [|discriminate].
+     cbn [bind] in Selected.
+     destruct (nth_error values (N.to_nat (N.land (N.shiftr id (4 * N.of_nat depth)) 15))) as [row|];
+       [eapply IH; exact Selected|discriminate]. }
  cbn [bind]. unfold Read.observe_task, Read.observe_task_with_failure.
- rewrite (selected_world_identity _ _ _ _ _ Selected).
+ rewrite Identity.
  cbn [bind].
  repeat match goal with
  | |- context [string_field ?name value] => destruct (string_field name value); cbn [bind]

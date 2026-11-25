@@ -5,6 +5,49 @@ export const browserOutlineHeader = 'x-selvedge-browser-outline';
 export const browserHistoryTasksHeader = 'x-selvedge-browser-history-tasks';
 const retainedTaskFields = ['tools', 'context', 'cursor', 'has_assistant_reply', 'execution_failed', 'card_link_stage'];
 
+// Task identities are admitted as unsigned 32-bit integers. Each level
+// addresses four bits. The browser and Journal share immutable task subtrees.
+const lastTaskLevel = 7;
+const taskSlot = (id, level) => (id >>> (4 * level)) & 15;
+
+function writeTaskSlot(slots, level, id, row, copy) {
+  const position = taskSlot(id, level);
+  const next = copy ? slots.slice() : slots;
+  while (next.length <= position) next.push(null);
+  next[position] = level === 0 ? row : writeTaskSlot(next[position] ?? [], level - 1, id, row, copy);
+  return next;
+}
+
+export function indexProgramTasks(program) {
+  const slots = [];
+  for (const row of program.tasks) writeTaskSlot(slots, lastTaskLevel, safeInteger(row.id), row, false);
+  return { ...program, tasks: { slots } };
+}
+
+export function programTask(tasks, id) {
+  let slot = tasks.slots;
+  for (let level = lastTaskLevel; level >= 0 && slot != null; level--)
+    slot = slot[taskSlot(id, level)];
+  return slot ?? undefined;
+}
+
+export function replaceProgramTask(program, id, row) {
+  return { ...program, tasks: { slots: writeTaskSlot(program.tasks.slots, lastTaskLevel, id, row, true) } };
+}
+
+export function programWithTaskArray(program) {
+  const tasks = [];
+  function collect(slots, level) {
+    for (const slot of slots) {
+      if (slot === null) continue;
+      if (level === 0) tasks.push(slot);
+      else collect(slot, level - 1);
+    }
+  }
+  collect(program.tasks.slots, lastTaskLevel);
+  return { ...program, tasks };
+}
+
 export function installBrowserHistory(task, history) {
   const { history: previous, history_pending, ...facts } = task;
   if (history === undefined) return { ...facts, history_pending: true };
@@ -13,18 +56,19 @@ export function installBrowserHistory(task, history) {
 }
 
 export function browserOutline(program) {
-  return { ...program, tasks: program.tasks.map(task => {
+  const snapshot = programWithTaskArray(program);
+  return { ...snapshot, tasks: snapshot.tasks.map(task => {
     const { history, tools, ...outline } = task;
     return history.length ? { ...outline, history_pending: true } : { ...outline, history };
   }) };
 }
 
 export function retainBrowserHistory(program, previous) {
-  return { ...program, tasks: program.tasks.map((task, id) => {
-    const prior = previous.tasks[id];
+  return indexProgramTasks({ ...program, tasks: program.tasks.map(task => {
+    const prior = programTask(previous.tasks, safeInteger(task.id));
     const facts = prior?.tools === undefined ? task : { tools: prior.tools, ...task };
     return installBrowserHistory(facts, task.history ?? prior?.history);
-  }) };
+  }) });
 }
 
 export function selectUpdateHistory(update, tasks) {
@@ -38,16 +82,14 @@ export function selectUpdateHistory(update, tasks) {
 
 /** Apply observations produced by the native publication functions. */
 export function applyProgramUpdates(program, updates) {
-  let tasks = program.tasks;
+  let slots = program.tasks.slots;
   if (!updates.length) return program;
   const shared = { ...program };
   for (const update of updates) {
     Object.assign(shared, update.shared);
-    if (tasks === program.tasks && (update.tasks.length || update.references.length))
-      tasks = tasks.slice();
     for (const row of update.tasks) {
       const id = safeInteger(row.id);
-      const prior = tasks[id];
+      const prior = programTask({ slots }, id);
       const previous = prior?.history;
       const prefix = previous ?? [];
       const data = { ...row.value };
@@ -55,13 +97,14 @@ export function applyProgramUpdates(program, updates) {
         if (prior?.[field] !== undefined && !Object.hasOwn(data, field)) data[field] = prior[field];
       const start = safeInteger(data.cursor) - row.appended.length;
       const history = prefix.length === start ? (row.appended.length ? prefix.concat(row.appended) : prefix) : previous;
-      tasks[id] = installBrowserHistory({ ...data, fork: { ...prior?.fork, ...data.fork } }, history);
+      const observed = installBrowserHistory({ ...data, fork: { ...prior?.fork, ...data.fork } }, history);
+      slots = writeTaskSlot(slots, lastTaskLevel, id, observed, true);
     }
     for (const row of update.references) {
       const id = safeInteger(row.id);
-      tasks[id] = { ...tasks[id], ...row.value };
+      slots = writeTaskSlot(slots, lastTaskLevel, id, { ...programTask({ slots }, id), ...row.value }, true);
     }
   }
-  shared.tasks = tasks;
+  shared.tasks = slots === program.tasks.slots ? program.tasks : { slots };
   return shared;
 }

@@ -10,6 +10,7 @@ import { home, taskIdle } from './support.mjs';
 
 test('opening the browser reads a conversation history only when that conversation becomes visible', async t => {
   const { page, command, running } = await browserFixture(t);
+  for (let i = 0; i < 16; i++) await command({ op: 'create_idle', profile: 'demo' });
   const message = 'Selected conversation before the browser opened';
   const { task_id: selected } = await command({ op: 'create', profile: 'demo', message });
   const { task_id: unrelated } = await command({ op: 'create', profile: 'demo',
