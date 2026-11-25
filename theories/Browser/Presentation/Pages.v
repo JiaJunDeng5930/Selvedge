@@ -15,7 +15,7 @@ Module SessionNavigation := Selvedge.Browser.Session.Navigation.
 From Selvedge.Interaction.Submission Require Fields.
 From Selvedge.Browser.Scene Require Import Surface Model Construction.
 From Selvedge.Browser.Presentation Require Import Projection Editors Navigation Collections.
-From Selvedge.Browser.Presentation Require Roles Information Composition.
+From Selvedge.Browser.Presentation Require Roles Information Composition WorkspaceDetails.
 From Selvedge.Browser.Session Require Import EditorContext.
 Import ListNotations.
 Open Scope string_scope.
@@ -25,11 +25,6 @@ Module UX := Selvedge.Interaction.Experience.Model.
 Module G := Selvedge.Generated.Commands.
 Definition missing {A} parent message:list(node A) :=[page_region parent Composition.UnavailableMessage Composition.BodyPosition
  [read_only parent "unavailable-message" "Unavailable"message]].
-Definition creation_heading snapshot s e :=match SessionObserve.draft_preview snapshot(State.current_draft s e)with
-|Context.ProspectiveContext _ (Some project) _ _ _ _=>match find_project project snapshot with
- |Some project=>Navigation.new_conversation_label++" · "++project_name project
- |None=>Navigation.new_conversation_label end
-|_=>Navigation.new_conversation_label end.
 Definition run_environment_configuring (s:State.state) owner :=
  match State.layers(State.navigation_state s)with
  |top::_=>run_environment_panel owner(State.layer_panel top)|[]=>false end.
@@ -42,16 +37,15 @@ Definition creation_composer snapshot (s:State.state) parent :=
  page_region parent Composition.ComposerInput Composition.BodyPosition
    (Editors.creation_context snapshot s e owner::
      ((match Editors.composer_view snapshot s e owner with Some composer=>[composer]|None=>[]end)++status))%list.
-Definition creation_introduction snapshot s parent :=
- let e:=NewTask(State.active_work(State.navigation_state s))in
+Definition creation_introduction s parent :=
  let graph_return:=match State.location(State.navigation_state s)with
   |GraphConversation _ _=>
    [declared parent Roles.Button(secondary "return-to-graph" "返回任务图" Input.ReturnToGraphSetup)]
   |_=>[]end in
  page_region parent Composition.CreationIntroduction Composition.BodyPosition
-   (information parent "creation/title" Information.IntroductionTitle(creation_heading snapshot s e)::graph_return).
+   (information parent "creation/title" Information.IntroductionTitle Navigation.new_conversation_label::graph_return).
 Definition creation_page snapshot s parent :=
- [creation_introduction snapshot s parent; creation_composer snapshot s parent].
+ [creation_introduction s parent; creation_composer snapshot s parent].
 Definition creating_conversation_page parent (message:Draft.text) : list(node Input.input) :=
  let pending:=part parent "pending-conversation" in
  [Node pending "pending-conversation" "Conversation" Roles.Section (PageContext None)
@@ -114,21 +108,15 @@ Definition worktree_feedback {A} snapshot task parent:list(node A):=match Read.t
  |"create_failed"|"archive_failed"=>[region parent "worktree/error" "Workspace" Roles.Alert
    [read_only (part parent "worktree/error") "message" "Workspace"(String.concat ": "[Read.worktree_caption value;Read.worktree_message value])]]
  |_=>[]end end.
-Definition directory_details parent identity label path : node Input.input :=
- let key:=part parent identity in
- region key "directory-path-entry" "" Roles.Content
-   [Node key "directory-path" (label++" · "++UX.directory_basename path) Roles.Content ContentDisclosure
-     [Node (part key "path") "directory-path-value" "" Roles.Content (Fact path) []];
-    declared key Roles.Button(secondary "copy-path" ("复制"++label++"路径")(Input.CopyPath path))].
 Definition worktree_details snapshot s task parent:=match Read.task_workspace task snapshot with
 |None=>[]|Some value=>List.app
  [read_only parent "worktree/status" "工作区状态"(Read.worktree_caption value);
-  directory_details parent "worktree/source" "源仓库"(Read.worktree_source value)]
+  WorkspaceDetails.directory_details parent "worktree/source" "源仓库"(Read.worktree_source value)]
  (List.app
   (match Read.worktree_root value with None=>[]|Some root=>
    let roots:=value_or [] (option_map (fun context=>Domain.workspace_roots(Read.context_workspace context))
      (Read.task_context task snapshot)) in
-   if existsb (String.eqb root) roots then [] else [directory_details parent "worktree/root" "托管工作区" root] end)
+   if existsb (String.eqb root) roots then [] else [WorkspaceDetails.directory_details parent "worktree/root" "托管工作区" root] end)
  (List.app(if String.eqb(Read.worktree_message value)""then[]else[read_only parent "worktree/error" "工作区"(Read.worktree_message value)])
   (match ObjectActions.worktree_retry_action snapshot s task with
    |Some action=>match ObjectActions.command action with
@@ -309,7 +297,9 @@ Definition history_message_result parent query width id title hit :=
  let speaker:=match HistoryObservation.hit_speaker hit with
   |Domain.UserSpeaker=>"用户"|Domain.AssistantSpeaker=>"助手" end in
  let excerpt:=match HistoryObservation.hit_preview hit with
-   |Some text=>history_result_text key "result-excerpt" query width text
+   |Some text=>if String.eqb text title then
+    Node (part key "result-excerpt") "result-excerpt" "" Roles.Content (ReadOnly "跳到这条消息") []
+   else history_result_text key "result-excerpt" query width text
    |None=>Node (part key "result-excerpt") "result-excerpt" "" Roles.Content
       (ReadOnly "在消息原文中找到匹配") []
    end in
@@ -337,7 +327,7 @@ Definition history_page snapshot s parent :=
  let results_parent:=match page with None=>parent|Some result=>
    part parent("search-page/"++show_natural(State.search_page_ticket result))end in
  let pending:=State.pending_search s in
- let availability input:=if pending then Busy "正在搜索…" else
+ let availability input:=if pending then Busy "" else
    domain_availability(Selvedge.Browser.Session.Authoring.input_availability snapshot s input)in
  let submit:=observe_control availability(primary "history/submit" "搜索"(Input.SubmitHistorySearch 0))in
  let project_choices:=Fields.ChoiceValue "" "全部"::map(fun p=>Fields.ChoiceValue(show_natural(project_id p))(project_name p))(value_or[](projects snapshot))in
@@ -351,7 +341,7 @@ Definition history_page snapshot s parent :=
     history_scope false(State.work_filter search)work_choices parent;
     declared parent Roles.PrimaryButton submit];
   page_region results_parent Composition.HistoryResults Composition.BodyPosition
-   (if pending then[information parent "searching" Information.Status "正在搜索…"]else
+   (if pending then [] else
     match page with
    |None=>[]
    |Some result=>match HistoryObservation.search_result(State.search_reply result)with
@@ -381,7 +371,7 @@ Definition shared_page snapshot s work parent :=
    [information parent "work-name" Information.Description (work_name work)];
    page_region parent Composition.SharedContent Composition.BodyPosition
     (let contents:=AuditReading.shared_ui Input.Interactive(document_context snapshot s)(State.document_retention s)(State.interactive_state s)in
-     match contents with []=>[read_only parent "shared-empty" "共享 UI 尚未创建" "请让智能体创建共享 UI。"]|_=>contents end)]end.
+     match contents with []=>[information parent "shared-empty" Information.Description "可让智能体创建共享 UI。"]|_=>contents end)]end.
 Definition page_contents snapshot s pending parent hide_details compact_graphs :=match pending with
 |Some message=>creating_conversation_page parent message
 |None=>match State.location(State.navigation_state s)with

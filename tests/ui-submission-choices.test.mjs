@@ -64,6 +64,10 @@ test('the Task model picker switches between its model list and effort control a
       text.bottom <= menu.top || text.top >= menu.bottom);
   });
 
+  await trigger.hover();
+  assert.match(await trigger.evaluate(button => getComputedStyle(button, '::after').content), /^(none|normal)$/);
+  assert.equal(await trigger.locator('[title]').count(), 0);
+  assert.equal(await trigger.getAttribute('title'), null);
   await trigger.click();
   await Promise.any([summary.waitFor(), catalogBox.waitFor()]);
   if (await summary.isVisible()) await summary.click();

@@ -15,7 +15,7 @@ From Selvedge.Browser.Session Require Import Input ObjectActions.
 From Selvedge.Browser.Session Require State Authoring Services.
 From Selvedge.Browser.Scene Require Import Surface Model Construction.
 From Selvedge.Browser.Presentation Require Import Projection Navigation.
-From Selvedge.Browser.Presentation Require Editors Roles Information Composition TaskGraphCanvas.
+From Selvedge.Browser.Presentation Require Editors Roles Information Composition TaskGraphCanvas WorkspaceDetails.
 Import ListNotations.
 Open Scope string_scope.
 Module BoardDomain := Selvedge.Features.Domain.
@@ -39,15 +39,16 @@ Definition projects_page snapshot s parent :=
    |_,_=>[information parent "unavailable" Information.Description "项目列表不可用。"]end)].
 Definition project_page snapshot s parent project :=
  let id:=project_id project in
+ let workspace:=project_workspace project in
  [browse_heading parent
    (page_region parent Composition.ProjectTitle Composition.HeadingPosition [title parent(project_name project)])
    [page_region parent Composition.ProjectActions Composition.HeadingPosition
      [declared parent Roles.Button(secondary "new-task" "在项目中开始对话"(Input.BeginTask(Some id)));
       declared parent Roles.Button(secondary "more" "项目操作"(Input.OpenObjectActions(ProjectActions id)(part parent "more")))]];
   page_region parent Composition.DefaultWorkspace Composition.BodyPosition
-   [read_only parent "workspace-roots" "默认工作目录"(String.concat "
-"(Domain.workspace_roots(project_workspace project)));
-    read_only parent "workspace-primary" "主目录"(value_or ""(Domain.workspace_primary(project_workspace project)))];
+   [region parent "workspace-roots" "默认工作目录" Roles.Content
+     (information parent "workspace-roots-label" Information.FieldLabel "默认工作目录"::
+      WorkspaceDetails.workspace_directory_details parent "工作目录" workspace)];
   page_region parent Composition.ProjectGuidance Composition.BodyPosition
    [read_only parent "guidance" "项目指引"(value_or "尚未设置"(project_instructions project))];
   page_region parent Composition.ProjectTasks Composition.BodyPosition
@@ -140,13 +141,15 @@ Definition card_node snapshot s board_parent targets :=
        [information key "card/activity" Information.Description card_activity]) ++
      card_conversation (fun task=>bind (task_at task) Read.observe_task_summary) key value(snd activity))%list.
 Definition board_group {A} parent key grouping (children:list(node A)):=Node(part parent key)key ""Roles.Toolbar(BoardGroup grouping)children.
-Definition board_toolbar snapshot s parent :=
+Definition board_toolbar snapshot s parent (empty_working:bool) :=
  let selection:=State.board_selection s in
  let tab key label:=Node(part parent("view/"++key))(if String.eqb key "working" then "board/working" else "board/view")label Roles.Button
    (Choice SingleChoice(String.eqb key(BoardFilter.tab_name(BoardFilter.filter_tab selection)))""
      (secondary("view/"++key)label(Input.BoardTab key)))[] in
- let working:="仅执行中"++match bind(State.now s)(count_working snapshot selection)with
-   |Some count=>" · "++show_natural count|None=>""end in
+ let working:="仅执行中"++(if empty_working then "" else
+   match bind(State.now s)(count_working snapshot selection)with
+   |Some count=>" · "++show_natural count
+   |None=>""end) in
  [board_group parent "view-choices" ViewChoices
    [tab "all" "全部卡片";tab "assigned" "分配给我";tab "unassigned" "未分配";
     tab "working" working;
@@ -161,16 +164,16 @@ Definition board_toolbar snapshot s parent :=
      [declared(part parent "archive-destination")Roles.Button(secondary "open" "归档卡片"(Input.OpenBoard State.ArchivedCards(part(part parent "archive-destination")"open")))]]].
 Definition board_page snapshot s parent :=
  let cards:=Projection.visible_cards snapshot s in
- let empty:list(node Input.input):=match cards,BoardFilter.filter_tab(State.board_selection s)with
-  |Some [],BoardFilter.Working=>[information parent "board/working-empty" Information.Status "没有正在执行的卡片"]
-  |_,_=>[]end in
+ let empty_working:=match cards,BoardFilter.filter_tab(State.board_selection s)with
+  |Some [],BoardFilter.Working=>true|_,_=>false end in
  ([browse_heading parent
    (page_region parent Composition.BoardTitle Composition.HeadingPosition
      [title parent "卡片看板";
       information parent "board-scope" Information.Description "卡片可以关联已有对话，也可以交给模型启动新对话。"])
    [board_group parent "primary-action" PrimaryAction
      [declared parent Roles.PrimaryButton(primary "card/new" "新建卡片"(Input.NewCard BoardDomain.Backlog(part parent "card/new")))]];
-  page_region parent Composition.BoardControls Composition.HeadingPosition(board_toolbar snapshot s parent)] ++ empty ++
+  page_region parent Composition.BoardControls Composition.HeadingPosition(board_toolbar snapshot s parent empty_working)] ++
+ (if empty_working then [information parent "board/working-empty" Information.Status "没有正在执行的卡片"] else
  [page_region parent Composition.BoardStages Composition.BodyPosition
    (match cards with
     |None=>[information parent "pending" Information.Description "正在加载看板。"]
@@ -181,7 +184,7 @@ Definition board_page snapshot s parent :=
         (BoardLane(BoardDomain.stage_name stage)(N.of_nat(List.length entries)))
         (group_title key(BoardDomain.stage_label stage)::
          declared key Roles.Button(secondary "card/new" ("新建卡片 · "++BoardDomain.stage_label stage)(Input.NewCard stage(part key "card/new")))::
-         map(rows key)(Read.display_cards entries)))BoardDomain.stages end)])%list.
+         map(rows key)(Read.display_cards entries)))BoardDomain.stages end)]))%list.
 Definition graph_endpoint_label graph name :=
  match Read.graph_endpoint graph name with
  |Some task=>String.concat ""[name;"（对话 #";show_natural task;"）"]
@@ -417,7 +420,7 @@ Definition ticket_workflow_controls snapshot s parent (card : Read.card) :=
      let connected := Services.connected (State.service_state s) in
      let request := Input.RequestCommand command in
      let progress := "正在提交…" in
-     let control := if pending then Control key progress Secondary request (Busy progress)
+     let control := if pending then Control key progress Secondary request (Busy "")
        else if negb connected then Control key caption Secondary request (Unavailable "正在重新连接服务…")
        else Control key caption Secondary request Available in
      [declared parent Roles.Button control]

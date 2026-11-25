@@ -169,8 +169,6 @@ Definition view_composer snapshot state (view : option task_view) : option (node
  |None=>if creation_editor state then Some(Pages.creation_composer snapshot state main_key)else None
  |Some view=>if view_task_mounted snapshot state view
    then Pages.conversation_composer snapshot state view (task_parent view) else None end.
-Definition view_creation_introduction snapshot state : option (node Input.input) :=
- if creation_editor state then Some (Pages.creation_introduction snapshot state main_key) else None.
 Definition view_task_actions snapshot state capacity task : option (node Input.input) :=
  task_record<-Read.find_task task snapshot;;
  Some(Pages.task_actions_with_details snapshot state task_record main_key

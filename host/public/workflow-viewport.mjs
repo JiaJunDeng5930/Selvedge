@@ -106,7 +106,7 @@ export function installWorkflowViewport(surface) {
   }
   function showPreviewName(source) {
     const panel = source.closest('[data-workflow-tile]').querySelector('[data-workflow-preview-detail]');
-    return showName(panel, source.title);
+    return showName(panel, source.querySelector('[data-workflow-preview-text]').textContent);
   }
   function closeNodeName(returnFocus = false) {
     if (!expandedNode) return;
@@ -219,8 +219,9 @@ export function installWorkflowViewport(surface) {
     view(viewport).target = target;
     const picker = workspace.querySelector('[data-workflow-target]');
     const selection = picker.closest('[data-workflow-selection]');
-    selection.querySelector('[data-workflow-selected-name]').textContent = picker.selectedOptions[0].textContent;
-    selection.title = picker.selectedOptions[0].textContent;
+    const label = selection.querySelector('[data-workflow-selected-name] > [data-single-line-content]');
+    label.textContent = picker.selectedOptions[0].textContent;
+    selection.removeAttribute('title');
     for (const group of workspace.querySelectorAll('[data-workflow-actions] [data-semantic-key^="workflow/"]')) {
       const hidden = group.dataset.semanticKey !== target;
       if (group.hidden !== hidden) group.hidden = hidden;
@@ -239,6 +240,19 @@ export function installWorkflowViewport(surface) {
   function zoomFromCenter(viewport, direction) {
     zoom(viewport, view(viewport), direction === 'in' ? 1.25 : 0.8, viewport.clientWidth / 2, viewport.clientHeight / 2);
   }
+
+  surface.addEventListener('pointerover', event => {
+    const selection = event.target.closest('[data-workflow-selection]');
+    if (!selection) return;
+    const label = selection.querySelector('[data-workflow-selected-name]');
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches && label.scrollWidth > label.clientWidth) {
+      selection.title = label.textContent;
+    }
+  });
+  surface.addEventListener('pointerout', event => {
+    const selection = event.target.closest('[data-workflow-selection][title]');
+    if (selection && !selection.contains(event.relatedTarget)) selection.removeAttribute('title');
+  });
 
   surface.addEventListener('change', event => {
     if (event.target.matches('[data-workflow-editor-jump]')) {

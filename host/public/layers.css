@@ -146,11 +146,16 @@ dialog[data-semantic-key="workflow-instance-details"] {
       display: grid !important;
       grid-template-columns: minmax(4.5rem, max-content) minmax(0, 1fr);
       gap: .625rem !important;
+
+      & > [data-semantic-key="value"] {
+        max-block-size: 2lh;
+        overflow-y: auto;
+      }
     }
     & [data-semantic-key="label"] { color: var(--selvedge-muted) !important; }
   }
 
-  & :is([data-semantic-key="directory-path"], [data-semantic-key="project-guidance"]) > summary {
+  & [data-semantic-key="project-guidance"] > summary {
     min-inline-size: 0;
     padding-block: .125rem;
     overflow: hidden;
@@ -171,6 +176,12 @@ dialog[data-semantic-key="workflow-instance-details"] {
     padding-inline-end: 2.25rem !important;
     min-block-size: 2rem;
     align-content: center;
+    cursor: pointer;
+  }
+  & > details > summary > [data-overflow-label] {
+    display: inline-block !important;
+    inline-size: calc(100% - 1.25em);
+    vertical-align: bottom;
   }
   & > button {
     position: absolute;
@@ -184,6 +195,26 @@ dialog[data-semantic-key="workflow-instance-details"] {
   white-space: pre-wrap !important;
   overflow-wrap: anywhere !important;
   font-family: ui-monospace, monospace;
+  user-select: text;
+}
+[data-semantic-key="workspace-directories"] {
+  max-block-size: 8lh;
+  overflow-y: auto;
+}
+:is([data-semantic-key="directory-path-value"], [data-semantic-key="full-path"]) {
+  max-block-size: 2lh;
+  overflow-y: auto;
+}
+[data-semantic-key="workspace-directories"] [data-semantic-key="directory-path-value"] {
+  max-block-size: none;
+  overflow: visible;
+}
+:is([data-page-region="project-guidance"] [data-semantic-key="value"],
+    details[data-semantic-key="project-guidance"] [data-semantic-key="value"]) {
+  max-block-size: 3lh;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 [data-path-segment] {
   display: inline-block;
@@ -770,6 +801,7 @@ dialog[data-semantic-key="object-actions"] { padding: var(--layer-gap) !importan
 [data-semantic-key="project-editor"] [data-semantic-key="workspace-member-heading"] {
   grid-column: 1;
   grid-row: 1;
+  inline-size: auto !important;
   min-inline-size: 0 !important;
 }
 [data-semantic-key="project-editor"] [data-semantic-key="workspace-member-copy"] > [data-semantic-key="full-path"] {

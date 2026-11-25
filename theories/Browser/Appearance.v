@@ -237,8 +237,6 @@ Definition overflow_properties value : list (string * string) :=
   | CodeOverflow => [("overflow-x","auto")]
   | SingleLineOverflow => [("overflow","hidden"); ("text-overflow","ellipsis"); ("white-space","nowrap")]
   end.
-Definition overflow_attributes value text : list (string * string) :=
-  match value with SingleLineOverflow => [("title",text)] | _ => [] end.
 Definition adaptive_width_limit percent :=
   if Nat.ltb percent 100 then
     String.append "calc-size(min-content,min(100%,max(size,"

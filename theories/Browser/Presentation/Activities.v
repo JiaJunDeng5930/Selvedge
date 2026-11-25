@@ -34,6 +34,9 @@ Definition candidate_node {e} (pending show_explanations show_consequences:bool)
  let label:=UX.alternative_label alternative in
  let key:=part parent("candidate/"++TextJson.render_json(Schema.encode_value(UX.subject_kind(UX.decision_subject decision))(UX.alternative_value alternative)))in
  let action:=candidate_control pending occurrence decision alternative in
+ let action:=match control_availability action with
+ |Unavailable _=>Control (control_identity action) label Secondary (control_input action) (Unavailable "")
+ |_=>action end in
  Node(part key "row")"choice-row" ""Roles.Section(ActivityRow ChoiceRow)
  [Node key "alternative"label Roles.Button
   (Choice SingleChoice(UX.alternative_selected alternative)(UX.alternative_explanation alternative)action)
@@ -177,15 +180,18 @@ Definition dependency_summary snapshot (s:State.state) {e} occurrence parent(sub
     (Input.ActivityFocus occurrence e(Some subject))))
    [information key "label" Information.FieldLabel(Parameters.label(UX.subject_declaration subject));
     information key "value" Information.FieldValue value]].
-Definition required_expression {e} parent(expression:Observation.subject_expression e):list(node Input.input):=
+Definition required_expression {e} parent draft (expression:Observation.subject_expression e):list(node Input.input):=
  match Observation.expression_kind_of expression with
  |Observation.SelectedSubject _|Observation.OwnedParameter _|Observation.PermissionConsequence _=>[]
  |Observation.OriginalIdentity=>match Observation.expression_information expression with
    |UX.PresentInformation first _=>
+    let original:=UX.readable_text(UX.summary_observation first) in
+    if match Draft.contents draft with
+       |Draft.ProjectBody _ name _ _=>String.eqb name original|_=>false end then [] else
     [Node(part parent "original-project")"original-project" ""Roles.Section(ActivityRow SupportingRow)
       [read_only parent "original-project/value"
         (match e with Identity.Project _=>"原项目名称"|_=>"Original project"end)
-        (UX.readable_text(UX.summary_observation first))]]
+        original]]
    |_=>[]end
  |_=>let subject:=Observation.expression_subject expression in
   let key:=part parent("fact/"++UX.subject_name subject)in
@@ -305,7 +311,7 @@ Fixpoint relation_nodes {e} snapshot (s:State.state) occurrence parent query req
     (field_specification snapshot s occurrence parent subject)]
  |Observation.RequiredExpression,Act.RequiredValue property=>
    let key:=part parent("required/"++UX.subject_name(UX.property_subject property))in
-   match flat_map(required_expression key)(Observation.information_expressions snapshot s activity view property)with
+   match flat_map(required_expression key (State.current_draft s e))(Observation.information_expressions snapshot s activity view property)with
    |[]=>[]
    |facts=>[Node key "required-value" ""Roles.Section(ActivityRow ObjectHeading)facts]end
  |Observation.RequestedInformation,Act.SupportingValue property=>
@@ -334,12 +340,16 @@ Fixpoint relation_nodes {e} snapshot (s:State.state) occurrence parent query req
    let assessment:=UX.Assessment(UX.action_identity_of action)outcome in
    let draft:=State.current_draft s e in
    [Node(part parent "commit")"commit" "Actions"Roles.Section(ActionUnit e action)
-     (Editors.commit_reason parent assessment++Editors.commit_status parent action++[Editors.assessment_nodes parent assessment]++
+     (Editors.commit_reason parent assessment
+       (match e with Identity.Project _=>[Fields.ProjectName]|_=>[]end)++
+      Editors.commit_status parent action++[Editors.assessment_nodes parent assessment]++
       Composer.action_feedback parent action(Editors.draft_feedback draft)++
       [Node(part parent "terminal")"terminal" ""Roles.Section(ActivityRow TerminalRow)
         [Node(part parent "submit")"submit"(Editors.submit_label snapshot draft e)Roles.PrimaryButton
           (ActionCommit e assessment(Control "submit"(Editors.submit_label snapshot draft e)Primary(Input.Submit e(part parent "submit"))
-           (Editors.unit_availability action assessment)))[]]])]
+           (Editors.unit_availability action assessment
+             (Editors.visible_obstruction_code (Observation.attention_obstruction outcome)++
+              Editors.draft_placeholder_obstructions draft assessment)%list)))[]]])]
  |_,_=>children end.
 Definition activity_fields snapshot s {e} (occurrence:N) parent (activity:Act.activity e) :=
  match activity with

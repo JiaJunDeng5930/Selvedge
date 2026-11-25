@@ -74,7 +74,7 @@ Definition attachment_node e parent (file:Domain.attachment) :=
     [Node(part key "image")"image-preview"(Domain.attachment_name file)Roles.Content
       (Image("/api/board/attachments/"++id)(Domain.attachment_name file))[]]
    else [])++
-  [read_only key "name" "File"(Domain.attachment_name file);
+  [information key "attachment-name" Information.OptionLabel (Domain.attachment_name file);
   declared key Roles.Button(secondary "preview" "Preview"(Input.ServiceInput(Services.OpenPreview file(part key "preview"))));
   declared key Roles.Button(secondary "download" "Download"(Input.ServiceInput(Services.Download file)));
   declared key Roles.Button(secondary "remove" "Remove"(Input.RemoveAttachment e id))]).
@@ -255,10 +255,9 @@ Definition directory_view snapshot s :=
      (match parent_path with Some _=>Available|None=>Unavailable "" end)) in
    let choose_availability:=match resource with
      |Resource.Loaded _ _ _=>if SO.directory_selection_allowed preview
-      then Available else Unavailable(value_or "" git_status)
-     |Resource.Loading _ _=>Unavailable loading
-     |Resource.Failed _ _ code=>Unavailable(directory_error_message label code)
-     |Resource.Dormant=>Unavailable "" end in
+      then Available else Unavailable ""
+     |Resource.Loading _ _=>Busy ""
+     |Resource.Failed _ _ _|Resource.Dormant=>Unavailable "" end in
    let navigation:=region parent "directory-location-actions" (label "目录导航" "Folder navigation") Roles.Section
         [parent_action;
          Node(part parent "location")"directory-location" (label "目录路径" "Directory") Roles.Field

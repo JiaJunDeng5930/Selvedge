@@ -263,11 +263,13 @@ test('new card text checks guide the relevant field in Chinese', async t => {
   async function missingTitle(prompt) {
     await dialog.getByRole('alert').waitFor({ state: 'hidden' });
     await dialog.locator('[data-semantic-key="editor-commit-reason"]').waitFor({ state: 'hidden' });
-    await page.waitForFunction(({ id, prompt }) => document.getElementById(id)?.title === prompt,
-      { id: await create.getAttribute('id'), prompt });
-    assert.equal(await create.isDisabled(), true);
+    await page.waitForFunction(({ id, prompt }) => {
+      const submit = document.getElementById(id);
+      return submit?.getAttribute('aria-disabled') === 'true' && submit.getAttribute('data-help') === prompt;
+    }, { id: await create.getAttribute('id'), prompt });
+    assert.equal(await create.getAttribute('title'), null);
   }
-  await missingTitle('请输入标题。');
+  await missingTitle(null);
   assert.equal(await title.getAttribute('placeholder'), '请输入标题');
   assert.equal(await description.getAttribute('placeholder'), null);
   await title.fill('\u3000 ');
@@ -292,7 +294,7 @@ test('new card text checks guide the relevant field in Chinese', async t => {
   await title.fill('长'.repeat(667));
   await reason('标题太长，请缩短。');
   await title.clear();
-  await missingTitle('请输入标题。');
+  await missingTitle(null);
   await title.fill('Ready to save');
   await ready();
   await create.click();
@@ -767,9 +769,10 @@ test('the board keeps empty stages visible and counts only matching cards linked
   await board.locator('[data-board-stage="in_progress"]').getByRole('article', { name: title, exact: true }).waitFor();
   const search = page.getByPlaceholder('搜索卡片', { exact: true });
   await search.fill('different card title');
-  await page.getByRole('radio', { name: '仅执行中 · 0', exact: true }).waitFor();
+  await page.getByRole('radio', { name: '仅执行中', exact: true, checked: true }).waitFor();
   const noWorkingCards = page.getByRole('status').filter({ hasText: /^没有正在执行的卡片$/ });
   await noWorkingCards.waitFor();
+  assert.equal(await board.locator('[data-board-stage]').count(), 0);
   await card.waitFor({ state: 'hidden' });
   await search.clear();
   await noWorkingCards.waitFor({ state: 'hidden' });
@@ -794,7 +797,8 @@ test('the board keeps empty stages visible and counts only matching cards linked
   const observedCard = limitedObservation.getByRole('article', { name: title, exact: true });
   const unavailable = observedCard.getByRole('button', { name: '打开对话', exact: true });
   await unavailable.and(limitedObservation.locator('[aria-disabled="true"]')).waitFor();
-  assert.equal(await unavailable.getAttribute('title'), '关联的对话不可用');
+  assert.equal(await unavailable.getAttribute('data-help'), '关联的对话不可用');
+  assert.equal(await unavailable.getAttribute('title'), null);
   assert.equal(await observedCard.getByText('工作中', { exact: true }).count(), 0);
 });
 

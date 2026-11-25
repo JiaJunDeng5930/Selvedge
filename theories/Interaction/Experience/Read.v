@@ -109,8 +109,9 @@ Definition observe_operation snapshot value :=
   human directory environment(option_map(fun profile=>ContextObservation.profile_label(Observation.catalog snapshot)profile)reviewer)).
 Definition task_operations id snapshot :=
  bind(World.find_task id snapshot)(list_field(observe_operation snapshot)"operations").
-Definition pending_approvals operations :=
- filter(fun operation=>String.eqb "approval_pending"(operation_stage operation))operations.
+Definition operation_awaiting_approval operation :=
+ String.eqb "approval_pending"(operation_stage operation).
+Definition pending_approvals operations := filter operation_awaiting_approval operations.
 
 Record task_worktree := TaskWorktree {
  worktree_status : string; worktree_caption : string; worktree_source : string;

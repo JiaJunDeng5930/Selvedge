@@ -31,8 +31,12 @@ Definition inline_properties : list (string * string) :=
 Definition single_line_attributes text :=
   [("data-overflow-label",text);("data-native-minimum-inline","1ch")].
 Definition single_line_properties : list (string * string) :=
-  [("display","block");("min-inline-size","1ch");("overflow","hidden");
-   ("text-overflow","ellipsis");("white-space","nowrap")].
+  [("display","block");("min-inline-size","1ch")].
+Definition single_line_content children :=
+  [box "" "span" [("data-single-line-content","")] [] children].
+Definition single_line_span key attributes properties text :=
+  box key "span" (if String.eqb key "" then attributes else ("id",key)::attributes)
+    properties (single_line_content [DOM.Text text]).
 
 Inductive supporting_form := FullSupporting | CompactSupporting.
 Record supporting_layout := SupportingLayout {
@@ -117,11 +121,13 @@ Definition summary_member {A e} (property : UX.property e) (child : S.node A)
   let text := S.node_label child in
   match S.node_meaning child with
   | S.InformationText Information.FieldValue =>
-      [span key [("data-summary-role","principal");
+      [single_line_span key [("data-summary-role","principal");
         ("data-summary-subject",summary_subject property false);
-        ("title",text)]
+        ("data-overflow-label",text)]
         inline_properties text]
   | S.InformationText Information.Description =>
+      if match UX.property_kind_of property with
+        |UX.ModelProperty=>String.eqb text "default"|_=>false end then [] else
       [span key [("data-summary-role","secondary");
         ("data-summary-subject",summary_subject property true);
         ("data-support-secondary","true")]
@@ -132,21 +138,15 @@ Definition summary_member {A e} (property : UX.property e) (child : S.node A)
 Definition setting_member {A e} (property : UX.property e) (child : S.node A)
     : list DOM.node :=
   let key := S.node_key child in
+  let text := S.node_label child in
   let subject := UX.subject_name (UX.property_subject property) in
   match S.node_meaning child with
   | S.InformationText Information.FieldLabel =>
-      [span key [("data-setting-role","label");("data-setting-subject",subject);
-         ("title",S.node_label child);("data-native-minimum-inline","1ch")]
-       (inline_properties ++ [("flex","1 1 0%");("min-inline-size","0");
-         ("display","block");("min-inline-size","1ch");
-         ("text-align","start");("overflow","hidden");("text-overflow","ellipsis")])
-       (S.node_label child)]
+      [single_line_span key ([("data-setting-role","label");("data-setting-subject",subject)] ++ single_line_attributes text)
+       (single_line_properties ++ [("flex","1 1 0%");("text-align","start")]) text]
   | S.InformationText Information.FieldValue =>
-      [span key [("data-setting-role","value");("data-setting-subject",subject);
-         ("title",S.node_label child);("data-native-minimum-inline","1ch")]
-       (inline_properties ++ [("display","block");("flex","0 1 auto");("min-inline-size","1ch");
-         ("overflow","hidden");("text-overflow","ellipsis");("color",Appearance.secondary_text);
-         ("text-align","end")]) (S.node_label child)]
+      [single_line_span key ([("data-setting-role","value");("data-setting-subject",subject)] ++ single_line_attributes text)
+       (single_line_properties ++ [("flex","0 1 auto");("color",Appearance.secondary_text);("text-align","end")]) text]
   | _ => []
   end.
 Definition face_content {A} env key (artwork : string -> list DOM.node)
@@ -254,9 +254,8 @@ Definition project_header {A} describe env key project selected expanded
     map (replace_content [("data-navigation-slot","title")]
       [("flex","1 1 auto");("min-inline-size","0");("padding-inline","0");
        ("text-align","start");("white-space","nowrap")]
-      [span (private_key (fst entry) "caption") (single_line_attributes (snd entry))
-        [("flex","1 1 auto");("min-inline-size","0");("white-space","nowrap");
-         ("overflow","hidden");("text-overflow","ellipsis")] (snd entry)]) (native_for (fst entry) native))
+      [single_line_span (private_key (fst entry) "caption") (single_line_attributes (snd entry))
+        (single_line_properties ++ [("flex","1 1 auto")]) (snd entry)]) (native_for (fst entry) native))
     (flat_map project_titles children) in
   let auxiliary := map (add_properties target_style)
     (native_selected (project_auxiliary describe) children native) in
