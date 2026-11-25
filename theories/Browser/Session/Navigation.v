@@ -85,6 +85,9 @@ Definition set_search search state:=State.with_authoring
  (set State.history_search(fun _=>search)(State.authoring_state state))state.
 Definition set_search_return origin state:=
  set_search(set State.search_return(fun _=>origin)(search_state state))state.
+Definition set_search_message message state:=
+ set_search_return(option_map(set State.search_origin_message(fun _=>message))
+   (State.search_return(search_state state)))state.
 Definition visit snapshot destination state :=
  if route_allowed snapshot destination then
  let navigation:=route_scope snapshot destination(State.navigation_state state)in
@@ -333,7 +336,7 @@ Definition open_history_result snapshot task index trigger state:=
  |HistorySearch=>
    let visited:=visit snapshot(Conversation task)state in
    match result_error visited with Some _=>visited|None=>
-     let origin:=State.SearchOrigin(State.active_work navigation)trigger in
+     let origin:=State.SearchOrigin(State.active_work navigation)trigger None in
      let state:=set_search_return(Some origin)(result_state visited)in
      match index with
      |None=>changed state(result_effects visited)

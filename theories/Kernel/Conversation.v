@@ -53,6 +53,13 @@ Definition json_message_assistant (message : json) :=
  | Some "assistant" => true
  | Some "model_context" => provider_assistant_message (value_or_null "content" message)
  | _ => false end.
+Definition message_has_assistant_reply (value : message) :=
+ match value with
+ | InstructionMessage role provider => json_message_assistant (JObject [("role", JString role); ("content", provider)])
+ | AssistantMessage _ _ => true
+ | ModelContext _ provider => provider_assistant_message provider
+ | _ => false
+ end.
 Definition json_message_role (message : json) : option string :=
  match string_field "role" message with
  | Some "speech_transcript" => string_field "speaker" message

@@ -298,7 +298,7 @@ Proof.
  rewrite TaskChangesProofs.send_expression. cbv beta zeta. rewrite found, idle, nonempty.
  assert (tasks_same : forall id graph receipt value,
    K.find_task id (TaskGraph.record_receipt graph receipt value)=K.find_task id value).
- { intros. unfold K.find_task. now rewrite recording_receipt_preserves_tasks. }
+ { intros. rewrite !K.find_task_as_list. now rewrite recording_receipt_preserves_tasks. }
  cbn; cbn [decision_world].
  all: rewrite tasks_same.
  all: exists (TaskChange.apply (Tasks.receive_changes [TextPart (delivery_text item)] task) task); split.

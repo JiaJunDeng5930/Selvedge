@@ -1,5 +1,6 @@
 From Stdlib Require Import List NArith.
 From Selvedge.Features Require Import Domain.
+From Selvedge.Foundation Require IndexedRegistry.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 
 Definition with_board (replacement : board) (value : state) :=
@@ -12,7 +13,7 @@ Definition with_remote (replacement : remote) (value : state) :=
  set feature_remote (fun _=>replacement) value.
 Definition with_sharing (replacement : connection_state) (value : state) :=
  set feature_sharing (fun _=>replacement) value.
-Definition with_titles (replacement : list title_entry) (value : state) :=
+Definition with_titles (replacement : IndexedRegistry.Slots.t title_state) (value : state) :=
  set feature_titles (fun _=>replacement) value.
 Definition with_title_settings (replacement : title_settings) (value : state) :=
  set feature_title_settings (fun _=>replacement) value.

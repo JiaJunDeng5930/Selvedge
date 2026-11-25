@@ -99,9 +99,9 @@ Definition context_ready (id : N) (task : task) (value : world) :=
 Definition context_completed (id ticket : N) (observations : option (list context_observation)) (diagnostic : string) (value : world) :=
  RequestReceiver.deliver id value (RequestReceiver.pending_phase RequestReceiver.ContextReceiver ticket)
    (fun target revision => let task := TaskScope.selected target in
-    (* DEFENSE: Source IO belongs to its captured history revision; concurrent
-       tool or speech results require a new observation. *)
-    if Nat.eqb revision (List.length (task_history task)) then
+    (* DEFENSE: Settings and admitted context changes can supersede a pending
+       source observation. Ordinary history appends leave its inputs intact. *)
+    if observation_inputs_current revision (task_history task) then
       let messages := observed_context_history observations diagnostic (task_history task) in
       acknowledged (TaskChange.interpret (TaskChange.Plan value target
         [TaskChange.AppendHistory messages; TaskChange.ChangePhase (context_phase task)]))

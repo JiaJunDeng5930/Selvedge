@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require Runnable.
 From Selvedge.Kernel Require TaskWake.
 From Selvedge.Programming Require TaskChangeProofs TaskResult.
 From Selvedge.Kernel Require Import TaskConstraints.
@@ -119,15 +120,15 @@ Theorem announced_operations_allow_an_independent_model_turn : forall execute pe
  permitted id value = true ->
  TicketedRequest.Scoped.can_observe true task value = true ->
  task_lifecycle task = Running WantsModel operations ->
- Scheduler.ready_operation operations = None ->
+ Runnable.ready_operation operations = None ->
  exists result,
  Scheduler.find_step execute permitted id (task :: rest) value = Some result /\
  decision_effects result = [ObserveContext id (world_next_ticket value)
    (TaskChange.apply_edit TaskChange.PublishOperations (TaskWake.promote task))].
 Proof.
  intros execute permitted id task rest value operations Found Permitted ObserveAllowed Phase NoReady.
- cbn [Scheduler.find_step]; unfold Scheduler.next_runnable_step; rewrite Permitted.
- unfold Scheduler.task_action; rewrite Phase, NoReady.
+ cbn [Scheduler.find_step]; rewrite Scheduler.next_runnable_step_expands, Permitted.
+ unfold Runnable.task_action; rewrite Phase, NoReady.
  eexists; split; [reflexivity|].
  unfold Scheduler.interpret_step, Reasoning.observe_scheduled_context.
  destruct (observing_selects_the_current_task id value task true Found ObserveAllowed)

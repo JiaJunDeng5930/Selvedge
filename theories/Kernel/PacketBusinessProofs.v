@@ -40,7 +40,11 @@ Proof.
    decision_world decision_reply accept success bool_default field value_or_null].
  split; [reflexivity|]. eexists; split.
  - apply fork_children_preserve_every_existing_task.
-   unfold find_task, put_task, with_tasks, with_ticket; cbv [set]; cbn.
+   lazymatch goal with
+   | |- find_task owner (with_ticket _ ?updated) = Some ?current =>
+       change (find_task owner updated = Some current)
+   end.
+   rewrite find_task_as_list in Found |- *. rewrite world_tasks_updated.
    eapply RegistryProofs.registry_replace_selected; exact Found.
  - destruct parent as [contract profile settings lifecycle history queued lineage handoff consumed].
    cbn in Running; subst lifecycle; repeat split; reflexivity.

@@ -4,6 +4,8 @@ import { JsonNumber, parseJson, stringifyJson } from './json-tokens.mjs';
 import { Presentation, appendPhysicalChild, filesFromEvent } from './native-dom.mjs';
 import { editorKeyboard, applyByteSelection, selectingRadioGroup, radioTabTargets } from './keyboard.mjs';
 import { observeConnection } from './connection.mjs';
+import { applyProgramUpdates, browserHistoryTasksHeader, browserOutlineHeader, browserSequenceHeader,
+  indexProgramTasks, installBrowserHistory, programTask, replaceProgramTask, retainBrowserHistory } from './program-updates.mjs';
 import { AudioRuntime } from './audio.mjs';
 import { ChatGPTLogin } from './chatgpt-login.mjs';
 import { InteractiveSnapshotStorage } from './interactive-storage.mjs';
@@ -32,6 +34,8 @@ const workflowReceipts = new Map();
 const browserCommandReplies = new Map();
 const assessments = new Map();
 const pendingAssessments = new Map();
+const historyReads = new Map();
+let visibleHistoryTasks = [];
 let drainingAssessments = false;
 const resources = new Set();
 const timers = new Set();
@@ -43,6 +47,7 @@ const readingVisits = new WeakMap();
 const readingBlocks = new WeakMap();
 const visibleReadingAnchors = new WeakMap();
 const restoredReadingOffsets = new WeakMap();
+const alignedReadingOffsets = new WeakMap();
 let observedReadingGeometry = new Set();
 const readingResize = new ResizeObserver(() => {
   // Reader reflow and disclosure transitions can change the layout
@@ -193,6 +198,11 @@ async function request(url, options = {}, binary = false) {
 }
 const post = (url, value, signal, headers) => request(url, { method: 'POST', signal,
   headers: { 'content-type': 'application/json', ...headers }, body: stringifyJson(value) });
+const browserHeaders = (initial = false) => ({
+  [browserOutlineHeader]: 'true',
+  [browserHistoryTasksHeader]: visibleHistoryTasks.join(','),
+  ...(!initial && world !== null ? { [browserSequenceHeader]: String(integral(publication.sequence)) } : {}),
+});
 
 async function requestCommand(command, signal, returnsCommit = false) {
   const expected = publication.namespace;
@@ -202,11 +212,12 @@ async function requestCommand(command, signal, returnsCommit = false) {
   try {
     let body;
     try {
-      const headers = receipt ? { 'x-selvedge-browser-request-id': requestId } : undefined;
+      const headers = { ...browserHeaders(), ...(receipt ? { 'x-selvedge-browser-request-id': requestId } : {}) };
       body = await post('/api/browser/command', { command }, signal, headers);
     } catch (error) {
       // DEFENSE: A rejected committed command still returns its authoritative world and reply with a non-2xx status.
-      if (error.body && Object.hasOwn(error.body, 'program') && Object.hasOwn(error.body, 'reply')) body = error.body;
+      if (error.body && (Object.hasOwn(error.body, 'program') || Object.hasOwn(error.body, 'updates'))
+          && Object.hasOwn(error.body, 'reply')) body = error.body;
       else throw error;
     }
     if (!publicationEvent('completion', { expected_namespace: expected, incoming_namespace: body.namespace })) return;
@@ -248,8 +259,11 @@ function snapshot(body, expected = publication.namespace, authenticating = false
   if (!receipt.accepted) return receipt.authenticated;
   if (!receipt.install_world) return true;
   const firstSnapshot = world === null;
-  if (body.namespace !== publication.namespace) retireDocumentViews();
-  world = body.program;
+  const newNamespace = body.namespace !== publication.namespace;
+  if (newNamespace) retireDocumentViews();
+  if (body.updates === undefined)
+    world = firstSnapshot || newNamespace ? indexProgramTasks(body.program) : retainBrowserHistory(body.program, world);
+  else world = applyProgramUpdates(world, body.updates.slice(Number(integral(publication.sequence) - integral(body.after))));
   publication = publicationEvent('observe', { observed_namespace: body.namespace, observed_sequence: body.sequence });
   if (firstSnapshot) restoreUpdateSession();
   dispatch({ type: 'snapshot' });
@@ -266,7 +280,63 @@ function snapshot(body, expected = publication.namespace, authenticating = false
   }
   return true;
 }
+
+function historyLoaded(task) {
+  return task !== undefined && task.history_pending !== true;
+}
+function synchronizeConversationHistory(visible) {
+  visibleHistoryTasks = visible.map(id => Number(integral(id)));
+  const selected = new Set(visibleHistoryTasks);
+  for (const [id, controller] of historyReads) {
+    if (selected.has(id)) continue;
+    historyReads.delete(id);
+    controller.abort();
+  }
+  if (world === null) return;
+  for (const id of selected) {
+    const current = programTask(world.tasks, id);
+    if (current === undefined || historyLoaded(current) || historyReads.has(id)) continue;
+    const controller = new AbortController();
+    historyReads.set(id, controller);
+    const namespace = publication.namespace;
+    const owns = () => !disposed && historyReads.get(id) === controller && namespace === publication.namespace;
+    void (async () => {
+      while (owns() && !historyLoaded(programTask(world.tasks, id))) {
+        const requested = programTask(world.tasks, id);
+        const prefix = requested.history ?? [];
+        const after = prefix.length;
+        const expected = Number(integral(requested.cursor));
+        const body = await request(`/api/browser/state?history=${id}&after=${after}`, {
+          signal: AbortSignal.any([controller.signal, readDeadline()]),
+        });
+        if (!owns() || historyLoaded(programTask(world.tasks, id))) return;
+        // DEFENSE: A reply may belong to a replaced journal or a broken history source.
+        if (body?.namespace !== namespace || integral(body.task_id) !== BigInt(id) || body.after !== after ||
+            !Array.isArray(body.history) || body.history.length < expected - after || !Array.isArray(body.tools))
+          throw new Error('The conversation history does not match its committed cursor');
+        const task = programTask(world.tasks, id);
+        const cursor = Number(integral(task.cursor));
+        const received = prefix.concat(body.history.slice(0, cursor - after));
+        const history = (task.history?.length ?? 0) > received.length ? task.history : received;
+        world = replaceProgramTask(world, id, installBrowserHistory({ ...task, tools: body.tools }, history));
+        if (history.length === cursor) dispatch({ type: 'snapshot' });
+        // If a later commit arrived during the read, request only the
+        // remaining suffix and keep the incomplete timeline hidden.
+      }
+    })().catch(error => {
+      if (owns() && !authorizationRevoked(error)) fatal(error);
+    }).finally(() => {
+      if (historyReads.get(id) === controller) historyReads.delete(id);
+    });
+  }
+}
+
+function cancelConversationHistoryReads() {
+  for (const controller of historyReads.values()) controller.abort();
+  historyReads.clear();
+}
 function retireDocumentViews() {
+  cancelConversationHistoryReads();
   for (const entry of codeBlocks.values()) for (const physical of entry.views.values()) physical.renderer?.dispose();
   codeBlocks.clear(); readings.clear(); files.clear(); renderer.reset();
   for (const node of readingMeasurements.keys()) retireReadingMeasurement(node);
@@ -361,6 +431,7 @@ function dispatch(input) {
   publication = publicationEvent(decision.publication_event);
   if (decision.publication_event !== 'keep')
     render(decision.native_stream ? 'stream' : 'region');
+  synchronizeConversationHistory(decision.visible_history_tasks);
   for (const effect of decision.effects) execute(effect).catch(fatal);
   return decision;
 }
@@ -761,6 +832,11 @@ const renderer = new Presentation(surface, {
       requestReadingAnchor(key, node, type === 'pointer' ? event.pointerId : undefined);
       acceptReading(key, node, browser('reading', { state, event: 'scroll' }));
     } else {
+      const aligned = alignedReadingOffsets.get(node);
+      alignedReadingOffsets.delete(node);
+      // An initial alignment can report its scroll after the reader
+      // has already asked to move away from the latest reply.
+      if (aligned === node.scrollTop) return;
       const state = readingState(key, node);
       if (state.intent !== 'history') return;
       // DEFENSE: restoring a bookmark emits scroll even when the browser clamps
@@ -907,7 +983,11 @@ function acceptReading(key, node, decision, locationTarget, publishIntent = true
       restoredReadingOffsets.delete(node);
       if (previous === 'follow') node.scrollTo({ top: node.scrollTop, left: node.scrollLeft, behavior: 'instant' });
     }
-    else if (effect.type === 'align_latest') node.scrollTo({ top: node.scrollHeight, behavior: effect.animate ? 'smooth' : 'instant' });
+    else if (effect.type === 'align_latest') {
+      const previous = node.scrollTop;
+      node.scrollTo({ top: node.scrollHeight, behavior: effect.animate ? 'smooth' : 'instant' });
+      if (!effect.animate && node.scrollTop !== previous) alignedReadingOffsets.set(node, node.scrollTop);
+    }
     else if (effect.type === 'reserve_composer') node.style.setProperty('scroll-padding-block-end', effect.clearance);
     else if (effect.type === 'cancel_anchor') retireReadingMeasurement(node);
     else if (effect.type === 'locate_message' && locationTarget) {
@@ -1350,7 +1430,8 @@ async function authenticate(effect) {
     // A journal namespace change ends the old subscription; the authenticated
     // connection observes a fresh snapshot and binds the new namespace.
     while (!disposed && connection === controller && !controller.signal.aborted) await observeConnection({
-      request: (url, signal) => request(url, { signal: AbortSignal.any([signal, readDeadline()]) }),
+      request: (url, signal, initial) => request(url, { signal: AbortSignal.any([signal, readDeadline()]),
+        headers: browserHeaders(initial) }),
       fetchEvents: (url, signal) => fetch(url, { signal, credentials: 'same-origin' }),
       signal: controller.signal, ownership: requestScope,
       sequence: () => publication.sequence instanceof JsonNumber ? publication.sequence.source : publication.sequence,
@@ -1858,6 +1939,7 @@ window.addEventListener('pageshow', event => {
   if (event.persisted) dispatch({ type: 'connect' });
 });
 window.addEventListener('pagehide', event => {
+  cancelConversationHistoryReads();
   if (event.persisted) {
     // A cached document keeps its drafts, DOM and input listeners for Back/Forward.
     connection?.abort();

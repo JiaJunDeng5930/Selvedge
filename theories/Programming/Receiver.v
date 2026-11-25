@@ -1,6 +1,7 @@
 From Stdlib Require Import List Bool NArith.
 From Selvedge.Programming Require Import Constructor Focus.
 From Selvedge.Foundation Require Import Registry.
+From Selvedge.Foundation Require IndexedRegistry.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 Import ListNotations.
 
@@ -8,6 +9,7 @@ Import ListNotations.
     writer are interpretations of that path, never independent declarations. *)
 Inductive t : Type -> Type -> Type :=
 | Keyed : forall entry, (entry -> N) -> t (list entry) entry
+| Mapped : forall entry, N -> t (IndexedRegistry.Slots.t entry) entry
 | Indexed : forall entry, N -> t (list entry) entry
 | Ordered : forall entry, N -> t (list entry * list N) entry
 | Field : forall whole part input (get : whole -> part),
@@ -21,6 +23,7 @@ Inductive t : Type -> Type -> Type :=
     forall constructor : input -> field_type, Constructor.View constructor -> row -> t state input.
 
 Definition keyed {entry} := Keyed entry.
+Definition mapped {entry} := Mapped entry.
 Definition indexed {entry} := Indexed entry.
 Definition ordered {entry} := Ordered entry.
 Definition field {whole part input} (get : whole -> part) `{SetterWf whole part get}
@@ -41,7 +44,7 @@ Definition put_at {entry} (position : N) (value : entry) (entries : list entry) 
 Fixpoint address {state input} (selected : t state input) : input -> N :=
  match selected with
  | Keyed _ key => key
- | Indexed _ identity | Ordered _ identity => fun _ => identity
+ | Mapped _ identity | Indexed _ identity | Ordered _ identity => fun _ => identity
  | Field _ _ _ _ _ child | Focused _ _ _ _ child => address child
  | Inject _ _ _ constructor _ child => fun request => address child (constructor request)
  | InRecord _ _ _ _ child get law constructor _ base => fun request =>
@@ -49,7 +52,7 @@ Fixpoint address {state input} (selected : t state input) : input -> N :=
  end.
 Fixpoint positioned {state input} (selected : t state input) : state -> Prop :=
  match selected with
- | Keyed _ _ => fun _ => True
+ | Keyed _ _ | Mapped _ _ => fun _ => True
  | Indexed _ position => fun entries =>
      position = N.of_nat (List.length entries) \/ exists value, registry_at position entries = Some value
  | Ordered _ position => fun entries =>
@@ -61,6 +64,7 @@ Fixpoint positioned {state input} (selected : t state input) : state -> Prop :=
 Fixpoint read_at {state input} (selected : t state input) (identity : N) : state -> option input :=
  match selected with
  | Keyed _ key => find (fun item => N.eqb identity (key item))
+ | Mapped _ _ => IndexedRegistry.Slots.find (IndexedRegistry.key identity)
  | Indexed _ _ => registry_at identity
  | Ordered _ _ => fun entries => registry_at identity (fst entries)
  | Field _ _ _ get _ child => fun before => read_at child identity (get before)
@@ -78,6 +82,7 @@ Fixpoint install {state input} (selected : t state input) : input -> state -> st
  match selected with
  | Keyed _ key => fun request entries =>
      request :: filter (fun item => negb (N.eqb (key request) (key item))) entries
+ | Mapped _ position => IndexedRegistry.Slots.add (IndexedRegistry.key position)
  | Indexed _ position => put_at position
  | Ordered _ position => fun request entries => (put_at position request (fst entries),
      if existsb (N.eqb position) (snd entries) then snd entries else snd entries ++ [position])
@@ -102,6 +107,8 @@ Arguments position {state input before}.
 Module At.
 Definition keyed {entry} (entries : list entry) (key : entry -> N) : located _ _ entries :=
  Located (Receiver.keyed key) I.
+Definition mapped {entry} (entries : IndexedRegistry.Slots.t entry) (identity : N) : located _ _ entries :=
+ Located (Receiver.mapped identity) I.
 Definition ordered_append {entry} (entries : list entry * list N) : located _ _ entries :=
  Located (ordered (N.of_nat (List.length (fst entries)))) (or_introl eq_refl).
 Definition ordered_present {entry} (entries : list (option entry) * list N) identity value

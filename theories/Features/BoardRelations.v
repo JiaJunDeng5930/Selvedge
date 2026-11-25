@@ -31,7 +31,7 @@ Lemma board_lookup_after_task_put : forall card_id task_id task value,
  CardScope.lookup card_id (Selvedge.Kernel.State.put_task task_id task value) = CardScope.lookup card_id value.
 Proof.
  intros. unfold CardScope.lookup, Selvedge.Kernel.State.put_task,
-   Selvedge.Kernel.State.with_tasks.
+   Selvedge.Kernel.State.with_task_registry.
  cbv [set]. reflexivity.
 Qed.
 
@@ -50,7 +50,6 @@ Lemma task_lookup_after_put_task : forall task_id previous replacement value,
    (Selvedge.Kernel.State.put_task task_id replacement value) = Some replacement.
 Proof.
  intros task_id previous replacement value found.
- unfold Selvedge.Kernel.State.find_task, Selvedge.Kernel.State.put_task,
-   Selvedge.Kernel.State.with_tasks in *.
- cbv [set]. eapply Selvedge.Foundation.RegistryProofs.registry_replace_selected; exact found.
+ rewrite find_task_as_list in found |- *. rewrite world_tasks_updated.
+ eapply Selvedge.Foundation.RegistryProofs.registry_replace_selected; exact found.
 Qed.

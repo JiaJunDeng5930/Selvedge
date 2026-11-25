@@ -54,9 +54,12 @@ Record control_binding := ControlBinding {
   binding_modal : option string;
   binding_receive : S.receiver Input.input
 }.
+(* Region nodes retain the mounted topology and keys for unmounting. The
+   indexed task headers hold their current row controls separately. *)
 Record mounted_region := MountedRegion {
   mounted_identity : string;
-  mounted_nodes : list (S.node Input.input)
+  mounted_nodes : list (S.node Input.input);
+  mounted_task_rows : PNav.task_row_index
 }.
 Record published_child_region := PublishedChildRegion {
   child_owner : string;
@@ -162,6 +165,7 @@ Definition prepare request :=
 Definition rebase request context :=
  snapshot<-field "world" request;;
  Some(carry_publication context (context_for_state snapshot (prepared_state context) (prepared_encoding context) (environment request))).
+Definition task_index_depth := World.task_levels.
 Definition with_state context current :=
  let encoded:=SC.encode_state current in
  if Json.equal(prepared_encoding context)encoded then context else
@@ -261,6 +265,8 @@ Definition browser_state context :=
 Definition returned_state (full : bool) context := if full then prepared_encoding context else browser_state context.
 Definition decision_packet full context effects error handled visible_error acknowledge (publication_event:string) fence_admitted:=JObject[("state",returned_state full context);
  ("file_handles",JArray(map JString(Selvedge.Browser.Session.Services.retained_file_handles(Session.service_state(prepared_state context)))));
+ ("visible_history_tasks",JArray(map (fun view=>number(task_view_task view))
+   (Selvedge.Browser.Session.Navigation.visible_task_views (prepared_state context))));
  ("effects",JArray effects);("publication_event",JString publication_event);("error",match error with None=>JNull|Some diagnostic=>diagnostic end);
  ("visible_error",JBool visible_error);("feedback_update",JString(feedback_update error visible_error acknowledge));("handled",JBool handled);
  ("fence_admitted",match fence_admitted with Some value=>JBool value|None=>JNull end);
@@ -290,9 +296,10 @@ Record region_plan := RegionPlan {
   plan_theme : bool
 }.
 Definition region_node_keys nodes := map (@S.node_key Input.input) nodes.
+Definition cached_region_entry controls key :=
+ find (fun entry=>String.eqb key (mounted_identity entry)) (published_regions controls).
 Definition cached_region controls key :=
- value_or [] (option_map mounted_nodes
-   (find (fun entry=>String.eqb key (mounted_identity entry)) (published_regions controls))).
+ value_or [] (option_map mounted_nodes (cached_region_entry controls key)).
 Definition broad_root scope node :=
  RegionRoot (scope,node) Document.OutsideArea S.Region None None.
 Definition base_roots nodes := map (broad_root None) nodes.
@@ -330,7 +337,10 @@ Definition context_route_changed before after :=
  negb(Json.equal (encode_route(current_route before)) (encode_route(current_route after))) ||
  section_changed "navigation" ["work"] before after.
 Definition world_fields_changed fields before after :=
- changed_fields fields (prepared_world before) (prepared_world after).
+ let prior := prepared_world before in let next := prepared_world after in
+ existsb (fun name => if String.eqb name "tasks" then
+   existsb (fun '(old, fresh) => negb (Json.equal old fresh)) (World.changed_task_rows prior next)
+   else changed_fields [name] prior next) fields.
 Definition task_field_changed fields task before after :=
  changed_fields fields
    (value_or JNull (World.find_task task (prepared_world before)))
@@ -356,13 +366,14 @@ Definition navigation_membership_fields entry :=
  JArray (value_or JNull project::fields).
 Definition navigation_world_changed before after :=
  world_fields_changed ["works";"projects"] before after ||
- let topology context:=JArray(map navigation_membership_fields (items "tasks" (prepared_world context))) in
- negb(Json.equal (topology before) (topology after)).
+ existsb (fun '(old, current) => negb (Json.equal
+   (navigation_membership_fields old) (navigation_membership_fields current)))
+   (World.changed_task_rows (prepared_world before) (prepared_world after)).
 Definition changed_navigation_rows before after :=
- let tasks context:=items "tasks" (prepared_world context) in
  let columns:=["title";"status";"working";"awaitingHuman";"execution_failed"] in
  let changed:=flat_map (fun '(previous,current)=>if changed_fields columns previous current
-   then some_list (Read.observe_task current) else []) (combine (tasks before) (tasks after)) in
+   then some_list (Read.observe_task current) else [])
+   (World.changed_task_rows (prepared_world before) (prepared_world after)) in
  changed.
 Definition main_world_changed before after :=
  match current_route after with
@@ -490,12 +501,12 @@ Definition task_composer_projection_changed task before after :=
  task_workspace_changed task before after ||
  world_fields_changed ["profiles";"defaults";"projects"] before after.
 Definition task_actions_projection_changed task before after :=
- let side_children context:=filter (fun entry=>
-   match natural_field "side_parent" entry with Some id=>N.eqb task id|None=>false end)
-   (items "tasks" (prepared_world context)) in
- let child_ids context:=JArray(map (fun entry=>value_or JNull(field "id" entry)) (side_children context)) in
+ let child_id entry := match natural_field "side_parent" entry with
+   | Some id => if N.eqb task id then value_or JNull (field "id" entry) else JNull
+   | None => JNull end in
  task_field_changed ["status";"status_label";"working";"side_parent";"work_id"] task before after ||
- negb(Json.equal (child_ids before) (child_ids after)).
+ existsb (fun '(old, current) => negb (Json.equal (child_id old) (child_id current)))
+   (World.changed_task_rows (prepared_world before) (prepared_world after)).
 Definition reply_projection_changed task before after :=
  let source context:=Projection.document_context (prepared_world context) (prepared_state context) in
  let retention context:=Session.document_retention (prepared_state context) in
@@ -504,6 +515,11 @@ Definition discarded_projection_changed task before after :=
  let count context:=Documents.discarded_count task (Session.document_retention (prepared_state context)) in
  negb(N.eqb (count before) (count after)).
 Definition scope_equal one other := Json.equal (JArray(map DOM.scope_json one)) (JArray(map DOM.scope_json other)).
+Definition overlay_key layer := "overlay/"++V.overlay_region_identity layer.
+Definition mount_region name nodes :=
+ let rows:=if String.eqb name "navigation" || String.eqb name (overlay_key V.DrawerOverlay)
+   then PNav.index_task_rows nodes else PNav.empty_task_row_index in
+ MountedRegion name nodes rows.
 Definition replace_region_cache changes current :=
  fold_left (fun cache change=>
   let name:=changed_identity change in
@@ -511,8 +527,7 @@ Definition replace_region_cache changes current :=
      String.prefix "overlay/" name then
   let nodes:=map (fun root=>snd(region_node root)) (changed_roots change) in
   let remaining:=filter (fun old=>negb(String.eqb name(mounted_identity old))) cache in
-  match nodes with []=>remaining|_=>MountedRegion name nodes::remaining end else cache) changes current.
-Definition overlay_key layer := "overlay/"++V.overlay_region_identity layer.
+  match nodes with []=>remaining|_=>mount_region name nodes::remaining end else cache) changes current.
 Definition overlay_projection_dirty before after incoming snapshot layer :=
  match layer with
  |V.DrawerOverlay=>negb(Json.equal(navigation_without_layers before)(navigation_without_layers after)) ||
@@ -598,11 +613,12 @@ Definition planned_regions (context : prepared) : option region_plan :=
    match changed_navigation_rows before context with
    |[]=>[]
    |changed=>
-   let find_changed id:=find (fun task=>N.eqb id (Read.task_id task)) changed in
-   flat_map (fun key=>
-     let '(nodes,projections):=PNav.project_changed_task_rows (current_route context) find_changed (cached_region controls key) in
-     match projections with []=>[]|_=>[(MountedRegion key nodes, projections)] end)
-     ["navigation";overlay_key V.DrawerOverlay] end
+   flat_map (fun key=>match cached_region_entry controls key with
+   | None => []
+   | Some region =>
+     let '(mounted, projections):=PNav.project_changed_task_rows (current_route context) changed (mounted_task_rows region) in
+     match projections with []=>[]|_=>[(MountedRegion key (mounted_nodes region) mounted, projections)] end
+   end) ["navigation";overlay_key V.DrawerOverlay] end
    else [] in
  let row_changes:=flat_map (fun '(region,projections)=>
    let drawer:=String.eqb (mounted_identity region) (overlay_key V.DrawerOverlay) in
@@ -657,16 +673,18 @@ Definition planned_regions (context : prepared) : option region_plan :=
      N.eqb group other && N.eqb occurrence next && Bool.eqb expanded open_card in
    let local_reading:=negb (AuditReading.same_items same_disclosure
      (Pages.reader_disclosures task (prepared_state before)) (Pages.reader_disclosures task (prepared_state context))) in
+   let loaded:=Read.task_history_loaded task world in
+   let loading_changed:=negb(Bool.eqb (Read.task_history_loaded task (prepared_world before)) loaded) in
    (* Tool execution can begin or settle between two history appends. *)
-   let history:=local_reading ||
+   let history:=loading_changed || (loaded && (local_reading ||
      (snapshot && (task_field_changed ["cursor";"operations";"working"] task before context ||
-       world_fields_changed ["tools"] before context)) in
+       world_fields_changed ["tools"] before context)))) in
    let operations:=(snapshot && operation_projection_changed task before context) ||
      (command_state_changed &&
        match Read.task_operations task world with Some (_::_)=>true|_=>false end) in
-   let tail:=operations || (lifecycle && reply_projection_changed task before context) ||
-     (snapshot && task_field_changed ["working"] task before context) in
-   let discarded:=lifecycle && discarded_projection_changed task before context in
+   let tail:=loaded && (operations || (lifecycle && reply_projection_changed task before context) ||
+     (snapshot && task_field_changed ["working"] task before context)) in
+   let discarded:=loaded && lifecycle && discarded_projection_changed task before context in
    let patch name project:=conversation_change controls before context view name project in
    let title_change:=match view with
      |PrimaryTask _=>patch "title" (fun ctx=>title_project ctx view)
@@ -679,7 +697,7 @@ Definition planned_regions (context : prepared) : option region_plan :=
    ((if history then [patch "timeline" (fun ctx=>some_list(timeline_project ctx view))]
      else (if tail then [patch "timeline-tail" (fun ctx=>tail_project ctx view)] else []) ++
           (if discarded then [patch "discarded" (fun ctx=>discarded_project ctx view)] else []) ++
-          (if latest_changed task before context then [patch "latest" latest] else [])) ++
+          (if loaded && latest_changed task before context then [patch "latest" latest] else [])) ++
     (if operations then [patch "approvals" (fun ctx=>approvals_project ctx view)] else []) ++
     (if snapshot && task_title_projection_changed task view before context then
       [title_change] else []) ++

@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require Runnable.
 From Selvedge.Kernel Require TaskWake.
 From Selvedge.Programming Require TaskChange TaskResult TaskScope TaskScopeProofs.
 From Selvedge.Kernel Require Import CallbackChangesProofs.
@@ -243,13 +244,13 @@ Qed.
 Theorem the_actual_scheduler_observes_before_preparing_a_model : forall execute permitted id task rest value operations,
  permitted id value = true ->
  task_lifecycle task = Running WantsModel operations ->
- Scheduler.ready_operation operations = None ->
+ Runnable.ready_operation operations = None ->
  Scheduler.find_step execute permitted id (task :: rest) value =
  Some (Reasoning.observe_scheduled_context id value).
 Proof.
  intros execute permitted id task rest value operations Permitted RunningTask NoOperation.
- cbn [Scheduler.find_step]; unfold Scheduler.next_runnable_step; rewrite Permitted.
- unfold Scheduler.task_action; rewrite RunningTask, NoOperation; reflexivity.
+ cbn [Scheduler.find_step]; rewrite Scheduler.next_runnable_step_expands, Permitted.
+ unfold Runnable.task_action; rewrite RunningTask, NoOperation; reflexivity.
 Qed.
 
 Theorem context_completion_requires_the_current_ticket : forall id ticket expected revision continuation observations diagnostic value task,
@@ -258,11 +259,51 @@ Theorem context_completion_requires_the_current_ticket : forall id ticket expect
  Callbacks.context_completed id ticket observations diagnostic value = Callbacks.ignored value.
 Proof. intros; rewrite context_completed_expression; now rewrite H, H0, H1. Qed.
 
+Theorem appending_unrelated_history_preserves_context_observation_inputs :
+ forall captured appended,
+ existsb changes_observation_inputs appended = false ->
+ observation_inputs_current (List.length captured) (captured ++ appended) = true.
+Proof.
+ intros captured appended Unchanged.
+ unfold observation_inputs_current.
+ rewrite length_app, skipn_app, skipn_all, Nat.sub_diag.
+ cbn [List.app skipn]. rewrite Unchanged.
+ assert (Nat.leb (List.length captured) (List.length captured + List.length appended) = true)
+  as HasPrefix by (apply Nat.leb_le; lia).
+ now rewrite HasPrefix.
+Qed.
+
+Theorem an_actual_context_completion_accepts_unrelated_history_appends :
+ forall id ticket captured appended continuation observations diagnostic value task phase operations,
+ find_task id value = Some task ->
+ task_activity task = ObservingContext ticket (List.length captured) continuation ->
+ task_lifecycle task = Running phase operations ->
+ task_history task = captured ++ appended ->
+ existsb changes_observation_inputs appended = false ->
+ decision_effects (Callbacks.context_completed id ticket observations diagnostic value) = [] /\
+ exists completed,
+ find_task id (decision_world (Callbacks.context_completed id ticket observations diagnostic value)) =
+   Some completed /\
+ task_activity completed = ReadyForModel.
+Proof.
+ intros id ticket captured appended continuation observations diagnostic value task phase operations
+   Found Phase RunningTask History Unchanged.
+ pose proof (appending_unrelated_history_preserves_context_observation_inputs captured appended Unchanged)
+   as Current.
+ rewrite <- History in Current.
+ rewrite context_completed_expression, Found, Phase, N.eqb_refl, Current.
+ unfold Callbacks.context_phase; rewrite RunningTask.
+ split; [reflexivity|].
+ eexists; split; [eapply find_put_task; exact Found|].
+ unfold task_activity, with_activity, with_lifecycle, append_history, with_history; cbn.
+ now rewrite RunningTask.
+Qed.
+
 Theorem an_actual_stale_context_result_restarts_from_the_current_prefix :
  forall id ticket revision continuation observations diagnostic value task phase operations,
  find_task id value = Some task -> task_activity task = ObservingContext ticket revision continuation ->
  task_lifecycle task = Running phase operations ->
- Nat.eqb revision (List.length (task_history task)) = false ->
+ observation_inputs_current revision (task_history task) = false ->
  Callbacks.context_completed id ticket observations diagnostic value = Reasoning.context_retry id value.
 Proof.
  intros id ticket revision continuation observations diagnostic value task phase operations Found Phase RunningTask Stale.
@@ -273,7 +314,7 @@ Theorem unavailable_context_retry_keeps_unsatisfied_demand :
  forall id ticket revision continuation observations diagnostic value task operations,
  find_task id value = Some task ->
  task_lifecycle task = Running (ObservingContext ticket revision continuation) operations ->
- Nat.eqb revision (List.length (task_history task)) = false ->
+ observation_inputs_current revision (task_history task) = false ->
  TicketedRequest.Scoped.resources_available task value = false ->
  let result := Callbacks.context_completed id ticket observations diagnostic value in
  bool_default "ok" (decision_reply result) false = true /\
@@ -311,7 +352,7 @@ Theorem a_frozen_context_completion_waits_for_a_new_observation :
 Proof.
  intros id ticket revision continuation observations diagnostic value task phase operations Found Phase FrozenTask.
  rewrite context_completed_expression; rewrite Found, Phase, N.eqb_refl.
- destruct (Nat.eqb revision (List.length (task_history task))).
+ destruct (observation_inputs_current revision (task_history task)).
  - unfold Callbacks.context_phase; rewrite FrozenTask.
    split; [reflexivity|].
    eexists; split; [eapply find_put_task; exact Found|].
@@ -336,7 +377,7 @@ Theorem a_stopped_context_completion_waits_for_a_new_observation :
 Proof.
  intros id ticket revision continuation observations diagnostic value task phase operations Found Phase StoppedTask.
  rewrite context_completed_expression; rewrite Found, Phase, N.eqb_refl.
- destruct (Nat.eqb revision (List.length (task_history task))).
+ destruct (observation_inputs_current revision (task_history task)).
  - unfold Callbacks.context_phase; rewrite StoppedTask.
    split; [reflexivity|].
    eexists; split; [eapply find_put_task; exact Found|].

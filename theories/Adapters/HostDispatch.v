@@ -60,11 +60,26 @@ Definition primitive_packet (p : primitive) := match p with
 | RetryFailure => Variant.pack ModelResultDeclarations.dispatch_retry_failure [!!] end.
 Definition primitive_json p := Variant.encode_packet (primitive_packet p).
 
+Definition scope_json (selection : dispatch_scope) := match selection with
+ | NoHandles => JObject [("kind",JString "none")]
+ | AllHandles => JObject [("kind",JString "all")]
+ | HandleOf generation => JObject [("kind",JString "generation");("value",number generation)]
+ | HandlesOfTask owner => JObject [("kind",JString "task");("value",number owner)]
+ | HandlesOfKey name => JObject [("kind",JString "key");("value",JString name)] end.
 Definition call (operation : string) (source : json) : json :=
   if String.eqb operation "control.dispatch.initial" then success (state_json initial)
+  else if String.eqb operation "control.dispatch.select" then
+    match observation_of (get source "observation") with
+    | Some observation => success (scope_json (scope observation))
+    | None => type_error "Invalid effect dispatch observation" end
   else if String.eqb operation "control.dispatch.step" then
     match observation_of (get source "observation") with
     | Some observation => let '(next, effects) := step (state_of (get source "state")) observation in
         success (JObject [("state",state_json next);("effects",JArray (map primitive_json effects))])
     | None => type_error "Invalid effect dispatch observation" end
   else type_error "Unknown effect dispatch operation".
+
+Theorem dispatch_select_returns_observed_scope source observation :
+  observation_of (get source "observation") = Some observation ->
+  call "control.dispatch.select" source = success (scope_json (scope observation)).
+Proof. intros Observed. unfold call. now rewrite Observed. Qed.

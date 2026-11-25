@@ -9,14 +9,32 @@ private to that worker.
 `journal.mjs` serializes requests through their complete transaction and owns
 its private `kernel.mjs` connection, which retires the worker after a failed or
 timed out transition. The journal commits the changed records before publishing
-its decision or starting an effect. On reopen it loads the committed task and
-shared records into the Worker. During managed updates, the candidate validates
-a read-only view, then loads the final records after acquiring the writer lock.
+its decision or starting an effect. The current Task state, its execution
+contract, and append-only history chunks have separate records. A lifecycle
+change never rewrites the contract or past chunks. Completing a managed
+Workspace can update the contract's bound Workspace. Each shared state
+section has its own record. Allocating a ticket touches only the ticket section. The
+sequence, task cursor, and new chunks commit together. On reopen it checks
+the chunk offsets and restores the committed
+records into the Worker. During managed updates, the candidate validates a
+read-only view, then loads the final records after acquiring the writer lock.
 
 `server.mjs` and `cli.mjs` expose the service. Browser snapshots use domain JSON
 at `/api/browser/state`; commands use `/api/browser/command`, and observations
-arrive through `/api/events`. Domain JSON is independent of Gallina, OCaml and
-JavaScript runtime object layouts. Pure adapter decisions are called through
+arrive through `/api/events`. A connected browser sends
+`x-selvedge-browser-sequence` with its installed commit. A retained range is
+returned as `after` and consecutive `updates` through `sequence`. Each update
+carries changed task facts, newly appended messages, any changed cross-task
+reference fields, and applicable shared fields. The service publishes them
+after SQLite commits. The browser requests an outline on opening or recovering
+a gap. The outline includes Task facts without conversation messages. A
+browser fetches a history and its frozen tool metadata from
+`/api/browser/state?history=<task-id>&after=<offset>` when that conversation
+becomes visible. Incremental state reads carry new messages
+for visible conversations. A command receipt can also carry the new history
+of the tasks affected by that command.
+Domain JSON is independent of Gallina, OCaml and JavaScript runtime object
+layouts. Pure adapter decisions are called through
 `public/model-boundary.mjs` and come from the same extracted definitions as
 their Rocq proofs.
 

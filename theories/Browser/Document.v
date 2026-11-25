@@ -621,6 +621,16 @@ Fixpoint commit_key {A} (value:S.node A) : option string :=
  match S.node_meaning value with S.ActionCommit _ _ _=>Some (S.node_key value)
  | _=>(fix search (nodes:list(S.node A)):=match nodes with []=>None|head::tail=>
  match commit_key head with Some key=>Some key|None=>search tail end end) (S.node_children value) end.
+Fixpoint describe_action (control reason : string) (value : DOM.node) : DOM.node :=
+ match value with
+ |DOM.Element key tag attributes styles events metadata children=>
+  if String.eqb key control then
+   let ids:=match attribute_value "aria-describedby" attributes with
+     |Some existing=>(reason++" "++existing)%string |None=>reason end in
+   DOM.Element key tag (("aria-describedby",ids)::without_attribute "aria-describedby" attributes)
+     styles events metadata children
+  else DOM.Element key tag attributes styles events metadata (map (describe_action control reason) children)
+ |_=>value end.
 Definition component_context {A} (current:option IP.component) (meaning:S.meaning A) :=
  match meaning with S.InteractiveNode value=>Some value|_=>current end.
 Definition source_context {A} (current:S.meaning A) (meaning:S.meaning A) :=
@@ -1154,8 +1164,14 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
    [DOM.Element (NavigationIdentity.key_part key "prompt") "option"
     [("value","");("disabled","");("selected","")] [] [] empty [DOM.Text "请选择模型"]] else []) ++
   choices key selected values))
- |S.ActionUnit _ _=>element "form" [("novalidate","novalidate")]
- (match commit_key value with Some key=>[event key generation "submit" "submit" Gesture.Press]|None=>[] end) empty children
+ |S.ActionUnit _ _=>
+ let control:=commit_key value in
+ let children:=match control,find (fun node=>String.eqb (S.semantic_key node) "editor-commit-reason")
+   (S.node_children value) with
+ |Some button,Some reason=>map (describe_action button (S.node_key reason)) children
+ |_,_=>children end in
+ element "form" [("novalidate","novalidate")]
+ (match control with Some key=>[event key generation "submit" "submit" Gesture.Press]|None=>[] end) empty children
  |S.LayerRegion behavior|S.NavigationRegion _ behavior|S.ActivityGroup _ _ _ behavior=>
  element (if Model.modal_layer behavior then "dialog" else "aside")
  ([("role",if Model.modal_layer behavior then "dialog" else "complementary");("aria-modal",flag (Model.modal_layer behavior))] ++

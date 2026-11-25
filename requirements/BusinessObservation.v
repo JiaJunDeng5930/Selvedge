@@ -12,13 +12,15 @@
     existing command handlers and the browser snapshot. [Read] selects typed
     business information from that snapshot. Project membership follows the
     observed Task settings. Conversation activity keeps its occurrence identity
-    when the browser groups it. *)
+    when the browser groups it. A publication of a local change evaluates
+    only the selected shared projections. The projections use the same facts
+    in a complete snapshot. *)
 
-From Stdlib Require Import String List NArith Lia.
+From Stdlib Require Import String List NArith PeanoNat Lia.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Foundation Require Numbers NumbersProofs Registry.
 From Selvedge.Generated Require Commands.
-From Selvedge.Kernel Require Context ContextUpdates Domain Observation Packet PacketProofs Queries State.
+From Selvedge.Kernel Require Context ContextUpdates ConversationProofs Domain Observation Packet PacketProofs Queries State.
 From Selvedge.Features Require BoardFacts.
 From Selvedge.Interaction Require Import Codec Identity.
 From Selvedge.Interaction Require Audit World.
@@ -29,6 +31,9 @@ Import ListNotations.
 Open Scope string_scope.
 
 Export PacketProofs(actual_admitted_query_delivers_its_observation).
+Export ConversationProofs(summary_assistant_reply_matches_published_message).
+Export Publication(live_publication_fields_select_exactly).
+Export ContextUpdates(appending_other_events_retains_context_bindings).
 
 Lemma selected_world_identity collection key id snapshot value :
  World.find_world collection key id snapshot = Some value ->
@@ -43,10 +48,22 @@ Qed.
 Theorem observed_task_has_requested_identity snapshot id task :
  Read.find_task id snapshot = Some task -> Read.task_id task = id.
 Proof.
- unfold Read.find_task, World.find_task.
- destruct (World.find_world "tasks" "id" id snapshot) as [value|] eqn:Selected; [|discriminate].
+ unfold Read.find_task.
+ destruct (World.find_task id snapshot) as [value|] eqn:Selected; [|discriminate].
+ assert (Identity : natural_field "id" value = Some id).
+ { unfold World.find_task in Selected.
+   destruct (World.task_slots snapshot) as [slots|]; [|eapply selected_world_identity; exact Selected].
+   revert slots Selected. induction World.task_levels as [|depth IH]; intros slots Selected.
+   - cbn in Selected. destruct (natural_field "id" slots) as [owner|] eqn:Found; [|discriminate].
+     destruct (N.eqb id owner) eqn:Matches; [|discriminate].
+     apply N.eqb_eq in Matches. congruence.
+   - cbn [World.task_at_slot bind] in Selected.
+     destruct (as_array slots) as [values|]; [|discriminate].
+     cbn [bind] in Selected.
+     destruct (nth_error values (N.to_nat (N.land (N.shiftr id (4 * N.of_nat depth)) 15))) as [row|];
+       [eapply IH; exact Selected|discriminate]. }
  cbn [bind]. unfold Read.observe_task, Read.observe_task_with_failure.
- rewrite (selected_world_identity _ _ _ _ _ Selected).
+ rewrite Identity.
  cbn [bind].
  repeat match goal with
  | |- context [string_field ?name value] => destruct (string_field name value); cbn [bind]
@@ -99,6 +116,7 @@ Lemma published_task_is_selected_by_its_registry_id value id task :
    Some (Publication.task_snapshot_in_world id task value).
 Proof.
  intros Found.
+ rewrite State.find_task_as_list in Found.
  change (find (fun raw => match natural_field "id" raw with
                          | Some found => N.eqb (0 + id) found | None => false end)
    (Registry.indexed (fun id task => Publication.task_snapshot_in_world id task value)
@@ -108,7 +126,8 @@ Proof.
    Publication.task_snapshot_in_world key selected value) _
    (State.world_tasks value) 0 id task Found).
  intros key selected.
- unfold Publication.task_snapshot_in_world, Publication.task_snapshot, Publication.task_summary.
+ unfold Publication.task_snapshot_in_world, Publication.task_snapshot_fields_in_world,
+   Publication.task_snapshot, Publication.task_snapshot_with_payload, Publication.task_summary.
  destruct (Domain.task_busy selected);
    [|destruct (fold_left Publication.observe_history (Domain.task_history selected) ([],false))].
  all: apply NumbersProofs.natural_print_parse.
@@ -120,6 +139,15 @@ Proof.
  destruct value as [value|]; [|reflexivity].
  change (option_map (@Some N) (Numbers.parse_natural (Numbers.show_natural value)) = Some (Some value)).
  now rewrite NumbersProofs.natural_print_parse.
+Qed.
+
+Theorem local_publication_encodes_the_history_suffix id task before appended :
+ Domain.task_history task = (before ++ appended)%list ->
+ Packet.history_publication id (Packet.task_history_since (List.length before) task) =
+ Publication.history_json id appended.
+Proof.
+ intro History. unfold Packet.task_history_since, Packet.history_publication.
+ now rewrite History, skipn_app, skipn_all, Nat.sub_diag.
 Qed.
 
 Lemma published_history_observes_context_and_failure history context failed :
@@ -139,7 +167,8 @@ Theorem task_snapshot_preserves_context_and_predicts_the_board_stage id task fea
  string_field "card_link_stage" snapshot = Some (Selvedge.Features.Domain.stage_name
    (BoardFacts.stage_after_task BoardFacts.initial_link_stage task)).
 Proof.
- unfold Publication.task_snapshot, Publication.task_summary, BoardFacts.stage_after_task, BoardFacts.busy_task.
+ unfold Publication.task_snapshot, Publication.task_snapshot_with_payload,
+   Publication.task_summary, BoardFacts.stage_after_task, BoardFacts.busy_task.
  destruct (Domain.task_busy task).
  - split; reflexivity.
  - rewrite published_history_observes_context_and_failure. split; reflexivity.
@@ -149,7 +178,7 @@ Theorem task_snapshot_reports_a_settled_execution_failure id task features :
  bool_field "execution_failed" (Publication.task_snapshot id task features) =
  Some (if Domain.task_busy task then false else BoardFacts.latest_failure task).
 Proof.
- unfold Publication.task_snapshot, Publication.task_summary.
+ unfold Publication.task_snapshot, Publication.task_snapshot_with_payload, Publication.task_summary.
  destruct (Domain.task_busy task).
  - reflexivity.
  - rewrite published_history_observes_context_and_failure. reflexivity.
@@ -205,7 +234,8 @@ Theorem browser_and_cli_read_the_same_task_summary request value task :
 Proof.
  cbn zeta. intros Found Page. eexists. split.
  - rewrite (published_task_is_selected_by_its_registry_id _ _ _ Found).
-   cbn [bind]. unfold Publication.task_snapshot_in_world, Publication.task_snapshot.
+   cbn [bind]. unfold Publication.task_snapshot_in_world, Publication.task_snapshot_fields_in_world,
+     Publication.task_snapshot, Publication.task_snapshot_with_payload.
    destruct (Domain.task_busy task);
      [|destruct (fold_left Publication.observe_history (Domain.task_history task) ([],false))];
      apply published_task_summary_is_observable.

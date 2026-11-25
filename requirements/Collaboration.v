@@ -139,16 +139,20 @@ Definition workflow_completion_contract {Path : Type} (paths : list Path)
 
 From Selvedge.Features Require WorkflowProofs.
 Export WorkflowProofs(completion_reports_all_paths_at_exits,
+  workflow_processing_selects_exactly_the_active_instances,
   completion_does_not_hide_outstanding_paths).
 
 From Selvedge.Features Require BoardProofs TitleProofs TitleRuntime.
 From Selvedge.Kernel Require FeatureAdmissionProofs.
+From Selvedge.Kernel Require TaskRegistryProofs.
 From Selvedge.Programming Require FeatureRequestProofs.
 From Selvedge.Kernel Require TitleCommit.
 From Selvedge.Programming Require CardScopeProofs.
 Export CardScopeProofs(stale_card_is_atomic).
 Export BoardProofs(ordinary_card_creation_installs_the_requested_draft,
   automatic_queue_follows_pin_priority_and_board_order,
+  selecting_the_next_card_follows_the_automatic_queue,
+  board_synchronization_keeps_all_stage_updates,
   admitted_card_edit_preserves_its_execution,
   admitted_link_preserves_execution_and_drafting,
   linked_assignment_cannot_be_transferred,
@@ -161,8 +165,10 @@ Export FeatureAdmissionProofs(admitted_title_resolves_without_rechecking,
 Export FeatureRequestProofs(every_feature_request_has_its_installed_receiver).
 Export TitleRuntime(issue).
 Export TitleCommit(candidate).
+Export TaskRegistryProofs(title_scope_matches_the_unissued_task).
 Export TitleProofs(admitted_title_issues_observed_request,
   explicit_title_profile_uses_only_saved_key,
+  title_scope_preserves_the_first_resolvable_request,
   title_configuration_preserves_generation_entries,
   title_recovery_keeps_execution_state,
   title_recovery_keeps_saved_instructions).
@@ -241,8 +247,9 @@ Export TitleProofs(admitted_title_issues_observed_request,
     [automatic_queue_follows_pin_priority_and_board_order] constrains that actual
     queue. Board eligibility and concurrency belong to [Board]. Filtering
     changes the view, not the stored card. The bounded scheduler requests a
-    continuation when work remains. Automatic title selection uses
-    [FeatureRequestAdmission.resolve_title]. With the default Auto setting,
+    continuation when work remains. Automatic title selection traverses Tasks
+    in registry order and passes the observed task directly to
+    [FeatureRequestAdmission.resolve_title_at]. With the default Auto setting,
     it prefers an ordinary gpt-5.6-luna profile on the Task's ChatGPT account
     and otherwise uses the Task profile when available; an echo profile cannot
     issue a title request. An explicitly saved Agent conversation title model

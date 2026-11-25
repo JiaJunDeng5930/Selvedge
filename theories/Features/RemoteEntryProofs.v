@@ -1,5 +1,6 @@
 From Selvedge.Programming Require TaskChange TaskScope.
 From Selvedge.Kernel Require Import CommandHandlers.
+From Selvedge.Kernel Require TaskChangesProofs.
 From Selvedge.Foundation Require Import RemoteIdentity.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
@@ -75,13 +76,15 @@ Proof.
  cbn [CommandHandlers.execute CommandHandlers.interpret CommandHandlers.task_origin option_map
    Selvedge.Kernel.Commands.origin_allowed G.handle_stop
    Selvedge.Generated.Commands.dispatch CommandHandlers.handlers].
- (* The selected reference carries evidence about this exact world. *)
- all: destruct value; cbn in Tasks; subst.
- all: destruct task; cbn in Running; subst.
- all: cbn [Selvedge.Kernel.CommandExecution.handle_stop Tasks.control_command
-   TaskScope.select State.find_task registry_at TaskScope.selected TaskScope.owner
+ assert (Found : find_task 0 value = Some task) by (rewrite find_task_as_list, Tasks; reflexivity).
+ unfold Selvedge.Kernel.CommandExecution.handle_stop.
+ change (G.stop_task_id stop_first_payload) with 0.
+ rewrite TaskChangesProofs.control_command_expression, Found.
+ destruct task; cbn in Running; subst.
+ cbn [TaskScope.selected TaskScope.owner
    Tasks.control_available Tasks.control_changes
    TaskChange.interpret TaskChange.target TaskChange.changes TaskChange.apply
    TaskChange.apply_edit TaskChange.ChangeStatus Tasks.control_effects].
- all: reflexivity.
+ reflexivity.
+ destruct task; cbn in Running; subst; reflexivity.
 Qed.

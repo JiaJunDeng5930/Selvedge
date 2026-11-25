@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool Ascii NArith.
-From Stdlib Require FSets.FSetAVL Structures.OrderedTypeEx.
 From Selvedge.Foundation Require Import Json Utf8.
+From Selvedge.Interaction Require World.
 From Selvedge.Kernel Require Import Numbers.
 From Selvedge.Features Require Import Domain Titles.
 Import ListNotations.
@@ -50,17 +50,16 @@ Definition matches_query (selection:filter) query (now:N) (card:json) :=
    ((text "identifier" card)++" "++text "title" card++" "++text "description" card))end.
 Definition normalized_query selection := lower_text (trim (filter_query selection)).
 Definition matches selection := matches_query selection (normalized_query selection).
-Module WorkingTasks := FSetAVL.Make OrderedTypeEx.String_as_OT.
-Definition working_tasks world :=
- fold_left (fun index task=>match field "id" task with
- |Some (JNumber id)=>if flag "working" task then WorkingTasks.add id index else index
- |_=>index end) (match array_field "tasks" world with Some tasks=>tasks|None=>[]end) WorkingTasks.empty.
-Definition task_working_in index card := match field "task_id" card with
- |Some (JNumber id)=>WorkingTasks.mem id index|_=>false end.
+Definition task_working_in world card :=
+ match field "task_id" card with
+ | Some value => match natural value with
+   | Some id => match World.find_task id world with Some task => flag "working" task | None => false end
+   | None => false end
+ | None => false end.
 Definition match_board_card selection query now world : json -> bool :=
  match filter_tab selection with
- |Working=>let index:=working_tasks world in fun card=>
-    let working:=task_working_in index card ||
+ |Working=>fun card=>
+    let working:=task_working_in world card ||
       match string_field "activity" card with Some "running"=>true|_=>false end in
     matches_query selection query now
       (match card with JObject fields=>JObject (set_field "working" (JBool working) fields)|_=>card end)

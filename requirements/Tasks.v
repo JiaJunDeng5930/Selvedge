@@ -241,6 +241,8 @@ Export TasksProofs(stopped_idle_receive_reactivates,
 Export NativeAuthorityProofs(announced_operations_allow_an_independent_model_turn).
 Export NativeForkCommitProofs(a_native_fork_uses_its_calling_task).
 Export SchedulerProofs(continuation_tracks_available_work,
+  registry_scope_contains_every_runnable_task,
+  a_task_waiting_on_external_work_is_not_a_scheduling_candidate,
   a_full_task_records_external_call_refusal,
   a_full_task_refuses_native_result_work_before_execution).
 
@@ -249,7 +251,9 @@ Export SchedulerProofs(continuation_tracks_available_work,
     [continuation_tracks_available_work] connects that predicate to the actual
     step interpreter. Both use the same
     selected action, so readiness cannot drift from execution or require an
-    impossible-step fallback.
+    impossible-step fallback. The registry includes tasks with a possible
+    next action and entries with returned work to settle. A task waiting only
+    on an external result is revisited when its callback changes its state.
 
     The public per-Task operation bound limits concurrent processes, pending
     approval and result processing. At capacity, a new external call or a native

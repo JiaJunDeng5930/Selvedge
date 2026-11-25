@@ -4,7 +4,9 @@ From Selvedge.Programming Require Import Schema.
 From Selvedge.Interaction Require Import Codec CommandAssessment.
 From Selvedge.Browser Require Import Application.
 From Selvedge.Interaction.Submission Require Draft.
-From Selvedge.Browser.Session Require State Authoring.
+From Selvedge.Browser.Session Require State Authoring Navigation.
+From Selvedge.Browser Require AuditReading DocumentState.
+From Selvedge.Interaction.Experience Require Read.
 From Selvedge.Interaction.Experience Require Activity Model Observation.
 From Selvedge.Interaction.Submission Require Parameters.
 From Selvedge.Browser Require Layout.
@@ -26,14 +28,33 @@ Theorem irrelevant_document_observation_is_idle request context namespace source
  ((Authoring.keep state,"keep",context),Some false).
 Proof. cbn zeta. intros Irrelevant. unfold Application.input_decision. rewrite Irrelevant. reflexivity. Qed.
 
-(** A world refresh can follow ordinary command admission while the stream is
-    disconnected. Only the separately correlated authentication receipt owns
-    connection recovery. *)
+(** A world refresh may reveal a selected search hit as its history arrives.
+    Only the separately correlated authentication receipt owns connection recovery. *)
 Theorem ordinary_snapshot_preserves_connection namespace snapshot lagged state:
  let result:=Selvedge.Browser.Session.Runtime.core namespace snapshot lagged Input.Snapshot state in
  Services.connection(SS.service_state(Authoring.result_state result))=
- Services.connection(SS.service_state state) /\ Authoring.result_effects result=[].
-Proof. split;reflexivity. Qed.
+ Services.connection(SS.service_state state) /\
+ Forall (fun effect=>string_field "type" effect=Some "scroll_to_message")
+   (Authoring.result_effects result).
+Proof.
+ cbn [Selvedge.Browser.Session.Runtime.core].
+ unfold Authoring.resume_history_location.
+ destruct (SS.location(SS.navigation_state state));
+ destruct (bind (SS.search_return(Navigation.search_state state)) SS.search_origin_message)
+   as [[index query]|]; try solve [split; [reflexivity|constructor]].
+ unfold Authoring.locate_history_message.
+ destruct (DocumentState.find_task _ snapshot) as [value|]; try solve [split; [reflexivity|constructor]].
+ destruct (Read.task_history_loaded _ snapshot); try solve [split; [reflexivity|constructor]].
+ destruct (nth_error (Selvedge.Interaction.Codec.items "history" value) (N.to_nat index));
+   try solve [split; [reflexivity|constructor]].
+ destruct (AuditReading.commentary_process (N.to_nat index) (Selvedge.Interaction.Codec.items "history" value)
+   (Selvedge.Interaction.Codec.items "operations" value)).
+ - unfold Navigation.disclose.
+   destruct (Navigation.task_visible (Navigation.set_search_message None state) task).
+   + split; [reflexivity|apply Forall_cons; [reflexivity|apply Forall_nil]].
+   + split; [reflexivity|apply Forall_cons; [reflexivity|apply Forall_nil]].
+ - split; [reflexivity|apply Forall_cons; [reflexivity|apply Forall_nil]].
+Qed.
 
 Theorem stale_element_cannot_produce_a_product_input context generation raw incoming:
  natural_field "generation" raw=Some incoming -> incoming<>generation ->

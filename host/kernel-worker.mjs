@@ -8,7 +8,7 @@ parentPort.on('message', ({ input, operation }) => {
     if (operation === 'loadState') {
       // DEFENSE: A different durable schema cannot be decoded as this world's records.
       if (input !== null && input.schema !== model.persistenceSchema) throw new Error('Unsupported Selvedge stored state schema');
-      const restored = input === null ? model.initial() : model.restoreState(String(input.sequence), input.shared, input.tasks);
+      const restored = input === null ? model.initial() : model.restoreState(String(input.sequence), input.shared, input.tasks, input.titles);
       // DEFENSE: A truncated or invalid stored record cannot initialize the Worker.
       if (restored === null) throw new Error('Invalid Selvedge stored state');
       world = projectedWorld = restored;
@@ -32,7 +32,7 @@ parentPort.on('message', ({ input, operation }) => {
     // The journal already owns the projection of this immutable world handle.
     if (world === projectedWorld) parentPort.postMessage(receipt);
     else {
-      parentPort.postMessage({ ...receipt, programText: model.observe(world) });
+      parentPort.postMessage({ ...receipt, programUpdate: model.observePatch(projectedWorld, world, output.changedTasks) });
       projectedWorld = world;
     }
   // DEFENSE: Extracted transitions can throw OCaml exception arrays; they must be failures even without a JavaScript message.

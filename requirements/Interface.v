@@ -6,6 +6,9 @@
 
 From Selvedge.Interaction.Experience Require ObservationProof.
 From Selvedge.Browser.Presentation Require EditorsProof.
+From Selvedge.Browser.Presentation Require Navigation.
+Export Navigation(projecting_a_task_row_retains_its_mount,
+  projecting_one_task_row_preserves_other_mounted_rows).
 From Selvedge.Browser.Scene Require SurfaceProofs.
 Export ObservationProof(available_live_assignment_forms_a_connected_command,
   blocked_draft_preserves_all_requirements,
@@ -305,6 +308,11 @@ Export PublicationProof(a_prepared_document_has_no_prefix_authority,
     mounted in their Markdown targets and retain their action bindings. New
     components enter through the ordinary parser observations. The picker
     uses the shared overlay projection and focus scope.
+
+    In an already mounted task tree, a task's title or status changes at the
+    existing row key. The row's controls are located by task identity. A
+    change to grouping, branch disclosure or layout prepares that topology
+    and its row index together.
 
     Motor targets, writing-line demand, reading width and clearance have different
     purposes. Their observed fonts and dimensions cannot substitute for one

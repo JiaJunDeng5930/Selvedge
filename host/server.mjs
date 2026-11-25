@@ -13,8 +13,13 @@ import { writeAtomic } from './files.mjs';
 import { saveBoardAttachment, readBoardAttachment } from './board-files.mjs';
 import { connectionCredentials, connectionAuthorized, connectionCommand } from './chatgpt-plugin.mjs';
 import { configurationFilename, readServiceConfiguration, changeServiceConfiguration } from './config.mjs';
+import { browserHistoryTasksHeader, browserOutlineHeader, browserSequenceHeader } from './public/program-updates.mjs';
 
 const compressAsset = promisify(gzip);
+function browserSequence(request) {
+  const value = request.headers[browserSequenceHeader];
+  return typeof value === 'string' && /^(0|[1-9]\d*)$/.test(value) ? Number(value) : undefined;
+}
 
 async function publicAssets(directory, prefix = '') {
   const assets = new Map();
@@ -366,8 +371,26 @@ export async function startServer(options) {
           return;
         },
         browser_state: async () => {
-          const snapshot = service.browserSnapshot();
           if (release) response.setHeader('x-selvedge-release', release.id);
+          const requested = url.searchParams.get('history');
+          if (requested !== null) {
+            const id = Number(requested);
+            const cursor = url.searchParams.get('after') ?? '0';
+            const after = Number(cursor);
+            // DEFENSE: A caller can request an invalid task or cursor.
+            if (!/^(0|[1-9]\d*)$/.test(requested) || !Number.isSafeInteger(id) ||
+                !/^(0|[1-9]\d*)$/.test(cursor) || !Number.isSafeInteger(after)) {
+              browserJson(request, response, 400, { error: 'Invalid conversation history request' });
+              return;
+            }
+            const history = service.browserTaskHistory(id, after);
+            browserJson(request, response, history === null ? 404 : 200, history ?? { error: 'Conversation unavailable' });
+            return;
+          }
+          const outline = request.headers[browserOutlineHeader] === 'true';
+          const visible = request.headers[browserHistoryTasksHeader];
+          const histories = outline ? new Set(typeof visible === 'string' ? visible.split(',') : []) : undefined;
+          const snapshot = service.browserSnapshot(browserSequence(request), outline, histories);
           browserJson(request, response, 200, snapshot);
           return;
         },
@@ -461,7 +484,8 @@ export async function startServer(options) {
           const requestId = request.headers['x-selvedge-browser-request-id'];
           // DEFENSE: The optional client marker belongs only to a single direct response.
           const browserRequest = typeof requestId === 'string' && /^[0-9a-f]{32}$/.test(requestId) ? requestId : undefined;
-          const result = await service.browserCommand(command, browserRequest);
+          const result = await service.browserCommand(command, browserRequest, browserSequence(request),
+            request.headers[browserOutlineHeader] === 'true');
           browserJson(request, response, httpReplyStatus(boundary('http.reply_status', { reply: result.reply })), result);
           return;
         },

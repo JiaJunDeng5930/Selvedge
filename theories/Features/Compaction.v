@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require Runnable.
 From Selvedge.Kernel Require TaskWake.
 From Selvedge.Programming Require TaskResult TaskScope.
 From Selvedge.Programming Require InputRoute.
@@ -192,13 +193,14 @@ Definition finish_measure (id : N) (task : task) (input : capture) (scope : stri
 Definition finish_validation (id : N) (task : task) (input : capture) (purpose : reason) (candidate : artifact)
  (preview : list message) (scope : string) (tokens : N) (budget : token_budget) (entry : entry) (value : Selvedge.Kernel.State.world) :=
  if relevant input task value && ContextSelection.consumes candidate scope then
- if same_history preview (ContextSelection.adopt (captured_history input) candidate (task_history task)) then
+ let selected := ContextSelection.adopt (captured_history input) candidate (task_history task) in
+ if same_history preview selected then
  if (tokens + reserve_tokens budget <=? window_tokens budget) &&
     negb (match candidate with NativeArtifact _ _ _ _ =>
      policy_enabled (maintenance_policy (registry value)) &&
        (window_tokens budget * policy_blocking (maintenance_policy (registry value)) <=? tokens * 100)
      | _ => false end) then
- let task := set task_history (fun _ => preview) task in
+ let task := with_history selected task in
  let entry := set entry_maintained (N.max (useful (captured_history input)))
    (set entry_attempted (N.max (useful (captured_history input)))
    (with_job NoJob (with_measurement (Measured (capture_task task value) scope tokens budget) entry))) in
@@ -299,15 +301,23 @@ Definition compact_result (id ticket : N) (task : task) (result : json) (error :
  | None => None end.
 Definition with_now (now : N) (value : Selvedge.Features.CompactionTypes.state) := set maintenance_now (N.max now) value.
 Definition activity_result (id source now : N) (task : task) (entry : entry) (value : Selvedge.Kernel.State.world) :=
- if source <=? N.of_nat (List.length (task_history task)) then
- let cache := match configured_target task (registry value) with
- | Some target => if N.eqb (target_cache_ttl target) 0 then None
-   else Some (CacheObservation (now + target_cache_ttl target)
-     (firstn (N.to_nat source) (task_history task)))
- | None => None end in
- let entry := set entry_cache (fun _ => cache) entry in
- Some (commit id entry (store (with_now now (registry value)) value) [])
- else None.
+ let state := registry value in
+ let target := configured_target task state in
+ (* An unconfigured model cannot create or extend a cache lease. A cache
+    retained from an earlier configuration can still be cleared by its owner. *)
+ match target, entry_cache entry with
+ | None, None => None
+ | _, _ =>
+   if source <=? N.of_nat (List.length (task_history task)) then
+    let cache := match target with
+    | Some target => if N.eqb (target_cache_ttl target) 0 then None
+      else Some (CacheObservation (now + target_cache_ttl target)
+        (firstn (N.to_nat source) (task_history task)))
+    | None => None end in
+    let entry := set entry_cache (fun _ => cache) entry in
+    Some (commit id entry (store (with_now now state) value) [])
+   else None
+ end.
 Definition resolve_task_completion (id : N) (completion : completion) (value : Selvedge.Kernel.State.world) :=
  match Selvedge.Kernel.State.find_task id value with
  | None => None
@@ -402,7 +412,7 @@ Definition can_schedule_task (id : N) (value : Selvedge.Kernel.State.world) := m
    | Running ReadyForModel operations =>
      (* Ready operations precede the model step. A live asynchronous operation
         alone does not make a changed model input exempt from measurement. *)
-     match Scheduler.ready_operation operations with
+     match Runnable.ready_operation operations with
      | Some _ => true
      | None => negb (blocked task (current_entry id (registry value)) value)
      end
@@ -494,28 +504,33 @@ Definition finish_context (id : N) (purpose : option reason) (resume_model : boo
      DecisionComposition.from_decision (wait_for_context id purpose entry (Selvedge.Kernel.State.put_task id task value))
  | _, _ => DecisionComposition.from_decision (cancel id task entry value) end.
 
+Definition clear_existing_entry id task value :=
+ match find_entry id (registry value) with
+ | Some entry => DecisionComposition.from_decision (commit id (clear_entry task entry) value [])
+ | None => DecisionComposition.unchanged value end.
+
 Definition observe_transition (before : Selvedge.Kernel.State.world)
  (completed : option (N * N)) (id : N) : DecisionComposition.step := fun value effects =>
- let entry := current_entry id (registry value) in
  let completed_ticket ticket := match completed with
    | Some (owner, received) => N.eqb id owner && N.eqb ticket received
    | None => false end in
  match Selvedge.Kernel.State.find_task id before, Selvedge.Kernel.State.find_task id value with
  | Some previous, Some task =>
    if cancelled_task id (effects) then
-     DecisionComposition.from_decision (commit id (clear_entry task entry) value [])
+     clear_existing_entry id task value
    else match task_activity previous with
    | ObservingContext ticket _ (ForMaintenance purpose resume_model) =>
      if cancelled_ticket id ticket effects then
-       DecisionComposition.from_decision (commit id (clear_entry task entry) value [])
-     else if completed_ticket ticket then finish_context id purpose resume_model task entry value
+       clear_existing_entry id task value
+     else if completed_ticket ticket then finish_context id purpose resume_model task (current_entry id (registry value)) value
      else DecisionComposition.unchanged value
    | ObservingContext ticket _ ForInference =>
      if completed_ticket ticket then
-       match task_activity task, task_lifecycle task with
-       | ReadyForModel, Running _ _ =>
+       match configured_target task (registry value), task_activity task, task_lifecycle task with
+       | Some _, ReadyForModel, Running _ _ =>
+         let entry := current_entry id (registry value) in
          DecisionComposition.from_decision (commit id (with_observation (Some (capture_task task value)) entry) value [])
-       | _, _ => DecisionComposition.unchanged value end
+       | _, _, _ => DecisionComposition.unchanged value end
      else DecisionComposition.unchanged value
    | _ => DecisionComposition.unchanged value end
  | _, _ => DecisionComposition.unchanged value end.
@@ -544,12 +559,33 @@ Definition arm_clock : DecisionComposition.step := fun value _ =>
  if N.eqb deadline 0 || N.eqb deadline (maintenance_timer state) then DecisionComposition.unchanged value
  else DecisionComposition.Update (store (set maintenance_timer (fun _ => deadline) state) value)
    [Selvedge.Kernel.State.MaintainContext (ArmClock deadline)].
+Fixpoint insert_maintenance_owner (owner : N) (identities : list N) :=
+ match identities with
+ | [] => [owner]
+ | id :: rest => match N.compare owner id with
+   | Eq => identities | Lt => owner :: identities
+   | Gt => id :: insert_maintenance_owner owner rest end
+ end.
+Definition maintenance_candidates (value : Selvedge.Kernel.State.world) :=
+ let state := registry value in
+ let admitted := if policy_enabled (maintenance_policy state) &&
+     match policy_targets (maintenance_policy state) with [] => false | _ => true end
+   then map fst (Selvedge.Kernel.State.active_tasks value) else [] in
+ (* An idle Task without a maintenance record has neither an outstanding job
+    nor a cache lease. Its next request enters the active Task scope. *)
+ fold_right (fun entry => insert_maintenance_owner (fst entry)) admitted (maintenance_entries state).
 Definition synchronize_all : DecisionComposition.step := fun value effects =>
- let identities := map fst (Selvedge.Foundation.Registry.indexed (fun id task => (id,task)) 0 (Selvedge.Kernel.State.world_tasks value)) in
+ let identities := maintenance_candidates value in
  DecisionComposition.and_then (DecisionComposition.each identities synchronize_task) arm_clock value effects.
+Definition maintenance_observers (completed : option (N * N)) (effects : list Selvedge.Kernel.State.effect) :=
+ fold_right (fun effect owners => match effect with
+   | Selvedge.Kernel.State.CancelTask id | Selvedge.Kernel.State.CancelTicket id _ =>
+       insert_maintenance_owner id owners
+   | _ => owners end)
+  (match completed with Some (id,_) => [id] | None => [] end) effects.
 Definition after_transition (before : Selvedge.Kernel.State.world) (completed : option (N * N))
  : DecisionComposition.step := fun value effects =>
- let identities := map fst (Selvedge.Foundation.Registry.indexed (fun id task => (id,task)) 0 (Selvedge.Kernel.State.world_tasks value)) in
+ let identities := maintenance_observers completed effects in
  DecisionComposition.and_then (DecisionComposition.each identities (observe_transition before completed)) synchronize_all value effects.
 Definition recover (value : Selvedge.Kernel.State.world) :=
  let state := registry value in

@@ -47,7 +47,8 @@ Proof.
    exists parent. split.
    + rewrite <- Owner. exact (TaskScope.observed reference).
    + cbn [CommandResult.map CommandResult.bind CommandResult.decide CommandResult.resolve
-       CommandResult.accept decision_world accept append_task with_tasks world_tasks].
+       CommandResult.accept decision_world accept CommandResult.change_world].
+     rewrite world_tasks_appended.
      split.
      * apply in_or_app. right. simpl. left. reflexivity.
      * split; [reflexivity|].

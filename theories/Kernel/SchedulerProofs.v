@@ -1,6 +1,8 @@
+From Selvedge.Kernel Require Runnable.
 From Selvedge.Kernel Require TaskWake.
 From Selvedge.Kernel Require OperationPublication.
-From Stdlib Require Import String List Bool NArith.
+From Stdlib Require Import String List Bool NArith PeanoNat.
+From Selvedge.Kernel Require TaskRegistry TaskRegistryProofs.
 From Selvedge.Programming Require DecisionComposition TaskResult Focus.
 From Selvedge.Kernel Require Import Numbers Domain State Tasks SideContext Scheduler.
 From Selvedge.Programming Require Import TaskChangeProofs.
@@ -11,22 +13,49 @@ Open Scope string_scope.
 Open Scope list_scope.
 
 Lemma runnable_selection_has_an_actual_step : forall execute permitted tasks first value,
- existsb (fun entry => let '(id,task) := entry in
-   match Scheduler.next_runnable_step permitted id task value with Some _ => true | None => false end)
-   (Selvedge.Foundation.Registry.indexed (fun id task => (id,task)) first tasks) =
+ Scheduler.has_runnable_step permitted first tasks value =
  match Scheduler.find_step execute permitted first tasks value with Some _ => true | None => false end.
 Proof.
  intros execute permitted tasks; induction tasks as [|task rest IH]; intros first value; [reflexivity|].
- cbn [Selvedge.Foundation.Registry.indexed existsb Scheduler.find_step].
+ cbn [Scheduler.has_runnable_step Scheduler.find_step].
  destruct (Scheduler.next_runnable_step permitted first task value); [reflexivity|].
  apply IH.
 Qed.
 
+Theorem registry_scope_contains_every_runnable_task before id task permitted action :
+ find_task id before = Some task ->
+ Scheduler.next_runnable_step permitted id task before = Some action ->
+ In (id,task) (runnable_tasks before).
+Proof.
+ intros Found Selected.
+ unfold runnable_tasks.
+ apply (TaskRegistryProofs.selected_scope_matches_the_task_rows _ _ _ _ _
+   (TaskRegistry.runnable_agrees (world_task_registry before))).
+ split; [exact Found|].
+ rewrite Scheduler.next_runnable_step_expands in Selected.
+ unfold Runnable.candidate.
+ destruct (Runnable.task_action task), (Runnable.settlement task), (permitted id before);
+   try discriminate; reflexivity.
+Qed.
+
+Theorem a_task_waiting_on_external_work_is_not_a_scheduling_candidate before id task :
+ find_task id before = Some task ->
+ Runnable.task_action task = None ->
+ Runnable.settlement task = None ->
+ ~ In (id,task) (runnable_tasks before).
+Proof.
+ intros Found Waiting Unsettled Present.
+ apply (TaskRegistryProofs.selected_scope_matches_the_task_rows _ _ _ _ _
+   (TaskRegistry.runnable_agrees (world_task_registry before))) in Present as [_ Eligible].
+ unfold Runnable.candidate in Eligible. now rewrite Waiting, Unsettled in Eligible.
+Qed.
+
 Theorem continuation_tracks_available_work : forall execute permitted value,
  Scheduler.has_runnable_work permitted value =
- match Scheduler.find_step execute permitted 0 (world_tasks value) value with
+ match Scheduler.find_world_step execute permitted value with
  | Some _ => true | None => false end.
-Proof. intros; apply runnable_selection_has_an_actual_step. Qed.
+Proof. intros; unfold Scheduler.has_runnable_work, Scheduler.find_world_step.
+ destruct (Scheduler.select_world_step permitted value); reflexivity. Qed.
 
 Theorem a_full_task_records_external_call_refusal :
  forall id before task tool invocation remaining authority,
@@ -253,16 +282,18 @@ Theorem a_refused_scheduler_step_keeps_the_complete_accepted_prefix :
  forall advance fuel execute permitted value effects accepted prior step,
  existsb Scheduler.effect_requires_commit effects = false ->
  advance (SideContext.reconcile value) effects = Some (accepted,prior) ->
- Scheduler.first_native_fork permitted 0 (world_tasks accepted) accepted = None ->
- Scheduler.find_step execute permitted 0 (world_tasks accepted) accepted = Some step ->
+ Scheduler.first_world_native_fork permitted accepted = None ->
+ Scheduler.find_world_step execute permitted accepted = Some step ->
  advance (decision_world step) (prior ++ decision_effects step) = None ->
  Scheduler.schedule_with advance (S fuel) execute permitted value effects =
    (accepted,prior ++ [ContinueScheduling]).
 Proof.
  intros advance fuel execute permitted value effects accepted prior step
    NoCommit Prefix NoFork Selected Refused.
- cbn [Scheduler.schedule_with].
- now rewrite NoCommit,Prefix,NoFork,Selected,Refused.
+ cbn [Scheduler.schedule_with]. rewrite NoCommit,Prefix.
+ unfold Scheduler.first_world_native_fork, Scheduler.find_world_step in *.
+ destruct (Scheduler.select_world_step permitted accepted); [|discriminate].
+ cbn [option_map] in Selected. inversion Selected; subst. now rewrite NoFork,Refused.
 Qed.
 
 Theorem unfinished_bash_keeps_its_completion_owner_across_inference :
@@ -302,10 +333,11 @@ Theorem a_blocked_environment_still_admits_archived_settlement :
  forall permitted owner task value operations pending,
  permitted owner value = false ->
  task_lifecycle task = Archived operations ->
- Scheduler.ready_settlement operations = Some pending ->
- Scheduler.next_runnable_step permitted owner task value = Some (Scheduler.OperationStep pending).
+ Runnable.ready_settlement operations = Some pending ->
+ Scheduler.next_runnable_step permitted owner task value = Some (Runnable.OperationStep pending).
 Proof.
  intros permitted owner task value operations pending Blocked ArchivedTask Pending.
- unfold Scheduler.next_runnable_step; rewrite Blocked.
- unfold task_operations, lifecycle_operations; rewrite ArchivedTask, Pending; reflexivity.
+ rewrite Scheduler.next_runnable_step_expands, Blocked.
+ unfold Runnable.settlement, task_operations, lifecycle_operations.
+ rewrite ArchivedTask, Pending; reflexivity.
 Qed.

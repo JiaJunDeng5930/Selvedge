@@ -119,6 +119,59 @@ Definition apply_change (change : context_change) (values : list snapshot) : lis
 Definition update_bindings (values:list snapshot) (event:message) :=
  match event with ContextObservation change => apply_change change values | _ => values end.
 Definition bindings (history : list message) := fold_left update_bindings history [].
+Definition history_changes_bindings :=
+ existsb (fun event => match event with ContextObservation _ => true | _ => false end).
+
+Theorem appending_other_events_retains_context_bindings before appended :
+ history_changes_bindings appended = false ->
+ bindings (before ++ appended) = bindings before.
+Proof.
+ unfold bindings, history_changes_bindings. rewrite fold_left_app.
+ generalize (fold_left update_bindings before []) as accepted.
+ induction appended as [|event rest IH]; intros accepted Unchanged; [reflexivity|].
+ destruct event; cbn in Unchanged |- *; try discriminate; now apply IH.
+Qed.
+
+Definition discovery_turn_step turn event := match event with
+ | UserMessage _ => N.succ turn
+ | _ => turn end.
+Definition step_discovery_inputs (inputs : N * list snapshot) event :=
+ let '(turn,sources) := inputs in
+ (discovery_turn_step turn event, update_bindings sources event).
+Definition discovery_inputs (history : list message) :=
+ fold_left step_discovery_inputs history (0%N, []).
+
+Lemma discovery_fold_observes_the_same_bindings history turn sources :
+ snd (fold_left step_discovery_inputs history (turn, sources)) =
+ fold_left update_bindings history sources.
+Proof.
+ revert turn sources. induction history as [|event rest IH]; intros turn sources.
+ - reflexivity.
+ - cbn [fold_left step_discovery_inputs]. apply IH.
+Qed.
+Theorem discovery_observes_the_same_bindings history :
+ snd (discovery_inputs history) = bindings history.
+Proof. apply discovery_fold_observes_the_same_bindings. Qed.
+
+Theorem a_new_user_message_advances_discovery history contents :
+ fst (discovery_inputs (history ++ [UserMessage contents])) = N.succ (fst (discovery_inputs history)).
+Proof.
+ unfold discovery_inputs. rewrite fold_left_app.
+ destruct (fold_left step_discovery_inputs history (0%N, [])); reflexivity.
+Qed.
+
+Theorem a_tool_result_preserves_the_discovery_turn history id value error :
+ fst (discovery_inputs (history ++ [FunctionOutput id value error])) = fst (discovery_inputs history).
+Proof.
+ unfold discovery_inputs. rewrite fold_left_app.
+ destruct (fold_left step_discovery_inputs history (0%N, [])); reflexivity.
+Qed.
+Definition changes_observation_inputs (event : message) :=
+ match event with ContextObservation _ | SettingsMessage _ _ _ => true | _ => false end.
+
+Definition observation_inputs_current (cursor : nat) (history : list message) :=
+ Nat.leb cursor (List.length history) &&
+ negb (existsb changes_observation_inputs (skipn cursor history)).
 Definition observation_changes (observation : context_observation) (values : list snapshot) : option (list context_change) :=
  match observation with
  | RejectedObservation => None

@@ -263,6 +263,6 @@ Proof. reflexivity. Qed.
 Theorem model_completion_keeps_its_feature_delta_before_deferral : forall owner ticket outcome before,
  Packet.prepare true (Some (ModelCompleted owner ticket outcome))
    (Packet.core_transition (ModelCompleted owner ticket outcome) before) =
- (DecisionComposition.transform RequestDelivery.deferral (Selvedge.Features.Runtime.after_transition before
+ (DecisionComposition.transform RequestDelivery.deferral (Selvedge.Features.Runtime.after_model_transition before owner
    (Callbacks.model_completed owner ticket outcome before))).
 Proof. reflexivity. Qed.

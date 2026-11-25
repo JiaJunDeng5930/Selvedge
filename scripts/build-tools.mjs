@@ -7,10 +7,16 @@ export const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const buildDirectory = path.join(root, '.build');
 export const targets = {
   schema: { module: 'Adapters.ModelSchema', model: 'SchemaModel', entry: ['call'], global: '__selvedgeSchema', exported: 'call' },
-  kernel: { module: 'Kernel.Packet', model: 'KernelModel', entry: ['initial', 'journal_packet', 'world_json', 'assess', 'remote_reconciliation_needed'], global: '__selvedgeKernel' },
+  kernel: { module: 'Kernel.Packet', model: 'KernelModel', entry: ['initial', 'journal_packet', 'world_json',
+    'task_registry_restore', 'restore_title_scope', 'task_registry_contents', 'task_registry_lookup', 'task_registry_changes', 'named_title_changes',
+    'title_registry_restore', 'title_registry_changes',
+    'shared_publication', 'task_publication', 'task_publication_busy', 'task_history_since', 'history_changes_bindings', 'history_publication', 'task_publication_references',
+    'board_task_dependencies', 'workflow_task_dependencies', 'compaction_task_dependencies',
+    'publication_project', 'assess', 'remote_reconciliation_needed'],
+  global: '__selvedgeKernel' },
   host: { module: 'Adapters.Api', model: 'HostModel', entry: ['call'], global: '__selvedgeHost', exported: 'call' },
   browser: { module: 'Browser.Runtime', model: 'BrowserModel', entry: ['call', 'native_document', 'materialize_native_roots'], global: '__selvedgeBrowser', exported: 'browserCall' },
-  interaction: { module: 'Browser.Application', model: 'InteractionModel', entry: ['call', 'prepare', 'rebase', 'prepared_call', 'native_document', 'native_region', 'native_stream', 'materialize_native_roots'], global: '__selvedgeInteraction', exported: 'interactionCall' }
+  interaction: { module: 'Browser.Application', model: 'InteractionModel', entry: ['call', 'prepare', 'rebase', 'task_index_depth', 'prepared_call', 'native_document', 'native_region', 'native_stream', 'materialize_native_roots'], global: '__selvedgeInteraction', exported: 'interactionCall' }
 };
 export const jsonEntries = {
   selvedge_parse_json: 'Foundation.TextJson.parse_json',

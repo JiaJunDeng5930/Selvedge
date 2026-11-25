@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require Runnable.
 From Selvedge.Kernel Require TaskWake.
 From Stdlib Require Import String List Bool NArith Lia.
 From Selvedge.Programming Require CommandResult DecisionComposition TaskResult TaskScope.
@@ -23,6 +24,33 @@ Module A := Selvedge.Features.Compaction.
 Module P := Selvedge.Kernel.CompactionPlan.
 Module G := Selvedge.Generated.Commands.
 
+Lemma inserted_maintenance_owner_membership selected owner candidates :
+ In selected (A.insert_maintenance_owner owner candidates) <->
+ selected = owner \/ In selected candidates.
+Proof.
+ induction candidates as [|first rest IH]; cbn; [intuition congruence|].
+ destruct (N.compare owner first) eqn:Order; cbn.
+ - apply N.compare_eq in Order. intuition congruence.
+ - intuition congruence.
+ - rewrite IH. intuition congruence.
+Qed.
+
+Theorem maintenance_only_visits_known_entries_and_active_tasks owner value :
+ In owner (A.maintenance_candidates value) <->
+ In owner (map fst (maintenance_entries (A.registry value))) \/
+ ((policy_enabled (maintenance_policy (A.registry value)) &&
+   match policy_targets (maintenance_policy (A.registry value)) with [] => false | _ => true end) = true /\
+  In owner (map fst (K.active_tasks value))).
+Proof.
+ unfold A.maintenance_candidates.
+ generalize (maintenance_entries (A.registry value)) as entries.
+ destruct (policy_enabled (maintenance_policy (A.registry value)) &&
+   match policy_targets (maintenance_policy (A.registry value)) with [] => false | _ => true end);
+   intro entries;
+   induction entries as [|[id entry] rest IH]; cbn; try solve [intuition congruence];
+   rewrite inserted_maintenance_owner_membership, IH; intuition congruence.
+Qed.
+
 Lemma admitted_maintenance_runs_its_resolved_plan : forall id request before,
  maintenance_admission id request before = true ->
  exists reference : R.maintenance_reference before id request,
@@ -44,7 +72,7 @@ Qed.
 Lemma a_blocked_model_waits_with_live_operations : forall id value task operations,
  K.find_task id value = Some task ->
  task_lifecycle task = Running ReadyForModel operations ->
- Scheduler.ready_operation operations = None ->
+ Runnable.ready_operation operations = None ->
  A.blocked task (A.current_entry id (A.registry value)) value = true ->
  A.can_schedule_task id value = false.
 Proof.
@@ -55,7 +83,7 @@ Qed.
 Theorem measuring_model_waits_with_live_operations : forall id value task operations target ticket input stage,
  K.find_task id value = Some task ->
  task_lifecycle task = Running ReadyForModel operations ->
- Scheduler.ready_operation operations = None ->
+ Runnable.ready_operation operations = None ->
  A.enabled_target task (A.registry value) = Some target ->
  C.entry_measurement (A.current_entry id (A.registry value)) = C.Measuring (RequestEnvelope.Envelope ticket (InspectInput input tt stage)) ->
  A.can_schedule_task id value = false.
@@ -69,7 +97,7 @@ Qed.
 Theorem ready_operations_do_not_wait_for_model_measurement : forall id value task operations operation,
  K.find_task id value = Some task ->
  task_lifecycle task = Running ReadyForModel operations ->
- Scheduler.ready_operation operations = Some operation ->
+ Runnable.ready_operation operations = Some operation ->
  A.can_schedule_task id value = true.
 Proof.
  intros id value task operations operation found running ready.
@@ -365,6 +393,27 @@ Proof.
    destruct demand; destruct queued; reflexivity.
 Qed.
 
+Theorem an_unconfigured_model_without_cache_leaves_no_activity_record id source now task entry value :
+ A.configured_target task (A.registry value) = None ->
+ entry_cache entry = None ->
+ A.activity_result id source now task entry value = None.
+Proof. intros Target Cache. unfold A.activity_result. now rewrite Target, Cache. Qed.
+
+Theorem an_unconfigured_inference_observation_leaves_maintenance_unchanged
+ id ticket revision before result previous task :
+ K.find_task id before = Some previous ->
+ task_activity previous = ObservingContext ticket revision ForInference ->
+ K.find_task id (K.decision_world result) = Some task ->
+ A.cancelled_task id (K.decision_effects result) = false ->
+ A.configured_target task (A.registry (K.decision_world result)) = None ->
+ DecisionComposition.run (A.observe_transition before (Some (id,ticket)) id) result = result.
+Proof.
+ intros Previous Phase Found NotCancelled Target.
+ unfold DecisionComposition.run, DecisionComposition.transform, DecisionComposition.maintain, A.observe_transition.
+ rewrite Previous, Found, NotCancelled, Phase, !N.eqb_refl, Target.
+ destruct result; cbn; now rewrite app_nil_r.
+Qed.
+
 Theorem a_replaced_context_never_consumes_the_new_task_demand :
  forall id ticket revision purpose resume_model before result previous current,
  K.find_task id before = Some previous ->
@@ -378,6 +427,8 @@ Proof.
  unfold DecisionComposition.run, DecisionComposition.transform, DecisionComposition.maintain, A.observe_transition.
  rewrite Previous, Current.
  destruct (A.cancelled_task id (K.decision_effects result)); [|rewrite Phase, Cancelled];
+ unfold A.clear_existing_entry;
+ destruct (A.find_entry id (A.registry (K.decision_world result)));
  split; cbn [A.commit A.commit_change K.decision_world K.decision_effects];
  try rewrite app_nil_r; reflexivity.
 Qed.
@@ -491,8 +542,8 @@ Lemma live_reconfiguration_recovers_the_selected_task : forall value id task,
 Proof.
  intros value id task Found; rewrite live_reconfiguration_uses_the_existing_recovery_state.
  unfold A.recover; rewrite storing_maintenance_preserves_tasks.
- unfold A.retire_context_tasks, K.find_task, K.with_tasks, set; cbn.
- unfold K.find_task in Found.
+ unfold A.retire_context_tasks. rewrite K.find_task_as_list in Found |- *.
+ rewrite K.world_tasks_replaced.
  rewrite registry_lookup_commutes_with_mapping, Found; reflexivity.
 Qed.
 
@@ -721,6 +772,31 @@ Qed.
 Definition compaction_failure_task (current : task) (message : string) :=
  with_activity (match task_activity current with ReadyForModel => Idle | phase => phase end)
    (set task_history (fun history => (history ++ [FailureMessage message])%list) current).
+
+Theorem validated_compaction_extends_the_committed_history :
+ forall id task input purpose candidate preview scope tokens budget entry value,
+ K.find_task id value = Some task ->
+ A.relevant input task value = true -> ContextSelection.consumes candidate scope = true ->
+ A.same_history preview (ContextSelection.adopt (captured_history input) candidate (task_history task)) = true ->
+ ((tokens + reserve_tokens budget <=? window_tokens budget) &&
+  negb (match candidate with NativeArtifact _ _ _ _ =>
+   policy_enabled (maintenance_policy (A.registry value)) &&
+     (window_tokens budget * policy_blocking (maintenance_policy (A.registry value)) <=? tokens * 100)
+  | _ => false end)) = true ->
+ exists next appended,
+ K.find_task id (K.decision_world (A.finish_validation id task input purpose candidate preview scope tokens budget entry value)) = Some next /\
+ task_history next = (task_history task ++ appended)%list.
+Proof.
+ intros id task input purpose candidate preview scope tokens budget entry value Found Relevant Consumes Same Fits.
+ unfold A.finish_validation. rewrite Relevant, Consumes, Same, Fits.
+ destruct (ContextSelectionProofs.adoption_keeps_the_original_history (captured_history input) candidate (task_history task))
+   as [appended History].
+ exists (with_history (ContextSelection.adopt (captured_history input) candidate (task_history task)) task), appended.
+ split.
+ - unfold A.commit, A.acknowledged. cbn -[A.store K.put_task].
+   rewrite storing_maintenance_preserves_tasks. eapply find_put_task; exact Found.
+ - destruct task; exact History.
+Qed.
 
 Theorem compaction_failure_preserves_history_and_retires_its_receivers :
  forall id current entry reason before,

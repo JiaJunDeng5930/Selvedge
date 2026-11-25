@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers TextJson.
+From Selvedge.Interaction Require World.
 From Selvedge.Interaction.Interactive Require Import Expression.
 From Selvedge.Programming Require Import Outcome.
 Import ListNotations.
@@ -48,7 +49,8 @@ Fixpoint action_edges graph nodes source rule ordinal actions:=
 Definition rule_edges graph nodes rule:=
  source <-? required_text "source"rule;;key <-? required_text "key"rule;;actions <-? required_array "actions"rule;;action_edges graph nodes source key 0 actions.
 Definition graph_projection graph_id graph world : outcome json:=
- name <-? required_text "name"graph;;raw_nodes <-? required_array "nodes"graph;;tasks <-? required_array "tasks"world;;
+ name <-? required_text "name"graph;;raw_nodes <-? required_array "nodes"graph;;
+ tasks <-? from_option "Missing resource list: tasks" (World.task_rows world);;
  nodes <-? traverse(node_projection graph_id tasks)raw_nodes;;rules <-? required_array "rules"graph;;
  edges <-? traverse(rule_edges graph_id nodes)rules;;
  Good(JObject[("id",JString(show_natural graph_id));("name",JString name);("nodes",JArray nodes);("edges",JArray(List.concat edges))]).

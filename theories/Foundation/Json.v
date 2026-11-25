@@ -64,6 +64,14 @@ Definition is_null (source : json) : bool := match source with JNull => true | _
 Definition starts_with (beginning text : string) : bool := String.prefix beginning text.
 Definition substring (start length : nat) (text : string) := String.substring start length text.
 
+(** Extracted immutable values can witness equality by physical identity. This
+    hint need only be sound when it returns true. *)
+Definition same_reference (_ _ : json) := false.
+
+(** Extraction may reuse a pure observation of an immutable input. *)
+Definition reuse_observation {A B : Type} (observe : A -> B) : A -> B := observe.
+Arguments reuse_observation {A B} _ _.
+
 Fixpoint equal (lhs rhs : json) : bool :=
   match lhs, rhs with
   | JNull, JNull => true

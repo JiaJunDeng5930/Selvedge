@@ -25,8 +25,8 @@ Proof.
  intros; unfold S.issue; cbn [Selvedge.Kernel.State.allocate_identity Selvedge.Kernel.State.next_identity].
  destruct (S.build request (world_next_ticket before)); cbn [fst decision_world accept].
  destruct (S.intent request);
- unfold find_task,put_task,with_tasks,with_ticket; cbn;
- eapply registry_replace_selected; exact (TaskScope.observed (S.target request)).
+ rewrite find_task_as_list; cbn; rewrite world_tasks_updated;
+ eapply registry_replace_selected; rewrite <- find_task_as_list; exact (TaskScope.observed (S.target request)).
 Qed.
 
 Theorem fixed_inference_freezes_its_complete_context : forall before (request : S.plan before) chosen,

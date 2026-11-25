@@ -1,6 +1,7 @@
 From Selvedge.Features Require WorkflowTypes.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
+From Selvedge.Foundation Require IndexedRegistry ScopedRegistry.
 From Selvedge.Kernel Require Import Numbers Domain State.
 From Selvedge.Features Require Import Domain BoardParameters.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
@@ -47,13 +48,12 @@ Definition workflow_instance_id id value :=
  workflow_binding id (Selvedge.Features.Domain.feature_ticket_instances (world_features value)).
 Definition workflow_instance id value :=
  match workflow_instance_id id value with
- | Some key => nth_error (Selvedge.Features.Domain.feature_instances (world_features value)) (N.to_nat key)
+ | Some key => IndexedRegistry.lookup key
+     (ScopedRegistry.rows (Selvedge.Features.Domain.feature_instances (world_features value)))
  | None => None end.
 Definition workflow_in_progress id value :=
  match workflow_instance id value with
- | Some instance => existsb (fun path => match WorkflowTypes.path_value path with
-     | WorkflowTypes.Pending _ | WorkflowTypes.Executing _ _ _ | WorkflowTypes.Forwarding _ _ _ _ => true
-     | _ => false end) (WorkflowTypes.instance_paths instance)
+ | Some instance => WorkflowTypes.instance_in_progress instance
  | None => false end.
 Definition has_workflow id value :=
  match workflow_setting id value with Some _=>true | None=>false end.

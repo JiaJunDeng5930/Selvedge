@@ -301,13 +301,13 @@ Definition has_delivery_rules graph :=
  | Some value => match Selvedge.Features.Domain.graph_rules value with [] => false | _ => true end
  | None => false
  end.
-Definition after_transition (before:world) : DecisionComposition.step := fun value effects =>
+Definition after_model_output (before:world) (id:N) : DecisionComposition.step := fun value effects =>
  if existsb has_delivery_rules (registry value) then
-   DecisionComposition.each (indexed (fun id task=>(id,task)) 0 (world_tasks value))
-   (fun pair=>DecisionComposition.each (new_outputs before (fst pair) (snd pair))
-     (react_output (fst pair))) value effects
+   match find_task id value with
+   | Some task => DecisionComposition.each (new_outputs before id task) (react_output id) value effects
+   | None => DecisionComposition.unchanged value end
  else DecisionComposition.unchanged value.
-Theorem after_transition_without_rules before value effects :
+Theorem after_model_output_without_rules before id value effects :
  existsb has_delivery_rules (registry value) = false ->
- after_transition before value effects = DecisionComposition.unchanged value.
-Proof. intro Empty. unfold after_transition. now rewrite Empty. Qed.
+ after_model_output before id value effects = DecisionComposition.unchanged value.
+Proof. intro Empty. unfold after_model_output. now rewrite Empty. Qed.

@@ -18,10 +18,12 @@ Definition observe_parent (id : N) (parent value : task) :=
    (counter_revision (N.succ (N.of_nat (List.length (task_history value)))))
    (exist _ (tt,(parent_status parent,(parent_phase parent,tt))) eq_refl) in
  match ContextUpdates.replace_snapshot current (ContextUpdates.bindings (task_history value)) with
- | Some change => append_history [ContextObservation change] value | None => value end.
-Definition reconcile_task (parents : list task) (value : task) :=
- match task_lifecycle value, task_side_parent value with
- | Archived _,_ | _,None => value
- | _,Some id => match registry_at id parents with Some parent => observe_parent id parent value | None => value end end.
+ | Some change => Some (append_history [ContextObservation change] value) | None => None end.
+Definition reconcile_task (before : world) (value : task) :=
+ match task_side_parent value with
+ | Some id => match find_task id before with Some parent => observe_parent id parent value | None => None end
+ | None => None end.
 Definition reconcile (value : world) :=
- with_tasks (map (reconcile_task (world_tasks value)) (world_tasks value)) value.
+ fold_left (fun current '(id,task) => match reconcile_task value task with
+   | Some updated => put_task id updated current
+   | None => current end) (side_tasks value) value.

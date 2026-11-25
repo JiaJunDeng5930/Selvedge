@@ -21,7 +21,7 @@ From Selvedge.Browser.Session Require Observation Navigation.
 From Selvedge.Interaction.Submission Require Initialize.
 From Selvedge.Interaction.Submission Require Fields Parameters Values Command.
 From Selvedge.Interaction.Submission Require Observation.
-From Selvedge.Interaction.Experience Require Model Activity Observation.
+From Selvedge.Interaction.Experience Require Model Activity Observation Read.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Browser.Session Require Import EditorContext.
 From Selvedge.Interaction Require UserCommand.
@@ -284,6 +284,28 @@ Definition choose_skill snapshot owner path state:=
     [focus(message_focus state owner);emit "selection_bytes"[("key",JString(message_focus state owner));("start",number(N.of_nat(SkillMention.insertion_caret inserted)));("end",number(N.of_nat(SkillMention.insertion_caret inserted)))]]
   |None=>fail state "This object does not contain a message."end
  |_,_,_=>fail state "The skill suggestion is no longer current."end.
+Definition locate_history_message snapshot task index query state:=
+ match DocumentState.find_task task snapshot with
+   |None=>fail state "The history task is no longer available."
+   |Some value=>if Read.task_history_loaded task snapshot then
+    let state:=Navigation.set_search_message None state in
+    match nth_error(Selvedge.Interaction.Codec.items "history" value)(N.to_nat index)with
+    |None=>fail state "The history message is no longer available."
+    |Some message=>let key:=AuditReading.history_target(DocumentState.retention_namespace(SS.document_retention state))task index message in
+      let state:=match AuditReading.commentary_process (N.to_nat index) (Selvedge.Interaction.Codec.items "history" value)
+        (Selvedge.Interaction.Codec.items "operations" value) with
+       |Some enclosing=>Navigation.result_state (Navigation.disclose task enclosing 0%N true state)
+       |None=>state end in
+      changed state[emit "scroll_to_message"[("key",JString key);("markdown_key",JString(message_markdown_key key));
+        ("query",JString query);("message_index",number index);("task_id",number task);
+        ("reader_generation",number(SS.reader_generation(Navigation.reader_for state task)))]]end
+    else keep(Navigation.set_search_message(Some(index,query))state)
+ end.
+Definition resume_history_location snapshot state:=
+ match SS.location(SS.navigation_state state),
+  bind(SS.search_return(Navigation.search_state state))SS.search_origin_message with
+ |NavigationIdentity.Conversation task,Some(index,query)=>locate_history_message snapshot task index query state
+ |_,_=>keep state end.
 Definition adopt_navigation snapshot decision:=
  fold_left(fun result effect=>let state:=result_state result in
  append result(match effect with
@@ -293,18 +315,7 @@ Definition adopt_navigation snapshot decision:=
  |Navigation.Issue command purpose=>issue command purpose state
  |Navigation.FollowTaskLatest task=>match find(fun view=>N.eqb task(NavigationIdentity.task_view_task view))(Navigation.visible_task_views state)with
    |Some view=>changed state[emit "follow_latest"[("key",JString(NavigationIdentity.task_view_key view "timeline"))]]|None=>keep state end
- |Navigation.LocateHistoryMessage task index query=>match DocumentState.find_task task snapshot with
-   |None=>fail state "The history task is no longer available."
-   |Some value=>match nth_error(Selvedge.Interaction.Codec.items "history" value)(N.to_nat index)with
-    |None=>fail state "The history message is no longer available."
-    |Some message=>let key:=AuditReading.history_target(DocumentState.retention_namespace(SS.document_retention state))task index message in
-      let state:=match AuditReading.commentary_process (N.to_nat index) (Selvedge.Interaction.Codec.items "history" value)
-        (Selvedge.Interaction.Codec.items "operations" value) with
-       |Some enclosing=>Navigation.result_state (Navigation.disclose task enclosing 0%N true state)
-       |None=>state end in
-      changed state[emit "scroll_to_message"[("key",JString key);("markdown_key",JString(message_markdown_key key));
-        ("query",JString query);("message_index",number index);("task_id",number task);
-        ("reader_generation",number(SS.reader_generation(Navigation.reader_for state task)))]]end end end))
+ |Navigation.LocateHistoryMessage task index query=>locate_history_message snapshot task index query state end))
  (Navigation.result_effects decision)(Result(Navigation.result_state decision)[](Navigation.result_error decision)false).
 Definition draft_current snapshot state:=match Draft.find_draft(Draft.owner snapshot)(SS.drafts(SS.authoring_state state))with
 |Some current=>N.eqb(Draft.revision current)(Draft.revision snapshot)|None=>false end.

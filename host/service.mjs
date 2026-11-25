@@ -1,15 +1,17 @@
 import { cloneJson } from './codec.mjs';
 import { boundary } from './public/model-boundary.mjs';
-import { requireAudioAdmission, interpretBrowserObservation, browseDirectoryLocation, dispatchControlResult, interpretAudioControl } from './model-api.ts';
+import { requireAudioAdmission, interpretBrowserObservation, browseDirectoryLocation, interpretAudioControl } from './model-api.ts';
 import { EventEmitter } from 'node:events';
+import { setTimeout as delay } from 'node:timers/promises';
 import { launchEffect, settleEffect } from './effect-lifecycle.ts';
+import { DispatchControl } from './dispatch-control.mjs';
 import { materializeCallArguments } from './public/call-wire.mjs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createChatGPTAudio } from './chatgpt-audio.mjs';
 import { realpath } from 'node:fs/promises';
 import { Journal, isDefiniteRejection, transactionOutcome } from './journal.mjs';
-import { naturalKey } from './public/json-tokens.mjs';
+import { naturalKey, stringifyJson } from './public/json-tokens.mjs';
 import { dispatchEffect, performEffect, modelEffect, workspaceOperation, compactionOperation, workspaceEffect, clockDelay } from './effect-dispatch.ts';
 import { Mcp, discoverMcp, completeSharedMcp } from './mcp.mjs';
 import { Plugin } from './plugins.mjs';
@@ -20,6 +22,7 @@ import { observeContextSources, observeSkillCatalog } from './context-sources.mj
 import { requestApproval } from './approvals.mjs';
 import { requestTaskText } from './task-text.mjs';
 import { browserHistoryReply } from './history-preview.mjs';
+import { browserOutline, programTask, programWithTaskArray, selectUpdateHistory } from './public/program-updates.mjs';
 import { observeBoardCommand, observeMessageImages } from './board-files.mjs';
 import { requestModel, requestCompaction, observeModelRequest, cancelModelTask, ContextLimitError } from './providers.mjs';
 import { canonicalWorkspace } from './sandbox.mjs';
@@ -37,6 +40,7 @@ import { createTaskWorkspace, archiveTaskWorkspace, reconcileTaskWorkspace, roll
 const TOOL_OUTPUT_INTERVAL_MS = 160;
 const TOOL_OUTPUT_PREVIEW_POINTS = 4096;
 const TOOL_SNAPSHOT_PREVIEW_POINTS = 32768;
+const PROCESS_RESULT_JOIN_MS = 500;
 
 function directoriesOverlap(left, right) {
   return [path.relative(left, right), path.relative(right, left)].some(relative =>
@@ -62,7 +66,7 @@ export class ServiceDrainingError extends Error {
 export class Service extends EventEmitter {
   #running = new Map();
   #submissions = new Set();
-  #dispatchState = boundary('control.dispatch.initial', {});
+  #effectControl = new DispatchControl();
   #processRegistry = new ProcessRegistry();
   #providerCancellations = new Set();
   #servers = new Map();
@@ -85,9 +89,11 @@ export class Service extends EventEmitter {
   #catalogRefreshes = new Map();
   #sharedMcp = new Map();
   #closePromise;
-  #streams = [];
+  #streams = new Map();
   #toolActivity = new Set();
   #audioSessions = new Map();
+  #contextDiscovery = new Map();
+  #recentProcesses = new Map();
 
   static async open({ home, config, cwd = process.cwd(), remoteOptions, audioOptions,
     audioFactory = createChatGPTAudio, holdEffects = false, journal } = {}) {
@@ -114,6 +120,9 @@ export class Service extends EventEmitter {
         else service.#scheduleContinuation();
       });
       service.journal.on('commit', (decision, browserRequest) => {
+        const update = service.journal.programUpdates(decision.sequence - 1, decision.sequence)?.[0];
+        for (const row of update?.tasks ?? [])
+          if (!row.value.working) service.#contextDiscovery.delete(String(row.id));
         service.notify({ type: 'commit', sequence: decision.sequence, browser_request_id: browserRequest });
         if (service.#heldStartup) service.#heldStartup.decisions.push(decision);
         else service.#deliverEffects(decision);
@@ -207,7 +216,11 @@ export class Service extends EventEmitter {
   }
 
   #publishStreamNotice(event) {
-    this.#streams = boundary('browser.host_stream_step', { state: this.#streams, notice: event }).state;
+    const key = `${naturalKey(event.task_id)}:${naturalKey(event.ticket)}`;
+    const current = this.#streams.get(key);
+    const { state } = boundary('browser.host_stream_step', { state: current ? [current] : [], notice: event });
+    if (state.length) this.#streams.set(key, state[0]);
+    else this.#streams.delete(key);
     this.notify(event);
   }
 
@@ -292,9 +305,7 @@ export class Service extends EventEmitter {
   }
 
   #dispatchControl(observation) {
-    const transition = dispatchControlResult(boundary('control.dispatch.step', { state: this.#dispatchState, observation }));
-    this.#dispatchState = transition.state;
-    return transition;
+    return this.#effectControl.step(observation);
   }
 
   #cancelRunning(observation, reason) {
@@ -371,6 +382,7 @@ export class Service extends EventEmitter {
         });
       },
       cancelTask: effect => {
+        this.#contextDiscovery.delete(naturalKey(effect.task_id));
         this.#cancelProvider(effect.task_id);
         this.#cancelRunning({ kind: 'cancel_task', effect }, new Error('Task work cancelled'));
       },
@@ -390,7 +402,37 @@ export class Service extends EventEmitter {
   #launch(effect, run) {
     const result = launchEffect(observation => this.#dispatchControl(observation), this.#running, effect, run);
     this.#drainProgress?.();
+    if (effect.kind === 'tool' && effect.tool.source.kind === 'native' && effect.tool.source.program.kind === 'Process') {
+      const owner = naturalKey(effect.task_id);
+      const processes = this.#recentProcesses.get(owner) ?? new Set();
+      this.#recentProcesses.set(owner, processes);
+      const process = { result, until: performance.now() + PROCESS_RESULT_JOIN_MS };
+      processes.add(process);
+      return result.finally(() => {
+        processes.delete(process);
+        if (!processes.size) this.#recentProcesses.delete(owner);
+        this.#drainProgress?.();
+      });
+    }
     return result.finally(() => this.#drainProgress?.());
+  }
+
+  async #joinProcessResults(task, signal) {
+    const processes = this.#recentProcesses.get(naturalKey(task));
+    if (!processes) return;
+    // Context preparation overlaps this bounded wait. An early process result
+    // can then be included in the imminent request.
+    const now = performance.now();
+    const joined = [...processes].filter(process => process.until > now);
+    if (!joined.length) return;
+    const deadline = Math.max(...joined.map(process => process.until));
+    const timer = new AbortController();
+    try {
+      await Promise.race([
+        Promise.allSettled(joined.map(process => process.result)),
+        delay(Math.ceil(deadline - now), undefined, { signal: AbortSignal.any([signal, timer.signal]), ref: false }),
+      ]);
+    } finally { timer.abort(); }
   }
 
   #cancelProvider(task) {
@@ -514,8 +556,20 @@ export class Service extends EventEmitter {
         workspace: effect => this.#performWorkspace(effect, signal, handle),
         context: async effect => {
           const { environment } = await this.#executionWorkspace(effect.settings.workspace, effect.resource, signal);
-          const observations = await observeContextSources(effect, { home: this.home, config: this.declaredConfig, limits: this.limits, signal, environment,
-            onDiagnostic: message => this.notify({ type: 'diagnostic', message }) });
+          signal?.throwIfAborted();
+          const owner = naturalKey(effect.task_id);
+          const scope = stringifyJson([effect.turn, effect.settings.workspace, effect.resource]);
+          let observed = this.#contextDiscovery.get(owner);
+          if (observed?.scope !== scope) {
+            observed = { scope, entries: new Map() };
+            this.#contextDiscovery.set(owner, observed);
+          }
+          const [observations] = await Promise.all([
+            observeContextSources(effect, { home: this.home, config: this.declaredConfig, limits: this.limits, signal, environment,
+              discovery: observed.entries,
+              onDiagnostic: message => this.notify({ type: 'diagnostic', message }) }),
+            this.#joinProcessResults(effect.task_id, signal),
+          ]);
           return { observations };
         },
         chatgpt: async effect => {
@@ -1109,15 +1163,40 @@ export class Service extends EventEmitter {
       execution_environments: this.executionEnvironments.choices() };
   }
 
-  browserSnapshot() {
+  #browserPublication(program, sequence, after, outline, historyTasks) {
+    let updates = this.journal.programUpdates(after, sequence);
+    const publication = { namespace: this.journal.namespace, sequence };
+    if (updates === undefined)
+      return { ...publication, program: this.#browserProgram(outline ? browserOutline(program) : programWithTaskArray(program)) };
+    if (historyTasks !== undefined) updates = updates.map(update => selectUpdateHistory(update, historyTasks));
+    if (updates.length) {
+      const latest = updates.at(-1);
+      updates[updates.length - 1] = { ...latest, shared: this.#browserProgram(latest.shared) };
+    }
+    return { ...publication, after, updates };
+  }
+
+  browserSnapshot(after, outline = false, historyTasks) {
     // DEFENSE: A browser/relay request may reach snapshot delivery after shutdown or a fatal journal failure.
     if (this.#failure) throw this.#failure;
     if (this.#closing) throw new Error('Service is stopping');
-    return { namespace: this.journal.namespace, sequence: this.journal.sequence, program: this.#browserProgram(this.journal.program) };
+    return this.#browserPublication(this.journal.program, this.journal.sequence, after, outline, historyTasks);
+  }
+
+  browserTaskHistory(id, after) {
+    // DEFENSE: A browser history request can race service shutdown or a journal failure.
+    if (this.#failure) throw this.#failure;
+    if (this.#closing) throw new Error('Service is stopping');
+    const task = programTask(this.journal.program.tasks, id);
+    if (task === undefined) return null;
+    // DEFENSE: A requested cursor can exceed the committed history.
+    if (after > task.history.length) throw new RangeError('Invalid conversation history cursor');
+    return { namespace: this.journal.namespace, task_id: task.id, after,
+      history: after === 0 ? task.history : task.history.slice(after), tools: task.tools };
   }
 
   browserStreams() {
-    return structuredClone(this.#streams).map(stream => ({ ...stream, namespace: this.journal.namespace }));
+    return structuredClone([...this.#streams.values()]).map(stream => ({ ...stream, namespace: this.journal.namespace }));
   }
 
   browserToolActivity() {
@@ -1129,9 +1208,9 @@ export class Service extends EventEmitter {
     return active.map(activity => this.#toolActivitySnapshot(activity, previewLimit));
   }
 
-  async browserCommand(command, browserRequest) {
+  async browserCommand(command, browserRequest, after, outline = false) {
     const result = await this.command(command, browserRequest);
-    return { namespace: this.journal.namespace, sequence: result.sequence, program: this.#browserProgram(result.program),
+    return { ...this.#browserPublication(result.program, result.sequence, after, outline),
       reply: browserHistoryReply(command, result) };
   }
 

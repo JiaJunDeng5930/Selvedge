@@ -62,12 +62,23 @@ Import ListNotations.
     neither completion retry nor resource rollback is authorized by uncertainty.
     A failure before COMMIT is a definite rejection.
 
+    A Task metadata update writes no prior conversation messages. An append
+    writes only its new history chunk. The journal commits the Task record,
+    its history offset, and the shared sequence together. Restart admits only
+    a contiguous history ending at the stored offset. Unchanged shared
+    sections are excluded from the storage write, including when the
+    transition advances only a ticket cursor.
+
     These are requirements on the physical transaction, including its storage
     call, returned promise and observers. [tests/journal.test.mjs] checks that
     failed storage cannot publish or launch paid work, and that lost COMMIT
     acknowledgement retires execution while reopening exposes the committed
     state once. [tests/service.test.mjs] covers successful publication through
     the public service and event stream. *)
+
+(** A successful recovery with subscribers owns a durable notification even
+    when the recovered records already represent settled work. Journal replay
+    cannot assign a second identity to that same notification. *)
 
 From Selvedge.Programming Require CommitPacket.
 Export CommitPacket(journal_selection_retains_exactly_the_recovery_obligations,
@@ -83,9 +94,14 @@ Export PacketProofs(journal_never_commits_an_unchanged_refusal,
     Actual catalog changes retire maintenance only for tasks whose callable
     tools changed. A policy refresh that admits the same policy has no
     maintenance or clock transition. *)
-From Selvedge.Features Require Compaction TaskGraph.
+From Selvedge.Features Require Compaction TaskGraph Worktree.
 Export Compaction(equal_policy_adds_no_clock_or_cancellation).
-Export TaskGraph(after_transition_without_rules).
+Export TaskGraph(after_model_output_without_rules).
+
+(** Ordinary scheduling visits only worktrees owned by cancelled tasks
+    that have entered the archived state. Creation completion handles its
+    own owner, and recovery reconciles all persisted worktrees. *)
+Export Worktree(no_worktree_archive_without_owner_cancellation).
 
 From Selvedge.Adapters Require RpcProofs ApiProofs WebProofs.
 Export WebProofs(web_repeated_identity_has_no_write, web_completed_response_is_not_written_again,
@@ -156,14 +172,17 @@ Export ApiProofs(public_unissued_rpc_response_preserves_pending_requests,
     peer. *)
 
 From Selvedge.Host Require Dispatch DispatchAdapterProofs.
+From Selvedge.Adapters Require HostDispatch.
 Export Dispatch(launch_installs_handle_before_run,
   completion_only_removes_its_generation,
+  selected_dispatch_handles_preserve_effects, selected_dispatch_handles_preserve_head,
   uncertain_never_retries, reduced_callback_never_retries,
   terminal_settlement_prevents_new_work,
   shutdown_never_cancels_provider,
   ticket_provider_cancellation_keeps_registered_handle,
   task_provider_cancellation_only_stops_independent_entries).
 Export DispatchAdapterProofs(dispatch_step_returns_its_next_state).
+Export HostDispatch(dispatch_select_returns_observed_scope).
 
 (** ** Each physical effect keeps its own generation
 
@@ -203,6 +222,12 @@ Export DispatchAdapterProofs(dispatch_step_returns_its_next_state).
     reads it. [dispatch_step_returns_its_next_state] binds the actual control
     response, its effects and its decoded successor to the pure transition;
     an independent codec law would not require the response to include state.
+    The running registry is indexed by physical generation, task and request
+    key. [selected_dispatch_handles_preserve_effects] ensures that the same
+    transition can use exactly the handles selected by the observation.
+    [selected_dispatch_handles_preserve_head] keeps retirement and allocation
+    identical across the complete and selected registries.
+    Only shutdown selects all handles from this registry.
 
     Closing an observer is different from cancelling a provider invocation.
     [shutdown_never_cancels_provider] preserves remote work for recovery.

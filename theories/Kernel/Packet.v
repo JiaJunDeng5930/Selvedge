@@ -3,6 +3,9 @@ From Selvedge.Programming Require InputRoute.
 From Selvedge.Programming Require CommitPacket.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json TextJson.
+From Selvedge.Foundation Require IndexedRegistry.
+From Selvedge.Kernel Require TaskRegistry.
+From Selvedge.Kernel Require ContextUpdates.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Inputs InputDecoder Queries CommandExecution
  Callbacks HookCallbacks Scheduler Recovery Observation Notifications Delivery Limits.
@@ -19,7 +22,34 @@ From Selvedge.Interaction.Experience Require Publication.
 Import ListNotations.
 Open Scope string_scope.
 Definition initial := State.initial.
+Definition task_registry_restore := TaskRegistry.from_list.
+Definition restore_title_scope := State.restore_title_scope.
+Definition title_registry_restore (entries : list (N * Selvedge.Features.Domain.title_state)) :=
+ fold_left (fun titles '(id, title) => IndexedRegistry.Slots.add (IndexedRegistry.key id) title titles)
+  entries (IndexedRegistry.Slots.empty Selvedge.Features.Domain.title_state).
+Definition task_registry_contents := State.world_tasks.
+Definition task_registry_lookup := State.find_task.
+Definition task_registry_changes same_tree same_task before after :=
+ option_map (map (fun value => (IndexedRegistry.difference_id task value,
+   IndexedRegistry.difference_before task value, IndexedRegistry.difference_after task value)))
+   (IndexedRegistry.changes same_tree same_task (task_rows before) (task_rows after)).
 Definition world_json := Publication.world_json.
+Definition shared_publication := Publication.shared_publication.
+Definition board_task_dependencies := Publication.board_task_dependencies.
+Definition workflow_task_dependencies := Publication.workflow_task_dependencies.
+Definition compaction_task_dependencies := Publication.compaction_task_dependencies.
+Definition task_publication := Publication.task_publication.
+Definition task_history_since cursor task := skipn cursor (task_history task).
+Definition task_publication_busy := Domain.task_busy.
+Definition history_changes_bindings := ContextUpdates.history_changes_bindings.
+Definition history_publication := Publication.history_json.
+Definition task_publication_references := Publication.task_publication_references.
+Definition named_title_changes := Publication.named_title_changes.
+Definition title_registry_changes same_tree same_title before after :=
+ let titles value := Selvedge.Features.Domain.feature_titles (world_features value) in
+ option_map (map (fun change => (IndexedRegistry.difference_id _ change, IndexedRegistry.difference_after _ change)))
+  (IndexedRegistry.diff_trie same_tree same_title (titles before) (titles after) 0 1 []).
+Definition publication_project := Publication.publication_project.
 Definition remote_reconciliation_needed := Notifications.remote_reconciliation_needed.
 Definition query := CommandHandlers.query.
 Definition command_schedules (command : Selvedge.Generated.Commands.command) (result : decision) :=
@@ -90,13 +120,13 @@ Definition core_transition (source : Inputs.input) (value : world) :=
  | ConfigureCatalog environment policy => snd (configure_catalog environment policy value)
  | ContextCompleted id ticket observations diagnostic => Selvedge.Features.Runtime.after_context_transition value (Some (id,ticket))
    (Callbacks.context_completed id ticket observations diagnostic value)
- | ModelCompleted id ticket outcome => Selvedge.Features.Runtime.after_transition value (Callbacks.model_completed id ticket outcome value)
+ | ModelCompleted id ticket outcome => Selvedge.Features.Runtime.after_model_transition value id (Callbacks.model_completed id ticket outcome value)
  | ReasoningCompleted id ticket outcome => Selvedge.Features.Runtime.after_transition value (Callbacks.reasoning_completed id ticket outcome value)
  | ToolCompleted id ticket result error => Selvedge.Features.Runtime.after_transition value (Callbacks.tool_completed id ticket result error value)
  | HookCompleted id ticket outcome => Selvedge.Features.Runtime.after_transition value (HookCallbacks.hook_completed id ticket outcome value)
  | AfterCompleted id operation ticket outcome => Selvedge.Features.Runtime.after_transition value (HookCallbacks.after_completed id operation ticket outcome value)
  | ApprovalCompleted id ticket outcome => Selvedge.Features.Runtime.after_transition value (Callbacks.approval_completed id ticket outcome value)
- | Recover => Selvedge.Features.Runtime.after_transition value (Recovery.recover (Selvedge.Features.Runtime.recover value))
+ | Recover => Selvedge.Features.Runtime.after_recovery_transition value (Recovery.recover (Selvedge.Features.Runtime.recover value))
  | Continue => Selvedge.Features.Runtime.after_transition value (accept JNull value [])
  end.
 Definition input_route := (Inputs.input + (world -> bool * bool * decision))%type.

@@ -135,6 +135,27 @@ test('Responses conflicting content at the same numeric coordinate remains a vis
   assert.deepEqual(f.failures, []);
 });
 
+test('automatic compaction meters a conversation after it receives actual input', async t => {
+  const f = await fixture(t, async (_body, response) => {
+    finish(response, [item('measured-reply', 'Measured conversation completed.')]);
+  }, { compaction: {
+    enabled: true, background_percent: 65, blocking_percent: 90, idle_lead_ms: 60000,
+    targets: [{ profile: 'fixture', window_tokens: 8192, output_reserve_tokens: 1024,
+      cache_ttl_ms: null, method: 'summary' }],
+  } });
+  const empty = [];
+  for (let index = 0; index < 4; index++) empty.push(await f.post({ op: 'create_idle', profile: 'fixture' }));
+  await Promise.all(empty.map(({ task_id }) => f.idle(task_id)));
+  assert.equal(f.meters.length, 0);
+
+  const { task_id } = empty[2];
+  const message = 'Observe maintenance only after my first message.';
+  await f.post({ op: 'send', task_id, message });
+  await f.idle(task_id);
+  assert.ok(f.meters.length > 0);
+  for (const measured of f.meters) assert.ok(JSON.stringify(measured).includes(message));
+});
+
 test('Responses decimal and exponent token counts support actual portable compaction', async t => {
   let spelling = '128.0';
   const summaries = [];

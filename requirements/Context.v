@@ -6,7 +6,7 @@
     any realtime readings separately. A provider encoding preserves the
     distinction between tracked instructions, runtime data, and audit records. *)
 
-From Selvedge.Kernel Require ContextProofs ReasoningProofs
+From Selvedge.Kernel Require ContextProofs ContextUpdates ReasoningProofs
   ModelRequestConstructionProofs HistoryRoleProofs RequestDeliveryProofs.
 Export ContextProofs(context_history_reconstructs_each_accepted_change,
   an_observed_amendment_matches_its_baseline_and_patch,
@@ -14,9 +14,13 @@ Export ContextProofs(context_history_reconstructs_each_accepted_change,
   failed_context_observation_retains_the_last_admitted_binding,
   interactive_capability_requires_the_native_revision_and_body,
   published_interactive_vocabulary_matches_the_executable_components).
+Export ContextUpdates(discovery_observes_the_same_bindings,
+  a_new_user_message_advances_discovery,
+  a_tool_result_preserves_the_discovery_turn).
 Export ReasoningProofs(the_actual_scheduler_observes_before_preparing_a_model,
   context_requests_capture_the_current_history_revision,
   context_completion_requires_the_current_ticket,
+  an_actual_context_completion_accepts_unrelated_history_appends,
   an_actual_stale_context_result_restarts_from_the_current_prefix,
   a_frozen_context_completion_waits_for_a_new_observation,
   a_stopped_context_completion_waits_for_a_new_observation,
@@ -38,9 +42,11 @@ Export HistoryRoleProofs(codec_roles_follow_the_shared_projection_vocabulary).
     admission checks both the baseline and captured result.
     Accepted changes apply their captured targets and withdrawals in history
     order. Side returns quote their histories as user-message data; they do not
-    import context events. Observation completion checks the captured history
-    revision before constructing changes, so replay needs no second baseline
-    check. [an_accepted_patch_installs_its_captured_target] ensures an accepted
+    import context events. Observation completion rejects settings and context
+    changes after the captured cursor. Ordinary appended history (including
+    tool results) keeps the observation's baseline. The actual callback accepts
+    this case without emitting a replacement observation.
+    [an_accepted_patch_installs_its_captured_target] ensures an accepted
     amendment installs the value recorded in that event.
 
     Source failures retain the last admitted binding. Descriptor reads and
@@ -96,14 +102,21 @@ Export HistoryRoleProofs(codec_roles_follow_the_shared_projection_vocabulary).
     previews obtain their bounds from their construction and encoded-request
     admission, without self-reported preview flags or byte-limit labels.
     A matching ticket also captures a history revision. Another completed
-    operation may have extended that history while observation was outstanding;
-    the actual callback then requests a new observation of the current prefix.
+    operation may have extended that history while observation was outstanding.
+    An unrelated tool result joins the next model input. Changed source
+    settings or bindings require a new observation.
     Frozen and stopped completions retain ordinary inference demand for a new
     observation when resumed. [context_completion_commits_before_following_scheduling]
     binds this callback to packet preparation and its committed continuation.
     Real-file discovery and global-guidance delivery are exercised through the
     public service in [tests/filesystem-boundaries.test.mjs] and
     [tests/context-discovery-control.test.mjs].
+
+    A committed user message starts a new directory discovery. Within that
+    input's model and tool cycle the host retains the discovered paths for
+    the selected workspace and rereads their contents. A changed workspace
+    or a vanished known path requires a fresh discovery. Terminal task
+    activity releases the retained paths.
 
     Final comparisons against a subsequently changed Task remain necessary.
     Evaluator judgments and their quality remain external observations; their
@@ -160,6 +173,10 @@ Export CompactionPlanProofs(structured_plan_transports_selected_history_and_summ
   native_unavailable_preserves_full_history_for_summary).
 Export ProviderCompactionProofs(public_structured_summary_appends_its_instruction_after_selected_history).
 Export CompactionProofs(measured_scope_and_reserve_reach_the_executed_request,
+  maintenance_only_visits_known_entries_and_active_tasks,
+  an_unconfigured_model_without_cache_leaves_no_activity_record,
+  an_unconfigured_inference_observation_leaves_maintenance_unchanged,
+  validated_compaction_extends_the_committed_history,
   manual_compaction_captures_context_before_any_summary_request,
   manual_compaction_accepts_an_open_prefix_and_waits,
   suspended_manual_context_completion_cancels_its_job,
@@ -175,6 +192,11 @@ Export ModelRequestProofs(selected_model_request_uses_the_measured_scope,
 Export ReasoningProofs(evaluator_tool_evidence_keeps_the_original_json,
   model_context_preview_exposes_only_the_public_reasoning_summary,
   model_context_compaction_has_no_public_preview).
+
+(** Ordinary context observations for an unconfigured model neither create
+    maintenance records nor retain a second copy of the observed history.
+    Provider activity from that model only clears a cache lease that was
+    already recorded. Manual requests acquire their own observation. *)
 
 (** ** Replacement input preserves its independent source
 
@@ -225,7 +247,11 @@ Export ReasoningProofs(evaluator_tool_evidence_keeps_the_original_json,
     retained state and issued effects establish the command's behavior.
 
     Compaction retains its preparation and measurement state separately from
-    ordinary execution. A workspace observation uses the Task's own request.
+    ordinary execution. Automatic maintenance discovers new work only among
+    active Tasks. Idle Tasks without a saved maintenance record have no
+    outstanding request or cache lease; their next message enters the active
+    scope. Previously recorded jobs and leases keep their own owners.
+    A workspace observation uses the Task's own request.
     The request carries the ticket, source revision and continuation, so a
     stale result, revision retry or wake cannot update a separate copy of the
     same pending request. [maintenance_context_installs_its_exact_continuation]

@@ -8,13 +8,21 @@ From Selvedge.Features Require Import Work Board Worktree TaskGraph Remote Chatg
 Definition completion_inputs (execute : Scheduler.executor) :=
  (Remote.completion_inputs execute ++ Worktree.completion_inputs ++ Board.completion_inputs ++
   Chatgpt.completion_inputs ++ Compaction.completion_inputs ++ TitleRuntime.completion_inputs)%list.
-Definition after_context_transition (before:world) (completed : option (N * N)) (result:decision) :decision :=
+Definition after_observed_transition (before:world) (archive_worktrees route_output : DecisionComposition.step)
+ (completed : option (N * N)) (result:decision) :decision :=
  DecisionComposition.run
- (DecisionComposition.and_then (Worktree.after_transition before)
- (DecisionComposition.and_then (TaskGraph.after_transition before)
+ (DecisionComposition.and_then archive_worktrees
+ (DecisionComposition.and_then route_output
  (DecisionComposition.and_then (Workflow.after_transition before)
  (DecisionComposition.and_then (Board.after_transition before) (Compaction.after_transition before completed))))) result.
+Definition after_context_transition (before:world) :=
+ after_observed_transition before Worktree.after_transition (fun value _ => DecisionComposition.unchanged value).
+Definition after_model_transition before id :=
+ after_observed_transition before Worktree.after_transition (TaskGraph.after_model_output before id) None.
 Definition after_transition (before:world) := after_context_transition before None.
+Definition after_recovery_transition before :=
+ after_observed_transition before Worktree.recover_archives
+   (fun value _ => DecisionComposition.unchanged value) None.
 Definition recover (value:world) :world :=
  TitleRuntime.recover (Compaction.recover (Chatgpt.recover (Board.recover value))).
 Definition reconfigure := Compaction.reconfigure.

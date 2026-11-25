@@ -37,7 +37,8 @@ Lemma completing_bindings_preserves_the_owner : forall owner space guidance valu
  find_task owner (Worktree.complete_bindings owner space guidance value) = Some task.
 Proof.
  intros owner space guidance value task Found.
- unfold Worktree.complete_bindings, with_tasks, find_task; cbv [set]; cbn [world_tasks].
+ unfold Worktree.complete_bindings. rewrite find_task_as_list in Found |- *.
+ rewrite world_tasks_replaced.
  rewrite (Selvedge.Foundation.RegistryProofs.registry_lookup_at_numbered_map _ _ _ _ 0 owner task Found).
  rewrite N.add_0_l. unfold Worktree.complete_binding. rewrite N.eqb_refl; reflexivity.
 Qed.
@@ -48,7 +49,8 @@ Theorem setup_initializes_every_live_binding : forall owner id space guidance va
  Some (Worktree.install_workspace (task_lifecycle task) space guidance task).
 Proof.
  intros owner id space guidance value task Found Other Live Bound.
- unfold Worktree.complete_bindings, with_tasks, find_task; cbv [set]; cbn [world_tasks].
+ unfold Worktree.complete_bindings. rewrite find_task_as_list in Found |- *.
+ rewrite world_tasks_replaced.
  rewrite (Selvedge.Foundation.RegistryProofs.registry_lookup_at_numbered_map _ _ _ _ 0 id task Found).
  rewrite N.add_0_l. unfold Worktree.complete_binding.
  assert (Different : N.eqb owner id = false) by (apply N.eqb_neq; congruence).
@@ -235,7 +237,8 @@ Proof.
      (Worktree.store tree (append_task prepared before))=Some tree).
    apply ReceiverProofs.installed; exact I. }
  assert (selected:find_task owner staged=Some prepared).
- { unfold staged,find_task. rewrite store_preserves_tasks,task_creation_never_rewrites_existing_history.
+ { unfold staged. rewrite find_task_as_list, store_preserves_tasks,task_creation_never_rewrites_existing_history.
+   unfold owner. rewrite next_task_as_list.
    apply Selvedge.Foundation.RegistryProofs.registry_lookup_at_appended_index. }
  assert (bound:WorkspaceBinding.for_task owner staged=Some tree).
  { unfold WorkspaceBinding.for_task. rewrite selected. unfold WorkspaceBinding.resolve.
@@ -324,7 +327,7 @@ Theorem reusing_a_binding_never_provisions_another_resource :
 Proof. intros; reflexivity. Qed.
 Theorem planned_birth_changes_only_tasks_and_worktrees : forall before (plan:Worktree.planned_start before) current,
  let result:=Worktree.born_world (Worktree.interpret_planned_birth plan current) in
- with_tasks (world_tasks current)
+ with_task_registry (world_task_registry current)
    (with_features (set F.feature_worktrees
      (fun _ => F.feature_worktrees (world_features current)) (world_features result)) result) = current.
 Proof.
@@ -350,9 +353,9 @@ Qed.
 Theorem planned_birth_appends_exactly_one_task : forall before (plan:Worktree.planned_start before) current,
  exists created, world_tasks (Worktree.born_world (Worktree.interpret_planned_birth plan current)) = (world_tasks current ++ [created])%list.
 Proof.
- intros before [start resource admitted] current.
- destruct resource; unfold Worktree.interpret_planned_birth, Worktree.born_world;
- cbn [Worktree.planned_task Worktree.planned_resource TaskBirth.birth_prepared TaskBirth.birth_world]; eexists; reflexivity.
+ intros before plan current.
+ rewrite Worktree.born_world_preserves_tasks.
+ eexists. apply TaskBirth.birth_tasks.
 Qed.
 Theorem planned_birth_preserves_existing_tasks : forall before (plan:Worktree.planned_start before) current id task,
  find_task id current=Some task ->
@@ -360,7 +363,7 @@ Theorem planned_birth_preserves_existing_tasks : forall before (plan:Worktree.pl
 Proof.
  intros before plan current id task Found.
  destruct (planned_birth_appends_exactly_one_task before plan current) as [created Appended].
- unfold find_task. rewrite Appended.
+ rewrite find_task_as_list in Found |- *. rewrite Appended.
  apply Selvedge.Foundation.RegistryProofs.registry_lookup_preserved_by_append. exact Found.
 Qed.
 
@@ -371,7 +374,7 @@ Theorem scoped_birth_preserves_existing_tasks : forall origin before
  find_task id (Worktree.transition_world created)=Some task.
 Proof.
  intros origin before created id task Found.
- unfold find_task; rewrite Worktree.transition_tasks_are_the_witnessed_birth.
+ rewrite find_task_as_list in Found |- *. rewrite Worktree.transition_tasks_are_the_witnessed_birth.
  apply Selvedge.Foundation.RegistryProofs.registry_lookup_preserved_by_append; exact Found.
 Qed.
 Theorem a_batch_preserves_original_task_observations : forall original current

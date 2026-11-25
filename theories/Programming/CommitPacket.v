@@ -1,4 +1,4 @@
-From Stdlib Require Import NArith List Bool.
+From Stdlib Require Import NArith List Bool String.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import State Inputs Notifications Delivery.
 Import ListNotations.
@@ -38,9 +38,25 @@ Definition needs_commit_effect (request : effect) :=
 Definition needs_commit (same_image : world -> world -> bool) (before : world) (result : decision) :=
  existsb needs_commit_effect (decision_effects result) ||
  negb (same_image before (decision_world result)).
+(* An accepted restart can notify a subscriber even when no task needs
+   repair. Its notice still requires a durable sequence and must not depend
+   on unrelated recovery-state changes. *)
+Definition recovery_receipt (source : option input) (admitted : bool) (result : decision) :=
+ match source with
+ | Some Recover =>
+   match field "ok"%string (decision_reply result) with
+   | Some (JBool true) => admitted &&
+     match Notifications.subscribers "recovered"%string
+       (Domain.environment_plugins (world_environment (decision_world result))) with
+     | [] => false | _ => true end
+   | _ => false end
+ | _ => false end.
+Definition journal_obligations same_image before chosen :=
+ needs_commit same_image before (selected_decision chosen) ||
+ recovery_receipt (selected_source chosen) (selected_admitted chosen) (selected_decision chosen).
 Definition select_journal (same_image : world -> world -> bool) (before : world) (chosen : selected) :=
  let result := selected_decision chosen in
- if needs_commit same_image before result
+ if journal_obligations same_image before chosen
  then Selected true (selected_admitted chosen) (selected_source chosen) result
  else
    (* The frame budget includes the durability flag. The JSON spelling of
@@ -77,15 +93,16 @@ Theorem journal_selection_retains_exactly_the_recovery_obligations :
  let result := selected_decision chosen in
  selected_durable (select_journal same_image before chosen) = true <->
  (exists request, In request (decision_effects result) /\ needs_commit_effect request = true) \/
- same_image before (decision_world result) = false.
+ same_image before (decision_world result) = false \/
+ recovery_receipt (selected_source chosen) (selected_admitted chosen) result = true.
 Proof.
  intros same_image before chosen. cbn zeta.
  assert (Durable : selected_durable (select_journal same_image before chosen) =
-      needs_commit same_image before (selected_decision chosen)).
- { unfold select_journal. destruct (needs_commit same_image before (selected_decision chosen)); [reflexivity|].
+      journal_obligations same_image before chosen).
+ { unfold select_journal. destruct (journal_obligations same_image before chosen); [reflexivity|].
    destruct (selected_durable chosen); reflexivity. }
- rewrite Durable. unfold needs_commit.
- rewrite Bool.orb_true_iff, existsb_exists, Bool.negb_true_iff. reflexivity.
+ rewrite Durable. unfold journal_obligations, needs_commit.
+ rewrite !Bool.orb_true_iff, existsb_exists, Bool.negb_true_iff. tauto.
 Qed.
 
 Theorem journal_transients_preserve_the_world_and_only_wake_the_scheduler :
@@ -97,10 +114,12 @@ Theorem journal_transients_preserve_the_world_and_only_wake_the_scheduler :
  request = ContinueScheduling.
 Proof.
  intros same_image before chosen. cbn zeta.
- unfold select_journal, needs_commit.
+ unfold select_journal, journal_obligations, needs_commit.
  destruct (existsb needs_commit_effect (decision_effects (selected_decision chosen))) eqn:Effects;
    cbn [orb]; [discriminate|].
  destruct (same_image before (decision_world (selected_decision chosen))); [|discriminate].
+ destruct (recovery_receipt (selected_source chosen) (selected_admitted chosen) (selected_decision chosen));
+   [discriminate|].
  assert (Wakeups : forall request, In request (decision_effects (selected_decision chosen)) ->
    request = ContinueScheduling).
  { intros request Present.
@@ -121,6 +140,6 @@ Theorem journal_material_changes_keep_the_original_decision :
  selected_decision (select_journal same_image before chosen) = selected_decision chosen.
 Proof.
  intros same_image before chosen. unfold select_journal.
- destruct (needs_commit same_image before (selected_decision chosen)); [reflexivity|].
+ destruct (journal_obligations same_image before chosen); [reflexivity|].
  destruct (selected_durable chosen); discriminate.
 Qed.

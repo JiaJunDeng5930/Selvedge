@@ -1,6 +1,8 @@
 From Selvedge.Programming Require Focus ArgumentDeclarationProofs
   DeclarationRegistryProofs.
 From Selvedge.Foundation Require NumbersProofs BoundedIntegerCorrectness.
+From Stdlib Require Import NArith.
+From Selvedge.Foundation Require IndexedRegistry IndexedRegistryProofs.
 
 (** * Engineering goals and their construction
 
@@ -206,6 +208,47 @@ Export NumbersProofs(natural_print_parse).
 Export BoundedIntegerCorrectness(decode_integer_mathematical_iff,
   decode_safe_integer_mathematical_iff, decode_natural_mathematical_iff,
   unbounded_natural_print_parse).
+
+(** * Local runtime work
+
+    Select an operation's inputs from the objects it reads or changes to
+    satisfy its public contract, including actual dependents and shared
+    resource constraints. Fix that selection and the request. Adding other
+    records, history, or filesystem entries must not increase the bound on
+    work from operation admission through durable completion and publication.
+    Fix a budget for each count from the operation and its selected inputs.
+    An identifier may bound the cost of addressing one record through its
+    representation. The total collection limit cannot justify visiting
+    unrelated records.
+    The same requirement applies to bounded reads. An explicitly global
+    operation has its own declared scope.
+
+    Ordinary scheduling takes one runnable step in a journal transaction.
+    Later steps use the durable continuation. Assembling a long prefix of
+    independent requests repeatedly encodes the accumulated output for model
+    input and frame admission and prevents the journal from consuming
+    already returned physical results.
+
+    Instantiate the following requirement against counts from the production
+    computations or their interpreted effects. Relevant counts include
+    visited entries, encoded or written bytes, and filesystem operations.
+    Each count has its own bound. Neither an equal result nor the count of
+    changed rows measures work done to compute that result. Inspect local
+    effects and the end-to-end observation where work crosses boundaries. *)
+Definition work_bounded_by_inputs {state operation inputs : Type}
+ (selected : state -> operation -> inputs) (budget : operation -> inputs -> nat)
+ (work : state -> operation -> nat) : Prop :=
+ forall before request, (work before request <= budget request (selected before request))%nat.
+
+Theorem indexed_lookup_only_follows_the_selected_identity (A : Type) :
+ work_bounded_by_inputs
+  (fun (_ : IndexedRegistry.t A) id => IndexedRegistry.key id)
+  (fun _ address => Pos.size_nat address)
+  (fun registry id => IndexedRegistryProofs.lookup_node_reads
+    (IndexedRegistry.key id) (IndexedRegistry.entries registry)).
+Proof.
+ intros registry id. apply IndexedRegistryProofs.lookup_node_reads_are_bounded_by_the_address.
+Qed.
 
 (** * Local extension without repeated shared obligations
 

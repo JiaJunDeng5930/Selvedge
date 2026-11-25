@@ -80,7 +80,7 @@ Proof.
  repeat split; try reflexivity.
  - exists created.
    change (find_task (next_task before) (Worktree.born_world (Worktree.interpret_planned_birth plan before)) = Some created).
-   unfold find_task,next_task.
+   rewrite find_task_as_list, next_task_as_list.
    rewrite Appended. apply registry_lookup_at_appended_index.
  - intros; eapply planned_birth_preserves_existing_tasks; eassumption.
  - change (List.length (world_tasks (Worktree.born_world (Worktree.interpret_planned_birth plan before))) =

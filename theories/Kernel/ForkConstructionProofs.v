@@ -27,14 +27,14 @@ Definition registry_lookup_preserved_by_append := @Selvedge.Foundation.RegistryP
 Lemma append_task_preserves_existing : forall owner existing child value,
  find_task owner value = Some existing -> find_task owner (append_task child value) = Some existing.
 Proof.
- intros. unfold find_task, append_task, with_tasks; cbn.
+ intros. rewrite find_task_as_list in H |- *. rewrite world_tasks_appended.
  eapply registry_lookup_preserved_by_append; exact H.
 Qed.
 Theorem fork_children_preserve_every_existing_task : forall count parent_id parent messages settings entry invocation before owner existing,
  find_task owner before = Some existing ->
  find_task owner (Tasks.fork_children count parent_id parent messages settings entry invocation before) = Some existing.
 Proof.
- intros; unfold Tasks.fork_children, find_task, with_tasks; cbn.
+ intros. unfold Tasks.fork_children. rewrite find_task_as_list in H |- *. rewrite world_tasks_extended.
  eapply registry_lookup_preserved_by_append; exact H.
 Qed.
 Theorem fork_does_not_write_unrelated_existing_tasks : forall entry origin id count messages settings before other existing,
@@ -59,10 +59,12 @@ Proof.
  destruct entry.
  - destruct (allocate_identity TaskTicket before) as [ticket allocated] eqn:Allocated.
    cbn [decision_world accept]. apply fork_children_preserve_every_existing_task.
-   unfold find_task, put_task, with_tasks; cbv [set]; cbn.
-   rewrite registry_replace_other by congruence.
-   cbn [allocate_identity next_identity] in Allocated; inversion Allocated; subst allocated.
-   unfold with_ticket; cbn. exact Found.
+   lazymatch goal with
+   | |- find_task other (with_ticket _ ?updated) = Some existing =>
+       change (find_task other updated = Some existing)
+   end.
+   rewrite find_task_as_list in Found |- *. rewrite world_tasks_updated.
+   rewrite registry_replace_other by congruence. exact Found.
  - cbn [decision_world accept]. apply fork_children_preserve_every_existing_task; exact Found.
 Qed.
 Theorem accepted_native_fork_never_reconfigures_its_parent : forall invocation remaining origin id count messages settings before parent,

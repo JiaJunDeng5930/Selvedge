@@ -470,6 +470,9 @@ test('task graph setup creates its conversations in scope and routes replies', {
   for (const width of [desktop.width, 390, 320]) {
     await page.setViewportSize({ width, height: desktop.height });
     await compactHeader.waitFor({ state: width === desktop.width ? 'hidden' : 'visible' });
+    await page.evaluate(() => new Promise(resolve => {
+      requestAnimationFrame(() => requestAnimationFrame(resolve));
+    }));
     const [left, arrow, right, sourceLabel, receiverLabel] = await Promise.all([
       sourcePicker.boundingBox(), direction.boundingBox(), receiverPicker.boundingBox(),
       dialog.getByText('来源对话', { exact: true }).boundingBox(),

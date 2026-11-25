@@ -30,8 +30,12 @@ Definition observe_task_with_failure (include_failure:bool) value :=
    (flag "awaitingHuman" value) (if include_failure then flag "execution_failed" value else false))else None.
 Definition observe_task_summary := observe_task_with_failure false.
 Definition observe_task := observe_task_with_failure true.
-Definition tasks snapshot := list_field observe_task "tasks" snapshot.
+Definition tasks snapshot := bind (World.task_rows snapshot) (traverse observe_task).
 Definition find_task id snapshot := bind(World.find_task id snapshot)observe_task.
+Definition task_history_loaded id snapshot :=
+ match World.find_task id snapshot with
+ | Some task => negb (flag "history_pending" task)
+ | None => false end.
 Definition same_id lhs rhs := match lhs,rhs with
 |None,None=>true|Some lhs,Some rhs=>N.eqb lhs rhs|_,_=>false end.
 Definition project_tasks selected := filter(fun value=>same_id selected(task_project value)).
@@ -151,7 +155,7 @@ Definition task_side_parent snapshot task :=
 Definition side_children snapshot parent :=
  let observe value:=entry<-observe_task value;;Some (task_id entry, observed_side_parent value) in
  option_map (fun entries=>map fst (filter (fun entry=>same_id (Some parent) (snd entry)) entries))
-   (list_field observe "tasks" snapshot).
+   (bind (World.task_rows snapshot) (traverse observe)).
 Definition task_timeline id snapshot :=
  value<-World.find_task id snapshot;;
  option_map(Audit.retained 0)(array_field "history" value).
@@ -210,7 +214,7 @@ Definition card_activity_from (task_at instance_at:N->option json) card:=
  let name:=card_activity card in
  if String.eqb name "completed" then
   match bind(card_task card)task_at with
-  |Some task=>if existsb Conversation.json_message_assistant (items "history" task)
+  |Some task=>if flag "has_assistant_reply" task
     then "对话已完成"else "对话已就绪"
   |None=>"" end
  else value_or "未开始"
@@ -219,7 +223,7 @@ Definition card_activity_from (task_at instance_at:N->option json) card:=
   ("evaluating","评估推理等级");("compacting","整理上下文");("awaiting_approval","等待授权");
   ("failed","运行失败");("interrupted","已中断");("paused","已暂停");("archived","会话已归档")]))
  end.
-Definition board_task_lookup := World.indexed_lookup "tasks" "id".
+Definition board_task_lookup snapshot id := World.find_task id snapshot.
 Definition board_instance_lookup snapshot :=
  let ticket_at:=World.indexed_lookup "ticket_workflows" "card_id" snapshot in
  let instance_at:=World.indexed_lookup "workflow_instances" "instance_id" snapshot in

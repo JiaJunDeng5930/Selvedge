@@ -1,6 +1,7 @@
 From Selvedge.Features Require WorkflowTypes.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Utf8.
+From Selvedge.Foundation Require IndexedRegistry.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Kernel Require Import Numbers Domain Codec WorkspaceBackend.
 From Selvedge.Features Require Import Domain BoardFacts Titles.
@@ -99,12 +100,15 @@ Definition board_json_in_world (value:world) :=
  ("automatic", JBool (Selvedge.Features.Domain.board_automatic board));
  ("draft_profile", JString (Selvedge.Features.Domain.board_draft_profile board))].
 
-Fixpoint first_request (messages:list message) :string := match messages with
- | []=>"" | UserMessage contents::rest=>let text:=(Selvedge.Kernel.Domain.content_text contents) in if Utf8.nonblank text then text else first_request rest
- | _::rest=>first_request rest end.
+Definition first_request := Selvedge.Kernel.Domain.first_request.
+Definition named_title (item:Selvedge.Features.Domain.title_state) :=
+ match item with
+ | Selvedge.Features.Domain.Named title=>Some title | _=>None end.
 Definition task_title (id:N) (task:task) (features:Selvedge.Features.Domain.state) :=
+ let named:=match IndexedRegistry.Slots.find (IndexedRegistry.key id)
+   (Selvedge.Features.Domain.feature_titles features) with
+   | Some item=>named_title item | None=>None end in
+ match named with Some title=>title | None=>
  let request:=Titles.preview (first_request (task_history task)) in
- let fallback:=if String.eqb request "" then String.append "Task #" (Selvedge.Features.Domain.decimal_text id) else request in
- match find (fun item=>N.eqb id (Selvedge.Features.Domain.title_task item)) (Selvedge.Features.Domain.feature_titles features) with
- | Some item=>match Selvedge.Features.Domain.title_value item with Selvedge.Features.Domain.Named title=>title | _=>fallback end
- | None=>fallback end.
+ if String.eqb request "" then String.append "Task #" (Selvedge.Features.Domain.decimal_text id) else request
+ end.

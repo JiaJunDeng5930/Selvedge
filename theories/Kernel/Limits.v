@@ -4,7 +4,9 @@ From Selvedge.Kernel Require Import Numbers Context Compaction ApprovalProtocol.
 Import ListNotations.
 Open Scope string_scope.
 Definition frame_bytes : N := 4194304.
-Definition schedule_steps : nat := 256.
+(* Admit one independent runnable step before returning to the journal. A
+   continuation can take the next step after queued physical results commit. *)
+Definition schedule_steps : nat := 1.
 Definition operation_limit : N := 64.
 Definition plugin_limit : N := 16.
 Definition plugin_events := ["task_created";"task_changed";"model_started";"model_completed";"tool_requested";"tool_dispatched";"tool_completed";"hook_completed";"recovered";"configured"].

@@ -11,18 +11,15 @@ Record plan (before : world) := Plan {
  planned_step : Scheduler.native_fork_step;
  planned_target : TaskScope.task_reference before;
  planned_owner : TaskScope.owner planned_target = Scheduler.native_fork_owner planned_step;
- planned_selection : Scheduler.first_native_fork Runtime.can_schedule_task 0
-   (world_tasks before) before = Some planned_step
+ planned_selection : Scheduler.first_world_native_fork Runtime.can_schedule_task before = Some planned_step
 }.
 Arguments planned_step {before}.
 Arguments planned_target {before}.
 Definition resolve (source : Inputs.input) (before : world) : option (plan before) :=
  match source with
  | Continue =>
-   match Scheduler.first_native_fork Runtime.can_schedule_task 0
-     (world_tasks before) before as selected
-     return Scheduler.first_native_fork Runtime.can_schedule_task 0
-       (world_tasks before) before = selected -> option (plan before) with
+   match Scheduler.first_world_native_fork Runtime.can_schedule_task before as selected
+     return Scheduler.first_world_native_fork Runtime.can_schedule_task before = selected -> option (plan before) with
    | Some step => fun evidence =>
      match find_task (Scheduler.native_fork_owner step) before as found
        return find_task (Scheduler.native_fork_owner step) before = found -> option (plan before) with

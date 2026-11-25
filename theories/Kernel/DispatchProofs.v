@@ -203,7 +203,7 @@ Proof.
  cbn [Dispatch.capture_requests fst snd].
  exists (Reasoning.capture ticket current), (with_history (task_history current) original).
  split.
- - unfold find_task, put_task, with_tasks; cbn.
+ - rewrite find_task_as_list in Found |- *. rewrite world_tasks_updated.
    eapply registry_replace_selected; exact Found.
  - unfold Reasoning.capture; rewrite Phase.
    split; [reflexivity|].

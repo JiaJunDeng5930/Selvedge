@@ -29,6 +29,27 @@ Inductive observation :=
 | AwaitWorkspace (owner : N) (local : bool) (entries : list workspace_running)
 | Complete (generation : N) | CancelTask (task : N) | CancelKey (name : string)
 | Settlement (generation : N) (outcome : settlement) | Shutdown.
+Inductive dispatch_scope :=
+| NoHandles | AllHandles | HandleOf (generation : N)
+| HandlesOfTask (owner : N) | HandlesOfKey (name : string).
+Definition scope (input : observation) :=
+ match input with
+ | Complete generation | Settlement generation _ => HandleOf generation
+ | CancelTask owner => HandlesOfTask owner
+ | CancelKey name => HandlesOfKey name
+ | Shutdown => AllHandles
+ | _ => NoHandles end.
+Definition task_matches owner entry :=
+ match task entry with Some actual => N.eqb owner actual | None => false end.
+Definition selected_entry (selection : dispatch_scope) (entry : running) :=
+ match selection with
+ | NoHandles => false | AllHandles => true
+ | HandleOf generation => N.eqb generation (handle entry)
+ | HandlesOfTask owner => task_matches owner entry
+ | HandlesOfKey name => String.eqb name (key entry) end.
+Definition selected_state (s : state) (input : observation) :=
+ State (retired s) (next_handle s) (filter (selected_entry (scope input)) (active s)).
+
 Inductive primitive := Start (generation : N) | Cancel (generation : N) (provider : bool)
 | RollbackWorkspace | Await (generation : N) | RetryFailure.
 Definition cancel_entries (scope : cancellation_scope) (entries : list running) :=
@@ -48,7 +69,7 @@ Definition step (s : state) (o : observation) : state * list primitive :=
       | CancelTask task =>
           (* The committed task cancellation already retires the task-wide
              provider owner. Independent requests retain their own identities. *)
-          (s, cancel_entries IndependentProviderStop (filter (fun entry => (match Dispatch.task entry with Some owner => N.eqb task owner | None => false end) && cancellable entry) (active s)))
+          (s, cancel_entries IndependentProviderStop (filter (fun entry => task_matches task entry && cancellable entry) (active s)))
       | CancelKey name =>
           (s, cancel_entries AnyProviderStop (filter (fun entry => String.eqb name (key entry)) (active s)))
       | Settlement generation outcome =>
@@ -65,6 +86,62 @@ Definition step (s : state) (o : observation) : state * list primitive :=
       | _ => (s, [])
       end
   end.
+Local Lemma selected_filter {A} (guard selected : A -> bool) entries :
+ (forall entry, guard entry = true -> selected entry = true) ->
+ filter guard (filter selected entries) = filter guard entries.
+Proof.
+ intros Contains. induction entries as [|entry rest IH]; [reflexivity|].
+ cbn [filter]. destruct (selected entry) eqn:Selected, (guard entry) eqn:Guard;
+   cbn [filter]; rewrite ?Guard, IH; try reflexivity.
+ now rewrite (Contains _ Guard) in Selected.
+Qed.
+Local Lemma selected_exists {A} (guard selected : A -> bool) entries :
+ (forall entry, guard entry = true -> selected entry = true) ->
+ existsb guard (filter selected entries) = existsb guard entries.
+Proof.
+ intros Contains. induction entries as [|entry rest IH]; [reflexivity|].
+ cbn [filter existsb]. destruct (selected entry) eqn:Selected, (guard entry) eqn:Guard;
+   cbn [existsb]; rewrite ?Guard, ?IH; try reflexivity.
+ now rewrite (Contains _ Guard) in Selected.
+Qed.
+
+Theorem selected_dispatch_handles_preserve_effects s input :
+ snd (step (selected_state s input) input) = snd (step s input).
+Proof.
+ destruct s as [closed serial entries].
+ destruct input;
+   cbn [selected_state scope selected_entry step retired next_handle active];
+   try solve [destruct closed; reflexivity].
+ - destruct closed; [reflexivity|]. cbn [active].
+   rewrite selected_filter; [reflexivity|].
+   intros entry. now rewrite andb_true_iff.
+ - destruct closed; [reflexivity|]. cbn [active].
+   rewrite selected_filter; [reflexivity|auto].
+ - destruct closed; [reflexivity|]. destruct outcome; try reflexivity;
+    (rewrite selected_exists;
+      [destruct (existsb _ entries); reflexivity | now intros entry; rewrite andb_true_iff]).
+ - assert (All : filter (fun _ : running => true) entries = entries).
+   { induction entries; cbn; congruence. }
+   change (cancel_entries NoProviderStop (filter (fun _ : running => true) entries) =
+     cancel_entries NoProviderStop entries).
+   now rewrite All.
+Qed.
+
+Definition dispatch_head (s : state) := (retired s, next_handle s).
+Theorem selected_dispatch_handles_preserve_head s input :
+ dispatch_head (fst (step (selected_state s input) input)) =
+ dispatch_head (fst (step s input)).
+Proof.
+ destruct s as [closed serial entries].
+ destruct input;
+   cbn [selected_state scope selected_entry step retired next_handle active];
+   try solve [destruct closed; reflexivity].
+ destruct closed; [reflexivity|].
+ destruct outcome; try reflexivity;
+   (rewrite selected_exists;
+     [destruct (existsb _ entries); reflexivity | now intros entry; rewrite andb_true_iff]).
+Qed.
+
 Theorem completion_only_removes_its_generation s generation entry :
   In entry (active (fst (step s (Complete generation)))) <->
   In entry (active s) /\ handle entry <> generation.

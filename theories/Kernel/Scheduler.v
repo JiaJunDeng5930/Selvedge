@@ -1,9 +1,11 @@
+From Selvedge.Kernel Require Import Runnable.
 From Selvedge.Kernel Require TaskWake.
 From Selvedge.Programming Require TaskResult.
 From Selvedge.Kernel Require OperationEvent.
 From Selvedge.Programming Require Import TaskScope TaskChange DecisionComposition.
 From Stdlib Require Import String Ascii List Bool NArith.
 From Selvedge.Foundation Require Import Json.
+From Selvedge.Foundation Require OptionList.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Foundation Require Import Utf8.
 From Selvedge.Kernel Require Import Numbers Domain Codec Context ContextUpdates State Tasks SideContext Dispatch Capabilities NativeTools Callbacks Reasoning Limits Observation Search.
@@ -158,42 +160,9 @@ Definition after_hooks_step (id : N) (operation : operation) (value : world) :=
      (OperationEvent.plan id (OperationEvent.AfterUnavailable operation plugin)) value)
  | _ => acknowledged value
  end.
-Definition ready_operation (operations : list operation) := find (fun operation =>
- match operation_stage operation with Granted _ | AfterHooksReady _ _ _ => true | _ => false end) operations.
-Definition ready_settlement (operations : list operation) := find (fun operation =>
- match operation_stage operation with AfterHooksReady _ _ _ => true | _ => false end) operations.
 Definition operation_step (id : N) (operation : operation) (task : task) (value : world) :=
  match operation_stage operation with Granted _ => granted_operation id operation task value
  | _ => after_hooks_step id operation value end.
-Inductive runnable_step :=
-| OperationStep (pending : operation)
-| ContextStep | ModelStep
-| HookStep (invocation : call) (pending : list json) (remaining : list call)
-| CallStep (invocation : call) (remaining : list call)
-| FinishCallsStep | PromoteInputStep | StopInferenceStep.
-Definition task_action (task : task) : option runnable_step :=
- match task_lifecycle task with
- | Running phase operations =>
-   match ready_operation operations with
-   | Some operation => Some (OperationStep operation)
-   | None => match phase with
-     | WantsModel => Some ContextStep
-     | ReadyForModel => Some ModelStep
-     | ReadyForHooks invocation pending remaining => Some (HookStep invocation pending remaining)
-     | PendingCalls (first :: rest) => Some (CallStep first rest)
-     | PendingCalls [] => Some FinishCallsStep
-     | Idle => match task_queued task with [] => None | _ => Some PromoteInputStep end
-     | _ => None end end
- | Stopped phase operations => match ready_settlement operations with
-   | Some operation => Some (OperationStep operation)
-   | None => match phase with
-     | PendingCalls (first :: rest) => Some (CallStep first rest)
-     | ReadyForHooks invocation pending remaining => Some (HookStep invocation pending remaining)
-     | PendingCalls [] | WantsModel | ReadyForModel => Some StopInferenceStep
-     | _ => None end end
- | Frozen _ operations | Archived operations =>
-   option_map OperationStep (ready_settlement operations)
- end.
 Definition interpret_step (execute : executor) (id : N) (task : task) (value : world) (step : runnable_step) :=
  match step with
  | OperationStep pending => operation_step id pending task value
@@ -207,8 +176,23 @@ Definition interpret_step (execute : executor) (id : N) (task : task) (value : w
      (fun task => TaskWake.promote_changes task ++ [TaskChange.ChangePhase Idle]) value)
  end.
 Definition next_runnable_step (permitted : N -> world -> bool) (id : N) (task : task) (value : world) :=
+ let action := task_action task in
+ let settled := fun (_ : unit) => settlement task in
+ match action with
+ | Some _ => if permitted id value then action else settled tt
+ | None => match settled tt with
+   | Some operation => if permitted id value then None else Some operation
+   | None => None end
+ end.
+Lemma next_runnable_step_expands permitted id task value :
+ next_runnable_step permitted id task value =
  if permitted id value then task_action task
- else option_map OperationStep (ready_settlement (task_operations task)).
+ else settlement task.
+Proof.
+ unfold next_runnable_step.
+ destruct (task_action task), (settlement task),
+   (permitted id value); reflexivity.
+Qed.
 (* A native fork is committed between scheduler transactions. This selection
    recognizes only the next actual runnable task and only its final dispatch
    gate, so before hooks and earlier task work retain their ordering. *)
@@ -253,10 +237,34 @@ Fixpoint find_step (execute : executor) (permitted : N -> world -> bool) (id : N
  match next_runnable_step permitted id task value with
  | Some step => Some (interpret_step execute id task value step)
  | None => find_step execute permitted (N.succ id) rest value end end.
+Fixpoint has_runnable_step (permitted : N -> world -> bool) id tasks value :=
+ match tasks with
+ | [] => false
+ | task :: rest => match next_runnable_step permitted id task value with
+   | Some _ => true | None => has_runnable_step permitted (N.succ id) rest value end
+ end.
+Record selected_step := SelectedStep {
+ selected_owner : N;
+ selected_task : task;
+ selected_action : runnable_step
+}.
+Definition select_world_step permitted value :=
+ OptionList.find_map (fun '(id,task) =>
+   option_map (SelectedStep id task) (next_runnable_step permitted id task value))
+   (runnable_tasks value).
+Definition selected_native_fork selected value :=
+ match selected_action selected with
+ | HookStep _ _ _ | CallStep _ _ => native_fork_ready (selected_owner selected) (selected_task selected) value
+ | _ => None end.
+Definition first_world_native_fork permitted value :=
+ match select_world_step permitted value with
+ | Some selected => selected_native_fork selected value | None => None end.
+Definition interpret_selected execute selected value :=
+ interpret_step execute (selected_owner selected) (selected_task selected) value (selected_action selected).
+Definition find_world_step execute permitted value :=
+ option_map (fun selected => interpret_selected execute selected value) (select_world_step permitted value).
 Definition has_runnable_work (permitted : N -> world -> bool) (value : world) :=
- existsb (fun entry => let '(id,task) := entry in
-   match next_runnable_step permitted id task value with Some _ => true | None => false end)
-   (Selvedge.Foundation.Registry.indexed (fun id task => (id,task)) 0 (world_tasks value)).
+ match select_world_step permitted value with Some _ => true | None => false end.
 Definition continue_runnable (permitted : N -> world -> bool) (value : world) (effects : list effect) :=
  if has_runnable_work permitted value then effects ++ [ContinueScheduling] else effects.
 Definition frozen_inference (request : effect) := match request with
@@ -282,11 +290,11 @@ Fixpoint schedule_with (advance : advancement) (fuel : nat) (execute : executor)
  | Some (value,effects) =>
  match fuel with
  | O => (value,continue_runnable permitted value effects)
- | S fuel => match first_native_fork permitted 0 (world_tasks value) value with
-   | Some _ => (value,effects ++ [ContinueScheduling])
-   | None => match find_step execute permitted 0 (world_tasks value) value with
-     | None => (value,effects)
-     | Some decision =>
+ | S fuel => match select_world_step permitted value with
+   | None => (value,effects)
+   | Some selected => match selected_native_fork selected value with
+     | Some _ => (value,effects ++ [ContinueScheduling])
+     | None => let decision := interpret_selected execute selected value in
        match advance (decision_world decision) (effects ++ decision_effects decision) with
        | None => (value,effects ++ [ContinueScheduling])
        | Some (next,emitted) => schedule_with advance fuel execute permitted next emitted

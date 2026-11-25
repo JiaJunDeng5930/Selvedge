@@ -52,3 +52,8 @@ Record instance := Instance {
  instance_next_path : N
 }.
 End Graph.
+
+Definition path_in_progress (value : path) :=
+ match path_value value with Pending _ | Executing _ _ _ | Forwarding _ _ _ _ => true | _ => false end.
+Definition instance_in_progress {Message} (value : @instance Message) :=
+ existsb path_in_progress (instance_paths value).

@@ -85,15 +85,15 @@ Theorem a_field_plan_installs_its_exact_interpretation : forall before (plan : T
  find_task (TaskScope.owner (TaskChange.target plan)) (TaskChange.interpret plan) =
  Some (TaskChange.apply (TaskChange.changes plan) (TaskScope.selected (TaskChange.target plan))).
 Proof.
- intros before plan; unfold TaskChange.interpret, find_task, put_task, with_tasks; cbn.
- eapply registry_replace_selected; exact (TaskScope.observed (TaskChange.target plan)).
+ intros before plan. unfold TaskChange.interpret. rewrite find_task_as_list, world_tasks_updated.
+ eapply registry_replace_selected. rewrite <- find_task_as_list. exact (TaskScope.observed (TaskChange.target plan)).
 Qed.
 
 Theorem a_field_plan_preserves_every_other_task : forall before (plan : TaskChange.plan before) other,
  TaskScope.owner (TaskChange.target plan) <> other ->
  find_task other (TaskChange.interpret plan) = find_task other before.
 Proof.
- intros before plan other Different; unfold TaskChange.interpret, find_task, put_task, with_tasks; cbn.
+ intros before plan other Different. unfold TaskChange.interpret. rewrite !find_task_as_list, world_tasks_updated.
  now apply registry_replace_other.
 Qed.
 
@@ -106,8 +106,8 @@ Theorem a_field_plan_preserves_the_world_frame : forall before (plan : TaskChang
  world_features after = world_features before /\
  List.length (world_tasks after) = List.length (world_tasks before).
 Proof.
- intros; unfold TaskChange.interpret, put_task, with_tasks; cbn.
- repeat split; try reflexivity. apply registry_replace_length.
+ intros before plan after. subst after. unfold TaskChange.interpret.
+ rewrite world_tasks_updated, registry_replace_length. repeat split.
 Qed.
 
 Theorem changing_stage_retains_the_selected_operation : forall current pending stage,
