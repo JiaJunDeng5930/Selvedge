@@ -223,6 +223,12 @@ Export BoundedIntegerCorrectness(decode_integer_mathematical_iff,
     The same requirement applies to bounded reads. An explicitly global
     operation has its own declared scope.
 
+    Ordinary scheduling takes one runnable step in a journal transaction.
+    Later steps use the durable continuation. Assembling a long prefix of
+    independent requests repeatedly encodes the accumulated output for model
+    input and frame admission and prevents the journal from consuming
+    already returned physical results.
+
     Instantiate the following requirement against counts from the production
     computations or their interpreted effects. Relevant counts include
     visited entries, encoded or written bytes, and filesystem operations.
