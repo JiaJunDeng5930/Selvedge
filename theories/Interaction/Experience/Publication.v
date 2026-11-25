@@ -189,10 +189,10 @@ Definition board_task_dependencies value :=
   | None => [] end)
   (Selvedge.Features.Domain.board_cards (BoardFacts.registry value)).
 Definition workflow_task_dependencies value :=
- flat_map (fun instance =>
+ flat_map (fun '(_, instance) =>
   flat_map (fun path => match WorkflowTypes.path_value path with
    | WorkflowTypes.Executing _ id _ | WorkflowTypes.Forwarding _ id _ _ => [id]
-   | _ => [] end) (WorkflowTypes.instance_paths instance)) (Workflow.instances value).
+   | _ => [] end) (WorkflowTypes.instance_paths instance)) (Workflow.active_instances value).
 Definition compaction_task_dependencies value :=
  map fst (Selvedge.Features.CompactionTypes.maintenance_entries
   (Selvedge.Features.Domain.feature_compaction (world_features value))).

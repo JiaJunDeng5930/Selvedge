@@ -139,6 +139,7 @@ Definition workflow_completion_contract {Path : Type} (paths : list Path)
 
 From Selvedge.Features Require WorkflowProofs.
 Export WorkflowProofs(completion_reports_all_paths_at_exits,
+  workflow_processing_selects_exactly_the_active_instances,
   completion_does_not_hide_outstanding_paths).
 
 From Selvedge.Features Require BoardProofs TitleProofs TitleRuntime.

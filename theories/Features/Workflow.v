@@ -1,6 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Foundation Require Utf8.
+From Selvedge.Foundation Require IndexedRegistry ScopedRegistry.
 From Selvedge.Kernel Require Import Numbers Domain State Codec Tasks CommandExecution.
 From Selvedge.Features Require Import WorkflowTypes TaskGraph TaskGraphDeclarations Work Worktree Board BoardFacts.
 From Selvedge.Features Require Domain Observation BoardClock.
@@ -18,16 +19,16 @@ Definition graph := @definition F.graph_message.
 Definition edge := @connection F.graph_message.
 Definition execution := @instance F.graph_message.
 Definition graphs v := F.feature_workflows (world_features v).
-Definition instances v := F.feature_instances (world_features v).
+Definition instance_registry v := F.feature_instances (world_features v).
+Definition instances v := IndexedRegistry.contents (ScopedRegistry.rows (instance_registry v)).
+Definition active_instances v := ScopedRegistry.selected_entries (instance_registry v).
 Definition lookup_graph id v := match registry_at id (graphs v) with Some g => g | None => None end.
-Definition lookup_instance id v := nth_error (instances v) (N.to_nat id).
+Definition lookup_instance id v := IndexedRegistry.lookup id (ScopedRegistry.rows (instance_registry v)).
 Definition store_graphs graphs v :=
  with_features (set F.feature_workflows (fun _ => graphs) (world_features v)) v.
 Definition store_instances entries v :=
  with_features (set F.feature_instances (fun _ => entries) (world_features v)) v.
-Definition store_instance id entry v :=
- store_instances (map (fun '(key, current) => if N.eqb key id then entry else current)
-   (indexed (fun key current => (key, current)) 0 (instances v))) v.
+Definition store_instance id entry v := store_instances (ScopedRegistry.put id entry (instance_registry v)) v.
 Definition ticket_setting := BoardFacts.workflow_setting.
 Definition current_instance := BoardFacts.workflow_instance_id.
 Definition lookup_node key (g : graph) := find (fun n => String.eqb key (WorkflowTypes.node_key n)) (workflow_nodes g).
@@ -173,7 +174,7 @@ Definition authorized_task id before :=
  | None => false end.
 Definition owns_task id (i : execution) :=
  existsb (fun p => match path_value p with Executing _ task _ => N.eqb id task | _ => false end) (instance_paths i).
-Definition task_reserved task v := existsb (owns_task task) (instances v).
+Definition task_reserved task v := existsb (fun '(_, i) => owns_task task i) (active_instances v).
 Definition attempt_send task input i v :=
  if task_reserved task v then None
  else match find_task task v with
@@ -304,12 +305,13 @@ Definition sync_ticket instance_id (i : execution) v :=
    | _, _ => v end
  | None => v end.
 Definition for_paths (operation : N -> path -> DecisionComposition.step) : DecisionComposition.step :=
- fun v effects => DecisionComposition.each (indexed (fun key i => (key, i)) 0 (instances v))
+ fun v effects => DecisionComposition.each (active_instances v)
    (fun '(key, i) => DecisionComposition.each (instance_paths i) (operation key)) v effects.
 Definition synchronize : DecisionComposition.step :=
  DecisionComposition.world_only (fun v =>
- fold_left (fun v '(key, i) => sync_ticket key i v)
-   (indexed (fun key i => (key, i)) 0 (instances v)) v).
+ fold_left (fun current '(_, key) => match lookup_instance key current with
+   | Some i => sync_ticket key i current | None => current end)
+   (F.feature_ticket_instances (world_features v)) v).
 Definition after_transition before :=
  DecisionComposition.and_then (for_paths (settle_path before))
   (DecisionComposition.and_then (for_paths service_path) synchronize).
@@ -318,11 +320,11 @@ Definition launch_result id := JObject [("instance_id", number id)].
 Definition start id key contents preview_text ticket project clock browser_launch v :=
  match lookup_graph id v with
  | Some g => if entrance g key && Tasks.content_nonempty contents then
-   let instance_id := N.of_nat (List.length (instances v)) in
+   let instance_id := IndexedRegistry.next (ScopedRegistry.rows (instance_registry v)) in
    let preview := match Utf8.take 96 preview_text with Some text => text | None => "" end in
    let i := Instance id g ticket project key preview (option_map BoardClock.value clock) browser_launch
      [Path 0 (Pending (WorkflowTypes.Delivery key contents None))] [] [] 1 in
-   let started := store_instances (instances v ++ [i]) v in
+   let started := store_instances (ScopedRegistry.append i (instance_registry v)) v in
    accept (launch_result instance_id) started []
    else reject "invalid_workflow_start" "Select an entrance of the workflow and supply a nonempty message." v
  | None => reject "workflow_not_found" "The workflow does not exist." v end.
@@ -331,7 +333,7 @@ Definition choose context key v :=
  | None => reject "workflow_task_required" "Only the Task executing a workflow delivery can choose its connection." v
  | Some caller =>
    let task := Tasks.native_owner caller in
-   match find (fun '(_, i) => owns_task task i) (indexed (fun id i => (id, i)) 0 (instances v)) with
+   match find (fun '(_, i) => owns_task task i) (active_instances v) with
    | Some (id, i) =>
      match find (fun p => match path_value p with Executing _ owner _ => N.eqb task owner | _ => false end) (instance_paths i) with
      | Some (Path path (Executing input owner None)) =>

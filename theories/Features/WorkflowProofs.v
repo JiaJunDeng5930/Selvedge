@@ -1,5 +1,11 @@
 From Stdlib Require Import List Bool PeanoNat.
+From Selvedge.Foundation Require ScopedRegistry.
 From Selvedge.Features Require Import Workflow WorkflowTypes.
+
+Theorem workflow_processing_selects_exactly_the_active_instances value id instance :
+ In (id,instance) (active_instances value) <->
+ lookup_instance id value = Some instance /\ instance_in_progress instance = true.
+Proof. apply ScopedRegistry.selected_entries_match_the_rows. Qed.
 
 Theorem completion_reports_all_paths_at_exits (i : execution) :
  complete i = true <->
