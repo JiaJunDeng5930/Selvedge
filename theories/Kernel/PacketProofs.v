@@ -128,10 +128,17 @@ Theorem journal_never_commits_an_unchanged_refusal same_image source before code
  field "durable" (snd (Packet.journal_packet same_image source before)) = Some (JBool false).
 Proof.
  intros Same Fits Refused. unfold Packet.journal_packet. rewrite Fits.
- unfold CommitPacket.journal_finalize, CommitPacket.select_journal, CommitPacket.needs_commit.
+ unfold CommitPacket.journal_finalize, CommitPacket.select_journal,
+   CommitPacket.journal_obligations, CommitPacket.needs_commit.
  rewrite Refused.
  cbn [State.reject State.decision_effects State.decision_world existsb orb].
- rewrite Same. cbn [negb].
+ rewrite Same.
+ assert (NoNotice : CommitPacket.recovery_receipt
+   (CommitPacket.selected_source (Packet.select source before))
+   (CommitPacket.selected_admitted (Packet.select source before)) (State.reject code reason before) = false).
+ { destruct (CommitPacket.selected_source (Packet.select source before)) as [input|];
+     [destruct input|]; reflexivity. }
+ rewrite NoNotice. cbn [negb orb].
  destruct (CommitPacket.selected_durable (Packet.select source before)).
  - unfold Delivery.deliver_with_status. destruct (Delivery.fits false _); split; reflexivity.
  - split; reflexivity.
@@ -156,11 +163,13 @@ Proof.
  assert (Unchanged : CommitPacket.select_journal same_image value
      (DeferredCommit.select false (Some (UserCommand command)) value (Decision value (observe None value) [])) =
      DeferredCommit.select false (Some (UserCommand command)) value (Decision value (observe None value) [])).
- { unfold CommitPacket.select_journal, CommitPacket.needs_commit, DeferredCommit.select,
+ { unfold CommitPacket.select_journal, CommitPacket.journal_obligations,
+     CommitPacket.needs_commit, DeferredCommit.select,
      CommitPacket.choose, DeferredCommit.admit_with_status, Delivery.deliver_with_status.
    destruct (Delivery.fits false (Dispatch.retain_live_effects (Decision value (observe None value) [])));
    cbn [Dispatch.retain_live_effects State.reject CommitPacket.selected_decision CommitPacket.selected_durable
-     CommitPacket.selected_admitted CommitPacket.selected_source snd fst decision_world decision_effects existsb orb];
+     CommitPacket.selected_admitted CommitPacket.selected_source CommitPacket.recovery_receipt
+     snd fst decision_world decision_effects existsb orb];
    rewrite Same; reflexivity. }
  rewrite Unchanged.
  apply DeferredCommitProofs.a_noncommitting_unchanged_candidate_has_no_effect; reflexivity.

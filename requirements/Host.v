@@ -76,6 +76,10 @@ Import ListNotations.
     state once. [tests/service.test.mjs] covers successful publication through
     the public service and event stream. *)
 
+(** A successful recovery with subscribers owns a durable notification even
+    when the recovered records already represent settled work. Journal replay
+    cannot assign a second identity to that same notification. *)
+
 From Selvedge.Programming Require CommitPacket.
 Export CommitPacket(journal_selection_retains_exactly_the_recovery_obligations,
   journal_transients_preserve_the_world_and_only_wake_the_scheduler,
