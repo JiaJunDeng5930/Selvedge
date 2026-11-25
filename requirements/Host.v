@@ -85,7 +85,7 @@ Export PacketProofs(journal_never_commits_an_unchanged_refusal,
     maintenance or clock transition. *)
 From Selvedge.Features Require Compaction TaskGraph.
 Export Compaction(equal_policy_adds_no_clock_or_cancellation).
-Export TaskGraph(after_transition_without_rules).
+Export TaskGraph(after_model_output_without_rules).
 
 From Selvedge.Adapters Require RpcProofs ApiProofs WebProofs.
 Export WebProofs(web_repeated_identity_has_no_write, web_completed_response_is_not_written_again,

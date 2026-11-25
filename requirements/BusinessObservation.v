@@ -14,7 +14,7 @@
     observed Task settings. Conversation activity keeps its occurrence identity
     when the browser groups it. *)
 
-From Stdlib Require Import String List NArith Lia.
+From Stdlib Require Import String List NArith PeanoNat Lia.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Foundation Require Numbers NumbersProofs Registry.
 From Selvedge.Generated Require Commands.
@@ -108,7 +108,8 @@ Proof.
    Publication.task_snapshot_in_world key selected value) _
    (State.world_tasks value) 0 id task Found).
  intros key selected.
- unfold Publication.task_snapshot_in_world, Publication.task_snapshot, Publication.task_summary.
+ unfold Publication.task_snapshot_in_world, Publication.task_snapshot_fields_in_world,
+   Publication.task_snapshot, Publication.task_snapshot_with_history, Publication.task_summary.
  destruct (Domain.task_busy selected);
    [|destruct (fold_left Publication.observe_history (Domain.task_history selected) ([],false))].
  all: apply NumbersProofs.natural_print_parse.
@@ -120,6 +121,15 @@ Proof.
  destruct value as [value|]; [|reflexivity].
  change (option_map (@Some N) (Numbers.parse_natural (Numbers.show_natural value)) = Some (Some value)).
  now rewrite NumbersProofs.natural_print_parse.
+Qed.
+
+Theorem local_publication_encodes_the_history_suffix id task before appended :
+ Domain.task_history task = (before ++ appended)%list ->
+ Publication.task_history_suffix id (List.length before) task =
+ Publication.history_json id appended.
+Proof.
+ intro History. unfold Publication.task_history_suffix.
+ now rewrite History, skipn_app, skipn_all, Nat.sub_diag.
 Qed.
 
 Lemma published_history_observes_context_and_failure history context failed :
@@ -139,7 +149,8 @@ Theorem task_snapshot_preserves_context_and_predicts_the_board_stage id task fea
  string_field "card_link_stage" snapshot = Some (Selvedge.Features.Domain.stage_name
    (BoardFacts.stage_after_task BoardFacts.initial_link_stage task)).
 Proof.
- unfold Publication.task_snapshot, Publication.task_summary, BoardFacts.stage_after_task, BoardFacts.busy_task.
+ unfold Publication.task_snapshot, Publication.task_snapshot_with_history,
+   Publication.task_summary, BoardFacts.stage_after_task, BoardFacts.busy_task.
  destruct (Domain.task_busy task).
  - split; reflexivity.
  - rewrite published_history_observes_context_and_failure. split; reflexivity.
@@ -149,7 +160,7 @@ Theorem task_snapshot_reports_a_settled_execution_failure id task features :
  bool_field "execution_failed" (Publication.task_snapshot id task features) =
  Some (if Domain.task_busy task then false else BoardFacts.latest_failure task).
 Proof.
- unfold Publication.task_snapshot, Publication.task_summary.
+ unfold Publication.task_snapshot, Publication.task_snapshot_with_history, Publication.task_summary.
  destruct (Domain.task_busy task).
  - reflexivity.
  - rewrite published_history_observes_context_and_failure. reflexivity.
@@ -205,7 +216,8 @@ Theorem browser_and_cli_read_the_same_task_summary request value task :
 Proof.
  cbn zeta. intros Found Page. eexists. split.
  - rewrite (published_task_is_selected_by_its_registry_id _ _ _ Found).
-   cbn [bind]. unfold Publication.task_snapshot_in_world, Publication.task_snapshot.
+   cbn [bind]. unfold Publication.task_snapshot_in_world, Publication.task_snapshot_fields_in_world,
+     Publication.task_snapshot, Publication.task_snapshot_with_history.
    destruct (Domain.task_busy task);
      [|destruct (fold_left Publication.observe_history (Domain.task_history task) ([],false))];
      apply published_task_summary_is_observable.

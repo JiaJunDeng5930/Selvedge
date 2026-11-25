@@ -23,12 +23,14 @@ export function presentNative(mode, state, world, environment, generation, ops) 
 
 function prepareSnapshot(state, world, environment) {
   // The app replaces state, world and physical environment snapshots as whole values.
+  // Installed world objects are immutable. Keep their identity across the native
+  // boundary so unchanged task records keep their admitted representation.
   // Publication receipts and native inputs vary independently of those snapshots.
   if (prepared && prepared.state === state) {
     return prepared.world === world && prepared.environment === environment
-      ? prepared.token : rebaseInteraction(structuredJson({ world, environment }), prepared.token, numberText);
+      ? prepared.token : rebaseInteraction(structuredJson({ environment }), world, prepared.token, numberText);
   }
-  return prepareInteraction(structuredJson({ state, world, environment }), numberText);
+  return prepareInteraction(structuredJson({ state, environment }), world, numberText);
 }
 
 export function interaction(operation, source = null) {

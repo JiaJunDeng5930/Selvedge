@@ -6,6 +6,9 @@ import path from 'node:path';
 import { Kernel, isKernelInputRejection } from './kernel.mjs';
 import { integer } from './codec.mjs';
 import { durableDirectory } from './control-records.mjs';
+import { applyProgramUpdates } from './public/program-updates.mjs';
+
+const retainedProgramUpdates = 16;
 
 const outcomes = new WeakMap();
 export const transactionOutcome = error => outcomes.get(error) ?? 'unknown';
@@ -78,6 +81,7 @@ export class Journal extends EventEmitter {
   #lock;
   #kernel;
   #tail = Promise.resolve();
+  #programUpdates = [];
   #failure;
   #closing = false;
 
@@ -190,8 +194,10 @@ export class Journal extends EventEmitter {
         return decision;
       }
       const sequence = this.sequence + 1;
+      let program;
       let committing = false;
       try {
+        program = applyProgramUpdates(this.program, [response.programUpdate]);
         this.#database.exec('BEGIN IMMEDIATE');
         const { shared, tasks } = response.storage;
         const writeTask = this.#database.prepare(`
@@ -208,8 +214,10 @@ export class Journal extends EventEmitter {
         this.#poison(error, committing ? 'unknown' : 'rejected');
         throw error;
       }
-      this.program = response.program;
+      this.program = program;
       this.sequence = sequence;
+      this.#programUpdates.push(response.programUpdate);
+      if (this.#programUpdates.length > retainedProgramUpdates) this.#programUpdates.shift();
       const committed = { sequence, program: this.program, ...response.value };
       this.#publish('commit', committed, browserRequest);
       return committed;
@@ -229,6 +237,14 @@ export class Journal extends EventEmitter {
 
   taskCreatedAt(taskId) {
     return this.#database.prepare('SELECT created_at FROM tasks WHERE id = ?').get(integer(taskId, 'task ID')).created_at;
+  }
+
+  programUpdates(after, through) {
+    if (!Number.isSafeInteger(after) || after > through || through > this.sequence) return undefined;
+    if (after === through) return [];
+    const base = this.sequence - this.#programUpdates.length;
+    if (after < base) return undefined;
+    return this.#programUpdates.slice(after - base, through - base);
   }
 
   assertEventCursor(after) {

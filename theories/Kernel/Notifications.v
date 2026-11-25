@@ -62,6 +62,7 @@ Fixpoint fork_birth_index (id : N) (history : list message) : option nat :=
    then Some O else option_map S (fork_birth_index id rest)
  end.
 Definition task_events (before : world) (id : N) (value : task) (after : world) :=
+ match contract_plugins (task_contract value) with [] => [] | _ :: _ =>
  let previous := find_task id before in
  let lifecycle := match previous with
  | None => task_event id value "task_created" None (Publication.task_summary id value (world_features after))
@@ -75,7 +76,7 @@ Definition task_events (before : world) (id : N) (value : task) (after : world) 
  let records := rev (Selvedge.Foundation.Registry.indexed (fun index message => (index,message)) start (skipn (N.to_nat start) (task_history value))) in
  let '(_,notices) := fold_left (fun state entry => let '(seen,events) := state in let '(index,message) := entry in
    let '(seen,added) := history_event id value index message seen in (seen,added ++ events)) records ([],[]) in
- lifecycle ++ notices.
+ lifecycle ++ notices end.
 Definition model_outcome_json (outcome : model_outcome) := match outcome with
  | ModelSuccess items => JObject [("ok",JBool true);("items",number (N.of_nat (List.length (ModelWire.batch_values items))))]
  | ModelFailure reason => JObject [("ok",JBool false);("error",JString reason)]

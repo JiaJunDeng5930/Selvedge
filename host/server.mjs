@@ -13,8 +13,13 @@ import { writeAtomic } from './files.mjs';
 import { saveBoardAttachment, readBoardAttachment } from './board-files.mjs';
 import { connectionCredentials, connectionAuthorized, connectionCommand } from './chatgpt-plugin.mjs';
 import { configurationFilename, readServiceConfiguration, changeServiceConfiguration } from './config.mjs';
+import { browserSequenceHeader } from './public/program-updates.mjs';
 
 const compressAsset = promisify(gzip);
+function browserSequence(request) {
+  const value = request.headers[browserSequenceHeader];
+  return typeof value === 'string' && /^(0|[1-9]\d*)$/.test(value) ? Number(value) : undefined;
+}
 
 async function publicAssets(directory, prefix = '') {
   const assets = new Map();
@@ -366,7 +371,7 @@ export async function startServer(options) {
           return;
         },
         browser_state: async () => {
-          const snapshot = service.browserSnapshot();
+          const snapshot = service.browserSnapshot(browserSequence(request));
           if (release) response.setHeader('x-selvedge-release', release.id);
           browserJson(request, response, 200, snapshot);
           return;
@@ -461,7 +466,7 @@ export async function startServer(options) {
           const requestId = request.headers['x-selvedge-browser-request-id'];
           // DEFENSE: The optional client marker belongs only to a single direct response.
           const browserRequest = typeof requestId === 'string' && /^[0-9a-f]{32}$/.test(requestId) ? requestId : undefined;
-          const result = await service.browserCommand(command, browserRequest);
+          const result = await service.browserCommand(command, browserRequest, browserSequence(request));
           browserJson(request, response, httpReplyStatus(boundary('http.reply_status', { reply: result.reply })), result);
           return;
         },

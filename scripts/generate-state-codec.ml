@@ -214,8 +214,23 @@ let () =
     emit "read" "reader" read_body;
     emit "same" "left right" same_body;
     Printf.fprintf output "let same_world = %s\nlet same_task = %s\n" (comparison root) (comparison task);
+    let features = List.assoc "world_features" fields in
+    let feature_owner, feature_fields = world_fields features nodes in
+    Printf.fprintf output "let same_publication_dependencies left right = %s\n"
+      (conjunction (List.map (fun name ->
+        let field = qualified owner "world_features" ^ "." ^ qualified feature_owner name in
+        comparison (List.assoc name feature_fields) ^ " left." ^ field ^ " right." ^ field)
+        ["feature_titles"; "feature_task_owners"]));
     Printf.fprintf output "let tasks value = value.%s\nlet sequence value = value.%s\n"
       (qualified owner "world_tasks") (qualified owner "world_sequence");
+    List.iter (fun (function_name, name) ->
+      let field = qualified owner name in
+      Printf.fprintf output "let %s left right = %s left.%s right.%s\n"
+        function_name (comparison (List.assoc name fields)) field field)
+      ["same_environment", "world_environment"; "same_projects", "world_projects"];
+    let task_owner, _ = world_fields task nodes in
+    Printf.fprintf output "let task_lineage value = value.%s\n" (qualified task_owner "task_lineage");
+    Printf.fprintf output "let task_history value = value.%s\n" (qualified task_owner "task_history");
     Printf.fprintf output "let same_shared left right = %s\n"
       (conjunction (List.map (fun (name, item) ->
         let field = qualified owner name in comparison item ^ " left." ^ field ^ " right." ^ field) shared));

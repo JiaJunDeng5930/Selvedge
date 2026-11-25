@@ -32,7 +32,7 @@ parentPort.on('message', ({ input, operation }) => {
     // The journal already owns the projection of this immutable world handle.
     if (world === projectedWorld) parentPort.postMessage(receipt);
     else {
-      parentPort.postMessage({ ...receipt, programText: model.observe(world) });
+      parentPort.postMessage({ ...receipt, programUpdate: model.observePatch(projectedWorld, world, output.changedTasks) });
       projectedWorld = world;
     }
   // DEFENSE: Extracted transitions can throw OCaml exception arrays; they must be failures even without a JavaScript message.

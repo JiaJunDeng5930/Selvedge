@@ -15,8 +15,14 @@ a read-only view, then loads the final records after acquiring the writer lock.
 
 `server.mjs` and `cli.mjs` expose the service. Browser snapshots use domain JSON
 at `/api/browser/state`; commands use `/api/browser/command`, and observations
-arrive through `/api/events`. Domain JSON is independent of Gallina, OCaml and
-JavaScript runtime object layouts. Pure adapter decisions are called through
+arrive through `/api/events`. A connected browser sends
+`x-selvedge-browser-sequence` with its installed commit. A retained range is
+returned as `after` and consecutive `updates` through `sequence`. Each update
+carries changed task facts, newly appended messages, any changed cross-task
+reference fields, and applicable shared fields. The service publishes them after SQLite
+commits. Opening a session or recovering a gap reads a complete projection.
+Domain JSON is independent of Gallina, OCaml and JavaScript runtime object
+layouts. Pure adapter decisions are called through
 `public/model-boundary.mjs` and come from the same extracted definitions as
 their Rocq proofs.
 

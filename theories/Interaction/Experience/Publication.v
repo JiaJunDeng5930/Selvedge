@@ -37,7 +37,10 @@ Definition experience_settings_json (value : task_settings) :=
       ("realtime_context", RealtimeContext.sources_json (settings_realtime_context value))])
   | value => value
   end.
-Definition task_summary (id : N) (value : task) (features : Selvedge.Features.Domain.state) := JObject [
+Definition task_label_fields id value features := [
+ ("work_id", optional_number (task_owner id value features));
+ ("title", JString (Features.task_title id value features))].
+Definition task_summary (id : N) (value : task) (features : Selvedge.Features.Domain.state) := JObject ([
  ("id", number id); ("parent", optional_number (hd_error (task_lineage value)));
  ("side_parent", optional_number (task_side_parent value));
  ("profile", JString (profile_key (task_current_profile value)));
@@ -54,16 +57,16 @@ Definition task_summary (id : N) (value : task) (features : Selvedge.Features.Do
  ("settings", experience_settings_json (task_current_settings value));
  ("max_fork", number (contract_max_fork (task_contract value)));
  ("max_descendants", number (contract_max_descendants (task_contract value)));
- ("work_id", optional_number (task_owner id value features));
- ("title", JString (Selvedge.Features.Observation.task_title id value features));
  ("control", JString (task_status value)); ("working", JBool (task_busy value));
  ("awaitingHuman", JBool (awaiting_human value));
  ("pendingMessages", number (N.of_nat (List.length (task_queued value))));
- ("statusLabel", JString (status_label value))].
+ ("statusLabel", JString (status_label value))] ++ task_label_fields id value features).
 Definition observe_history (facts : list ContextTypes.snapshot * bool) (event : message) :=
  let '(bindings,failed):=facts in
  (ContextUpdates.update_bindings bindings event, BoardFacts.observe_failure failed event).
-Definition task_snapshot (id : N) (value : task) (features : Selvedge.Features.Domain.state) :=
+Definition history_json id history := JArray (map (conversation_message_json id) history).
+Definition task_snapshot_with_history (include_history : bool)
+ (id : N) (value : task) (features : Selvedge.Features.Domain.state) :=
  match task_summary id value features with
  | JObject fields =>
  let history:=task_history value in
@@ -76,15 +79,16 @@ Definition task_snapshot (id : N) (value : task) (features : Selvedge.Features.D
  ("lineage", JArray (map number (task_lineage value)));
  ("queued_messages", JArray (map content_json (task_queued value)));
  ("guidance",Guidance.json (settings_guidance (task_current_settings value)));
- ("history", JArray (map (conversation_message_json id) history));
  ("context", JArray (map Context.snapshot_json context));
  ("execution_failed", JBool failed);
  ("card_link_stage", JString (Selvedge.Features.Domain.stage_name
    (BoardFacts.stage_after_execution BoardFacts.initial_link_stage busy (fun _=>failed))));
  ("model_pending", match task_activity value with AskingModel ticket callable mode =>
   JObject [("operation_id",number ticket);("ticket",number ticket);("mode",JString (output_mode_name mode));("callable",JArray (map JString callable))]
- | _ => JNull end)])
+ | _ => JNull end)] ++
+ if include_history then [("history", history_json id history)] else [])
  | value => value end.
+Definition task_snapshot := task_snapshot_with_history true.
 Definition project_task_count (id : N) (tasks : list task) :=
  N.of_nat (ListCount.count (fun task => match settings_project (task_current_settings task) with
  | Some selected => N.eqb selected id | None => false end) tasks).
@@ -104,9 +108,15 @@ Definition fork_observation (id:N)(task:task)(value:world):json:=JObject[
  ("capacities",JArray(map(fun ancestor=>match Tasks.ancestor_capacity value ancestor with
   |None=>JNull|Some(descendants,limit)=>JObject[("descendants",number descendants);("limit",number limit)]end)
   (id::task_lineage task)))].
-Definition task_snapshot_in_world id task value:=
- match task_snapshot id task(world_features value)with
+Definition task_snapshot_fields_in_world include_history id task value :=
+ match task_snapshot_with_history include_history id task (world_features value) with
  |JObject fields=>JObject(fields++[("fork",fork_observation id task value)])|result=>result end.
+Definition task_snapshot_in_world := task_snapshot_fields_in_world true.
+Definition task_publication := task_snapshot_fields_in_world false.
+Definition task_history_suffix id cursor task := history_json id (skipn cursor (task_history task)).
+
+Definition task_publication_references id task value :=
+ JObject (task_label_fields id task (world_features value) ++ [("fork", fork_observation id task value)]).
 (* Keep image bytes on the shared display catalog. Task contracts and provider
    requests carry the ordinary tool metadata. *)
 Definition display_tool_json tool :=
@@ -141,16 +151,17 @@ Theorem card_save_facts_ignore_journal_cursor value cursor :
  card_save_facts (with_sequence cursor value) = card_save_facts value.
 Proof. destruct value; reflexivity. Qed.
 
-Definition world_json (value : world) :=
- let features := world_features value in JObject [
+Definition catalog_publication_fields (value : world) := [
+ ("defaults", JObject [("settings",experience_settings_json (Tasks.creation_defaults (world_environment value)))]);
+ ("profiles", JArray (map profile_json (environment_profiles (world_environment value))));
+ ("tools", JArray (map display_tool_json (environment_tools (world_environment value))))].
+Definition project_publication_fields (value : world) := [
+ ("projects", JArray (projects_json (world_projects value) (world_tasks value)))].
+Definition live_publication_fields (value : world) :=
+ let features := world_features value in [
  ("sequence", number (world_sequence value));
  ("compaction",Selvedge.Features.CompactionCodec.state_json (fun id => find_task id value) (Selvedge.Features.Domain.feature_compaction features));
  ("title_settings", Selvedge.Features.Observation.title_settings_json (Selvedge.Features.Domain.feature_title_settings features));
- ("defaults", JObject [("settings",experience_settings_json (Tasks.creation_defaults (world_environment value)))]);
- ("tasks", JArray (indexed (fun id task => task_snapshot_in_world id task value) 0 (world_tasks value)));
- ("profiles", JArray (map profile_json (environment_profiles (world_environment value))));
- ("tools", JArray (map display_tool_json (environment_tools (world_environment value))));
- ("projects", JArray (projects_json (world_projects value) (world_tasks value)));
  ("works", JArray (indexed Features.work_json 0 (Selvedge.Features.Domain.feature_works features)));
  ("graphs", JArray (Features.present_values graph_snapshot (Selvedge.Features.Domain.feature_graphs features)));
  ("board", Selvedge.Features.Observation.board_json_in_world value);
@@ -160,3 +171,14 @@ Definition world_json (value : world) :=
  ("ticket_workflows", Workflow.ticket_bindings_json value);
  ("worktrees", JArray (map Features.worktree_json (Selvedge.Features.Domain.feature_worktrees features)));
  ("remote", Features.remote_json (Selvedge.Features.Domain.feature_remote features))].
+
+Definition shared_publication_fields (catalog_changed projects_changed : bool) value :=
+ live_publication_fields value
+ ++ (if catalog_changed then catalog_publication_fields value else [])
+ ++ (if projects_changed then project_publication_fields value else []).
+Definition shared_publication catalog_changed projects_changed value :=
+ JObject (shared_publication_fields catalog_changed projects_changed value).
+Definition publication_project task := settings_project (task_current_settings task).
+Definition world_json (value : world) :=
+ JObject (("tasks", JArray (indexed (fun id task => task_snapshot_in_world id task value) 0 (world_tasks value)))
+   :: shared_publication_fields true true value).

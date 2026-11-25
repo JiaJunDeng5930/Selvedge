@@ -45,11 +45,15 @@ module Make (M : Model) = struct
     | Some (M.JNumber _ as number) -> number
     | _ -> raise_input_exn "TypeError" "Invalid domain JSON input"
 
-  let rec of_js_at_exn nesting value ~number_text =
-    let child_nesting = match M.selvedge_consume_input_nesting nesting with
-      | Some remaining -> remaining
-      (* DEFENSE: Public structured callers can supply a value deeper than the admitted input budget. *)
-      | None -> raise_input_exn "RangeError" M.selvedge_input_nesting_error in
+  let input_child nesting =
+    match M.selvedge_consume_input_nesting nesting with
+    | Some remaining -> remaining
+    (* DEFENSE: Public structured callers can supply a value deeper than the admitted input budget. *)
+    | None -> raise_input_exn "RangeError" M.selvedge_input_nesting_error
+
+  let rec of_js_at_exn nesting value ~number_text ~object_cache =
+    let child_nesting = input_child nesting in
+    let child item = of_js_at_exn child_nesting item ~number_text ~object_cache in
     let module Js = Js_of_ocaml.Js in
     match Js.to_string (Js.typeof value) with
     | "string" -> M.JString (string_of_js_exn (Js.Unsafe.coerce value))
@@ -61,22 +65,39 @@ module Make (M : Model) = struct
     | "object" ->
       if Js.Unsafe.strict_equals value Js.null then M.JNull
       else
-        (match Js.Optdef.to_option (number_text value) with
+        object_cache nesting value (fun () ->
+         match Js.Optdef.to_option (number_text value) with
          | Some text -> number_of_text_exn text
          | None ->
            if Js.to_bool (Js.Unsafe.fun_call
                (Js.Unsafe.pure_js_expr "Array.isArray") [| value |]) then
              M.JArray (Array.fold_right (fun item items ->
-               of_js_at_exn child_nesting item ~number_text :: items)
+               child item :: items)
                (Js.to_array (Js.Unsafe.coerce value)) [])
            else
              M.JObject (Array.fold_right (fun key fields ->
                let name = string_of_js_exn key in
-               (name, of_js_at_exn child_nesting (Js.Unsafe.get value key) ~number_text) :: fields)
+               (name, child (Js.Unsafe.get value key)) :: fields)
                (Js.to_array (Js.object_keys (Js.Unsafe.coerce value))) []))
     (* DEFENSE: Public structured calls can contain undefined, functions or
        symbols; none is a JSON value after the shared codec canonicalizes it. *)
     | _ -> raise_input_exn "TypeError" "Invalid domain JSON input"
   let of_js_exn value ~number_text =
-    of_js_at_exn M.selvedge_input_nesting value ~number_text
+    of_js_at_exn M.selvedge_input_nesting value ~number_text ~object_cache:(fun _ _ read -> read ())
+
+  (* An immutable JSON object can retain its decoded form at the same depth.
+     Bind the cache to one input family and one numeric interpretation. *)
+  let immutable_field_decoder () =
+    let module Js = Js_of_ocaml.Js in
+    let table = Js.Unsafe.new_obj (Js.Unsafe.pure_js_expr "WeakMap") [||] in
+    let object_cache nesting value read =
+      let remaining = Big_int_Z.int_of_big_int nesting in
+      match Js.Optdef.to_option (Js.Unsafe.meth_call table "get" [| value |]) with
+      | Some (depth, cached) when depth = remaining -> cached
+      | _ ->
+          let decoded = read () in
+          ignore (Js.Unsafe.meth_call table "set" [| value; Js.Unsafe.inject (remaining, decoded) |]);
+          decoded in
+    fun value ~number_text ->
+      of_js_at_exn (input_child M.selvedge_input_nesting) value ~number_text ~object_cache
 end

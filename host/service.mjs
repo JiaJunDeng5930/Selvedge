@@ -85,7 +85,7 @@ export class Service extends EventEmitter {
   #catalogRefreshes = new Map();
   #sharedMcp = new Map();
   #closePromise;
-  #streams = [];
+  #streams = new Map();
   #toolActivity = new Set();
   #audioSessions = new Map();
 
@@ -207,7 +207,11 @@ export class Service extends EventEmitter {
   }
 
   #publishStreamNotice(event) {
-    this.#streams = boundary('browser.host_stream_step', { state: this.#streams, notice: event }).state;
+    const key = `${naturalKey(event.task_id)}:${naturalKey(event.ticket)}`;
+    const current = this.#streams.get(key);
+    const { state } = boundary('browser.host_stream_step', { state: current ? [current] : [], notice: event });
+    if (state.length) this.#streams.set(key, state[0]);
+    else this.#streams.delete(key);
     this.notify(event);
   }
 
@@ -1109,15 +1113,26 @@ export class Service extends EventEmitter {
       execution_environments: this.executionEnvironments.choices() };
   }
 
-  browserSnapshot() {
+  #browserPublication(program, sequence, after) {
+    const updates = this.journal.programUpdates(after, sequence);
+    const publication = { namespace: this.journal.namespace, sequence };
+    if (updates === undefined) return { ...publication, program: this.#browserProgram(program) };
+    if (updates.length) {
+      const latest = updates.at(-1);
+      updates[updates.length - 1] = { ...latest, shared: this.#browserProgram(latest.shared) };
+    }
+    return { ...publication, after, updates };
+  }
+
+  browserSnapshot(after) {
     // DEFENSE: A browser/relay request may reach snapshot delivery after shutdown or a fatal journal failure.
     if (this.#failure) throw this.#failure;
     if (this.#closing) throw new Error('Service is stopping');
-    return { namespace: this.journal.namespace, sequence: this.journal.sequence, program: this.#browserProgram(this.journal.program) };
+    return this.#browserPublication(this.journal.program, this.journal.sequence, after);
   }
 
   browserStreams() {
-    return structuredClone(this.#streams).map(stream => ({ ...stream, namespace: this.journal.namespace }));
+    return structuredClone([...this.#streams.values()]).map(stream => ({ ...stream, namespace: this.journal.namespace }));
   }
 
   browserToolActivity() {
@@ -1129,9 +1144,9 @@ export class Service extends EventEmitter {
     return active.map(activity => this.#toolActivitySnapshot(activity, previewLimit));
   }
 
-  async browserCommand(command, browserRequest) {
+  async browserCommand(command, browserRequest, after) {
     const result = await this.command(command, browserRequest);
-    return { namespace: this.journal.namespace, sequence: result.sequence, program: this.#browserProgram(result.program),
+    return { ...this.#browserPublication(result.program, result.sequence, after),
       reply: browserHistoryReply(command, result) };
   }
 

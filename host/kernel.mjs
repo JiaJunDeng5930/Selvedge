@@ -29,12 +29,19 @@ export class Kernel {
         return;
       }
       try {
-        const { text, programText, reconcileRemote, storage } = message;
+        const { text, programText, programUpdate, reconcileRemote, storage } = message;
         if (text === undefined) pending.resolve({ program: parseJson(programText), storage });
         else {
           const value = parseJson(text);
           if (reconcileRemote) value.reconcileRemote = true;
-          pending.resolve({ value, storage, ...(programText === undefined ? {} : { program: parseJson(programText) }) });
+          const update = programUpdate === undefined ? undefined : {
+            shared: parseJson(programUpdate.shared),
+            tasks: programUpdate.tasks.map(({ id, text, appended }) => ({
+              id, value: parseJson(text), appended: parseJson(appended),
+            })),
+            references: programUpdate.references.map(({ id, text }) => ({ id, value: parseJson(text) })),
+          };
+          pending.resolve({ value, storage, programUpdate: update });
         }
       // DEFENSE: An invalid Worker result cannot establish the state of its already executed transition.
       } catch (error) { pending.reject(error); this.#fail(error); }

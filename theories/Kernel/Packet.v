@@ -20,6 +20,11 @@ Import ListNotations.
 Open Scope string_scope.
 Definition initial := State.initial.
 Definition world_json := Publication.world_json.
+Definition shared_publication := Publication.shared_publication.
+Definition task_publication := Publication.task_publication.
+Definition task_history_suffix := Publication.task_history_suffix.
+Definition task_publication_references := Publication.task_publication_references.
+Definition publication_project := Publication.publication_project.
 Definition remote_reconciliation_needed := Notifications.remote_reconciliation_needed.
 Definition query := CommandHandlers.query.
 Definition command_schedules (command : Selvedge.Generated.Commands.command) (result : decision) :=
@@ -90,7 +95,7 @@ Definition core_transition (source : Inputs.input) (value : world) :=
  | ConfigureCatalog environment policy => snd (configure_catalog environment policy value)
  | ContextCompleted id ticket observations diagnostic => Selvedge.Features.Runtime.after_context_transition value (Some (id,ticket))
    (Callbacks.context_completed id ticket observations diagnostic value)
- | ModelCompleted id ticket outcome => Selvedge.Features.Runtime.after_transition value (Callbacks.model_completed id ticket outcome value)
+ | ModelCompleted id ticket outcome => Selvedge.Features.Runtime.after_model_transition value id (Callbacks.model_completed id ticket outcome value)
  | ReasoningCompleted id ticket outcome => Selvedge.Features.Runtime.after_transition value (Callbacks.reasoning_completed id ticket outcome value)
  | ToolCompleted id ticket result error => Selvedge.Features.Runtime.after_transition value (Callbacks.tool_completed id ticket result error value)
  | HookCompleted id ticket outcome => Selvedge.Features.Runtime.after_transition value (HookCallbacks.hook_completed id ticket outcome value)

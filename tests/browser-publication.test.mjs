@@ -4,7 +4,7 @@ import { browserFixture } from './fixtures/browser.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
 import { events } from '../host/network.mjs';
 import { startServer } from '../host/server.mjs';
-import { home } from './support.mjs';
+import { home, taskIdle } from './support.mjs';
 
 test('the board follows other commits and recovers an acknowledged write when its HTTP receipt is lost or stalled', async t => {
   const { page, command } = await browserFixture(t);
@@ -112,4 +112,77 @@ test('a browser command marker identifies just its own durable commit', async t 
     controller.abort();
     await reader.return().catch(error => { if (error.name !== 'AbortError') throw error; });
   }
+});
+
+test('a local browser command publishes the changed task without unrelated conversation history', async t => {
+  const directory = await home(t);
+  const config = validateConfig({ ...defaultConfig, chatgpt: false, port: 0,
+    profiles: { fixture: { provider: 'echo', model: 'fixture' } } });
+  const running = await startServer({ home: directory, cwd: directory, config });
+  t.after(() => running.close());
+  const { service } = running;
+  const selected = await service.command({ op: 'create_idle', profile: 'fixture' });
+  assert.equal(selected.reply.ok, true);
+  const taskId = Number(selected.reply.result.task_id);
+  const cookie = (await fetch(running.url)).headers.get('set-cookie').split(';')[0];
+  const headers = { cookie, origin: running.address };
+  const state = async () => (await fetch(`${running.address}/api/browser/state`, { headers })).json();
+
+  async function submit(command, sequence) {
+    const response = await fetch(`${running.address}/api/browser/command`, {
+      method: 'POST', headers: { ...headers, 'content-type': 'application/json',
+        'x-selvedge-browser-sequence': String(sequence) },
+      body: JSON.stringify({ command }),
+    });
+    const text = await response.text();
+    const receipt = JSON.parse(text);
+    assert.equal(receipt.reply.ok, true, text);
+    assert.equal(receipt.after, sequence);
+    return { text, receipt };
+  }
+
+  async function freezeAtCurrentSequence() {
+    const snapshot = await state();
+    const { text, receipt } = await submit({ op: 'freeze', task_id: taskId }, snapshot.sequence);
+    const tasks = receipt.updates.flatMap(update => update.tasks);
+    assert.deepEqual(tasks.map(task => task.id), [taskId]);
+    assert.equal(tasks[0].value.status, 'frozen');
+    assert.equal((await state()).program.tasks[taskId].status, 'frozen');
+    return text.length;
+  }
+
+  const small = await freezeAtCurrentSequence();
+  assert.equal((await service.command({ op: 'unfreeze', task_id: taskId })).reply.ok, true);
+  const message = 'UNRELATED CONVERSATION HISTORY '.repeat(500);
+  const unrelated = await service.command({ op: 'create', profile: 'fixture', message });
+  assert.equal(unrelated.reply.ok, true);
+  await taskIdle(service, unrelated.reply.result.task_id);
+  assert.ok(JSON.stringify((await state()).program.tasks[1].history).includes(message));
+  const large = await freezeAtCurrentSequence();
+  assert.ok(large - small < message.length, 'The receipt must not copy even one copy of the unrelated message');
+
+  assert.equal((await service.command({ op: 'unfreeze', task_id: taskId })).reply.ok, true);
+  const old = 'Earlier selected conversation message '.repeat(120);
+  assert.equal((await service.command({ op: 'send', task_id: taskId, message: old })).reply.ok, true);
+  await taskIdle(service, taskId);
+  const settled = await state();
+  assert.ok(JSON.stringify(settled.program.tasks[taskId].history).includes(old));
+  const current = 'New selected conversation message';
+  const { text, receipt } = await submit({ op: 'send', task_id: taskId, message: current }, settled.sequence);
+  assert.ok(!text.includes(old));
+  assert.ok(receipt.updates.some(update => update.tasks.some(row =>
+    row.id === taskId && JSON.stringify(row.appended).includes(current))));
+
+  await taskIdle(service, taskId);
+  const firstFork = await service.command({ op: 'fork', task_id: taskId, child_count: 1 });
+  assert.equal(firstFork.reply.ok, true, JSON.stringify(firstFork.reply));
+  const firstChild = Number(firstFork.reply.result.children[0]);
+  await Promise.all([taskIdle(service, taskId), taskIdle(service, firstChild)]);
+  const beforeSibling = await state();
+  const priorCapacity = beforeSibling.program.tasks[firstChild].fork.capacities[1];
+  const { receipt: nextFork } = await submit({ op: 'fork', task_id: taskId, child_count: 1 },
+    beforeSibling.sequence);
+  const notices = nextFork.updates.flatMap(update => update.references).filter(row => row.id === firstChild);
+  assert.equal(notices.at(-1)?.value.fork.capacities[1].descendants, priorCapacity.descendants + 1,
+    'A new sibling updates the shared ancestor capacity of an existing child');
 });

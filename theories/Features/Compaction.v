@@ -544,12 +544,31 @@ Definition arm_clock : DecisionComposition.step := fun value _ =>
  if N.eqb deadline 0 || N.eqb deadline (maintenance_timer state) then DecisionComposition.unchanged value
  else DecisionComposition.Update (store (set maintenance_timer (fun _ => deadline) state) value)
    [Selvedge.Kernel.State.MaintainContext (ArmClock deadline)].
+Fixpoint insert_maintenance_owner (owner : N) (identities : list N) :=
+ match identities with
+ | [] => [owner]
+ | id :: rest => match N.compare owner id with
+   | Eq => identities | Lt => owner :: identities
+   | Gt => id :: insert_maintenance_owner owner rest end
+ end.
+Definition maintenance_candidates (value : Selvedge.Kernel.State.world) :=
+ let state := registry value in
+ if policy_enabled (maintenance_policy state) &&
+    match policy_targets (maintenance_policy state) with [] => false | _ => true end
+ then Selvedge.Foundation.Registry.indexed (fun id _ => id) 0 (Selvedge.Kernel.State.world_tasks value)
+ else fold_right (fun entry => insert_maintenance_owner (fst entry)) [] (maintenance_entries state).
 Definition synchronize_all : DecisionComposition.step := fun value effects =>
- let identities := map fst (Selvedge.Foundation.Registry.indexed (fun id task => (id,task)) 0 (Selvedge.Kernel.State.world_tasks value)) in
+ let identities := maintenance_candidates value in
  DecisionComposition.and_then (DecisionComposition.each identities synchronize_task) arm_clock value effects.
+Definition maintenance_observers (completed : option (N * N)) (effects : list Selvedge.Kernel.State.effect) :=
+ fold_right (fun effect owners => match effect with
+   | Selvedge.Kernel.State.CancelTask id | Selvedge.Kernel.State.CancelTicket id _ =>
+       insert_maintenance_owner id owners
+   | _ => owners end)
+  (match completed with Some (id,_) => [id] | None => [] end) effects.
 Definition after_transition (before : Selvedge.Kernel.State.world) (completed : option (N * N))
  : DecisionComposition.step := fun value effects =>
- let identities := map fst (Selvedge.Foundation.Registry.indexed (fun id task => (id,task)) 0 (Selvedge.Kernel.State.world_tasks value)) in
+ let identities := maintenance_observers completed effects in
  DecisionComposition.and_then (DecisionComposition.each identities (observe_transition before completed)) synchronize_all value effects.
 Definition recover (value : Selvedge.Kernel.State.world) :=
  let state := registry value in

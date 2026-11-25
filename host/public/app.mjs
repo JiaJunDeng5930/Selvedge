@@ -4,6 +4,7 @@ import { JsonNumber, parseJson, stringifyJson } from './json-tokens.mjs';
 import { Presentation, appendPhysicalChild, filesFromEvent } from './native-dom.mjs';
 import { editorKeyboard, applyByteSelection, selectingRadioGroup, radioTabTargets } from './keyboard.mjs';
 import { observeConnection } from './connection.mjs';
+import { applyProgramUpdates, browserSequenceHeader } from './program-updates.mjs';
 import { AudioRuntime } from './audio.mjs';
 import { ChatGPTLogin } from './chatgpt-login.mjs';
 import { InteractiveSnapshotStorage } from './interactive-storage.mjs';
@@ -191,6 +192,8 @@ async function request(url, options = {}, binary = false) {
 }
 const post = (url, value, signal, headers) => request(url, { method: 'POST', signal,
   headers: { 'content-type': 'application/json', ...headers }, body: stringifyJson(value) });
+const browserSequenceHeaders = () => world === null
+  ? undefined : { [browserSequenceHeader]: String(integral(publication.sequence)) };
 
 async function requestCommand(command, signal, returnsCommit = false) {
   const expected = publication.namespace;
@@ -200,11 +203,12 @@ async function requestCommand(command, signal, returnsCommit = false) {
   try {
     let body;
     try {
-      const headers = receipt ? { 'x-selvedge-browser-request-id': requestId } : undefined;
+      const headers = { ...browserSequenceHeaders(), ...(receipt ? { 'x-selvedge-browser-request-id': requestId } : {}) };
       body = await post('/api/browser/command', { command }, signal, headers);
     } catch (error) {
       // DEFENSE: A rejected committed command still returns its authoritative world and reply with a non-2xx status.
-      if (error.body && Object.hasOwn(error.body, 'program') && Object.hasOwn(error.body, 'reply')) body = error.body;
+      if (error.body && (Object.hasOwn(error.body, 'program') || Object.hasOwn(error.body, 'updates'))
+          && Object.hasOwn(error.body, 'reply')) body = error.body;
       else throw error;
     }
     if (!publicationEvent('completion', { expected_namespace: expected, incoming_namespace: body.namespace })) return;
@@ -247,7 +251,8 @@ function snapshot(body, expected = publication.namespace, authenticating = false
   if (!receipt.install_world) return true;
   const firstSnapshot = world === null;
   if (body.namespace !== publication.namespace) retireDocumentViews();
-  world = body.program;
+  world = body.updates === undefined ? body.program : applyProgramUpdates(world,
+    body.updates.slice(Number(integral(publication.sequence) - integral(body.after))));
   publication = publicationEvent('observe', { observed_namespace: body.namespace, observed_sequence: body.sequence });
   if (firstSnapshot) restoreUpdateSession();
   dispatch({ type: 'snapshot' });
@@ -1346,7 +1351,8 @@ async function authenticate(effect) {
     // A journal namespace change ends the old subscription; the authenticated
     // connection observes a fresh snapshot and binds the new namespace.
     while (!disposed && connection === controller && !controller.signal.aborted) await observeConnection({
-      request: (url, signal) => request(url, { signal: AbortSignal.any([signal, readDeadline()]) }),
+      request: (url, signal, initial) => request(url, { signal: AbortSignal.any([signal, readDeadline()]),
+        headers: initial ? undefined : browserSequenceHeaders() }),
       fetchEvents: (url, signal) => fetch(url, { signal, credentials: 'same-origin' }),
       signal: controller.signal, ownership: requestScope,
       sequence: () => publication.sequence instanceof JsonNumber ? publication.sequence.source : publication.sequence,

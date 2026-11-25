@@ -10,8 +10,17 @@ let retain context : Js.Unsafe.any =
 let structured source number_text =
   Json.of_js_exn source ~number_text:(fun value -> Js.Unsafe.fun_call number_text [| value |])
 
-let prepare source number_text =
-  Js.Opt.option (Option.map retain (Model.selvedge_interaction_prepare (structured source number_text)))
+let snapshot_world = Json.immutable_field_decoder ()
+
+let snapshot_request source world number_text =
+  match structured source number_text with
+  | Model.JObject fields ->
+      let snapshot = snapshot_world world ~number_text:(fun value -> Js.Unsafe.fun_call number_text [| value |]) in
+      Model.JObject (("world", snapshot) :: fields)
+  | other -> other
+
+let prepare source world number_text =
+  Js.Opt.option (Option.map retain (Model.selvedge_interaction_prepare (snapshot_request source world number_text)))
 
 let context_for token =
   match Js.Optdef.to_option (Js.Unsafe.meth_call contexts "get" [| Js.Unsafe.inject token |]) with
@@ -19,10 +28,10 @@ let context_for token =
   | None -> Json.raise_input_exn "TypeError" "Invalid prepared interaction context"
   | Some context -> context
 
-let rebase source token number_text =
+let rebase source world token number_text =
   let context = context_for token in
   Js.Opt.option (Option.map retain
-    (Model.selvedge_interaction_rebase (structured source number_text) context))
+    (Model.selvedge_interaction_rebase (snapshot_request source world number_text) context))
 
 let prepared_call operation source token number_text number =
   let context = context_for token in
