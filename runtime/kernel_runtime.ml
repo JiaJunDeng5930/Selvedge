@@ -168,7 +168,12 @@ let observe_patch before next changes =
     let context_changed = born || match change.history with
       | Some (_, messages) -> Model.selvedge_kernel_history_changes_bindings messages
       | None -> false in
-    let project = Model.selvedge_kernel_task_publication born context_changed (born || fork_changed change.id change.task) in
+    let history_facts_changed = match change.previous, change.history with
+      | None, _ | _, Some _ -> true
+      | Some previous, None ->
+          Model.selvedge_kernel_task_publication_busy previous <> Model.selvedge_kernel_task_publication_busy change.task in
+    let project = Model.selvedge_kernel_task_publication born context_changed history_facts_changed
+      (born || fork_changed change.id change.task) in
     let result = row change.id (observe_row project change.id change.task next) in
     let appended = match change.history with
       | None -> "[]"

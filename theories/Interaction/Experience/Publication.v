@@ -11,6 +11,7 @@ Module Features := Selvedge.Features.Observation.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
+Open Scope bool_scope.
 
 (** Public commands, events and the browser snapshot use the same Task and
     Project facts. The snapshot includes the detail needed to read them locally. *)
@@ -44,7 +45,7 @@ Definition task_label_fields id value features := [
 Definition named_titles value :=
  map (fun item => (Selvedge.Features.Domain.title_task item,Features.named_title_entry item))
    (Selvedge.Features.Domain.feature_titles (world_features value)).
-Definition task_summary (id : N) (value : task) (features : Selvedge.Features.Domain.state) := JObject ([
+Definition task_summary_with_cursor (include_cursor : bool) (id : N) (value : task) (features : Selvedge.Features.Domain.state) := JObject ([
  ("id", number id); ("parent", optional_number (hd_error (task_lineage value)));
  ("side_parent", optional_number (task_side_parent value));
  ("profile", JString (profile_key (task_current_profile value)));
@@ -53,9 +54,9 @@ Definition task_summary (id : N) (value : task) (features : Selvedge.Features.Do
  ("model", JString (profile_model (task_current_profile value)));
  ("reasoning", JString (profile_reasoning (task_current_profile value)));
  ("status", JString (task_status value)); ("status_label", JString (status_label value)); ("controls", JArray (Tasks.available_controls (task_lifecycle value)));
- ("phase", JString (Domain.activity_name (task_activity value)));
- ("cursor", number (N.of_nat (List.length (task_history value))));
- ("queued", number (N.of_nat (List.length (task_queued value))));
+ ("phase", JString (Domain.activity_name (task_activity value)))] ++
+ (if include_cursor then [("cursor", number (N.of_nat (List.length (task_history value))))] else []) ++
+ [("queued", number (N.of_nat (List.length (task_queued value))));
  ("operations", JArray (map (operation_summary (task_current_settings value)) (task_operations value)));
  ("plugins", JArray (contract_plugins (task_contract value)));
  ("settings", experience_settings_json (task_current_settings value));
@@ -65,37 +66,39 @@ Definition task_summary (id : N) (value : task) (features : Selvedge.Features.Do
  ("awaitingHuman", JBool (awaiting_human value));
  ("pendingMessages", number (N.of_nat (List.length (task_queued value))));
  ("statusLabel", JString (status_label value))] ++ task_label_fields id value features).
+Definition task_summary := task_summary_with_cursor true.
 Definition observe_history (facts : list ContextTypes.snapshot * bool) (event : message) :=
  let '(bindings,failed):=facts in
  (ContextUpdates.update_bindings bindings event, BoardFacts.observe_failure failed event).
 Definition history_json id history := JArray (map (conversation_message_json id) history).
-Definition task_snapshot_with_payload (include_history include_tools include_context : bool)
+Definition task_snapshot_with_payload (include_history include_tools include_context include_history_facts : bool)
  (id : N) (value : task) (features : Selvedge.Features.Domain.state) :=
- match task_summary id value features with
+ match task_summary_with_cursor include_history_facts id value features with
  | JObject fields =>
  let history:=task_history value in
  let busy:=task_busy value in
  (* The context already visits the history. Observe the settled outcome in that
     pass only when it can affect the projected stage. *)
  let '(context,failed):=if include_context then
-   (if busy then (ContextUpdates.bindings history,false) else fold_left observe_history history ([],false))
-   else ([],if busy then false else BoardFacts.latest_failure value) in
+   (if busy || negb include_history_facts then (ContextUpdates.bindings history,false)
+    else fold_left observe_history history ([],false))
+   else ([],if include_history_facts && negb busy then BoardFacts.latest_failure value else false) in
  JObject (fields ++
  (if include_tools then [("tools", JArray (map tool_json (contract_tools (task_contract value))))] else []) ++
  [("lineage", JArray (map number (task_lineage value)));
  ("queued_messages", JArray (map content_json (task_queued value)));
  ("guidance",Guidance.json (settings_guidance (task_current_settings value)))] ++
  (if include_context then [("context", JArray (map Context.snapshot_json context))] else []) ++
- [("has_assistant_reply", JBool (existsb Conversation.message_has_assistant_reply history));
+ (if include_history_facts then [("has_assistant_reply", JBool (existsb Conversation.message_has_assistant_reply history));
  ("execution_failed", JBool failed);
  ("card_link_stage", JString (Selvedge.Features.Domain.stage_name
-   (BoardFacts.stage_after_execution BoardFacts.initial_link_stage busy (fun _=>failed))));
- ("model_pending", match task_activity value with AskingModel ticket callable mode =>
+   (BoardFacts.stage_after_execution BoardFacts.initial_link_stage busy (fun _=>failed))))] else []) ++
+ [("model_pending", match task_activity value with AskingModel ticket callable mode =>
   JObject [("operation_id",number ticket);("ticket",number ticket);("mode",JString (output_mode_name mode));("callable",JArray (map JString callable))]
  | _ => JNull end)] ++
  if include_history then [("history", history_json id history)] else [])
  | value => value end.
-Definition task_snapshot := task_snapshot_with_payload true true true.
+Definition task_snapshot := task_snapshot_with_payload true true true true.
 Definition project_task_count (id : N) (tasks : list task) :=
  N.of_nat (ListCount.count (fun task => match settings_project (task_current_settings task) with
  | Some selected => N.eqb selected id | None => false end) tasks).
@@ -115,10 +118,10 @@ Definition fork_observation (include_capacity:bool) (id:N)(task:task)(value:worl
  if include_capacity then [("capacities",JArray(map(fun ancestor=>match Tasks.ancestor_capacity value ancestor with
   |None=>JNull|Some(descendants,limit)=>JObject[("descendants",number descendants);("limit",number limit)]end)
   (id::task_lineage task)))] else []).
-Definition task_snapshot_fields_in_world include_history include_tools include_context include_capacity id task value :=
- match task_snapshot_with_payload include_history include_tools include_context id task (world_features value) with
+Definition task_snapshot_fields_in_world include_history include_tools include_context include_history_facts include_capacity id task value :=
+ match task_snapshot_with_payload include_history include_tools include_context include_history_facts id task (world_features value) with
  |JObject fields=>JObject(fields++[("fork",fork_observation include_capacity id task value)])|result=>result end.
-Definition task_snapshot_in_world := task_snapshot_fields_in_world true true true true.
+Definition task_snapshot_in_world := task_snapshot_fields_in_world true true true true true.
 Definition task_publication := task_snapshot_fields_in_world false.
 
 Definition task_publication_references (include_capacity:bool) id task value :=

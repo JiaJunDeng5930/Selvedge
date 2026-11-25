@@ -36,6 +36,7 @@ Definition workflow_task_dependencies := Publication.workflow_task_dependencies.
 Definition compaction_task_dependencies := Publication.compaction_task_dependencies.
 Definition task_publication := Publication.task_publication.
 Definition task_history_since cursor task := skipn cursor (task_history task).
+Definition task_publication_busy := Domain.task_busy.
 Definition history_changes_bindings := ContextUpdates.history_changes_bindings.
 Definition history_publication := Publication.history_json.
 Definition task_publication_references := Publication.task_publication_references.

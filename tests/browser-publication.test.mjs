@@ -203,12 +203,15 @@ test('a local browser command publishes the changed task without unrelated conve
     assert.deepEqual(tasks.map(task => task.id), [taskId]);
     assert.equal(tasks[0].value.status, 'frozen');
     assert.equal(Object.hasOwn(tasks[0].value, 'context'), false);
+    const historyFacts = ['cursor', 'has_assistant_reply', 'execution_failed', 'card_link_stage'];
+    for (const field of historyFacts) assert.equal(Object.hasOwn(tasks[0].value, field), false);
     assert.equal(Object.hasOwn(tasks[0].value.fork, 'capacities'), false);
     const after = (await state()).program.tasks[taskId];
     assert.equal(after.status, 'frozen');
     assert.equal(after.fork.parent_ready, false);
     assert.deepEqual(after.fork.capacities, snapshot.program.tasks[taskId].fork.capacities);
     assert.deepEqual(after.context, snapshot.program.tasks[taskId].context);
+    for (const field of historyFacts) assert.deepEqual(after[field], snapshot.program.tasks[taskId][field]);
     return text.length;
   }
 

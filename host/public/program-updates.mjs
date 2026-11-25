@@ -3,6 +3,7 @@ import { safeInteger } from './json-tokens.mjs';
 export const browserSequenceHeader = 'x-selvedge-browser-sequence';
 export const browserOutlineHeader = 'x-selvedge-browser-outline';
 export const browserHistoryTasksHeader = 'x-selvedge-browser-history-tasks';
+const retainedTaskFields = ['tools', 'context', 'cursor', 'has_assistant_reply', 'execution_failed', 'card_link_stage'];
 
 export function installBrowserHistory(task, history) {
   const { history: previous, history_pending, ...facts } = task;
@@ -49,13 +50,10 @@ export function applyProgramUpdates(program, updates) {
       const prior = tasks[id];
       const previous = prior?.history;
       const prefix = previous ?? [];
-      const start = safeInteger(row.value.cursor) - row.appended.length;
-      const { tools, context } = prior ?? {};
-      const data = {
-        ...(tools === undefined ? {} : { tools }),
-        ...(context === undefined ? {} : { context }),
-        ...row.value,
-      };
+      const data = { ...row.value };
+      for (const field of retainedTaskFields)
+        if (prior?.[field] !== undefined && !Object.hasOwn(data, field)) data[field] = prior[field];
+      const start = safeInteger(data.cursor) - row.appended.length;
       const history = prefix.length === start ? (row.appended.length ? prefix.concat(row.appended) : prefix) : previous;
       tasks[id] = installBrowserHistory({ ...data, fork: { ...prior?.fork, ...data.fork } }, history);
     }
