@@ -9,9 +9,11 @@ private to that worker.
 `journal.mjs` serializes requests through their complete transaction and owns
 its private `kernel.mjs` connection, which retires the worker after a failed or
 timed out transition. The journal commits the changed records before publishing
-its decision or starting an effect. Task metadata is stored separately from
-append-only history chunks. Each shared state section has its own record, so
-allocating a ticket does not re-encode feature data or the tool catalog. The
+its decision or starting an effect. The current Task state, its execution
+contract, and append-only history chunks have separate records. A lifecycle
+change never rewrites the contract or past chunks. Completing a managed
+Workspace can update the contract's bound Workspace. Each shared state
+section has its own record. Allocating a ticket touches only the ticket section. The
 sequence, task cursor, and new chunks commit together. On reopen it checks
 the chunk offsets and restores the committed
 records into the Worker. During managed updates, the candidate validates a

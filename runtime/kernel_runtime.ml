@@ -24,7 +24,7 @@ let restore_state sequence shared tasks =
       (0, []) (Js.to_array (Js.Unsafe.get row "history")) in
     (* DEFENSE: The task record retains its expected length even if its last chunk is missing. *)
     if number row "length" <> float_of_int length then raise State_wire.Invalid_state;
-    Stored_state.decode_task_exn (bytes row) (List.rev reversed) in
+    Stored_state.decode_task_exn (bytes row) (Js.to_bytestring (Js.Unsafe.get row "contract")) (List.rev reversed) in
   try
     let tasks = Array.to_list (Array.map decode_task (Js.to_array tasks)) in
     let sequence = Big_int_Z.big_int_of_string (Js.to_string sequence) in
@@ -74,7 +74,10 @@ let task_writes changes =
       | Some (start, messages) -> Js.Unsafe.inject (Js.Unsafe.obj [|
           "start", number start; "length", number (List.length messages);
           "data", Js.Unsafe.inject (Js.bytestring (Stored_state.encode_history messages)) |]) in
-    Js.Unsafe.obj [| "id", number change.id; "history", history;
+    let contract = match change.previous with
+      | Some before when Stored_state.same_task_contract before change.task -> Js.Unsafe.inject Js.null
+      | _ -> Js.Unsafe.inject (Js.bytestring (Stored_state.encode_task_contract change.task)) in
+    Js.Unsafe.obj [| "id", number change.id; "history", history; "contract", contract;
       "born", Js.Unsafe.inject (Js.bool (Option.is_none change.previous));
       "data", Js.Unsafe.inject (Js.bytestring (Stored_state.encode_task_metadata change.task)) |]) changes
   |> Array.of_list |> Js.array

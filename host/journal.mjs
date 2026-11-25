@@ -32,6 +32,9 @@ const schema = `
     id INTEGER PRIMARY KEY CHECK (id >= 0), created_at INTEGER NOT NULL, data BLOB NOT NULL,
     history_length INTEGER NOT NULL CHECK (history_length >= 0)
   ) STRICT;
+  CREATE TABLE task_contracts (
+    id INTEGER PRIMARY KEY REFERENCES tasks(id), data BLOB NOT NULL
+  ) STRICT;
   CREATE TABLE task_history (
     task_id INTEGER NOT NULL REFERENCES tasks(id),
     start INTEGER NOT NULL CHECK (start >= 0), data BLOB NOT NULL,
@@ -55,10 +58,15 @@ function readState(database) {
   const record = database.prepare('SELECT namespace, schema, sequence FROM state WHERE id = 1').get();
   // DEFENSE: An externally edited database cannot supply missing or invalid service identity.
   if (!record || !/^[0-9a-f]{32}$/.test(record.namespace)) throw new Error('Invalid Selvedge state metadata');
-  const tasks = database.prepare('SELECT id, data, history_length FROM tasks ORDER BY id').all().map((row, index) => {
+  const tasks = database.prepare(`
+    SELECT tasks.id, tasks.data, tasks.history_length, task_contracts.data AS contract
+    FROM tasks LEFT JOIN task_contracts USING (id) ORDER BY tasks.id
+  `).all().map((row, index) => {
     // DEFENSE: A missing row must not silently assign the next task a different identity.
     if (row.id !== index) throw new Error('Invalid Selvedge stored task identities');
-    return { data: Buffer.from(row.data).toString('latin1'),
+    // DEFENSE: External edits can remove the frozen contract from an otherwise intact task.
+    if (row.contract === null) throw new Error('Invalid Selvedge stored task contract');
+    return { data: Buffer.from(row.data).toString('latin1'), contract: Buffer.from(row.contract).toString('latin1'),
       length: integer(row.history_length, 'history length'), history: [] };
   });
   for (const row of database.prepare('SELECT task_id, start, data FROM task_history ORDER BY task_id, start').all()) {
@@ -235,17 +243,26 @@ export class Journal extends EventEmitter {
           UPDATE tasks SET data = ?, history_length = history_length + ?
           WHERE id = ? AND (? IS NULL OR history_length = ?)
         `);
+        const insertContract = this.#database.prepare('INSERT INTO task_contracts VALUES (?, ?)');
+        const updateContract = this.#database.prepare('UPDATE task_contracts SET data = ? WHERE id = ?');
         const appendHistory = this.#database.prepare('INSERT INTO task_history VALUES (?, ?, ?)');
         for (const task of tasks) {
           const { history, id } = task;
           const data = Buffer.from(task.data, 'latin1');
-          if (task.born) insertTask.run(id, observedAt, data, history?.length ?? 0);
-          else {
+          if (task.born) {
+            insertTask.run(id, observedAt, data, history?.length ?? 0);
+            insertContract.run(id, Buffer.from(task.contract, 'latin1'));
+          } else {
             const cursor = history?.start ?? null;
             const { changes } = updateTask.run(data, history?.length ?? 0, id, cursor, cursor);
             // DEFENSE: A missing task or an offset that disagrees with its
             // committed cursor cannot accept a history append.
             if (changes !== 1) throw new Error('Selvedge task history cursor changed during submission');
+            if (task.contract !== null &&
+                updateContract.run(Buffer.from(task.contract, 'latin1'), id).changes !== 1) {
+              // DEFENSE: A provisioned Workspace cannot replace a missing Task contract.
+              throw new Error('Selvedge task contract was missing during submission');
+            }
           }
           if (history !== null) appendHistory.run(task.id, history.start, Buffer.from(history.data, 'latin1'));
         }

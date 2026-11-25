@@ -205,7 +205,9 @@ let () =
     | _ -> fail "kernel state must contain one task record declaration" in
   let task_owner, task_fields = world_fields task nodes in
   let history = List.assoc "task_history" task_fields in
-  let metadata = List.remove_assoc "task_history" task_fields in
+  let contract = List.assoc "task_contract" task_fields in
+  let contract_field = qualified task_owner "task_contract" in
+  let metadata = List.filter (fun (field, _) -> not (List.mem field ["task_history"; "task_contract"])) task_fields in
   let feature_owner, feature_fields = world_fields (List.assoc "world_features" fields) nodes in
   let feature_prefix = qualified owner "world_features" ^ "." in
   let shared = List.filter (fun (name, _) ->
@@ -214,8 +216,8 @@ let () =
     @ List.map (fun (name, shape) -> feature_prefix ^ qualified feature_owner name, shape) feature_fields in
   write_file (Filename.concat directory "state-shape.txt") (fun output ->
     Printf.fprintf output "selvedge-state-wire-2 %s\n" (shape_text root);
-    Printf.fprintf output "task metadata %s\ntask history %s\n"
-      (schema_text (Record (task_owner, metadata))) (shape_text history);
+    Printf.fprintf output "task metadata %s\ntask contract %s\ntask history %s\n"
+      (schema_text (Record (task_owner, metadata))) (shape_text contract) (shape_text history);
     List.iter (fun (name, shape) -> Printf.fprintf output "section %s %s\n" name (shape_text shape)) sections;
     Array.iteri (fun index node -> Printf.fprintf output "%d %s\n" index (schema_text node)) nodes);
   write_file (Filename.concat directory "stored_state.ml") (fun output ->
@@ -244,6 +246,10 @@ let () =
         function_name (comparison (List.assoc name fields)) field field)
       ["same_environment", "world_environment"; "same_projects", "world_projects"];
     Printf.fprintf output "let task_lineage value = value.%s\n" (qualified task_owner "task_lineage");
+    Printf.fprintf output "let same_task_contract left right = %s left.%s right.%s\n"
+      (comparison contract) contract_field contract_field;
+    Printf.fprintf output "let encode_task_contract = encode (fun output value -> %s output value.%s)\n"
+      (codec_name "write" contract) contract_field;
     Printf.fprintf output "let task_history value = value.%s\n" (qualified task_owner "task_history");
     Printf.fprintf output "let encode write value = let output = Buffer.create 4_096 in write output value; Buffer.contents output\n";
     Printf.fprintf output "let decode_exn read bytes =\n  let reader = Wire.start bytes in\n  let value = read reader in\n  (* DEFENSE: Trailing bytes cannot belong to the stored record. *)\n  if Wire.remaining reader = 0 then value else raise Wire.Invalid_state\n";
@@ -254,9 +260,10 @@ let () =
     let items = variables (List.map snd metadata) in
     let assignments = List.map2 (fun (field, _) (name, _) -> qualified task_owner field ^ " = " ^ name)
       metadata items in
-    let assignments = (qualified task_owner "task_history" ^ " = history") :: assignments in
-    Printf.fprintf output "let decode_task_exn bytes history = decode_exn (fun reader -> %s) bytes\n"
-      (read_values items ("{ " ^ String.concat "; " assignments ^ " }"));
+    let assignments = (qualified task_owner "task_history" ^ " = history") ::
+      (contract_field ^ " = contract") :: assignments in
+    Printf.fprintf output "let decode_task_exn bytes frozen history =\n  let contract = decode_exn %s frozen in\n  decode_exn (fun reader -> %s) bytes\n"
+      (codec_name "read" contract) (read_values items ("{ " ^ String.concat "; " assignments ^ " }"));
     Printf.fprintf output "let shared_writes before value =\n  let updates = ref [] in\n";
     List.iteri (fun id (name, shape) ->
       Printf.fprintf output
