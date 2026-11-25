@@ -46,7 +46,7 @@ Proof.
  pose proof (TaskScope.observed (NativeForkCommit.planned_target accepted)) as Selected.
  rewrite (NativeForkCommit.planned_owner before accepted) in Selected.
  assert (Observed : find_task (Scheduler.native_fork_owner (NativeForkCommit.planned_step accepted)) before = Some current).
- { unfold find_task; rewrite Owner; exact Found. }
+ { rewrite find_task_as_list, Owner; exact Found. }
  rewrite Observed in Selected; inversion Selected; subst current; exact Ready.
 Qed.
 

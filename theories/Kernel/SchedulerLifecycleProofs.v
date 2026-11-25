@@ -44,8 +44,8 @@ Proof.
    rewrite (commit_changes_use_the_observed_owner id _ value task Owner);
    unfold TaskWake.promote_changes; rewrite Lifecycle;
    change (find_task id (put_task id (with_activity Idle task) value) = Some (with_activity Idle task));
-   unfold find_task, put_task, with_tasks; cbn;
-   eapply registry_replace_selected; exact Owner
+   rewrite find_task_as_list, world_tasks_updated;
+   eapply registry_replace_selected; rewrite <- find_task_as_list; exact Owner
  | unfold with_activity; rewrite Lifecycle; reflexivity ]).
 Qed.
 

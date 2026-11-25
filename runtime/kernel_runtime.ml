@@ -29,6 +29,7 @@ let restore_state sequence shared tasks =
     let tasks = Array.to_list (Array.map decode_task (Js.to_array tasks)) in
     let sequence = Big_int_Z.big_int_of_string (Js.to_string sequence) in
     let sections = Array.map Js.to_bytestring (Js.to_array shared) in
+    let tasks = Model.selvedge_kernel_task_registry_restore tasks in
     Js.Unsafe.inject (Stored_state.restore_exn sections ~sequence ~tasks)
   with State_wire.Invalid_state -> Js.Unsafe.inject Js.null
 
@@ -56,20 +57,14 @@ let changed_task id previous task =
   {id; previous; task; history = appended}
 
 let changed_tasks before next =
-  let rec collect id writes previous current =
-    if previous == current then writes else
-    match previous, current with
-    | old :: old_rest, task :: rest ->
-        let writes = if Stored_state.same_task old task then writes else changed_task id (Some old) task :: writes in
-        collect (id + 1) writes old_rest rest
-    | [], task :: rest -> collect (id + 1) (changed_task id None task :: writes) [] rest
-    | [], [] -> writes
-    | _ :: _, [] ->
-        (* DEFENSE: Archival keeps task identities, so a shorter registry would
-           silently leave stale durable rows. *)
-        invalid_arg "The committed task registry cannot shrink"
-  in
-  List.rev (collect 0 [] (Stored_state.tasks before) (Stored_state.tasks next))
+  match Model.selvedge_kernel_task_registry_changes (==) Stored_state.same_task before next with
+  | None ->
+      (* DEFENSE: Archival retains identities. A missing task would leave a stale row. *)
+      invalid_arg "The committed task registry cannot lose a task"
+  | Some changes ->
+      List.map (fun ((id, previous), task) ->
+        changed_task (Big_int_Z.int_of_big_int id) previous task) changes
+      |> List.sort (fun left right -> Int.compare left.id right.id)
 
 let task_writes changes =
   let number value = Js.Unsafe.inject (Js.number_of_float (float_of_int value)) in
@@ -167,7 +162,7 @@ let observe_patch before next changes =
         let current = observe id task next in
         if String.equal current (observe id task before) then None
         else Some (row id current))
-        (List.mapi (fun id task -> id, task) (Stored_state.tasks before))
+        (List.mapi (fun id task -> id, task) (Model.selvedge_kernel_task_registry_contents before))
     else [] in
   let catalog_changed = not (Stored_state.same_environment before next) in
   let membership_changed change =

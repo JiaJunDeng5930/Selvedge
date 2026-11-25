@@ -19,7 +19,7 @@ Proof.
  { apply concat_nil_Forall,Forall_forall; intros events Member.
    destruct (indexed_members_have_actual_positions _ _ _ _ _ _ Member) as [position [current [Found Same]]].
    rewrite N.add_0_l in Same; subst events.
-   change (find_task position before = Some current) in Found.
+   rewrite <- find_task_as_list in Found.
    unfold Notifications.task_events. destruct (contract_plugins (task_contract current)); [reflexivity|].
    rewrite Found,JsonProofs.equal_is_reflexive,Nat2N.id,skipn_all; reflexivity. }
  unfold Notifications.envelope,Notifications.batch.

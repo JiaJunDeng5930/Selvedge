@@ -8,6 +8,7 @@ const buildDirectory = path.join(root, '.build');
 export const targets = {
   schema: { module: 'Adapters.ModelSchema', model: 'SchemaModel', entry: ['call'], global: '__selvedgeSchema', exported: 'call' },
   kernel: { module: 'Kernel.Packet', model: 'KernelModel', entry: ['initial', 'journal_packet', 'world_json',
+    'task_registry_restore', 'task_registry_contents', 'task_registry_changes',
     'shared_publication', 'task_publication', 'task_history_since', 'history_publication', 'task_publication_references',
     'board_task_dependencies', 'workflow_task_dependencies', 'compaction_task_dependencies',
     'publication_project', 'assess', 'remote_reconciliation_needed'],

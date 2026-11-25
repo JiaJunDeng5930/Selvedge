@@ -35,6 +35,6 @@ Theorem interpreted_results_keep_their_exact_task_update : forall before target 
 Proof.
  intros; unfold TaskResult.interpret_result, TaskResult.apply_result.
 
-   unfold find_task, put_task, with_tasks; cbn;
-   eapply registry_replace_selected; exact (TaskScope.observed target).
+   rewrite find_task_as_list, world_tasks_updated;
+   eapply registry_replace_selected; rewrite <- find_task_as_list; exact (TaskScope.observed target).
 Qed.

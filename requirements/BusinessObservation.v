@@ -103,6 +103,7 @@ Lemma published_task_is_selected_by_its_registry_id value id task :
    Some (Publication.task_snapshot_in_world id task value).
 Proof.
  intros Found.
+ rewrite State.find_task_as_list in Found.
  change (find (fun raw => match natural_field "id" raw with
                          | Some found => N.eqb (0 + id) found | None => false end)
    (Registry.indexed (fun id task => Publication.task_snapshot_in_world id task value)

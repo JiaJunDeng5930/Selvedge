@@ -9,10 +9,11 @@ Import ListNotations.
 Export RegistryProofs(registry_replace_selected, registry_replace_length).
 Lemma find_put_task : forall id before after value,
  find_task id value = Some before -> find_task id (put_task id after value) = Some after.
-Proof. intros; unfold find_task, put_task, with_tasks; cbn; eapply registry_replace_selected; eauto. Qed.
+Proof. intros id before after value Found. rewrite find_task_as_list in Found |- *.
+ rewrite world_tasks_updated. eapply registry_replace_selected; exact Found. Qed.
 Theorem task_creation_never_rewrites_existing_history : forall value created,
  world_tasks (append_task created value) = world_tasks value ++ [created].
-Proof. reflexivity. Qed.
+Proof. intros; apply world_tasks_appended. Qed.
 Theorem archival_removes_all_execution_authority : forall value,
  task_archived value = false ->
  task_lifecycle (TaskChange.apply (Tasks.control_changes Tasks.Archive value) value) = Archived [] /\

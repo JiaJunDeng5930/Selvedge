@@ -402,8 +402,7 @@ Fixpoint constructed_children (count : nat) (id : N) (parent : task) (messages :
 Definition fork_children (count : nat) (id : N) (parent : task) (messages : list content)
  (settings : task_settings) (entry : fork_entry) (invocation : call) (value : world) : world :=
  let start := next_task value in
- with_tasks (world_tasks value ++
-   constructed_children count id parent messages settings entry start start invocation) value.
+ append_tasks (constructed_children count id parent messages settings entry start start invocation) value.
 Definition same_approval (left right : approval_policy) :=
  match left, right with
  | FullAccess, FullAccess | AskForApproval, AskForApproval => true

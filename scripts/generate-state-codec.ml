@@ -198,16 +198,18 @@ let () =
   let env = Compmisc.initial_env () in
   let root, nodes = derive env (lookup env (Sys.argv.(3) ^ ".selvedge_kernel_initial")) in
   let owner, fields = world_fields root nodes in
-  let task = match List.assoc "world_tasks" fields with
-    | List item -> item
-    | _ -> fail "kernel tasks are not an indexed list" in
+  let task = match Array.to_list (Array.mapi (fun index node -> match node with
+    | Record (_, fields) when List.mem_assoc "task_history" fields -> Some (Ref index)
+    | _ -> None) nodes) |> List.filter_map Fun.id with
+    | [task] -> task
+    | _ -> fail "kernel state must contain one task record declaration" in
   let task_owner, task_fields = world_fields task nodes in
   let history = List.assoc "task_history" task_fields in
   let metadata = List.remove_assoc "task_history" task_fields in
   let feature_owner, feature_fields = world_fields (List.assoc "world_features" fields) nodes in
   let feature_prefix = qualified owner "world_features" ^ "." in
   let shared = List.filter (fun (name, _) ->
-    not (List.mem name ["world_tasks"; "world_sequence"; "world_features"])) fields in
+    not (List.mem name ["world_task_registry"; "world_sequence"; "world_features"])) fields in
   let sections = List.map (fun (name, shape) -> qualified owner name, shape) shared
     @ List.map (fun (name, shape) -> feature_prefix ^ qualified feature_owner name, shape) feature_fields in
   write_file (Filename.concat directory "state-shape.txt") (fun output ->
@@ -235,8 +237,7 @@ let () =
       Printf.fprintf output "  | %S -> let previous = before.%s in fun current -> %s previous current.%s\n"
         name field (comparison shape) field) feature_fields;
     Printf.fprintf output "  | _ -> invalid_arg \"Unknown feature in publication dependencies\"\n";
-    Printf.fprintf output "let tasks value = value.%s\nlet sequence value = value.%s\n"
-      (qualified owner "world_tasks") (qualified owner "world_sequence");
+    Printf.fprintf output "let sequence value = value.%s\n" (qualified owner "world_sequence");
     List.iter (fun (function_name, name) ->
       let field = qualified owner name in
       Printf.fprintf output "let %s left right = %s left.%s right.%s\n"
@@ -270,7 +271,7 @@ let () =
     let assignments_for owner offset fields =
       List.mapi (fun index (name, _) -> Printf.sprintf "%s = value%d" (qualified owner name) (offset + index)) fields in
     let features = "{ " ^ String.concat "; " (assignments_for feature_owner (List.length shared) feature_fields) ^ " }" in
-    let assignments = (qualified owner "world_tasks" ^ " = tasks") ::
+    let assignments = (qualified owner "world_task_registry" ^ " = tasks") ::
       (qualified owner "world_sequence" ^ " = sequence") ::
       (qualified owner "world_features" ^ " = " ^ features) :: assignments_for owner 0 shared in
     Printf.fprintf output "  { %s }\n" (String.concat "; " assignments))

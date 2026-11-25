@@ -51,7 +51,7 @@ Fixpoint first_in {A : Type} (before : world) (choose : task_reference before ->
  end.
 
 Lemma observes_registry before : observes_suffix before 0%N (world_tasks before).
-Proof. intro index; now rewrite N.add_0_l. Qed.
+Proof. intro index; now rewrite N.add_0_l, find_task_as_list. Qed.
 
 Definition first_matching {A : Type} (before : world) (choose : task_reference before -> option A) :=
  first_in before choose 0%N (world_tasks before) (observes_registry before).

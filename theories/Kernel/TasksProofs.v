@@ -93,8 +93,10 @@ Proof.
  all: rewrite Nonempty; destruct (Bool.bool_dec _ _) as [Admitted|Refused];
    [|contradiction].
  all: eexists; split;
-   [ unfold find_task,put_task,with_tasks; cbn;
-     eapply Selvedge.Foundation.RegistryProofs.registry_replace_selected; exact Found
+   [ cbn [decision_world accept CommandResult.change_world];
+     rewrite find_task_as_list, world_tasks_updated;
+     eapply Selvedge.Foundation.RegistryProofs.registry_replace_selected;
+     rewrite <- find_task_as_list; exact Found
    | repeat split; reflexivity ].
 Qed.
 

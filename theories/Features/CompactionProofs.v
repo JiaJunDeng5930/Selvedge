@@ -491,8 +491,8 @@ Lemma live_reconfiguration_recovers_the_selected_task : forall value id task,
 Proof.
  intros value id task Found; rewrite live_reconfiguration_uses_the_existing_recovery_state.
  unfold A.recover; rewrite storing_maintenance_preserves_tasks.
- unfold A.retire_context_tasks, K.find_task, K.with_tasks, set; cbn.
- unfold K.find_task in Found.
+ unfold A.retire_context_tasks. rewrite K.find_task_as_list in Found |- *.
+ rewrite K.world_tasks_replaced.
  rewrite registry_lookup_commutes_with_mapping, Found; reflexivity.
 Qed.
 

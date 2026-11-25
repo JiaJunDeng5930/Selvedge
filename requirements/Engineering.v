@@ -1,6 +1,8 @@
 From Selvedge.Programming Require Focus ArgumentDeclarationProofs
   DeclarationRegistryProofs.
 From Selvedge.Foundation Require NumbersProofs BoundedIntegerCorrectness.
+From Stdlib Require Import NArith.
+From Selvedge.Foundation Require IndexedRegistry IndexedRegistryProofs.
 
 (** * Engineering goals and their construction
 
@@ -231,6 +233,16 @@ Definition work_bounded_by_inputs {state operation inputs : Type}
  (selected : state -> operation -> inputs) (budget : operation -> inputs -> nat)
  (work : state -> operation -> nat) : Prop :=
  forall before request, (work before request <= budget request (selected before request))%nat.
+
+Theorem indexed_lookup_only_follows_the_selected_identity (A : Type) :
+ work_bounded_by_inputs
+  (fun (_ : IndexedRegistry.t A) id => IndexedRegistry.key id)
+  (fun _ address => Pos.size_nat address)
+  (fun registry id => IndexedRegistryProofs.lookup_node_reads
+    (IndexedRegistry.key id) (IndexedRegistry.entries registry)).
+Proof.
+ intros registry id. apply IndexedRegistryProofs.lookup_node_reads_are_bounded_by_the_address.
+Qed.
 
 (** * Local extension without repeated shared obligations
 

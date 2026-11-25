@@ -125,8 +125,12 @@ Proof.
  intros before request; cbn zeta.
  unfold S.maintenance_observe. cbn [allocate_identity next_identity decision_world decision_effects accept].
  split; [|reflexivity].
- unfold find_task, put_task, with_tasks, S.put_compaction, FeatureRequest.install_feature, with_features; cbn.
- eapply registry_replace_selected. exact (TaskScope.observed (S.maintenance_context_target request)).
+ let body := match goal with |- _ = Some ?current => current end in
+   change (find_task (TaskScope.owner (S.maintenance_context_target request))
+     (put_task (TaskScope.owner (S.maintenance_context_target request)) body
+       (with_ticket (N.succ (world_next_ticket before)) before)) = Some body).
+ rewrite find_task_as_list, world_tasks_updated.
+ eapply registry_replace_selected. rewrite <- find_task_as_list. exact (TaskScope.observed (S.maintenance_context_target request)).
 Qed.
 
 Theorem maintenance_observation_uses_the_current_task : forall before

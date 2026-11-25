@@ -20,4 +20,4 @@ Arguments birth_task {before}.
 Arguments birth_world {before}.
 Definition birth_prepared (created : task) (value : world) : birth_result value :=
  BirthResult value (next_task value) created (append_task created value)
-   eq_refl eq_refl eq_refl eq_refl eq_refl eq_refl eq_refl.
+   eq_refl (world_tasks_appended created value) eq_refl eq_refl eq_refl eq_refl eq_refl.
