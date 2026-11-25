@@ -49,3 +49,45 @@ test('guidance discovery orders directories and withdraws missing members only a
     assert.ok(JSON.stringify(fixture.upstream.requests[2]).includes(text), 'The actual provider receives the newly observed guidance');
   }
 });
+
+test('a tool cycle refreshes known context files and discovers new files on the next user message', async t => {
+  const directory = await home(t);
+  const workspace = path.join(directory, 'workspace');
+  const existing = path.join(workspace, 'known');
+  const added = path.join(workspace, 'new-module', '.agents', 'skills', 'new-skill');
+  const existingSkill = path.join(existing, '.agents', 'skills', 'known-skill');
+  await mkdir(path.join(workspace, '.git'), { recursive: true });
+  await mkdir(existingSkill, { recursive: true });
+  // Disjoint characters keep the replacement intact in the generated context edit.
+  await writeFile(path.join(existing, 'AGENTS.md'), 'aaaa');
+  const skill = (name, description) => `---\nname: ${name}\ndescription: ${description}\n---\nRead the rule.\n`;
+  await writeFile(path.join(existingSkill, 'SKILL.md'), skill('known-skill', 'aaaa'));
+  let taskId;
+  const fixture = await filesystemServer(t, { directory, cwd: workspace, respond: async (_body, index) => {
+    if (index !== 0) return answer('Observed.');
+    await writeFile(path.join(existing, 'AGENTS.md'), 'RULE UPDATED MID TURN');
+    await writeFile(path.join(existingSkill, 'SKILL.md'), skill('known-skill', 'SKILL UPDATED MID TURN'));
+    await mkdir(added, { recursive: true });
+    await writeFile(path.join(workspace, 'new-module', 'AGENTS.md'), 'A new rule discovered on the next message.');
+    await writeFile(path.join(added, 'SKILL.md'), skill('new-skill', 'A new skill discovered on the next message.'));
+    return [{ type: 'function_call', name: 'read_task', call_id: 'during-context-turn',
+      arguments: JSON.stringify({ task_id: taskId, limit: 1 }) }];
+  } });
+  ({ task_id: taskId } = await fixture.command({ op: 'create_idle', profile: fixture.profile,
+    settings: { workspace: { roots: [workspace], primary_root: workspace } } }));
+  await fixture.command({ op: 'send', task_id: taskId, message: 'Run one tool before completing this message.' });
+  const completed = await fixture.idle(taskId, { completed: () => fixture.upstream.requests.length >= 2 });
+  assert.equal(contextContent(contextChanges(completed, 'directory_guidance'),
+    path.join(existing, 'AGENTS.md')), 'RULE UPDATED MID TURN');
+  const resumed = JSON.stringify(fixture.upstream.requests[1].input);
+  assert.ok(resumed.includes('RULE UPDATED MID TURN'), resumed);
+  assert.ok(resumed.includes('SKILL UPDATED MID TURN'), resumed);
+  assert.ok(!resumed.includes('A new rule discovered on the next message.'));
+  assert.ok(!resumed.includes('A new skill discovered on the next message.'));
+
+  await fixture.command({ op: 'send', task_id: taskId, message: 'Observe the rule files added during the previous message.' });
+  await fixture.idle(taskId, { completed: () => fixture.upstream.requests.length >= 3 });
+  const next = JSON.stringify(fixture.upstream.requests[2].input);
+  assert.ok(next.includes('A new rule discovered on the next message.'));
+  assert.ok(next.includes('A new skill discovered on the next message.'));
+});

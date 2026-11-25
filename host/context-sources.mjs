@@ -89,7 +89,8 @@ export async function observeSkillCatalog(workspace, { home, config, limits, sig
 }
 
 /** Interpret native source descriptors; only the native history operation admits changes. */
-export async function observeContextSources(effect, { home, config, limits, signal, onDiagnostic, environment: workspaceEnvironment } = {}) {
+export async function observeContextSources(effect, { home, config, limits, signal, onDiagnostic,
+  environment: workspaceEnvironment, discovery } = {}) {
   const installation = await realpath(home);
   const definitions = effect.definitions;
   const bindings = effect.bindings;
@@ -109,15 +110,19 @@ export async function observeContextSources(effect, { home, config, limits, sign
     ? createContextDiscovery({ home: installation, settings: effect.settings, signal, filesystem: workspaceEnvironment.filesystem,
       candidates, maximum: maximumEntries })
     : discover;
-  let remoteDiscovery;
+  const remoteDiscovery = new Map();
   async function discoverWorkspaceObserver(observer) {
     const filesystem = workspaceEnvironment?.filesystem;
     if (!filesystem?.discoverContext) return discoverWorkspace(observer);
-    remoteDiscovery ??= filesystem.discoverContext(effect.settings.workspace, definitions
-      .map(definition => definition.observer)
-      .filter(candidate => isContextDiscovery(candidate) && contextDescriptor(candidate).workspace)
-      .map(candidate => candidate.type));
-    const result = (await remoteDiscovery).find(result => result.type === observer.type);
+    if (!remoteDiscovery.has(observer.type)) {
+      const types = definitions.map(definition => definition.observer)
+        .filter(candidate => isContextDiscovery(candidate) && contextDescriptor(candidate).workspace &&
+          !discovery?.has(candidate.type) && !remoteDiscovery.has(candidate.type))
+        .map(candidate => candidate.type);
+      const batch = filesystem.discoverContext(effect.settings.workspace, types);
+      for (const type of types) remoteDiscovery.set(type, batch);
+    }
+    const result = (await remoteDiscovery.get(observer.type)).find(result => result.type === observer.type);
     // DEFENSE: A peer can return an incompatible or incomplete observation.
     if (!result || !Array.isArray(result.entries) || (result.error !== null && typeof result.error !== 'string'))
       throw new TypeError('Shared execution returned an invalid context discovery result');
@@ -159,7 +164,9 @@ export async function observeContextSources(effect, { home, config, limits, sign
         // DEFENSE: Failed configuration refresh cannot establish which explicitly configured skills to exclude.
         if (configuration.error) throw configuration.error;
       }
-      entries = await (descriptor.workspace ? discoverWorkspaceObserver : discover)(source);
+      const cached = discovery?.get(source.type);
+      entries = cached ?? await (descriptor.workspace ? discoverWorkspaceObserver : discover)(source);
+      if (cached === undefined) discovery?.set(source.type, entries);
       if (skills) {
         const explicitDefinition = definitions.find(definition => definition.observer.type === 'config_files' && definition.observer.setting === 'skills');
         const explicit = new Set();
@@ -177,7 +184,13 @@ export async function observeContextSources(effect, { home, config, limits, sign
         const snapshot = await snapshotSource(definition, environment, key, limits, options);
         // DEFENSE: A candidate disappearing during a scan is not a complete collection
         // observation. Retry at the next request without withdrawing its peers.
-        if (snapshot === null) throw new Error(`Context discovery source changed while being observed: ${entry.filename}`);
+        if (snapshot === null) {
+          discovery?.delete(source.type);
+          // A vanished known file can change the applicable override or skill.
+          // Resolve its collection afresh before accepting a withdrawal.
+          if (cached !== undefined) return observeDiscovery(definition, previous, plan);
+          throw new Error(`Context discovery source changed while being observed: ${entry.filename}`);
+        }
         const baseline = bindings.find(binding => isDeepStrictEqual(binding.key, key));
         collection = boundary('control.context.collect', { state: collection,
           bytes: Buffer.byteLength(JSON.stringify(snapshot.value), 'utf8'),

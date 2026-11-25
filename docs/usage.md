@@ -356,6 +356,9 @@ Initial instructions and guidance enter task history with their source identity
 and revision. Before model and summary requests, the service refreshes configured
 instructions, service-home guidance, and guidance across all workspace roots.
 Discovery includes each root's Git ancestor chain and its nested directories.
+The service discovers new rules when it starts working on a new user message.
+Later model calls for that message reread the rules already found. A changed
+workspace or a missing known rule refreshes the corresponding discovery.
 Without a Git ancestor, discovery starts at the selected root. Place guidance in
 `AGENTS.md`, or use `AGENTS.override.md` to replace that directory's usual file.
 Each source carries its actual path and applicable directory, so module guidance

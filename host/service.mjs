@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { createChatGPTAudio } from './chatgpt-audio.mjs';
 import { realpath } from 'node:fs/promises';
 import { Journal, isDefiniteRejection, transactionOutcome } from './journal.mjs';
-import { naturalKey } from './public/json-tokens.mjs';
+import { naturalKey, stringifyJson } from './public/json-tokens.mjs';
 import { dispatchEffect, performEffect, modelEffect, workspaceOperation, compactionOperation, workspaceEffect, clockDelay } from './effect-dispatch.ts';
 import { Mcp, discoverMcp, completeSharedMcp } from './mcp.mjs';
 import { Plugin } from './plugins.mjs';
@@ -89,6 +89,7 @@ export class Service extends EventEmitter {
   #streams = new Map();
   #toolActivity = new Set();
   #audioSessions = new Map();
+  #contextDiscovery = new Map();
 
   static async open({ home, config, cwd = process.cwd(), remoteOptions, audioOptions,
     audioFactory = createChatGPTAudio, holdEffects = false, journal } = {}) {
@@ -115,6 +116,9 @@ export class Service extends EventEmitter {
         else service.#scheduleContinuation();
       });
       service.journal.on('commit', (decision, browserRequest) => {
+        const update = service.journal.programUpdates(decision.sequence - 1, decision.sequence)?.[0];
+        for (const row of update?.tasks ?? [])
+          if (!row.value.working) service.#contextDiscovery.delete(String(row.id));
         service.notify({ type: 'commit', sequence: decision.sequence, browser_request_id: browserRequest });
         if (service.#heldStartup) service.#heldStartup.decisions.push(decision);
         else service.#deliverEffects(decision);
@@ -376,6 +380,7 @@ export class Service extends EventEmitter {
         });
       },
       cancelTask: effect => {
+        this.#contextDiscovery.delete(naturalKey(effect.task_id));
         this.#cancelProvider(effect.task_id);
         this.#cancelRunning({ kind: 'cancel_task', effect }, new Error('Task work cancelled'));
       },
@@ -519,7 +524,16 @@ export class Service extends EventEmitter {
         workspace: effect => this.#performWorkspace(effect, signal, handle),
         context: async effect => {
           const { environment } = await this.#executionWorkspace(effect.settings.workspace, effect.resource, signal);
+          signal?.throwIfAborted();
+          const owner = naturalKey(effect.task_id);
+          const scope = stringifyJson([effect.turn, effect.settings.workspace, effect.resource]);
+          let observed = this.#contextDiscovery.get(owner);
+          if (observed?.scope !== scope) {
+            observed = { scope, entries: new Map() };
+            this.#contextDiscovery.set(owner, observed);
+          }
           const observations = await observeContextSources(effect, { home: this.home, config: this.declaredConfig, limits: this.limits, signal, environment,
+            discovery: observed.entries,
             onDiagnostic: message => this.notify({ type: 'diagnostic', message }) });
           return { observations };
         },

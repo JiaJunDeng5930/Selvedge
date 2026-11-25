@@ -6,7 +6,7 @@
     any realtime readings separately. A provider encoding preserves the
     distinction between tracked instructions, runtime data, and audit records. *)
 
-From Selvedge.Kernel Require ContextProofs ReasoningProofs
+From Selvedge.Kernel Require ContextProofs ContextUpdates ReasoningProofs
   ModelRequestConstructionProofs HistoryRoleProofs RequestDeliveryProofs.
 Export ContextProofs(context_history_reconstructs_each_accepted_change,
   an_observed_amendment_matches_its_baseline_and_patch,
@@ -14,6 +14,9 @@ Export ContextProofs(context_history_reconstructs_each_accepted_change,
   failed_context_observation_retains_the_last_admitted_binding,
   interactive_capability_requires_the_native_revision_and_body,
   published_interactive_vocabulary_matches_the_executable_components).
+Export ContextUpdates(discovery_observes_the_same_bindings,
+  a_new_user_message_advances_discovery,
+  a_tool_result_preserves_the_discovery_turn).
 Export ReasoningProofs(the_actual_scheduler_observes_before_preparing_a_model,
   context_requests_capture_the_current_history_revision,
   context_completion_requires_the_current_ticket,
@@ -99,14 +102,21 @@ Export HistoryRoleProofs(codec_roles_follow_the_shared_projection_vocabulary).
     previews obtain their bounds from their construction and encoded-request
     admission, without self-reported preview flags or byte-limit labels.
     A matching ticket also captures a history revision. Another completed
-    operation may have extended that history while observation was outstanding;
-    the actual callback then requests a new observation of the current prefix.
+    operation may have extended that history while observation was outstanding.
+    An unrelated tool result joins the next model input. Changed source
+    settings or bindings require a new observation.
     Frozen and stopped completions retain ordinary inference demand for a new
     observation when resumed. [context_completion_commits_before_following_scheduling]
     binds this callback to packet preparation and its committed continuation.
     Real-file discovery and global-guidance delivery are exercised through the
     public service in [tests/filesystem-boundaries.test.mjs] and
     [tests/context-discovery-control.test.mjs].
+
+    A committed user message starts a new directory discovery. Within that
+    input's model and tool cycle the host retains the discovered paths for
+    the selected workspace and rereads their contents. A changed workspace
+    or a vanished known path requires a fresh discovery. Terminal task
+    activity releases the retained paths.
 
     Final comparisons against a subsequently changed Task remain necessary.
     Evaluator judgments and their quality remain external observations; their

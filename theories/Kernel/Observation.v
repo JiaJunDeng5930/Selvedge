@@ -42,9 +42,11 @@ Definition project_fields (id : N) (value : project) := [
  ("workspace_resource",optional_number (project_resource value)); ("create_worktree", JBool (project_worktree value))].
 Definition project_json (id : N) (value : project) := JObject (project_fields id value).
 Definition effect_packet (state : world) (value : effect) := match value with
- | ObserveContext id ticket task => Variant.pack ModelDeclarations.observe_context
+ | ObserveContext id ticket task =>
+   let '(turn,bindings) := ContextUpdates.discovery_inputs (task_history task) in
+   Variant.pack ModelDeclarations.observe_context
    [!id;ticket;settings_json (task_current_settings task);WorkspaceBinding.execution (task_current_settings task) state;
-    map definition_json definitions;map Context.snapshot_json (ContextUpdates.bindings (task_history task))!]
+    turn;map definition_json definitions;map Context.snapshot_json bindings!]
  | RequestModel request =>
    let id := ModelRequest.owner request in
    let model := ModelRequest.model (ModelRequest.selection request) in

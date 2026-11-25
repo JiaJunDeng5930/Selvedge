@@ -33,7 +33,7 @@ Definition invocation := Field "call" KJson.
 Definition plugin := Field "plugin" KJson.
 Definition output := [Field "context_selected" KBool; Field "context_scope" KText].
 Definition observe_context := effect "observe_context" (identity ++ [settings;resource;
- Field "definitions" (KArray KJson); Field "bindings" (KArray KJson)]) (Some Context).
+ Field "turn" KNatural; Field "definitions" (KArray KJson); Field "bindings" (KArray KJson)]) (Some Context).
 Definition plain_output_name := "plain".
 Definition interactive_output_name := "interactive-v1".
 Definition request_model := effect "model" (identity ++ [model;
