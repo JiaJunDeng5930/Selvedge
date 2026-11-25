@@ -106,7 +106,7 @@ Definition effect_events (after : world) (output : effect) :=
 Definition batch (source : option input) (before : world) (result : decision) :=
  let after := decision_world result in
  input_events source before after ++
-  concat (Selvedge.Foundation.Registry.indexed (fun id task => task_events before id task after) 0 (world_tasks after)) ++
+  flat_map (fun '(id,task) => task_events before id task after) (plugin_tasks after) ++
   flat_map (effect_events after) (decision_effects result).
 Definition enriched_envelope (durable : bool) (result : decision) (notices : list json) :=
  Observation.envelope_with_effects durable (decision_reply result)

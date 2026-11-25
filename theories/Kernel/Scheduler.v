@@ -4,6 +4,7 @@ From Selvedge.Kernel Require OperationEvent.
 From Selvedge.Programming Require Import TaskScope TaskChange DecisionComposition.
 From Stdlib Require Import String Ascii List Bool NArith.
 From Selvedge.Foundation Require Import Json.
+From Selvedge.Foundation Require OptionList.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Foundation Require Import Utf8.
 From Selvedge.Kernel Require Import Numbers Domain Codec Context ContextUpdates State Tasks SideContext Dispatch Capabilities NativeTools Callbacks Reasoning Limits Observation Search.
@@ -274,8 +275,28 @@ Fixpoint has_runnable_step (permitted : N -> world -> bool) id tasks value :=
  | task :: rest => match next_runnable_step permitted id task value with
    | Some _ => true | None => has_runnable_step permitted (N.succ id) rest value end
  end.
+Record selected_step := SelectedStep {
+ selected_owner : N;
+ selected_task : task;
+ selected_action : runnable_step
+}.
+Definition select_world_step permitted value :=
+ OptionList.find_map (fun '(id,task) =>
+   option_map (SelectedStep id task) (next_runnable_step permitted id task value))
+   (scheduling_tasks value).
+Definition selected_native_fork selected value :=
+ match selected_action selected with
+ | HookStep _ _ _ | CallStep _ _ => native_fork_ready (selected_owner selected) (selected_task selected) value
+ | _ => None end.
+Definition first_world_native_fork permitted value :=
+ match select_world_step permitted value with
+ | Some selected => selected_native_fork selected value | None => None end.
+Definition interpret_selected execute selected value :=
+ interpret_step execute (selected_owner selected) (selected_task selected) value (selected_action selected).
+Definition find_world_step execute permitted value :=
+ option_map (fun selected => interpret_selected execute selected value) (select_world_step permitted value).
 Definition has_runnable_work (permitted : N -> world -> bool) (value : world) :=
- has_runnable_step permitted 0 (world_tasks value) value.
+ match select_world_step permitted value with Some _ => true | None => false end.
 Definition continue_runnable (permitted : N -> world -> bool) (value : world) (effects : list effect) :=
  if has_runnable_work permitted value then effects ++ [ContinueScheduling] else effects.
 Definition frozen_inference (request : effect) := match request with
@@ -301,11 +322,11 @@ Fixpoint schedule_with (advance : advancement) (fuel : nat) (execute : executor)
  | Some (value,effects) =>
  match fuel with
  | O => (value,continue_runnable permitted value effects)
- | S fuel => match first_native_fork permitted 0 (world_tasks value) value with
-   | Some _ => (value,effects ++ [ContinueScheduling])
-   | None => match find_step execute permitted 0 (world_tasks value) value with
-     | None => (value,effects)
-     | Some decision =>
+ | S fuel => match select_world_step permitted value with
+   | None => (value,effects)
+   | Some selected => match selected_native_fork selected value with
+     | Some _ => (value,effects ++ [ContinueScheduling])
+     | None => let decision := interpret_selected execute selected value in
        match advance (decision_world decision) (effects ++ decision_effects decision) with
        | None => (value,effects ++ [ContinueScheduling])
        | Some (next,emitted) => schedule_with advance fuel execute permitted next emitted

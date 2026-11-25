@@ -39,15 +39,12 @@ Lemma every_native_fork_plan_has_its_actual_final_dispatch_gate :
  Some (NativeForkCommit.planned_step accepted).
 Proof.
  intros before accepted.
- destruct (the_selected_native_fork_has_an_observed_ready_owner
-   Runtime.can_schedule_task (world_tasks before) before 0 (NativeForkCommit.planned_step accepted)
-   (NativeForkCommit.planned_selection before accepted)) as [offset [current [Found [Owner Ready]]]].
- rewrite N.add_0_l in Owner.
+ destruct (the_world_native_fork_has_an_observed_ready_owner
+   Runtime.can_schedule_task before (NativeForkCommit.planned_step accepted)
+   (NativeForkCommit.planned_selection before accepted)) as [current [Found Ready]].
  pose proof (TaskScope.observed (NativeForkCommit.planned_target accepted)) as Selected.
  rewrite (NativeForkCommit.planned_owner before accepted) in Selected.
- assert (Observed : find_task (Scheduler.native_fork_owner (NativeForkCommit.planned_step accepted)) before = Some current).
- { rewrite find_task_as_list, Owner; exact Found. }
- rewrite Observed in Selected; inversion Selected; subst current; exact Ready.
+ rewrite Found in Selected; inversion Selected; subst current; exact Ready.
 Qed.
 
 Theorem a_native_fork_uses_its_calling_task : forall request owner invocation remaining before messages,

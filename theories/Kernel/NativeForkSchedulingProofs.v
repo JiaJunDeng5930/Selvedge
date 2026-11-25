@@ -1,4 +1,6 @@
 From Stdlib Require Import String List Bool NArith Lia.
+From Selvedge.Foundation Require OptionList.
+From Selvedge.Kernel Require TaskRegistry TaskRegistryProofs.
 From Selvedge.Foundation Require Import Json Registry RegistryProofs.
 From Selvedge.Kernel Require Import Domain Codec Tasks State Scheduler NativeTools.
 From Selvedge.Generated Require Import Commands.
@@ -80,13 +82,49 @@ Proof.
    + split; [lia|exact Ready].
 Qed.
 
+Lemma selected_world_step_belongs_to_its_scope permitted value selected :
+ Scheduler.select_world_step permitted value = Some selected ->
+ In (Scheduler.selected_owner selected, Scheduler.selected_task selected) (scheduling_tasks value).
+Proof.
+ unfold Scheduler.select_world_step.
+ generalize (scheduling_tasks value) as work.
+ induction work as [|[id task] rest IH]; [discriminate|].
+ cbn [OptionList.find_map].
+ destruct (Scheduler.next_runnable_step permitted id task value).
+ - intros Found; inversion Found; left; reflexivity.
+ - intros Found; right; now apply IH.
+Qed.
+
+Theorem the_world_native_fork_has_an_observed_ready_owner permitted before step :
+ Scheduler.first_world_native_fork permitted before = Some step ->
+ exists current,
+ find_task (Scheduler.native_fork_owner step) before = Some current /\
+ Scheduler.native_fork_ready (Scheduler.native_fork_owner step) current before = Some step.
+Proof.
+ unfold Scheduler.first_world_native_fork.
+ destruct (Scheduler.select_world_step permitted before) as [[id task action]|] eqn:Selected; [|discriminate].
+ pose proof (selected_world_step_belongs_to_its_scope _ _ _ Selected) as Member.
+ change (In (id,task) (scheduling_tasks before)) in Member.
+ unfold scheduling_tasks in Member.
+ apply (TaskRegistryProofs.selected_scope_matches_the_task_rows _ _ _ _ _
+   (TaskRegistry.scheduling_agrees (world_task_registry before))) in Member as [Found _].
+ unfold Scheduler.selected_native_fork. destruct action; try discriminate;
+   intros Ready; cbn in Ready;
+   pose proof (a_ready_native_fork_keeps_the_selected_owner id task before step Ready) as Owner;
+   exists task; rewrite Owner; split; assumption.
+Qed.
+
 Theorem a_yielded_native_fork_keeps_the_world_and_prior_effects :
  forall advance fuel execute permitted before effects accepted retained step,
  existsb Scheduler.effect_requires_commit effects = false ->
  advance (SideContext.reconcile before) effects = Some (accepted,retained) ->
- Scheduler.first_native_fork permitted 0 (world_tasks accepted) accepted = Some step ->
+ Scheduler.first_world_native_fork permitted accepted = Some step ->
  Scheduler.schedule_with advance (S fuel) execute permitted before effects =
    (accepted,retained ++ [ContinueScheduling]).
 Proof.
- intros; cbn [Scheduler.schedule_with]; rewrite H,H0,H1; reflexivity.
+ intros advance fuel execute permitted before effects accepted retained step NoCommit Prefix Fork.
+ cbn [Scheduler.schedule_with]. rewrite NoCommit,Prefix.
+ unfold Scheduler.first_world_native_fork in Fork.
+ destruct (Scheduler.select_world_step permitted accepted); [|discriminate].
+ now rewrite Fork.
 Qed.

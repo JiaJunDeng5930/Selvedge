@@ -19,29 +19,11 @@ Definition observe_parent (id : N) (parent value : task) :=
    (exist _ (tt,(parent_status parent,(parent_phase parent,tt))) eq_refl) in
  match ContextUpdates.replace_snapshot current (ContextUpdates.bindings (task_history value)) with
  | Some change => Some (append_history [ContextObservation change] value) | None => None end.
-Definition reconcile_task (parents : list task) (value : task) :=
- match task_lifecycle value, task_side_parent value with
- | Archived _,_ | _,None => None
- | _,Some id => match registry_at id parents with Some parent => observe_parent id parent value | None => None end end.
-Fixpoint reconcile_tasks (parents tasks : list task) : option (list task) :=
- match tasks with
- | [] => None
- | task :: rest => match reconcile_task parents task, reconcile_tasks parents rest with
-   | None, None => None
-   | Some changed, None => Some (changed :: rest)
-   | None, Some updated => Some (task :: updated)
-   | Some changed, Some updated => Some (changed :: updated) end
- end.
-Lemma reconcile_tasks_keeps_the_observed_values parents tasks :
- (match reconcile_tasks parents tasks with Some updated => updated | None => tasks end) =
- map (fun task => match reconcile_task parents task with Some updated => updated | None => task end) tasks.
-Proof.
- induction tasks as [|task rest IH]; [reflexivity|].
- cbn [reconcile_tasks map].
- destruct (reconcile_task parents task), (reconcile_tasks parents rest); cbn in *;
- f_equal; exact IH.
-Qed.
+Definition reconcile_task (before : world) (value : task) :=
+ match task_side_parent value with
+ | Some id => match find_task id before with Some parent => observe_parent id parent value | None => None end
+ | None => None end.
 Definition reconcile (value : world) :=
- match reconcile_tasks (world_tasks value) (world_tasks value) with
- | Some updated => with_tasks updated value
- | None => value end.
+ fold_left (fun current '(id,task) => match reconcile_task value task with
+   | Some updated => put_task id updated current
+   | None => current end) (side_tasks value) value.

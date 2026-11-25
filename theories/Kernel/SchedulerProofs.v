@@ -22,9 +22,10 @@ Qed.
 
 Theorem continuation_tracks_available_work : forall execute permitted value,
  Scheduler.has_runnable_work permitted value =
- match Scheduler.find_step execute permitted 0 (world_tasks value) value with
+ match Scheduler.find_world_step execute permitted value with
  | Some _ => true | None => false end.
-Proof. intros; apply runnable_selection_has_an_actual_step. Qed.
+Proof. intros; unfold Scheduler.has_runnable_work, Scheduler.find_world_step.
+ destruct (Scheduler.select_world_step permitted value); reflexivity. Qed.
 
 Theorem a_full_task_records_external_call_refusal :
  forall id before task tool invocation remaining authority,
@@ -251,16 +252,18 @@ Theorem a_refused_scheduler_step_keeps_the_complete_accepted_prefix :
  forall advance fuel execute permitted value effects accepted prior step,
  existsb Scheduler.effect_requires_commit effects = false ->
  advance (SideContext.reconcile value) effects = Some (accepted,prior) ->
- Scheduler.first_native_fork permitted 0 (world_tasks accepted) accepted = None ->
- Scheduler.find_step execute permitted 0 (world_tasks accepted) accepted = Some step ->
+ Scheduler.first_world_native_fork permitted accepted = None ->
+ Scheduler.find_world_step execute permitted accepted = Some step ->
  advance (decision_world step) (prior ++ decision_effects step) = None ->
  Scheduler.schedule_with advance (S fuel) execute permitted value effects =
    (accepted,prior ++ [ContinueScheduling]).
 Proof.
  intros advance fuel execute permitted value effects accepted prior step
    NoCommit Prefix NoFork Selected Refused.
- cbn [Scheduler.schedule_with].
- now rewrite NoCommit,Prefix,NoFork,Selected,Refused.
+ cbn [Scheduler.schedule_with]. rewrite NoCommit,Prefix.
+ unfold Scheduler.first_world_native_fork, Scheduler.find_world_step in *.
+ destruct (Scheduler.select_world_step permitted accepted); [|discriminate].
+ cbn [option_map] in Selected. inversion Selected; subst. now rewrite NoFork,Refused.
 Qed.
 
 Theorem unfinished_bash_keeps_its_completion_owner_across_inference :

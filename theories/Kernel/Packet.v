@@ -4,6 +4,7 @@ From Selvedge.Programming Require CommitPacket.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json TextJson.
 From Selvedge.Foundation Require IndexedRegistry.
+From Selvedge.Kernel Require TaskRegistry.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Inputs InputDecoder Queries CommandExecution
  Callbacks HookCallbacks Scheduler Recovery Observation Notifications Delivery Limits.
@@ -20,12 +21,12 @@ From Selvedge.Interaction.Experience Require Publication.
 Import ListNotations.
 Open Scope string_scope.
 Definition initial := State.initial.
-Definition task_registry_restore := @IndexedRegistry.from_list task.
+Definition task_registry_restore := TaskRegistry.from_list.
 Definition task_registry_contents := State.world_tasks.
 Definition task_registry_changes same_tree same_task before after :=
  option_map (map (fun value => (IndexedRegistry.difference_id task value,
    IndexedRegistry.difference_before task value, IndexedRegistry.difference_after task value)))
-   (IndexedRegistry.changes same_tree same_task (world_task_registry before) (world_task_registry after)).
+   (IndexedRegistry.changes same_tree same_task (task_rows before) (task_rows after)).
 Definition world_json := Publication.world_json.
 Definition shared_publication := Publication.shared_publication.
 Definition board_task_dependencies := Publication.board_task_dependencies.

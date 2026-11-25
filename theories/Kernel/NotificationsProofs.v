@@ -2,6 +2,7 @@ From Selvedge.Programming Require Variant.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json JsonProofs JsonObjectsProofs RegistryProofs.
 From Selvedge.Kernel Require Import Domain Inputs State Observation Notifications Delivery.
+From Selvedge.Kernel Require TaskRegistry TaskRegistryProofs.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -14,17 +15,20 @@ Theorem unchanged_commands_have_no_notifications : forall command before reply,
    (Decision before reply []) = Observation.envelope true (Decision before reply []).
 Proof.
  intros command before reply.
- assert (NoEvents : concat (indexed (fun owner current => Notifications.task_events before owner current before)
-   0 (world_tasks before)) = []).
- { apply concat_nil_Forall,Forall_forall; intros events Member.
-   destruct (indexed_members_have_actual_positions _ _ _ _ _ _ Member) as [position [current [Found Same]]].
-   rewrite N.add_0_l in Same; subst events.
-   rewrite <- find_task_as_list in Found.
+ assert (NoEvents : flat_map (fun '(owner,current) => Notifications.task_events before owner current before)
+   (plugin_tasks before) = []).
+ { rewrite flat_map_concat_map.
+   apply concat_nil_Forall,Forall_forall; intros events Member.
+   apply in_map_iff in Member as [[owner current] [Same Member]]; subst events.
+   unfold plugin_tasks in Member.
+   apply (TaskRegistryProofs.selected_scope_matches_the_task_rows _ _ _ _ _
+     (TaskRegistry.notification_recipients_agree (world_task_registry before))) in Member as [Found _].
+   change (find_task owner before = Some current) in Found.
    unfold Notifications.task_events. destruct (contract_plugins (task_contract current)); [reflexivity|].
    rewrite Found,JsonProofs.equal_is_reflexive,Nat2N.id,skipn_all; reflexivity. }
  unfold Notifications.envelope,Notifications.batch.
- change (match (concat (indexed (fun owner current => Notifications.task_events before owner current before)
-   0 (world_tasks before)) ++ [])%list with
+ change (match (flat_map (fun '(owner,current) => Notifications.task_events before owner current before)
+   (plugin_tasks before) ++ [])%list with
  | [] => Observation.envelope true (Decision before reply [])
  | notices => if Delivery.fits_json (Notifications.enriched_envelope true (Decision before reply []) notices)
    then Notifications.enriched_envelope true (Decision before reply []) notices
