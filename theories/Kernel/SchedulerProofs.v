@@ -1,6 +1,7 @@
 From Selvedge.Kernel Require TaskWake.
 From Selvedge.Kernel Require OperationPublication.
-From Stdlib Require Import String List Bool NArith.
+From Stdlib Require Import String List Bool NArith PeanoNat.
+From Selvedge.Kernel Require TaskRegistry TaskRegistryProofs.
 From Selvedge.Programming Require DecisionComposition TaskResult Focus.
 From Selvedge.Kernel Require Import Numbers Domain State Tasks SideContext Scheduler.
 From Selvedge.Programming Require Import TaskChangeProofs.
@@ -18,6 +19,41 @@ Proof.
  cbn [Scheduler.has_runnable_step Scheduler.find_step].
  destruct (Scheduler.next_runnable_step permitted first task value); [reflexivity|].
  apply IH.
+Qed.
+
+Lemma unscheduled_registry_tasks_are_not_runnable permitted id task value :
+ TaskRegistry.scheduling_candidate task = false ->
+ Scheduler.next_runnable_step permitted id task value = None.
+Proof.
+ intros Inactive.
+ unfold TaskRegistry.scheduling_candidate, task_busy in Inactive.
+ apply Bool.orb_false_iff in Inactive as [Busy Queue].
+ apply Bool.orb_false_iff in Busy as [Idle Operations].
+ apply Bool.negb_false_iff, Nat.eqb_eq, length_zero_iff_nil in Operations.
+ rewrite Scheduler.next_runnable_step_expands, Operations.
+ destruct (permitted id value); [|reflexivity].
+ unfold Scheduler.task_action.
+ destruct (task_lifecycle task) eqn:Lifecycle;
+ unfold task_operations, task_activity in *; rewrite Lifecycle in *;
+ cbn [lifecycle_operations] in Operations; subst operations;
+ repeat match goal with phase : activity |- _ => destruct phase end;
+ cbn [activity_busy] in Idle; try discriminate;
+ destruct (task_queued task); cbn in *; try discriminate; reflexivity.
+Qed.
+
+Theorem registry_scope_contains_every_runnable_task before id task permitted action :
+ find_task id before = Some task ->
+ Scheduler.next_runnable_step permitted id task before = Some action ->
+ In (id,task) (scheduling_tasks before).
+Proof.
+ intros Found Runnable.
+ unfold scheduling_tasks.
+ apply (TaskRegistryProofs.selected_scope_matches_the_task_rows _ _ _ _ _
+   (TaskRegistry.scheduling_agrees (world_task_registry before))).
+ split; [exact Found|].
+ destruct (TaskRegistry.scheduling_candidate task) eqn:Active; [reflexivity|].
+ rewrite (unscheduled_registry_tasks_are_not_runnable permitted id task before Active) in Runnable.
+ discriminate.
 Qed.
 
 Theorem continuation_tracks_available_work : forall execute permitted value,
