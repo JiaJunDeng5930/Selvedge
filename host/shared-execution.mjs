@@ -10,6 +10,9 @@ import { boundary } from './public/model-boundary.mjs';
 import { parseJson, stringifyJson } from './public/json-tokens.mjs';
 import { ProcessRegistry } from './process-registry.mjs';
 import { readImageBytes, retainReadImage, startBash } from './process.mjs';
+import { createManagedWorktree, archiveManagedWorktree, reconcileManagedWorktree,
+  observeWorkspaceGit, sharedWorktreeRoot } from './worktrees.mjs';
+import { naturalKey } from './codec.mjs';
 
 const protocol = 'selvedge-execution-v1';
 const endpointPath = boundary('effect.execution_endpoint_path', null);
@@ -39,6 +42,7 @@ const kind = value => value.isSymbolicLink() ? 'link'
 const typed = ({ kind, name }) => ({ name, isSymbolicLink: () => kind === 'link',
   isDirectory: () => kind === 'directory', isFile: () => kind === 'file' });
 const observationMethods = {
+  'execution.workspace_git': ({ path }) => observeWorkspaceGit(path),
   'execution.realpath': ({ path }) => realpath(path),
   'execution.stat': async ({ path }) => ({ kind: kind(await stat(path)) }),
   'execution.lstat': async ({ path }) => ({ kind: kind(await lstat(path)) }),
@@ -82,6 +86,25 @@ export async function receiveExecution({ home, host, port, certFile, keyFile, to
   }).immediate;
   const limits = boundary('effect.execution_limits', null);
   const active = new Map();
+  const worktrees = new Map();
+  function runWorktree(request, signal) {
+    const worktreeNamespace = request.operation_id.split(':', 1)[0];
+    const effect = request.worktree;
+    const slot = worktreeNamespace + ':' + naturalKey(effect.task_id);
+    // DEFENSE: A preceding RPC can fail after touching Git; its caller receives
+    // that failure, and a later recovery must still observe the same checkout.
+    const run = worktrees.get(slot)?.catch(() => {}) ?? Promise.resolve();
+    const options = { home, limits, signal, worktreeNamespace };
+    const next = run.then(() => {
+      switch (effect.kind) {
+        case 'worktree_create': return createManagedWorktree(effect, options);
+        case 'worktree_archive': return archiveManagedWorktree(effect, options);
+        case 'worktree_recover': return reconcileManagedWorktree(effect, options);
+      }
+    });
+    worktrees.set(slot, next);
+    return next.finally(() => { if (worktrees.get(slot) === next) worktrees.delete(slot); });
+  }
   const readOnlyPaths = home === receiptHome ? [home] : [home, receiptHome];
   const processes = new ProcessRegistry();
   const sockets = new WebSocketServer({ noServer: true, maxPayload: maximumFrame });
@@ -133,6 +156,9 @@ export async function receiveExecution({ home, host, port, certFile, keyFile, to
       let outcome;
       try {
         let value;
+        if (request.execution?.resource) {
+          options.managedWorktreeRoot = await sharedWorktreeRoot(home, id.split(':', 1)[0], request.execution.resource.task_id);
+        }
         if (request.tool === 'bash') {
           const session = processes.register(id, request.arguments.mode ?? 'pipe');
           try {
@@ -144,6 +170,8 @@ export async function receiveExecution({ home, host, port, certFile, keyFile, to
         } else if (request.tool === 'read_image') {
           const image = await readImageBytes(request.arguments, options);
           value = { ...image, bytes: image.bytes.toString('base64') };
+        } else if (request.tool === 'managed_worktree') {
+          value = await runWorktree(request, options.signal);
         } else {
           value = await mcpServer(request.server).callRaw(request.name, request.arguments, { signal: options.signal });
         }
@@ -406,6 +434,14 @@ class ExecutionPeer extends EventEmitter {
 
   mcpCall(operationId, server, name, arguments_, options) {
     return this.#operation(operationId, { tool: 'mcp', server, name, arguments: arguments_ }, options).result;
+  }
+
+  workspaceGit(path, signal) {
+    return this.#recover('execution.workspace_git', { path }, signal);
+  }
+
+  managedWorktree(namespace, worktree, options) {
+    return this.#operation(namespace + ':worktree:' + randomUUID(), { tool: 'managed_worktree', worktree }, options).result;
   }
 
   async mcpServers(signal) {

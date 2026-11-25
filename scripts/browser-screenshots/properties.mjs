@@ -1,5 +1,5 @@
 import { interactiveMarkdownFixture } from '../../tests/fixtures/interactive-markdown.mjs';
-import { capture, launchBrowser, notApplicable, setViewport, viewports } from './capture.mjs';
+import { capture, launchBrowser, setViewport, viewports } from './capture.mjs';
 
 const menus = {
   permissions: [['Custom permissions…', 'permissions-custom', [
@@ -12,8 +12,8 @@ const menus = {
     ['Reasoning effort', 'model-effort'],
     ['Model settings…', 'model-settings', [['Configuration source…', 'model-source']]],
   ],
-  workspace: [['Browse…', 'directory']],
-  project: [['New project', 'project-editor']],
+  workspace: [['浏览…', 'directory']],
+  project: [['新建项目', 'project-editor']],
 };
 
 const key = name => `[data-semantic-key="${name}"]`;
@@ -57,19 +57,15 @@ async function captureViewport(browser, url, viewport) {
     }
 
     await snap('creation', main);
-    await main.getByText('Project and run settings', { exact: true }).click();
-    const environment = main.locator(`select${key('task_environment')}`);
-    if (await environment.isVisible()) {
-      await environment.click();
-      await snap('task-environment-options', main);
-      await page.keyboard.press('Escape');
-    } else {
-      await notApplicable('task-environment-options', viewport, 'The draft offers no execution environment selection.');
-    }
+    const workspaceTrigger = main.locator(key('composer/context')).locator(key('composer/workspace'));
+    await workspaceTrigger.click();
+    await snap('task-environment-options');
+    await page.keyboard.press('Escape');
 
     for (const [kind, destinations] of Object.entries(menus)) {
       const trigger = main.locator(key(`composer/${kind}`));
       await trigger.click();
+      if (kind === 'workspace') await modal.locator('button[data-logical-key="composer/workspace"]').click();
       await snap(kind);
       if (kind === 'project') {
         const search = modal.getByRole('searchbox');

@@ -30,14 +30,24 @@ Definition same_environment (first second : option N) (value : world) :=
 Definition inside (root path : string) :=
   String.eqb root path || String.prefix (String.append root "/") path.
 
-Definition contains (space : workspace) (tree : Selvedge.Features.Domain.worktree) :=
+(* The task's original execution machine owns the resource, including after
+   later workspace configuration of its current settings. *)
+Definition worktree_environment (tree : Selvedge.Features.Domain.worktree) (value : world) :=
+  match find_task (Selvedge.Features.Domain.worktree_task tree) value with
+  | Some task => workspace_environment (settings_workspace (contract_settings (task_contract task)))
+  | None => None
+  end.
+Definition on_worktree_machine (space : workspace) (tree : Selvedge.Features.Domain.worktree) (value : world) :=
+  Workspace.same_environment space (ExecutionWorkspace [] None (worktree_environment tree value)).
+Definition contains (space : workspace) (tree : Selvedge.Features.Domain.worktree) (value : world) :=
+  on_worktree_machine space tree value &&
   match workspace_primary space, Selvedge.Features.Domain.worktree_root tree with
   | Some selected, Some root => inside root selected
   | _, _ => false
   end.
 
 Definition local (space : workspace) (value : world) :=
-  find (fun tree => negb (WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend tree)) && contains space tree)
+  find (fun tree => negb (WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend tree)) && contains space tree value)
     (Selvedge.Features.Domain.feature_worktrees (world_features value)).
 
 (* The reference is part of settings so independent task creation and forks
@@ -45,8 +55,7 @@ Definition local (space : workspace) (value : world) :=
 Definition resolve (settings : task_settings) (value : world) :=
   match settings_resource settings with
   | Some owner => owned owner value
-  | None => if Workspace.on_shared_environment (settings_workspace settings)
-            then None else local (settings_workspace settings) value
+  | None => local (settings_workspace settings) value
   end.
 
 Definition for_task (id : N) (value : world) :=
@@ -95,7 +104,7 @@ Definition resource_ready (space : workspace) (owner : option N) (value : world)
       (* Cloud roots share one remote filesystem. A local managed checkout owns
          the primary root while the task can retain independent secondary roots. *)
       (if WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend tree)
-       then within_resource space tree else contains space tree) &&
+       then within_resource space tree else contains space tree value) &&
       match Selvedge.Features.Domain.worktree_phase tree with
         | Selvedge.Features.Domain.TreeReady _ _ => true | _ => false end
     | None => false end end.
@@ -146,8 +155,8 @@ Proof.
   unfold resolve. rewrite reference, found. reflexivity.
 Qed.
 
-Definition workspace_available (space:workspace) (value:world) := Workspace.on_shared_environment space || forallb
- (fun tree=>WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend tree) ||
+Definition workspace_available (space:workspace) (value:world) := forallb
+ (fun tree=>WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend tree) || negb (on_worktree_machine space tree value) ||
  match Selvedge.Features.Domain.worktree_phase tree with Selvedge.Features.Domain.TreeReady _ _=>true | _=>
  match Selvedge.Features.Domain.worktree_root tree with Some root=>negb (existsb (fun path => String.eqb root path || String.prefix (String.append root "/") path) (workspace_roots space)) | None=>true end end)
  (Selvedge.Features.Domain.feature_worktrees (world_features value)).
@@ -189,7 +198,9 @@ Definition root_unused (owner:N) (root:string) (value:world) :=
  let uses:=fun task=>match resource with
  | Some tree=>if WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend tree) then
    Workspace.same_resource (settings_resource (contract_settings (task_contract task))) (Some owner)
-   else match resolve (contract_settings (task_contract task)) value with
+   else let settings := contract_settings (task_contract task) in
+     on_worktree_machine (settings_workspace settings) tree value &&
+     match resolve settings value with
      | Some bound=>negb (WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend bound)) && task_uses_root root task
      | None=>task_uses_root root task end
  | None=>task_uses_root root task end in
@@ -198,7 +209,7 @@ Definition root_unused (owner:N) (root:string) (value:world) :=
  match resource with Some tree=>if WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend tree) then
  forallb (fun pair=>negb (job_uses_resource owner (snd pair)))
  (Selvedge.Features.Domain.sharing_jobs (Selvedge.Features.Domain.feature_sharing (world_features value))) else
- forallb (fun pair=>negb (job_uses_root root (snd pair)))
+ forallb (fun pair=>negb (on_worktree_machine (Selvedge.Features.Domain.job_workspace (snd pair)) tree value && job_uses_root root (snd pair)))
  (Selvedge.Features.Domain.sharing_jobs (Selvedge.Features.Domain.feature_sharing (world_features value)))
  | None=>forallb (fun pair=>negb (job_uses_root root (snd pair)))
  (Selvedge.Features.Domain.sharing_jobs (Selvedge.Features.Domain.feature_sharing (world_features value))) end.

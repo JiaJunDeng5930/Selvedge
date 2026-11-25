@@ -184,13 +184,41 @@ Definition property_controls snapshot (s:Session.state) e parent properties :=
 Definition composer_tools snapshot (s:Session.state) e parent :=
  let selected property:=match UX.property_kind_of property with
  |UX.ModelProperty|UX.PermissionsProperty|UX.DeliveryProperty=>true|_=>false end in
- let tools:=property_controls snapshot s e parent(filter selected(Observe.observe_properties snapshot s e))in
- match e with
- |NewTask _=>
-  let key:="composer/environment" in
-  (tools++[declared parent Roles.Button(secondary key "配置工作环境"
-    (Input.OpenActivity e run_environment_request (part parent key)))])%list
- |_=>tools end.
+ property_controls snapshot s e parent(filter selected(Observe.observe_properties snapshot s e)).
+Definition creation_workspace snapshot (s:Session.state) e parent (property:UX.property e) :=
+ let draft:=Session.current_draft s e in
+ let key:="composer/workspace" in
+ let caption:=if Selvedge.Browser.Session.Observation.cloud_workspace_requested draft then "腾讯云 CVM"
+   else match Selvedge.Browser.Session.Observation.workspace_for_edit snapshot draft with
+   |inr workspace=>value_or "本机" (Domain.workspace_environment workspace)
+   |inl _=>"Workspace" end in
+ let subject:=UX.property_subject property in
+ let display:=UX.Property UX.WorkspaceProperty subject (UX.property_members property)
+   (UX.PresentInformation (UX.SummaryValue subject (UX.TextValue caption)) None) (UX.property_help property) in
+ Composer.supporting_control parent (Observe.property_support(Observe.action_unit_for s e)display) display
+   (secondary key "Workspace" (Input.OpenActivity e run_environment_request (part parent key))).
+Definition creation_worktree snapshot (s:Session.state) e parent :=
+ let draft:=Session.current_draft s e in
+ let checked:=Selvedge.Browser.Session.Observation.worktree_required draft in
+ let availability:=if Selvedge.Browser.Session.Observation.cloud_workspace_requested draft then
+     Unavailable "云机器启动时检出项目。"
+   else if checked then Available else
+   match Selvedge.Interaction.Submission.Observation.workspace_git_problem snapshot
+     (Services.workspace_git(Session.service_state s))draft with
+   |None=>Available|Some problem=>Unavailable(Observe.run_environment_git_message problem)end in
+ subject<-UX.admit_subject e(Parameters.name Fields.TaskEnvironment);;
+ action<-Input.assign_subject subject (JString(if checked then "current" else "local"));;
+ let key:=part parent "worktree" in
+ let label:="临时工作树" in
+ Some(Node key "creation-worktree" label Roles.Button
+   (Choice ToggleChoice checked "" (Control "worktree" label Secondary action availability))[]).
+Definition creation_context snapshot (s:Session.state) e parent :=
+ let controls:=flat_map(fun property=>match UX.property_kind_of property with
+   |UX.ProjectProperty=>[property_button snapshot s e parent property]
+   |UX.WorkspaceProperty=>[creation_workspace snapshot s e parent property]
+   |_=>[]end)(Observe.observe_properties snapshot s e)in
+ region parent "composer/context" "任务工作环境" Roles.Toolbar
+   (controls++match creation_worktree snapshot s e parent with Some toggle=>[toggle]|None=>[]end)%list.
 Definition assessment_nodes {e} parent (assessment:UX.assessment e):node Input.input :=
  Node(part parent "assessment")"assessment" ""Roles.Content(ActionExplanation e assessment)
   (match Observe.action_obstruction(UX.assessment_outcome assessment)with

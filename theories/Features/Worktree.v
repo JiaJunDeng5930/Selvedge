@@ -56,6 +56,11 @@ Definition project_primary_matches (settings : task_settings) (value : world) :=
    | None=>false end
  end.
 Definition effective := WorkspaceBinding.for_task.
+Definition observed_worktree (value : world) (tree : Selvedge.Features.Domain.worktree) :=
+ match WorkspaceBinding.worktree_environment tree value with
+ | Some environment => JObject (("environment",JString environment)::Observation.worktree_fields tree)
+ | None => Observation.worktree_json tree
+ end.
 Definition resolve_workspace (space : option (D.denote (D.nullable Codec.workspace_declaration))) (project_id : option N) (value : world) :=
  let selected := match space with
  | Some (inl source) => match Codec.workspace_of_values source with
@@ -77,12 +82,12 @@ Definition handle_resolve_workspace (payload:Selvedge.Generated.Commands.resolve
    (Selvedge.Generated.Commands.resolve_workspace_workspace_admitted payload)
    (Selvedge.Generated.Commands.resolve_workspace_project_id payload) value.
 Definition handle_list_worktrees (payload:Selvedge.Generated.Commands.list_worktrees_payload) (caller:option N) (value:world) :json :=
- Selvedge.Kernel.State.success (JObject [("worktrees",JArray (map Observation.worktree_json (Selvedge.Features.Domain.feature_worktrees (world_features value))))]).
+ Selvedge.Kernel.State.success (JObject [("worktrees",JArray (map (observed_worktree value) (Selvedge.Features.Domain.feature_worktrees (world_features value))))]).
 Definition handle_read_worktree (payload:Selvedge.Generated.Commands.read_worktree_payload) (caller:option N) (value:world) :json :=
- match Selvedge.Kernel.State.find_task (Selvedge.Generated.Commands.read_worktree_task_id payload) value with None=>Selvedge.Kernel.State.failure "task_not_found" "Task does not exist." | Some _=>match effective (Selvedge.Generated.Commands.read_worktree_task_id payload) value with Some tree=>Selvedge.Kernel.State.success (Observation.worktree_json tree) | None=>Selvedge.Kernel.State.failure "not_found" "Task worktree does not exist." end end.
+ match Selvedge.Kernel.State.find_task (Selvedge.Generated.Commands.read_worktree_task_id payload) value with None=>Selvedge.Kernel.State.failure "task_not_found" "Task does not exist." | Some _=>match effective (Selvedge.Generated.Commands.read_worktree_task_id payload) value with Some tree=>Selvedge.Kernel.State.success (observed_worktree value tree) | None=>Selvedge.Kernel.State.failure "not_found" "Task worktree does not exist." end end.
 Definition owner_observation owner value :=
  let reply := match lookup owner value with
- | Some tree => Selvedge.Kernel.State.success (Observation.worktree_json tree)
+  | Some tree => Selvedge.Kernel.State.success (observed_worktree value tree)
  | None => Selvedge.Kernel.State.failure "not_found" "Task worktree does not exist."
  end in (false,false,Decision value reply []).
 Definition owner_input : InputRoute.t (world -> bool * bool * decision) :=
@@ -92,14 +97,15 @@ Definition owner_input : InputRoute.t (world -> bool * bool * decision) :=
 Theorem owner_observation_reads_one_owned_worktree owner value tree :
  lookup owner value = Some tree ->
  owner_observation owner value =
-  (false,false,Decision value (Selvedge.Kernel.State.success (Observation.worktree_json tree)) []).
+  (false,false,Decision value (Selvedge.Kernel.State.success (observed_worktree value tree)) []).
 Proof. intros found; unfold owner_observation; now rewrite found. Qed.
 Definition archive_tree (tree:Selvedge.Features.Domain.worktree) (value:world) :decision :=
  let id:=Selvedge.Features.Domain.worktree_task tree in let source:=Selvedge.Features.Domain.worktree_source tree in
  match Selvedge.Features.Domain.worktree_root tree with None=>Selvedge.Kernel.State.accept JNull value [] | Some root=>
  let target:=Selvedge.Features.Domain.worktree_target_primary tree in
  if root_unused id root value then
- Selvedge.Kernel.State.accept JNull (store (Selvedge.Features.Domain.with_worktree_phase (Selvedge.Features.Domain.TreeArchiving (RequestEnvelope.Owned (root,target))) tree) value) [Selvedge.Kernel.State.ArchiveWorktree id source root (Selvedge.Features.Domain.worktree_backend tree)]
+ Selvedge.Kernel.State.accept JNull (store (Selvedge.Features.Domain.with_worktree_phase (Selvedge.Features.Domain.TreeArchiving (RequestEnvelope.Owned (root,target))) tree) value)
+  [Selvedge.Kernel.State.ArchiveWorktree id source root (Selvedge.Features.Domain.worktree_backend tree) (WorkspaceBinding.worktree_environment tree value)]
  else Selvedge.Kernel.State.accept JNull (store (Selvedge.Features.Domain.with_worktree_phase (Selvedge.Features.Domain.TreeArchiveFailed root target "Worktree is still used by another task. Archive shared tasks before retrying.") tree) value) [] end.
 Definition retry (id:N) (value:world) :=
  if negb (archive_allowed id value) then Selvedge.Kernel.State.reject "worktree_in_use" "This worktree is shared by other tasks. Archive those tasks before archiving its owner." value else
@@ -120,7 +126,7 @@ Arguments ProvisionLocal {before settings}.
 Arguments ProvisionCloud {before settings}.
 Definition provision_plan (before:world) (backend:WorkspaceBackend.backend) (settings:task_settings)
  :option (creation_plan before settings) :=
- if Workspace.on_shared_environment (settings_workspace settings) then None else
+ if WorkspaceBackend.cloud backend && Workspace.on_shared_environment (settings_workspace settings) then None else
  match WorkspaceBinding.resolve settings before with
  | Some tree=>if WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend tree) then None
    else Some (if WorkspaceBackend.cloud backend then ProvisionCloud else ProvisionLocal)
@@ -133,12 +139,7 @@ Definition reuse_plan (before:world) (settings:task_settings) (owner:N) :option 
  | None=>fun _=>None end eq_refl.
 Definition select_creation_plan (before:world) (selected:task_settings)
  (managed:option bool) (backend:option WorkspaceBackend.backend) :option (creation_plan before selected) :=
- if Workspace.on_shared_environment (settings_workspace selected) then
-   match backend, managed, settings_resource selected with
-   | None, None, None | None, Some false, None => Some UseWorkspace
-   | _, _, _ => None
-   end
- else match backend with
+ match backend with
  | Some backend=>provision_plan before backend selected
  | None=>match managed with
    | Some true=>provision_plan before WorkspaceBackend.Local selected
@@ -483,7 +484,7 @@ Definition handle_create_work_task (payload:Selvedge.Generated.Commands.create_w
 Definition handle_retry_worktree_archive (payload:Selvedge.Generated.Commands.retry_worktree_archive_payload) (caller:option N) (value:world) :decision :=
  retry (Selvedge.Generated.Commands.retry_worktree_archive_task_id payload) value.
 Definition selected_workspace (target:string) (space:workspace) := match workspace_primary space with
- | None=>space | Some source=>Workspace (map (fun root=>if String.eqb root source then target else root) (workspace_roots space)) (Some target) end.
+ | None=>space | Some source=>ExecutionWorkspace (map (fun root=>if String.eqb root source then target else root) (workspace_roots space)) (Some target) (workspace_environment space) end.
 Definition selected_settings (space:workspace) (guidance:Guidance.t) (settings:task_settings) := Settings space (settings_project settings)
  (settings_sandbox settings) (settings_approval settings) guidance (settings_worktree settings) (settings_resource settings) (settings_realtime_context settings).
 Definition install_workspace (phase : lifecycle) (space:workspace) (guidance:Guidance.t) (task:task) :=
@@ -568,7 +569,8 @@ Record creation_completion := CreationCompletion {
 }.
 Definition completed_workspace (values : ArgumentDeclaration.denote CallbackDeclarations.created_workspace) :=
  let fields := proj1_sig values in
- Workspace (map (@proj1_sig _ _) (proj1_sig (fst fields))) (Some (proj1_sig (fst (snd fields)))).
+ ExecutionWorkspace (map (@proj1_sig _ _) (proj1_sig (fst fields))) (Some (proj1_sig (fst (snd fields))))
+  (option_map (@proj1_sig _ _) (fst (snd (snd fields)))).
 Definition creation_from_values (ok : bool) (address : Schema.fields (Callback.coordinates (ModelDeclarations.Worktree true)))
  : DeclarationFields.values (Callback.payload (ModelDeclarations.Worktree true) ok) -> option creation_completion :=
  if ok as outcome return DeclarationFields.values (Callback.payload (ModelDeclarations.Worktree true) outcome) -> option creation_completion

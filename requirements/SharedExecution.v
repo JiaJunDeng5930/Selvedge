@@ -54,9 +54,8 @@ Lemma early_cancellation_prevents_launch : forall request,
   start_action true JNull request = "cancelled".
 Proof. reflexivity. Qed.
 
-(** The receiver selection excludes local and cloud Worktree path inference.
-    The task's execution settings therefore retain their original sandbox
-    and approval policy when their workspace is shared. *)
+(** A shared directory may select a Git worktree on the same receiver.
+    That checkout retains the task's sandbox and approval policy. *)
 Lemma shared_workspace_keeps_task_permissions : forall settings value,
   Workspace.on_shared_environment (settings_workspace settings) = true ->
   settings_resource settings = None ->
@@ -64,7 +63,11 @@ Lemma shared_workspace_keeps_task_permissions : forall settings value,
 Proof.
  intros settings value shared unowned.
  unfold WorkspaceBinding.normalize_settings, WorkspaceBinding.resolve.
- now rewrite unowned, shared.
+ rewrite unowned. unfold WorkspaceBinding.local.
+ destruct (find _ _) as [tree|] eqn:found; [|reflexivity].
+ apply find_some in found as [_ available].
+ apply Bool.andb_true_iff in available as [backend _].
+ apply Bool.negb_true_iff in backend. now rewrite backend.
 Qed.
 
 Lemma selecting_another_workspace_machine_clears_directory_paths : forall workspace environment,

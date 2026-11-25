@@ -325,14 +325,11 @@ Fixpoint relation_nodes {e} snapshot (s:State.state) occurrence parent query req
    |_=>[]end
  |Observation.CompoundContent,Act.CollectionMembers members=>
    workspace_nodes snapshot s occurrence(part parent "workspace")members::
-   (match Domain.workspace_environment (UX.collection_workspace members) with
-    |Some _=>[]
-    |None=>match e with Identity.Project _=>
+   (match e with Identity.Project _=>
       (* The project commit footer shows the Git check beside the disabled action. *)
       match Editors.field_node snapshot s e parent Fields.CreateWorktree with
       |Some checkbox=>[checkbox]|None=>[]end
-    |_=>[]end
-    end)
+    |_=>[]end)
  |Observation.CompoundContent,Act.AssessedAction action outcome=>
    let assessment:=UX.Assessment(UX.action_identity_of action)outcome in
    let draft:=State.current_draft s e in
@@ -378,21 +375,14 @@ Definition run_environment_choices snapshot (s:State.state) e occurrence parent 
   let alternatives:=UX.decision_alternatives decision in
   let is_mode mode (alternative:UX.alternative e subject):=
     Json.equal (JString mode) (Schema.encode_value (UX.subject_kind subject) (UX.alternative_value alternative)) in
-  match alternatives,find (is_mode "current") alternatives,
-      find (is_mode (WorkspaceBackend.name WorkspaceBackend.Local)) alternatives with
-  |[_;_],Some current,Some worktree=>
-   let checked:=UX.alternative_selected worktree in
-   let next:=if checked then current else worktree in
-   let key:=part parent "worktree" in
-   let label:="新建工作树" in
-   [Node key "creation-worktree" label Roles.Button
-    (Choice MultipleChoice checked ""
-      (Control "worktree" label Secondary
-        (Input.ActivityAssignment occurrence e(Act.Assignment subject(UX.alternative_value next)))
-        (domain_availability(UX.alternative_availability next))))[]]
-  |[_],_,_=>[]
-  |_,_,_=>map(candidate_node false false false None occurrence parent decision)alternatives
-  end end.
+  let choices:=filter (fun choice=>negb(is_mode "local" choice)) alternatives in
+  let worktree:=Selvedge.Browser.Session.Observation.worktree_required(State.current_draft s e) in
+  let indicate choice:=if worktree && is_mode "current" choice then
+    UX.Alternative (UX.alternative_label choice) (UX.alternative_explanation choice)
+      (UX.alternative_value choice) true (UX.alternative_availability choice) (UX.alternative_consequences choice)
+    else choice in
+  match choices with [_]=>[]
+  |_=>map(fun choice=>candidate_node false false false None occurrence parent decision (indicate choice))choices end end.
 Definition run_environment_menu snapshot (s:State.state) e occurrence parent behavior :=
  let draft:=State.current_draft s e in
  let cloud_help:=if Selvedge.Browser.Session.Observation.cloud_workspace_configured snapshot &&
@@ -414,12 +404,16 @@ Definition run_environment_menu snapshot (s:State.state) e occurrence parent beh
       [declared parent Roles.Button(secondary "cloud-check" "重新检查"(Input.ServiceInput(Services.RefreshCloudRepository e)))]
      else[]))%list end in
  let context:=filter(fun property=>match UX.property_kind_of property with
-  |UX.ProjectProperty|UX.WorkspaceProperty=>true|_=>false end)(Observation.observe_properties snapshot s e)in
+ |UX.WorkspaceProperty=>true|_=>false end)(Observation.observe_properties snapshot s e)in
+ let machines:=if Selvedge.Browser.Session.Observation.cloud_workspace_requested draft then [] else
+   match Selvedge.Browser.Session.Observation.workspace_for_edit snapshot draft with
+   |inr current=>Editors.workspace_directory_controls snapshot s parent e current []
+   |inl _=>[]end in
  let status:=match Observation.run_environment_problem_for snapshot s draft with
  |Some problem=>[information parent "run-environment-status" Information.Status(Observation.environment_problem_message problem)]
  |None=>[]end in
  Node parent "creation-environment" "工作环境" Roles.Menu (LayerRegion behavior)
-  (title parent "工作环境"::(run_environment_choices snapshot s e occurrence parent ++
+  (title parent "工作环境"::(run_environment_choices snapshot s e occurrence parent ++ machines ++
     Editors.property_controls snapshot s e parent context++cloud_help++status++repair)%list).
 Definition workspace_menu snapshot (s:State.state) e occurrence parent behavior:=
  Node parent "workspace-settings" "工作目录"Roles.Menu(LayerRegion behavior)

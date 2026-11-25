@@ -96,15 +96,16 @@ Theorem running_connection_job_blocks_local_archive : forall owner root value tr
  Worktree.lookup owner value=Some tree -> F.worktree_backend tree=WorkspaceBackend.Local ->
  In (id,job) (F.sharing_jobs (F.feature_sharing (world_features value))) ->
  F.job_state job=F.JobRunning -> F.job_resource job=None ->
+ WorkspaceBinding.on_worktree_machine (F.job_workspace job) tree value=true ->
  WorkspaceBinding.any_inside root (workspace_roots (F.job_workspace job))=true ->
  Worktree.root_unused owner root value=false.
 Proof.
- intros owner root value tree id job found backend member running resource uses.
+ intros owner root value tree id job found backend member running resource machine uses.
  apply Bool.not_true_is_false. intro available.
  unfold Worktree.root_unused, WorkspaceBinding.root_unused in available; unfold Worktree.lookup in found. rewrite found,backend in available.
  apply Bool.andb_true_iff in available as [_ jobs].
  apply forallb_forall with (x:=(id,job)) in jobs; [|exact member].
- cbn in jobs. unfold WorkspaceBinding.job_uses_root in jobs. rewrite running,resource,uses in jobs. discriminate.
+ cbn in jobs. unfold WorkspaceBinding.job_uses_root in jobs. rewrite machine,running,resource,uses in jobs. discriminate.
 Qed.
 (** A frozen borrower holds the owner's cloud resource regardless of path text
     or whether the owner later changes its current task settings. *)
@@ -138,7 +139,7 @@ Theorem bound_resource_is_observed : forall payload caller value task owner tree
  settings_resource (task_current_settings task)=Some owner ->
  WorkspaceBinding.owned owner value=Some tree ->
  Worktree.handle_read_worktree payload caller value=
- success (Selvedge.Features.Observation.worktree_json tree).
+ success (Worktree.observed_worktree value tree).
 Proof.
  intros payload caller value task owner tree found reference resource.
  unfold Worktree.handle_read_worktree. rewrite found. unfold Worktree.effective, WorkspaceBinding.for_task.
@@ -173,14 +174,14 @@ Theorem archiving_local_workspace_is_unavailable : forall space value tree root 
  F.worktree_backend tree=WorkspaceBackend.Local ->
  F.worktree_phase tree=F.TreeArchiving (RequestEnvelope.Owned (root,target)) ->
  WorkspaceBinding.any_inside root (workspace_roots space)=true ->
- Workspace.on_shared_environment space=false ->
+ WorkspaceBinding.on_worktree_machine space tree value=true ->
  Worktree.workspace_available space value=false.
 Proof.
- intros space value tree root target member backend phase uses Local.
+ intros space value tree root target member backend phase uses machine.
  apply Bool.not_true_is_false. intro available.
- unfold Worktree.workspace_available,WorkspaceBinding.workspace_available in available. rewrite Local in available. simpl in available.
+ unfold Worktree.workspace_available,WorkspaceBinding.workspace_available in available.
  apply forallb_forall with (x:=tree) in available; [|exact member].
- rewrite backend,phase in available. cbn [WorkspaceBackend.cloud] in available.
+ rewrite backend,machine,phase in available. cbn [WorkspaceBackend.cloud] in available.
  unfold F.worktree_root in available. unfold WorkspaceBinding.any_inside,Worktree.inside, WorkspaceBinding.inside in uses.
  rewrite phase,uses in available. discriminate.
 Qed.
@@ -334,14 +335,17 @@ Qed.
 Theorem an_observed_binding_takes_priority_over_automatic_worktree_preference :
  forall before settings owner,
  settings_resource settings = Some owner ->
- Workspace.on_shared_environment (settings_workspace settings) = false ->
  Worktree.select_creation_plan before settings None None = Worktree.reuse_plan before settings owner.
-Proof. intros before settings owner Bound Local. unfold Worktree.select_creation_plan; now rewrite Local, Bound. Qed.
+Proof. intros before settings owner Bound. unfold Worktree.select_creation_plan; now rewrite Bound. Qed.
 Theorem explicit_provision_rejects_an_observed_cloud_source : forall before backend settings tree,
  WorkspaceBinding.resolve settings before = Some tree ->
  WorkspaceBackend.cloud (F.worktree_backend tree) = true ->
  Worktree.provision_plan before backend settings = None.
-Proof. intros before backend settings tree Observed Cloud. unfold Worktree.provision_plan; rewrite Observed, Cloud; now destruct (Workspace.on_shared_environment (settings_workspace settings)). Qed.
+Proof.
+ intros before backend settings tree Observed Cloud. unfold Worktree.provision_plan.
+ destruct (WorkspaceBackend.cloud backend && Workspace.on_shared_environment (settings_workspace settings));
+   [reflexivity|now rewrite Observed, Cloud].
+Qed.
 
 Theorem planned_birth_appends_exactly_one_task : forall before (plan:Worktree.planned_start before) current,
  exists created, world_tasks (Worktree.born_world (Worktree.interpret_planned_birth plan current)) = (world_tasks current ++ [created])%list.

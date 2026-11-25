@@ -8,7 +8,7 @@ From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Codec Identity.
 From Selvedge.Programming Require Import Resource.
 From Selvedge.Interaction Require Import ModelSelection.
-From Selvedge.Interaction.Submission Require Draft DraftCodec.
+From Selvedge.Interaction.Submission Require Draft DraftCodec Observation.
 From Selvedge.Interaction Require CommandAssessment.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 Import ListNotations.
@@ -68,8 +68,11 @@ Definition decode_preparation j := option_map Preparation (DraftCodec.decode_dra
 Definition encode_directory_observation value:=JObject[("workspace",Selvedge.Kernel.Codec.workspace_json(observed_workspace value));("guidance",observed_guidance value)].
 Definition decode_directory_observation value:=workspace<-bind(field "workspace" value)Selvedge.Kernel.Codec.parse_workspace;;guidance<-field "guidance" value;;
  match Selvedge.Kernel.Codec.parse_guidance workspace guidance with Some _=>Some(DirectoryObservation workspace guidance)|None=>None end.
-Definition encode_git_request (r:editor*string) := JObject[("editor",encode_editor(fst r));("primary",JString(snd r))].
-Definition decode_git_request j := e<-bind(field "editor" j)decode_editor;;p<-string_field "primary" j;;Some(e,p).
+Definition encode_git_request (r:Observation.git_request) := JObject
+ ([("editor",encode_editor(Observation.git_editor r));("primary",JString(Observation.git_primary r))]++
+ directory_environment_fields (Observation.git_environment r)).
+Definition decode_git_request j := e<-bind(field "editor" j)decode_editor;;p<-string_field "primary" j;;
+ environment<-decode_directory_environment j;;Some(Observation.GitRequest e p environment).
 Inductive connection_observation :=
 | ConnectionDormant
 | ConnectionLoading (ticket:N)
@@ -131,8 +134,8 @@ Record services := Services {
   uploads:list(resource upload_request attachment); preview:resource preview_request string;
   directory:resource directory_request json; directory_location:string;
   model_preference:option (string * string); storage_problem:option string;
-  preparations:list(resource preparation directory_observation); workspace_git:resource (editor*string) bool;
-  cloud_repository:resource (editor*string) bool;
+  preparations:list(resource preparation directory_observation); workspace_git:resource Observation.git_request bool;
+  cloud_repository:resource Observation.git_request bool;
   command_assessments:list(resource CommandAssessment.request CommandAssessment.observation);
   service_configuration:Configuration.state }.
 Definition initial := Services ConnectionDormant None SettingsGeneral SystemAppearance 0 [] Dormant Dormant "" None None [] Dormant Dormant [] Configuration.initial.
@@ -208,7 +211,7 @@ Inductive service_effect :=
 | ReadConfiguration(ticket:N) | WriteConfiguration(ticket:N)(request:json)
 | SaveAppearance(value:appearance) | Upload(ticket:N)(request:upload_request) | AbortUpload(ticket:N)
 | FetchPreview(ticket:N)(file:attachment) | ReleasePreview(url:string) | DownloadFile(file:attachment)
-| ObserveDirectories(ticket:N)(workspace:json)(owner:editor) | ObserveWorkspaceGit(ticket:N)(primary:string)(owner:editor)
+| ObserveDirectories(ticket:N)(workspace:json)(owner:editor) | ObserveWorkspaceGit(ticket:N)(request:Observation.git_request)
 | ObserveCloudRepository(ticket:N)(primary:string)
 | ListDirectory(ticket:N)(path:string)(owner:editor)(environment:option string) | DirectoryChosen(owner:editor)(path:string) | Focus(trigger:string).
 Record service_result := ServiceResult { service_state:services; service_effects:list service_effect; attached:option(editor*attachment) }.
@@ -340,7 +343,7 @@ Definition service_step input s :=
   | WorkspaceGitCompleted t outcome => keep(with_workspace_git(settle t outcome(workspace_git s))s)
   | CloudRepositoryCompleted t outcome => keep(with_cloud_repository(settle t outcome(cloud_repository s))s)
   | RefreshCloudRepository owner => match resource_request(cloud_repository s)with
-    |Some(current,_)=>if same_editor current owner then keep(with_cloud_repository Dormant s)else keep s
+    |Some current=>if same_editor (Observation.git_editor current) owner then keep(with_cloud_repository Dormant s)else keep s
     |None=>keep s end
   | RestoreModelPreference raw =>
       match bind (TextJson.parse_json raw) ModelSelection.decode_preference with
@@ -458,7 +461,9 @@ Definition encode_effect e :=
   | ReleasePreview url=>effect "release_preview"[("url",JString url)]
   | DownloadFile a=>effect "download"[("file",encode_attachment a)]
   | ObserveDirectories t workspace e=>effect "observe_directories"(task_observation_fields e[("ticket",number t);("workspace",workspace)])
-  | ObserveWorkspaceGit t primary e=>effect "workspace_git"(task_observation_fields e[("ticket",number t);("primary",JString primary)])
+  | ObserveWorkspaceGit t request=>effect "workspace_git"(task_observation_fields (Observation.git_editor request)
+    ([("ticket",number t);("primary",JString(Observation.git_primary request))]++
+     directory_environment_fields (Observation.git_environment request)))
   | ObserveCloudRepository t primary=>effect "cloud_repository"[("ticket",number t);("primary",JString primary)]
   | ListDirectory t p e environment=>effect "list_directory"(task_observation_fields e
     ([("ticket",number t);("path",JString p)]++directory_environment_fields environment))

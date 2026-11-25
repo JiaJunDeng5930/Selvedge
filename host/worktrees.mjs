@@ -7,7 +7,6 @@ import { readControlRecord, writeControlRecord as saveReceipt, durableDirectory 
 import { canonicalWorkspace } from './sandbox.mjs';
 import { snapshotWorkspaceGuidance } from './project.mjs';
 import { boundary } from './public/model-boundary.mjs';
-import { naturalKey } from './codec.mjs';
 import { runLocalResourceController } from './resource-runtime.ts';
 
 const execute = promisify(execFile);
@@ -54,6 +53,7 @@ export async function observeWorkspaceGit(primary, { signal, environment } = {})
     if (error instanceof TypeError) return false;
     throw error;
   }
+  if (environment?.peer) return environment.peer.workspaceGit(primary, signal);
   try {
     const [inside] = (await git(primary, ['rev-parse', '--is-inside-work-tree', '--verify', 'HEAD^{commit}'],
       { signal, environment })).split('\n', 1);
@@ -67,8 +67,8 @@ export async function observeWorkspaceGit(primary, { signal, environment } = {})
   }
 }
 
-async function locations(home, taskId) {
-  const files = boundary('effect.worktree_locations', { home: await realpath(home), task_id: taskId });
+async function locations(home, taskId, namespace) {
+  const files = boundary('effect.worktree_locations', { home: await realpath(home), task_id: taskId, namespace: namespace ?? null });
   for (const directory of [files.storage, path.dirname(files.archived), path.dirname(files.receipt)]) {
     await durableDirectory(directory);
     // DEFENSE: Replaced storage directories must not redirect managed worktree writes through symbolic links.
@@ -81,7 +81,21 @@ async function locations(home, taskId) {
 
 async function readReceipt(files, taskId, sourceRoot) {
   const value = await readControlRecord(files.receipt, { maximumBytes: maximumReceiptBytes, label: 'managed worktree receipt' });
-  return boundary('effect.worktree_receipt', { files, value, task_id: taskId, source_root: sourceRoot });
+  return boundary('effect.worktree_receipt', { files, value, task_id: taskId, source_root: sourceRoot ?? value.source_root });
+}
+
+async function canonicalWorktreeWorkspace(workspace) {
+  const selected = await canonicalWorkspace(workspace);
+  return workspace.environment ? { ...selected, environment: workspace.environment } : selected;
+}
+
+export async function sharedWorktreeRoot(home, namespace, taskId) {
+  const files = await locations(home, taskId, namespace);
+  const receipt = await readReceipt(files, taskId);
+  // DEFENSE: A stale shared execution cannot reopen a checkout after its worktree is archived.
+  if (receipt.status !== 'ready') throw new Error('The shared task worktree is not ready');
+  await verifyTree(receipt.root, receipt.reservation);
+  return receipt.root;
 }
 
 async function commonDirectory(root) {
@@ -186,11 +200,11 @@ function localOwnership(files, released = () => {}) {
 // KNOWN LIMITATION: Checkout writes use normal filesystem durability; recovery
 // after a host power loss does not reconstruct lost project contents.
 /** The durable resource step grants the one physical checkout attempt. */
-export async function createManagedWorktree(effect, { home, limits, signal } = {}) {
+export async function createManagedWorktree(effect, { home, limits, signal, worktreeNamespace } = {}) {
   let root, repository, files;
   let reserved = false;
   try {
-    files = await locations(home, effect.task_id);
+    files = await locations(home, effect.task_id, worktreeNamespace);
     root = files.active;
     const primary = await realpath(effect.source_root);
     const source = (await git(primary, ['rev-parse', '--show-toplevel', '--verify', 'HEAD^{commit}'], { signal })).trimEnd();
@@ -219,7 +233,7 @@ export async function createManagedWorktree(effect, { home, limits, signal } = {
       },
       async local_prepare() {
         if (patch.length) {
-          const patchFile = path.join(files.storage, `.task-${naturalKey(effect.task_id)}.patch`);
+          const patchFile = path.join(files.storage, `.${path.basename(files.active)}.patch`);
           await writeFile(patchFile, patch, { mode: 0o600, flag: 'wx' });
           try { await git(root, [...configuration, 'apply', '--binary', '--', patchFile], { signal }); }
           finally { await rm(patchFile, { force: true }); }
@@ -234,7 +248,7 @@ export async function createManagedWorktree(effect, { home, limits, signal } = {
         }
         const nextPrimary = path.join(root, path.relative(repository, primary));
         await mkdir(nextPrimary, { recursive: true });
-        const workspace = await canonicalWorkspace(boundary('effect.worktree_workspace', {
+        const workspace = await canonicalWorktreeWorkspace(boundary('effect.worktree_workspace', {
           workspace: effect.workspace, previous: primary, next: nextPrimary, descendants: false,
         }));
         const guidance = await snapshotWorkspaceGuidance(workspace.primary_root, limits, { signal });
@@ -250,9 +264,9 @@ export async function createManagedWorktree(effect, { home, limits, signal } = {
 }
 
 /** Archive by moving the checkout, preserving tracked and untracked changes. */
-export async function archiveManagedWorktree(effect, { home, signal } = {}) {
+export async function archiveManagedWorktree(effect, { home, signal, worktreeNamespace } = {}) {
   try {
-    const files = await locations(home, effect.task_id);
+    const files = await locations(home, effect.task_id, worktreeNamespace);
     boundary('effect.worktree_path', { operation: 'archive', files, root: effect.root });
     const receipt = await readReceipt(files, effect.task_id, effect.source_root);
     const result = await runLocalResource(control('local', { operation: 'archive', receipt }), files, {
@@ -280,12 +294,12 @@ export async function archiveManagedWorktree(effect, { home, signal } = {}) {
 }
 
 /** Recovery observes receipts and Git links; it never repeats checkout or move. */
-export async function reconcileManagedWorktree(entry, { home, limits } = {}) {
+export async function reconcileManagedWorktree(entry, { home, limits, worktreeNamespace } = {}) {
   const effect = boundary('effect.worktree_recovery_effect', { entry });
   const creating = effect.kind === 'worktree_create';
   let root;
   try {
-    const files = await locations(home, entry.task_id);
+    const files = await locations(home, entry.task_id, worktreeNamespace);
     root = creating ? files.active : entry.root;
     const receipt = await readReceipt(files, entry.task_id, entry.source_root);
     const result = await runLocalResource(control('local', { operation: 'recover', receipt, creating }), files, {
@@ -305,7 +319,7 @@ export async function reconcileManagedWorktree(entry, { home, limits } = {}) {
           });
           return { kind: 'local_observed', root: observedRoot, workspace };
         }
-        const workspace = await canonicalWorkspace(state.workspace);
+        const workspace = await canonicalWorktreeWorkspace(state.workspace);
         return { kind: 'local_observed', root: state.root, workspace,
           guidance: await snapshotWorkspaceGuidance(workspace.primary_root, limits) };
       },

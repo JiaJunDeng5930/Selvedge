@@ -40,7 +40,8 @@ Definition creation_composer snapshot (s:State.state) parent :=
   |Some problem=>[information parent "run-environment-status" Information.Status(Observe.environment_problem_message problem)]
   |None=>[]end in
  page_region parent Composition.ComposerInput Composition.BodyPosition
-   ((match Editors.composer_view snapshot s e owner with Some composer=>[composer]|None=>[]end)++status)%list.
+   (Editors.creation_context snapshot s e owner::
+     ((match Editors.composer_view snapshot s e owner with Some composer=>[composer]|None=>[]end)++status))%list.
 Definition creation_introduction snapshot s parent :=
  let e:=NewTask(State.active_work(State.navigation_state s))in
  let graph_return:=match State.location(State.navigation_state s)with

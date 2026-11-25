@@ -181,7 +181,7 @@ test('Project task creation distinguishes restored workspace inheritance from an
   const start = page.getByRole('button', { name: 'Start task', exact: true });
   await start.waitFor();
   assert.equal(await start.isDisabled(), true, 'An empty Task remains a passive draft');
-  assert.equal(await page.locator('button[data-logical-key="composer/workspace"]').isVisible(), false);
+  assert.equal(await page.locator('button[data-logical-key="composer/workspace"]').isVisible(), true);
   const environment = await openCreationEnvironment(page);
   await environment.locator('button[data-logical-key="composer/workspace"]').click();
   const workspace = page.getByRole('dialog', { name: '工作目录', exact: true });

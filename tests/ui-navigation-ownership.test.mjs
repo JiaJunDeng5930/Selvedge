@@ -5,7 +5,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import path from 'node:path';
-import { browserFixture, enableCreationWorktree, openCreationEnvironment } from './fixtures/browser.mjs';
+import { browserFixture, creationWorktreeSwitch, enableCreationWorktree, openCreationEnvironment } from './fixtures/browser.mjs';
 
 function deferred() {
   let resolve, reject;
@@ -342,47 +342,19 @@ async function replaceWorkspace(page, environment, directory) {
   await environment.waitFor();
 }
 
-test('a Git preview preserves Local intent while submission uses the selected workspace', { timeout: 60000 }, async t => {
-  const fixture = await browserFixture(t);
-  const { page, root, command } = fixture;
+test('worktree creation follows the selected Workspace Git observation', { timeout: 60000 }, async t => {
+  const fixture = await browserFixture(t, { cloud: true });
+  const { page, root } = fixture;
   const source = path.join(root, 'Git primary');
-  const nonGit = path.join(root, 'Plain primary');
+  const plain = path.join(root, 'Plain primary');
   await repository(source);
-  await mkdir(nonGit);
-  const plain = gitResponse(page, nonGit);
-  await openProjectTask(fixture, 'Legacy local worktree default', nonGit, true);
-  const response = await plain;
-  assert.equal(response.status(), 200);
-  assert.equal((await response.json()).available, false);
-
-  const message = page.getByRole('combobox', { name: 'Task', exact: true });
-  const start = page.getByRole('button', { name: 'Start task', exact: true });
-  const ready = page.getByRole('button', { name: 'Start task', exact: true, disabled: false });
-  const repositoryRequired = '请选择包含提交的 Git 仓库，或直接使用当前工作目录。';
-  const required = page.getByRole('status').filter({ hasText: repositoryRequired });
-  await page.setViewportSize({ width: 390, height: 700 });
-  await message.fill('Keep my selected run environment.');
-  await required.waitFor();
-  assert.equal(await required.count(), 1, 'The composer exposes the reason with the gear menu closed');
-  await ready.waitFor();
-  const environment = await openCreationEnvironment(page);
-  const worktree = checked => environment.getByRole('menuitemcheckbox', { name: '新建工作树', exact: true, checked });
-  const menuReason = environment.getByRole('status').filter({ hasText: repositoryRequired });
-  await worktree(true).waitFor();
-  await menuReason.waitFor();
-  assert.equal(await required.count(), 1, 'Opening the menu moves the visible reason into the menu');
-  const selectBounds = await worktree(true).boundingBox(), reasonBounds = await menuReason.boundingBox();
-  assert.ok(selectBounds && reasonBounds && reasonBounds.y >= selectBounds.y + selectBounds.height
-    && reasonBounds.x >= 0 && reasonBounds.x + reasonBounds.width <= 390);
-  await worktree(true).click();
-  await worktree(false).waitFor();
-  await page.keyboard.press('Escape');
-  await environment.waitFor({ state: 'hidden' });
-  await ready.waitFor();
-  await enableCreationWorktree(page);
-  await menuReason.waitFor();
-  assert.equal(await worktree(true).isVisible(), true, 'The explicit Local choice survives the failed Git check');
-  await page.setViewportSize({ width: 1280, height: 900 });
+  await mkdir(plain);
+  const observed = gitResponse(page, plain);
+  await openProjectTask(fixture, 'Plain workspace', plain);
+  assert.equal((await (await observed).json()).available, false);
+  const toggle = creationWorktreeSwitch(page);
+  assert.equal(await toggle.isDisabled(), true);
+  assert.equal(await toggle.getAttribute('aria-checked'), 'false');
 
   const started = deferred(), released = deferred(), completed = deferred();
   let held = false;
@@ -397,50 +369,26 @@ test('a Git preview preserves Local intent while submission uses the selected wo
     await route.fulfill({ response });
     completed.resolve();
   });
+  const environment = await openCreationEnvironment(page);
   await replaceWorkspace(page, environment, source);
   assert.equal((await started.promise).available, true);
-  await environment.getByRole('status').filter({ hasText: '正在检查工作目录是否支持 Git 工作树…' }).waitFor();
-  await worktree(true).waitFor();
-  await page.keyboard.press('Escape');
-  await environment.waitFor({ state: 'hidden' });
-  await ready.waitFor();
-  await startWork(page);
-  const newerMessage = 'Retain the newer default-workspace draft.';
-  await message.fill(newerMessage);
-  await enableCreationWorktree(page);
-  const workspace = environment.locator('button[data-logical-key="composer/workspace"]');
-  const primary = await workspace.innerText();
-  assert.ok(primary.includes(root), primary);
-  assert.ok(!primary.includes(source), primary);
-  await menuReason.waitFor();
+  assert.equal(await toggle.isDisabled(), true);
+  await replaceWorkspace(page, environment, plain);
   released.resolve();
   await completed.promise;
-  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-  assert.equal(await worktree(true).isVisible(), true);
-  assert.equal(await workspace.innerText(), primary);
   await page.keyboard.press('Escape');
   await environment.waitFor({ state: 'hidden' });
-  assert.equal(await message.inputValue(), newerMessage);
-  await required.waitFor();
-  const refused = commandResponse(page, 'create_work_task');
-  await ready.click();
-  const responseToNewerDraft = await refused;
-  assert.equal(responseToNewerDraft.status(), 400);
-  assert.match((await responseToNewerDraft.json()).error.message, /Git repository with an initial commit/);
-  await message.waitFor();
-  assert.equal(await message.inputValue(), newerMessage);
-  assert.deepEqual((await command({ op: 'list_worktrees' })).worktrees, []);
+  assert.equal(await toggle.isDisabled(), true);
+
   await openCreationEnvironment(page);
-  await worktree(true).click();
-  await worktree(false).waitFor();
+  await replaceWorkspace(page, environment, source);
   await page.keyboard.press('Escape');
   await environment.waitFor({ state: 'hidden' });
-  await ready.waitFor();
-  const creation = commandResponse(page, 'create_work_task');
-  await start.click();
-  const { reply } = await (await creation).json();
-  assert.equal(reply.ok, true, JSON.stringify(reply));
-  assert.deepEqual((await command({ op: 'list_worktrees' })).worktrees, []);
+  await toggle.click();
+  assert.equal(await toggle.getAttribute('aria-checked'), 'true');
+  await openCreationEnvironment(page);
+  await environment.getByRole('menuitemradio', { name: '使用当前工作目录', exact: true, checked: true }).click();
+  assert.equal(await toggle.getAttribute('aria-checked'), 'true', 'Reselecting this Workspace preserves its worktree choice');
 });
 
 test('a verified Local choice creates a real managed Git worktree', { timeout: 60000 }, async t => {

@@ -56,7 +56,7 @@ Definition continue := effect "continue" [] None.
 Definition worktree_create := effect "worktree_create" ([Field "backend" (KEnum "local" ["tencent_cvm"])] ++ task_only ++
  [Field "source_root" KText;Field "workspace" KJson]) (Some (Worktree true)).
 Definition worktree_archive := effect "worktree_archive" ([Field "backend" (KEnum "local" ["tencent_cvm"])] ++ task_only ++
- [Field "root" KText;Field "source_root" KText]) (Some (Worktree false)).
+ [Field "root" KText;Field "source_root" KText;OmittableField "environment" KText]) (Some (Worktree false)).
 Definition task_title_request := declare_request "task_title" (OwnedTicket "task_id") [model;Field "prompt" KText] TaskTitle.
 Definition task_title := request_variant_view task_title_request.
 Definition board_text_request := declare_request "board_text" (OwnedTicket "card_id")

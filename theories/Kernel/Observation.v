@@ -75,7 +75,7 @@ Definition effect_packet (state : world) (value : effect) := match value with
  | CancelTask id => Variant.pack ModelDeclarations.cancel [!id!]
  | CancelTicket id ticket => Variant.pack ModelDeclarations.cancel_ticket [!id;ticket!] | ContinueScheduling => Variant.pack ModelDeclarations.continue [!!]
  | CreateWorktree id root workspace backend => Variant.pack ModelDeclarations.worktree_create [!WorkspaceBackend.to_value backend;id;root;workspace_json workspace!]
- | ArchiveWorktree id source root backend => Variant.pack ModelDeclarations.worktree_archive [!WorkspaceBackend.to_value backend;id;root;source!]
+ | ArchiveWorktree id source root backend environment => Variant.pack ModelDeclarations.worktree_archive [!WorkspaceBackend.to_value backend;id;root;source;environment!]
  | RequestFeature sent => RequestTypes.encode_packet sent (world_features state)
  | CancelConnectionJob id => Variant.pack ModelDeclarations.chatgpt_cancel [!id!]
  | MaintainContext request => Selvedge.Features.CompactionCodec.effect_packet request

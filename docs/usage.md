@@ -81,13 +81,12 @@ isolation fails closed, rather than falling back to an ordinary host shell.
 object with `project_id`, `workspace`, `sandbox`, `approval`, and
 `realtime_context`.
 
-The gear in the new conversation composer opens the project, working directory
-and run settings. On a host with local execution, the worktree toggle switches
-between the current directory and a local Git worktree. Hosts with Tencent
-Cloud CVM configured also offer that environment. A local worktree requires verifying
-that the primary directory belongs to a Git repository with a commit. The
-selected environment remains in place during verification and if it fails, so
-you can correct the directory or choose another environment.
+Above the new conversation input, select the project, choose its Workspace,
+and optionally turn on Temporary worktree. A project supplies its configured
+machine and directories. To use a different paired machine, choose its
+directories there. The switch becomes available when the selected host or
+receiver primary belongs to a Git repository with a commit. Selecting Tencent
+Cloud CVM turns the switch off. The cloud machine provisions its own checkout.
 A project's `create_worktree` preference initializes the local choice. The
 Project editor requires a verified primary to save with that default enabled.
 Starting a conversation with a local worktree remembers it as the Project default
@@ -95,7 +94,8 @@ when the verified primary is also the Project primary. The programmatic local en
 `create_worktree_task`; `create_workspace_task` additionally accepts the typed
 `backend` name `local` or `tencent_cvm`. Both use the existing task startup and
 archive lifecycle.
-Managed checkouts live under `<service home>/worktrees`, start at detached HEAD,
+Managed checkouts live under `<service home>/worktrees` on the selected machine,
+start at detached HEAD,
 and include tracked edits and untracked files that Git does not ignore.
 The service home must be outside the source Git repository so its private state
 cannot be copied into a task checkout.

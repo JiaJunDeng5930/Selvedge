@@ -3,7 +3,7 @@ From Selvedge.Foundation Require Import Json.
 From Selvedge.Programming Require Import Resource.
 From Selvedge.Kernel Require Domain.
 From Selvedge.Interaction Require Import Identity CommandAssessment.
-From Selvedge.Interaction.Submission Require Draft.
+From Selvedge.Interaction.Submission Require Draft Observation.
 
 (** Inputs to editor decisions are observations about a draft, its resources,
     and command admission. Each entry supplies these from its own session. *)
@@ -12,8 +12,8 @@ Record resources := Resources {
   editor_uploading : editor -> bool;
   directory_entry : editor -> string;
   directory_result : Draft.draft -> option (sum string (Domain.workspace * json));
-  git_observation : resource (editor * string) bool;
-  cloud_repository_observation : resource (editor * string) bool;
+  git_observation : resource Observation.git_request bool;
+  cloud_repository_observation : resource Observation.git_request bool;
   connected : bool;
   command_assessments : list (resource request observation);
   current_time : option N

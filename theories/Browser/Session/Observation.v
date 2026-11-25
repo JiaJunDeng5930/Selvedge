@@ -24,7 +24,7 @@ Definition cloud_workspace_requested := Selvedge.Interaction.Submission.Observat
 Definition cloud_workspace_configured := Selvedge.Interaction.Submission.Observation.cloud_workspace_configured.
 
 Inductive directory_selection_preview := AwaitingDirectory
- | PreviewDirectory (request:editor * string) (primary:bool) (problem:option Observation.git_problem).
+ | PreviewDirectory (request:Observation.git_request) (primary:bool) (problem:option Observation.git_problem).
 Definition directory_preview snapshot state : option directory_selection_preview :=
  let services:=State.service_state state in
  let listing:=Services.directory services in
@@ -38,8 +38,9 @@ Definition directory_preview snapshot state : option directory_selection_preview
    if requires_git then match workspace_for_edit snapshot draft with
     |inr workspace=>body<-Values.add_workspace_directory snapshot(Draft.contents draft)workspace path;;
      let primary:=match workspace_git_request snapshot(Draft.with_body body draft)with
-      |Some(_,next)=>String.eqb next path|None=>false end in
-     Some(PreviewDirectory(owner,path)primary(Observation.git_request_problem(owner,path)(Services.workspace_git services)))
+      |Some next=>String.eqb (Observation.git_primary next) path|None=>false end in
+     let git:=Observation.GitRequest owner path (Services.directory_environment request) in
+     Some(PreviewDirectory git primary (Observation.git_request_problem git (Services.workspace_git services)))
     |inl _=>Some AwaitingDirectory end
    else None else Some AwaitingDirectory
   |None=>Some AwaitingDirectory end

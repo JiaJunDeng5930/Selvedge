@@ -3,7 +3,10 @@ import { launchChromium } from './chromium.mjs';
 import { interactiveMarkdownFixture } from './interactive-markdown.mjs';
 import { imagesFixture } from './images.mjs';
 
-export const creationEnvironmentTrigger = page => page.getByRole('button', { name: '配置工作环境', exact: true });
+export const creationContext = page => page.locator('[data-semantic-key="composer/context"]');
+export const creationEnvironmentTrigger = page => creationContext(page).locator('[data-semantic-key="composer/workspace"]');
+export const creationProjectTrigger = page => creationContext(page).locator('[data-semantic-key="composer/project"]');
+export const creationWorktreeSwitch = page => creationContext(page).getByRole('switch', { name: '临时工作树', exact: true });
 
 export async function openCreationEnvironment(page) {
   const menu = page.getByRole('dialog', { name: '工作环境', exact: true });
@@ -13,11 +16,15 @@ export async function openCreationEnvironment(page) {
 }
 
 export async function enableCreationWorktree(page) {
-  const menu = await openCreationEnvironment(page);
-  const toggle = menu.getByRole('menuitemcheckbox', { name: '新建工作树', exact: true });
+  const menu = page.getByRole('dialog', { name: '工作环境', exact: true });
+  if (await menu.isVisible()) {
+    await page.keyboard.press('Escape');
+    await menu.waitFor({ state: 'hidden' });
+  }
+  const toggle = creationWorktreeSwitch(page);
   if (await toggle.getAttribute('aria-checked') === 'false') await toggle.click();
-  await menu.getByRole('menuitemcheckbox', { name: '新建工作树', exact: true, checked: true }).waitFor();
-  return menu;
+  await toggle.and(page.getByRole('switch', { checked: true })).waitFor();
+  return openCreationEnvironment(page);
 }
 
 /** Only the loopback model is controlled; pages use the complete authenticated server. */

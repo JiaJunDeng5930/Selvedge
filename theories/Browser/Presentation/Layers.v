@@ -338,6 +338,7 @@ Definition behavior s capacity layer :=
  let panel:=State.layer_panel layer in
  let composer_menu:=match panel with
   |State.PropertyPanel _ (Activity.PropertyActivity (UX.ModelProperty|UX.PermissionsProperty|UX.DeliveryProperty))=>true
+  |State.PropertyPanel (Identity.NewTask _) (Activity.PropertyActivity UX.ProjectProperty)=>true
   |State.PropertyPanel _ request=>is_run_environment_request request ||
     match layers_after(State.layer_occurrence layer)(State.layers(State.navigation_state s))with
     |origin::_=>context_submenu panel(State.layer_panel origin)|[]=>false end

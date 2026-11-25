@@ -121,11 +121,11 @@ Definition explicit_choices_for snapshot state {e}(subject:Model.subject e)(obse
  |Fields.ReasoningEffort=>let value:=observe tt in
    match value with Fields.ModelValue profile _=>map(fun effort=>Fields.ChoiceValue effort
       (if String.eqb effort "default"then "Default"else effort))(match profile_for_subject snapshot subject profile with Some selected=>ModelSelection.reasoning_values_for selected|None=>[]end)|_=>[]end
- |Fields.TaskEnvironment=>[Fields.ChoiceValue "current" "使用当前工作目录"]++
+ |Fields.TaskEnvironment=>[Fields.ChoiceValue "current" "使用当前工作目录";
+      Fields.ChoiceValue(WorkspaceBackend.name WorkspaceBackend.Local)"新建 Git 工作树"]++
    (if match FieldsObservation.workspace_for snapshot (EC.current_draft state e) with
         |Some workspace=>Workspace.on_shared_environment workspace |None=>false end
     then [] else
-      [Fields.ChoiceValue(WorkspaceBackend.name WorkspaceBackend.Local)"在 Selvedge 主机上新建 Git 工作树"]++
       (if FieldsObservation.cloud_workspace_configured snapshot then
        [Fields.ChoiceValue(WorkspaceBackend.name WorkspaceBackend.TencentCvm)"在腾讯云 CVM 上运行"]
        else if FieldsObservation.cloud_workspace_requested(EC.current_draft state e) then
@@ -473,7 +473,7 @@ Definition cloud_run_problem snapshot state draft : option run_environment_probl
   |FieldsObservation.CloudProjectPrimaryMismatch _=>issue "云端运行使用项目主目录。" (Some UseCloudProjectDirectory) false end
  |Some(inr source)=>
   let repair:=Some(match FieldsObservation.cloud_project source with Some project=>EditCloudProject project|None=>ChooseCloudDirectory end)in
-  match FieldsObservation.git_request_problem (Draft.owner draft,FieldsObservation.cloud_primary source)
+  match FieldsObservation.git_request_problem (FieldsObservation.GitRequest (Draft.owner draft) (FieldsObservation.cloud_primary source) None)
     (EC.cloud_repository_observation(EC.observed state))with
   |None=>None
   |Some FieldsObservation.GitCheckPending=>issue "正在检查 GitHub 仓库…" None false

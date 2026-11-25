@@ -72,8 +72,11 @@ Definition configuration source :=
    success value
  else type_error "连接地址应为 wss://主机:端口/execution。".
 
+Definition task_owner := ("task_id",true,D.Natural 0 9007199254740991).
+Definition local_worktree := ("backend",true,D.Const (JString "local")).
 Definition execution := D.Object [
- ("workspace",true,Codec.workspace_declaration); ("resource",true,D.Const JNull);
+ ("workspace",true,Codec.workspace_declaration);
+ ("resource",true,D.Union [D.Const JNull; D.Object [task_owner;local_worktree]]);
  ("sandbox",true,Codec.sandbox_declaration);
  ("scope",false,D.Const (JString "project"));
  ("access",true,D.Value (Selvedge.Programming.Schema.KEnum "sandboxed" ["unrestricted"]))].
@@ -84,7 +87,18 @@ Definition workspace_start := D.Object (operation ++ [
 Definition mcp_start := D.Object (operation ++ [
  ("tool",true,D.Const (JString "mcp")); ("server",true,D.text);
  ("name",true,D.text); ("arguments",true,D.RawObject)]).
-Definition start := D.Union [workspace_start; mcp_start].
+Definition worktree_source := [task_owner; ("source_root",true,Workspace.path_declaration)].
+Definition worktree_effect := D.Union [
+ D.Object ([("kind",true,D.Const (JString "worktree_create"));local_worktree;
+   ("workspace",true,Codec.workspace_declaration)]++worktree_source);
+ D.Object ([("kind",true,D.Const (JString "worktree_archive"));local_worktree;
+   ("root",true,Workspace.path_declaration)]++worktree_source);
+ D.Object ([("kind",true,D.Const (JString "worktree_recover"));
+   ("status",true,D.Value (Schema.KEnum "creating" ["creating_archived";"archiving"]));
+   ("root",true,D.Union [D.Const JNull;Workspace.path_declaration])]++worktree_source)].
+Definition worktree_start := D.Object (operation ++ [
+ ("tool",true,D.Const (JString "managed_worktree")); ("worktree",true,worktree_effect)]).
+Definition start := D.Union [workspace_start; mcp_start; worktree_start].
 Definition mcp_page := D.Object [("server",true,D.text);("cursor",false,D.text)].
 Definition handle := D.Object operation.
 Definition read_output := D.Object (operation ++ [("cursor",true,D.text)]).
@@ -99,6 +113,7 @@ Definition methods : list (string * D.t) := [
  ("execution.wait",handle); ("execution.cancel",handle);
  ("execution.mcp_servers",D.Object []); ("execution.mcp_list",mcp_page);
  ("execution.realpath",file_path); ("execution.stat",file_path); ("execution.lstat",file_path);
+ ("execution.workspace_git",file_path);
  ("execution.readdir",directory_list); ("execution.read_file",file_read)].
 Definition request_branch (entry : string * D.t) :=
  D.Object [("id",true,identifier);("method",true,D.Const (JString (fst entry)));
