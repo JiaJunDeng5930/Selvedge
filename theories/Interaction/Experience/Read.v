@@ -32,6 +32,10 @@ Definition observe_task_summary := observe_task_with_failure false.
 Definition observe_task := observe_task_with_failure true.
 Definition tasks snapshot := list_field observe_task "tasks" snapshot.
 Definition find_task id snapshot := bind(World.find_task id snapshot)observe_task.
+Definition task_history_loaded id snapshot :=
+ match World.find_task id snapshot with
+ | Some task => negb (flag "history_pending" task)
+ | None => false end.
 Definition same_id lhs rhs := match lhs,rhs with
 |None,None=>true|Some lhs,Some rhs=>N.eqb lhs rhs|_,_=>false end.
 Definition project_tasks selected := filter(fun value=>same_id selected(task_project value)).
@@ -209,7 +213,7 @@ Definition card_activity_from (task_at instance_at:N->option json) card:=
  let name:=card_activity card in
  if String.eqb name "completed" then
   match bind(card_task card)task_at with
-  |Some task=>if existsb Conversation.json_message_assistant (items "history" task)
+  |Some task=>if flag "has_assistant_reply" task
     then "对话已完成"else "对话已就绪"
   |None=>"" end
  else value_or "未开始"

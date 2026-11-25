@@ -3,6 +3,7 @@ From Stdlib Require Import String List NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Numbers Domain Codec Context State Tasks ContextUpdates Observation Workspace.
 From Selvedge.Kernel Require ContextTypes FeatureRequestAdmission.
+From Selvedge.Kernel Require Conversation.
 From Selvedge.Features Require BoardFacts CompactionCodec Observation.
 
 Module Features := Selvedge.Features.Observation.
@@ -65,7 +66,7 @@ Definition observe_history (facts : list ContextTypes.snapshot * bool) (event : 
  let '(bindings,failed):=facts in
  (ContextUpdates.update_bindings bindings event, BoardFacts.observe_failure failed event).
 Definition history_json id history := JArray (map (conversation_message_json id) history).
-Definition task_snapshot_with_history (include_history : bool)
+Definition task_snapshot_with_payload (include_history include_tools : bool)
  (id : N) (value : task) (features : Selvedge.Features.Domain.state) :=
  match task_summary id value features with
  | JObject fields =>
@@ -75,11 +76,13 @@ Definition task_snapshot_with_history (include_history : bool)
     pass only when it can affect the projected stage. *)
  let '(context,failed):=if busy then (ContextUpdates.bindings history,false)
    else fold_left observe_history history ([],false) in
- JObject (fields ++ [("tools", JArray (map tool_json (contract_tools (task_contract value))));
- ("lineage", JArray (map number (task_lineage value)));
+ JObject (fields ++
+ (if include_tools then [("tools", JArray (map tool_json (contract_tools (task_contract value))))] else []) ++
+ [("lineage", JArray (map number (task_lineage value)));
  ("queued_messages", JArray (map content_json (task_queued value)));
  ("guidance",Guidance.json (settings_guidance (task_current_settings value)));
  ("context", JArray (map Context.snapshot_json context));
+ ("has_assistant_reply", JBool (existsb Conversation.message_has_assistant_reply history));
  ("execution_failed", JBool failed);
  ("card_link_stage", JString (Selvedge.Features.Domain.stage_name
    (BoardFacts.stage_after_execution BoardFacts.initial_link_stage busy (fun _=>failed))));
@@ -88,7 +91,7 @@ Definition task_snapshot_with_history (include_history : bool)
  | _ => JNull end)] ++
  if include_history then [("history", history_json id history)] else [])
  | value => value end.
-Definition task_snapshot := task_snapshot_with_history true.
+Definition task_snapshot := task_snapshot_with_payload true true.
 Definition project_task_count (id : N) (tasks : list task) :=
  N.of_nat (ListCount.count (fun task => match settings_project (task_current_settings task) with
  | Some selected => N.eqb selected id | None => false end) tasks).
@@ -108,10 +111,10 @@ Definition fork_observation (id:N)(task:task)(value:world):json:=JObject[
  ("capacities",JArray(map(fun ancestor=>match Tasks.ancestor_capacity value ancestor with
   |None=>JNull|Some(descendants,limit)=>JObject[("descendants",number descendants);("limit",number limit)]end)
   (id::task_lineage task)))].
-Definition task_snapshot_fields_in_world include_history id task value :=
- match task_snapshot_with_history include_history id task (world_features value) with
+Definition task_snapshot_fields_in_world include_history include_tools id task value :=
+ match task_snapshot_with_payload include_history include_tools id task (world_features value) with
  |JObject fields=>JObject(fields++[("fork",fork_observation id task value)])|result=>result end.
-Definition task_snapshot_in_world := task_snapshot_fields_in_world true.
+Definition task_snapshot_in_world := task_snapshot_fields_in_world true true.
 Definition task_publication := task_snapshot_fields_in_world false.
 
 Definition task_publication_references id task value :=

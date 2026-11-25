@@ -6,6 +6,55 @@ import { events } from '../host/network.mjs';
 import { startServer } from '../host/server.mjs';
 import { home, taskIdle } from './support.mjs';
 
+test('opening the browser reads a conversation history only when that conversation becomes visible', async t => {
+  const { page, command, running } = await browserFixture(t);
+  const message = 'Selected conversation before the browser opened';
+  const { task_id: selected } = await command({ op: 'create', profile: 'demo', message });
+  const { task_id: unrelated } = await command({ op: 'create', profile: 'demo',
+    message: 'Unrelated conversation history '.repeat(400) });
+  const [{ task }] = await Promise.all([taskIdle(running.service, selected), taskIdle(running.service, unrelated)]);
+  const snapshotPath = '/api/browser/state';
+  const historyReads = [];
+  page.on('request', request => {
+    const url = new URL(request.url());
+    if (url.pathname === snapshotPath && url.searchParams.has('history')) historyReads.push(url.searchParams.get('history'));
+  });
+  const opened = page.waitForResponse(response => new URL(response.url()).pathname === snapshotPath);
+  await page.reload();
+  const { program } = await (await opened).json();
+  assert.equal(Object.hasOwn(program.tasks[selected], 'history'), false);
+  assert.equal(Object.hasOwn(program.tasks[unrelated], 'history'), false);
+  assert.equal(Object.hasOwn(program.tasks[unrelated], 'tools'), false);
+  assert.deepEqual(historyReads, []);
+
+  const captured = Promise.withResolvers();
+  const release = Promise.withResolvers();
+  t.after(() => release.resolve());
+  const scope = url => url.pathname === snapshotPath && url.searchParams.get('history') === String(selected);
+  let first = true;
+  await page.route(scope, async route => {
+    if (!first) return route.continue();
+    first = false;
+    const response = await route.fetch();
+    captured.resolve();
+    await release.promise;
+    await route.fulfill({ response });
+  });
+  await page.getByRole('navigation', { name: 'Task tree', exact: true })
+    .getByRole('button', { name: task.title, exact: true }).click();
+  await captured.promise;
+  await page.getByText('正在加载对话…', { exact: true }).waitFor();
+  const appended = 'Arrived while the selected history was in flight';
+  await command({ op: 'send', task_id: selected, message: appended });
+  await taskIdle(running.service, selected);
+  release.resolve();
+  const timeline = page.getByRole('region', { name: 'Conversation', exact: true });
+  await timeline.getByText(message, { exact: true }).first().waitFor();
+  await timeline.getByText(appended, { exact: true }).first().waitFor();
+  assert.ok(historyReads.length >= 1);
+  assert.deepEqual([...new Set(historyReads)], [String(selected)]);
+});
+
 test('the board follows other commits and recovers an acknowledged write when its HTTP receipt is lost or stalled', async t => {
   const { page, command } = await browserFixture(t);
   await command({ op: 'board_settings', automatic: false, draft_profile: '' });

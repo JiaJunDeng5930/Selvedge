@@ -8,6 +8,11 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
 
+Theorem summary_assistant_reply_matches_published_message viewer event :
+ Conversation.message_has_assistant_reply event =
+ Conversation.json_message_assistant (Codec.conversation_message_json viewer event).
+Proof. destruct event; reflexivity. Qed.
+
 Theorem nonmessage_provider_data_has_no_interactive_output_authority :
  forall owner ticket part mode phase value,
  text_default "type" (Conversation.provider_value value) "" <> "message" ->

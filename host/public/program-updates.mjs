@@ -1,6 +1,39 @@
 import { safeInteger } from './json-tokens.mjs';
 
 export const browserSequenceHeader = 'x-selvedge-browser-sequence';
+export const browserOutlineHeader = 'x-selvedge-browser-outline';
+export const browserHistoryTasksHeader = 'x-selvedge-browser-history-tasks';
+
+export function installBrowserHistory(task, history) {
+  const { history: previous, history_pending, ...facts } = task;
+  if (history === undefined) return { ...facts, history_pending: true };
+  const pending = history.length !== safeInteger(task.cursor) || (history.length !== 0 && task.tools === undefined);
+  return pending ? { ...facts, history, history_pending: true } : { ...facts, history };
+}
+
+export function browserOutline(program) {
+  return { ...program, tasks: program.tasks.map(task => {
+    const { history, tools, ...outline } = task;
+    return history.length ? { ...outline, history_pending: true } : { ...outline, history };
+  }) };
+}
+
+export function retainBrowserHistory(program, previous) {
+  return { ...program, tasks: program.tasks.map((task, id) => {
+    const prior = previous.tasks[id];
+    const facts = prior?.tools === undefined ? task : { tools: prior.tools, ...task };
+    return installBrowserHistory(facts, task.history ?? prior?.history);
+  }) };
+}
+
+export function selectUpdateHistory(update, tasks) {
+  const rows = update.tasks.map(row => {
+    if (tasks.has(String(row.id)) || (!row.appended.length && row.value.tools === undefined)) return row;
+    const { tools, ...value } = row.value;
+    return { ...row, value, appended: [] };
+  });
+  return { ...update, tasks: rows };
+}
 
 /** Apply observations produced by the native publication functions. */
 export function applyProgramUpdates(program, updates) {
@@ -13,9 +46,13 @@ export function applyProgramUpdates(program, updates) {
       tasks = tasks.slice();
     for (const row of update.tasks) {
       const id = safeInteger(row.id);
-      const previous = tasks[id]?.history ?? [];
-      const history = row.appended.length ? previous.concat(row.appended) : previous;
-      tasks[id] = { ...row.value, history };
+      const prior = tasks[id];
+      const previous = prior?.history;
+      const prefix = previous ?? [];
+      const start = safeInteger(row.value.cursor) - row.appended.length;
+      const data = prior?.tools === undefined ? row.value : { tools: prior.tools, ...row.value };
+      const history = prefix.length === start ? (row.appended.length ? prefix.concat(row.appended) : prefix) : previous;
+      tasks[id] = installBrowserHistory(data, history);
     }
     for (const row of update.references) {
       const id = safeInteger(row.id);

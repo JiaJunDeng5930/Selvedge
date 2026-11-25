@@ -18,7 +18,7 @@ From Stdlib Require Import String List NArith PeanoNat Lia.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Foundation Require Numbers NumbersProofs Registry.
 From Selvedge.Generated Require Commands.
-From Selvedge.Kernel Require Context ContextUpdates Domain Observation Packet PacketProofs Queries State.
+From Selvedge.Kernel Require Context ContextUpdates ConversationProofs Domain Observation Packet PacketProofs Queries State.
 From Selvedge.Features Require BoardFacts.
 From Selvedge.Interaction Require Import Codec Identity.
 From Selvedge.Interaction Require Audit World.
@@ -29,6 +29,7 @@ Import ListNotations.
 Open Scope string_scope.
 
 Export PacketProofs(actual_admitted_query_delivers_its_observation).
+Export ConversationProofs(summary_assistant_reply_matches_published_message).
 
 Lemma selected_world_identity collection key id snapshot value :
  World.find_world collection key id snapshot = Some value ->
@@ -109,7 +110,7 @@ Proof.
    (State.world_tasks value) 0 id task Found).
  intros key selected.
  unfold Publication.task_snapshot_in_world, Publication.task_snapshot_fields_in_world,
-   Publication.task_snapshot, Publication.task_snapshot_with_history, Publication.task_summary.
+   Publication.task_snapshot, Publication.task_snapshot_with_payload, Publication.task_summary.
  destruct (Domain.task_busy selected);
    [|destruct (fold_left Publication.observe_history (Domain.task_history selected) ([],false))].
  all: apply NumbersProofs.natural_print_parse.
@@ -149,7 +150,7 @@ Theorem task_snapshot_preserves_context_and_predicts_the_board_stage id task fea
  string_field "card_link_stage" snapshot = Some (Selvedge.Features.Domain.stage_name
    (BoardFacts.stage_after_task BoardFacts.initial_link_stage task)).
 Proof.
- unfold Publication.task_snapshot, Publication.task_snapshot_with_history,
+ unfold Publication.task_snapshot, Publication.task_snapshot_with_payload,
    Publication.task_summary, BoardFacts.stage_after_task, BoardFacts.busy_task.
  destruct (Domain.task_busy task).
  - split; reflexivity.
@@ -160,7 +161,7 @@ Theorem task_snapshot_reports_a_settled_execution_failure id task features :
  bool_field "execution_failed" (Publication.task_snapshot id task features) =
  Some (if Domain.task_busy task then false else BoardFacts.latest_failure task).
 Proof.
- unfold Publication.task_snapshot, Publication.task_snapshot_with_history, Publication.task_summary.
+ unfold Publication.task_snapshot, Publication.task_snapshot_with_payload, Publication.task_summary.
  destruct (Domain.task_busy task).
  - reflexivity.
  - rewrite published_history_observes_context_and_failure. reflexivity.
@@ -217,7 +218,7 @@ Proof.
  cbn zeta. intros Found Page. eexists. split.
  - rewrite (published_task_is_selected_by_its_registry_id _ _ _ Found).
    cbn [bind]. unfold Publication.task_snapshot_in_world, Publication.task_snapshot_fields_in_world,
-     Publication.task_snapshot, Publication.task_snapshot_with_history.
+     Publication.task_snapshot, Publication.task_snapshot_with_payload.
    destruct (Domain.task_busy task);
      [|destruct (fold_left Publication.observe_history (Domain.task_history task) ([],false))];
      apply published_task_summary_is_observable.

@@ -261,6 +261,8 @@ Definition browser_state context :=
 Definition returned_state (full : bool) context := if full then prepared_encoding context else browser_state context.
 Definition decision_packet full context effects error handled visible_error acknowledge (publication_event:string) fence_admitted:=JObject[("state",returned_state full context);
  ("file_handles",JArray(map JString(Selvedge.Browser.Session.Services.retained_file_handles(Session.service_state(prepared_state context)))));
+ ("visible_history_tasks",JArray(map (fun view=>number(task_view_task view))
+   (Selvedge.Browser.Session.Navigation.visible_task_views (prepared_state context))));
  ("effects",JArray effects);("publication_event",JString publication_event);("error",match error with None=>JNull|Some diagnostic=>diagnostic end);
  ("visible_error",JBool visible_error);("feedback_update",JString(feedback_update error visible_error acknowledge));("handled",JBool handled);
  ("fence_admitted",match fence_admitted with Some value=>JBool value|None=>JNull end);
@@ -657,16 +659,18 @@ Definition planned_regions (context : prepared) : option region_plan :=
      N.eqb group other && N.eqb occurrence next && Bool.eqb expanded open_card in
    let local_reading:=negb (AuditReading.same_items same_disclosure
      (Pages.reader_disclosures task (prepared_state before)) (Pages.reader_disclosures task (prepared_state context))) in
+   let loaded:=Read.task_history_loaded task world in
+   let loading_changed:=negb(Bool.eqb (Read.task_history_loaded task (prepared_world before)) loaded) in
    (* Tool execution can begin or settle between two history appends. *)
-   let history:=local_reading ||
+   let history:=loading_changed || (loaded && (local_reading ||
      (snapshot && (task_field_changed ["cursor";"operations";"working"] task before context ||
-       world_fields_changed ["tools"] before context)) in
+       world_fields_changed ["tools"] before context)))) in
    let operations:=(snapshot && operation_projection_changed task before context) ||
      (command_state_changed &&
        match Read.task_operations task world with Some (_::_)=>true|_=>false end) in
-   let tail:=operations || (lifecycle && reply_projection_changed task before context) ||
-     (snapshot && task_field_changed ["working"] task before context) in
-   let discarded:=lifecycle && discarded_projection_changed task before context in
+   let tail:=loaded && (operations || (lifecycle && reply_projection_changed task before context) ||
+     (snapshot && task_field_changed ["working"] task before context)) in
+   let discarded:=loaded && lifecycle && discarded_projection_changed task before context in
    let patch name project:=conversation_change controls before context view name project in
    let title_change:=match view with
      |PrimaryTask _=>patch "title" (fun ctx=>title_project ctx view)
@@ -679,7 +683,7 @@ Definition planned_regions (context : prepared) : option region_plan :=
    ((if history then [patch "timeline" (fun ctx=>some_list(timeline_project ctx view))]
      else (if tail then [patch "timeline-tail" (fun ctx=>tail_project ctx view)] else []) ++
           (if discarded then [patch "discarded" (fun ctx=>discarded_project ctx view)] else []) ++
-          (if latest_changed task before context then [patch "latest" latest] else [])) ++
+          (if loaded && latest_changed task before context then [patch "latest" latest] else [])) ++
     (if operations then [patch "approvals" (fun ctx=>approvals_project ctx view)] else []) ++
     (if snapshot && task_title_projection_changed task view before context then
       [title_change] else []) ++

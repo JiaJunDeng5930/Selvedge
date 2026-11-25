@@ -240,6 +240,10 @@ Definition task_latest_action s task parent : list (node Input.input) :=
  else [].
 Definition task_timeline snapshot s view parent task :=
  let id:=task_id task in
+ if negb (Read.task_history_loaded id snapshot) then
+  page_region parent Composition.TimelineContent Composition.BodyPosition
+    [information parent "history-request-progress" Information.Status "正在加载对话…"]
+ else
  let history:=AuditReading.history reading_actions (document_context snapshot s)
    (State.document_retention s) (State.interactive_state s) view (reader_disclosures id s) in
  let has_history:=match history with []=>false|_=>true end in

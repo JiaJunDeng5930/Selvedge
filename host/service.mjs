@@ -20,6 +20,7 @@ import { observeContextSources, observeSkillCatalog } from './context-sources.mj
 import { requestApproval } from './approvals.mjs';
 import { requestTaskText } from './task-text.mjs';
 import { browserHistoryReply } from './history-preview.mjs';
+import { browserOutline, selectUpdateHistory } from './public/program-updates.mjs';
 import { observeBoardCommand, observeMessageImages } from './board-files.mjs';
 import { requestModel, requestCompaction, observeModelRequest, cancelModelTask, ContextLimitError } from './providers.mjs';
 import { canonicalWorkspace } from './sandbox.mjs';
@@ -1113,10 +1114,12 @@ export class Service extends EventEmitter {
       execution_environments: this.executionEnvironments.choices() };
   }
 
-  #browserPublication(program, sequence, after) {
-    const updates = this.journal.programUpdates(after, sequence);
+  #browserPublication(program, sequence, after, outline, historyTasks) {
+    let updates = this.journal.programUpdates(after, sequence);
     const publication = { namespace: this.journal.namespace, sequence };
-    if (updates === undefined) return { ...publication, program: this.#browserProgram(program) };
+    if (updates === undefined)
+      return { ...publication, program: this.#browserProgram(outline ? browserOutline(program) : program) };
+    if (historyTasks !== undefined) updates = updates.map(update => selectUpdateHistory(update, historyTasks));
     if (updates.length) {
       const latest = updates.at(-1);
       updates[updates.length - 1] = { ...latest, shared: this.#browserProgram(latest.shared) };
@@ -1124,11 +1127,23 @@ export class Service extends EventEmitter {
     return { ...publication, after, updates };
   }
 
-  browserSnapshot(after) {
+  browserSnapshot(after, outline = false, historyTasks) {
     // DEFENSE: A browser/relay request may reach snapshot delivery after shutdown or a fatal journal failure.
     if (this.#failure) throw this.#failure;
     if (this.#closing) throw new Error('Service is stopping');
-    return this.#browserPublication(this.journal.program, this.journal.sequence, after);
+    return this.#browserPublication(this.journal.program, this.journal.sequence, after, outline, historyTasks);
+  }
+
+  browserTaskHistory(id, after) {
+    // DEFENSE: A browser history request can race service shutdown or a journal failure.
+    if (this.#failure) throw this.#failure;
+    if (this.#closing) throw new Error('Service is stopping');
+    const task = this.journal.program.tasks[id];
+    if (task === undefined) return null;
+    // DEFENSE: A requested cursor can exceed the committed history.
+    if (after > task.history.length) throw new RangeError('Invalid conversation history cursor');
+    return { namespace: this.journal.namespace, task_id: task.id, after,
+      history: after === 0 ? task.history : task.history.slice(after), tools: task.tools };
   }
 
   browserStreams() {
@@ -1144,9 +1159,9 @@ export class Service extends EventEmitter {
     return active.map(activity => this.#toolActivitySnapshot(activity, previewLimit));
   }
 
-  async browserCommand(command, browserRequest, after) {
+  async browserCommand(command, browserRequest, after, outline = false) {
     const result = await this.command(command, browserRequest);
-    return { ...this.#browserPublication(result.program, result.sequence, after),
+    return { ...this.#browserPublication(result.program, result.sequence, after, outline),
       reply: browserHistoryReply(command, result) };
   }
 

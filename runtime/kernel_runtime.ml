@@ -119,7 +119,8 @@ let observe_patch before next changes =
     Js.Unsafe.obj [| "id", Js.Unsafe.inject (Js.number_of_float (float_of_int id));
       "text", Js.Unsafe.inject (Js.string text) |] in
   let tasks = List.map (fun change ->
-    let result = row change.id (observe_row Model.selvedge_kernel_task_publication change.id change.task next) in
+    let project = Model.selvedge_kernel_task_publication (Option.is_none change.previous) in
+    let result = row change.id (observe_row project change.id change.task next) in
     let appended = match change.history with
       | None -> "[]"
       | Some (_, messages) -> Json.stringify

@@ -23,8 +23,14 @@ arrive through `/api/events`. A connected browser sends
 `x-selvedge-browser-sequence` with its installed commit. A retained range is
 returned as `after` and consecutive `updates` through `sequence`. Each update
 carries changed task facts, newly appended messages, any changed cross-task
-reference fields, and applicable shared fields. The service publishes them after SQLite
-commits. Opening a session or recovering a gap reads a complete projection.
+reference fields, and applicable shared fields. The service publishes them
+after SQLite commits. The browser requests an outline on opening or recovering
+a gap. The outline includes Task facts without conversation messages. A
+browser fetches a history and its frozen tool metadata from
+`/api/browser/state?history=<task-id>&after=<offset>` when that conversation
+becomes visible. Incremental state reads carry new messages
+for visible conversations. A command receipt can also carry the new history
+of the tasks affected by that command.
 Domain JSON is independent of Gallina, OCaml and JavaScript runtime object
 layouts. Pure adapter decisions are called through
 `public/model-boundary.mjs` and come from the same extracted definitions as
