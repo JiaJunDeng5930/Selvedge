@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers.
+From Selvedge.Foundation Require IndexedRegistry.
 From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Identity Codec.
 From Selvedge.Interaction.Experience Require Read.
@@ -98,43 +99,62 @@ Fixpoint task_entry_tree current collapsed parent (tree:task_tree) : node Input.
 
 Record task_row_projection := TaskRowProjection {
   previous_row_controls : list (node Input.input);
-  projected_task_row : node Input.input;
-  projected_task_entry : node Input.input
+  projected_task_row : node Input.input
 }.
 
-(* A task observation can change the header independently of the mounted branch. *)
+(* A row's key and disclosure controls belong to its mounted position. The
+   updated header reuses that position without rebuilding its branch. *)
 Definition project_task_row current (task:Read.task) (previous:node Input.input) : option task_row_projection :=
  match node_meaning previous with
  |TaskRow id _ _ _=>
   if N.eqb id (task_id task) then
-   let '(branches,controls):=partition
-     (fun child=>match node_meaning child with TaskChildren _=>true|_=>false end)
+   let controls:=filter (fun child=>match node_meaning child with TaskChildren _=>false|_=>true end)
      (node_children previous) in
    let disclosure:=fold_right (fun child rest=>match node_meaning child with
      |PanelToggle expanded _=>Some expanded|_=>rest end) None controls in
-   let row:=task_row current (Surface.node_key previous) task disclosure in
-   Some (TaskRowProjection controls row (with_task_branches row branches))
+   Some (TaskRowProjection controls (task_row current (Surface.node_key previous) task disclosure))
   else None
  |_=>None end.
-Definition collect_task_rows
-    (project : node Input.input -> node Input.input * list task_row_projection) :=
- fold_right (fun child result=>
-   let '(nodes,rows):=result in
-   let '(current,projected):=project child in
-   (current::nodes,(projected++rows)%list)) ([],[]).
-Fixpoint project_changed_task_node current (changed:N->option Read.task)
-    (previous:node Input.input) : node Input.input * list task_row_projection :=
- let 'Node key semantic label role meaning children:=previous in
- let '(children,rows):=collect_task_rows (project_changed_task_node current changed) children in
- let mounted:=match rows with []=>previous|_=>Node key semantic label role meaning children end in
- let projection:=match meaning with
-   |TaskRow id _ _ _=>task<-changed id;; project_task_row current task mounted
-   |_=>None end in
- match projection with
- |Some row=>(projected_task_entry row,row::rows)
- |None=>(mounted,rows) end.
-Definition project_changed_task_rows current changed :=
- collect_task_rows (project_changed_task_node current changed).
+
+Theorem projecting_a_task_row_retains_its_mount current task previous update :
+ project_task_row current task previous = Some update ->
+ Surface.node_key (projected_task_row update) = Surface.node_key previous.
+Proof.
+ unfold project_task_row. destruct (node_meaning previous); try discriminate.
+ destruct (N.eqb _ _); [|discriminate].
+ intros Selected. inversion Selected. reflexivity.
+Qed.
+
+Module MountedTaskRows := IndexedRegistry.Slots.
+Definition task_row_index := MountedTaskRows.t (node Input.input).
+Definition empty_task_row_index : task_row_index := MountedTaskRows.empty _.
+Fixpoint index_task_row (value : node Input.input) (entries : task_row_index) : task_row_index :=
+ let children := fold_right index_task_row entries (node_children value) in
+ match node_meaning value with
+ | TaskRow id _ _ _ => MountedTaskRows.add (IndexedRegistry.key id) value children
+ | _ => children end.
+Definition index_task_rows := fold_right index_task_row empty_task_row_index.
+Definition project_changed_task_rows current (changed : list Read.task) (mounted : task_row_index) :=
+ fold_right (fun task result =>
+  let '(rows, projections) := result in
+  let key := IndexedRegistry.key (Read.task_id task) in
+  match bind (MountedTaskRows.find key rows) (project_task_row current task) with
+  | Some update => (MountedTaskRows.add key (projected_task_row update) rows, update :: projections)
+  | None => result end) (mounted, []) changed.
+
+Theorem projecting_one_task_row_preserves_other_mounted_rows current task mounted id :
+ id <> Read.task_id task ->
+ MountedTaskRows.find (IndexedRegistry.key id)
+   (fst (project_changed_task_rows current [task] mounted)) =
+ MountedTaskRows.find (IndexedRegistry.key id) mounted.
+Proof.
+ intros Other. cbn [project_changed_task_rows fold_right].
+ destruct (bind (MountedTaskRows.find (IndexedRegistry.key (Read.task_id task)) mounted)
+   (project_task_row current task)); [|reflexivity].
+ apply MountedTaskRows.gso. intros Same.
+ apply IndexedRegistry.key_injective in Same. congruence.
+Qed.
+
 Definition tasks_by_project (values:list task) :=
  fold_right (fun entry index=>match task_project entry with
  |Some id=>TaskIdMap.add id (entry::value_or [] (TaskIdMap.find id index)) index

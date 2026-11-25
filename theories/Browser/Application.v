@@ -54,9 +54,12 @@ Record control_binding := ControlBinding {
   binding_modal : option string;
   binding_receive : S.receiver Input.input
 }.
+(* Region nodes retain the mounted topology and keys for unmounting. The
+   indexed task headers hold their current row controls separately. *)
 Record mounted_region := MountedRegion {
   mounted_identity : string;
-  mounted_nodes : list (S.node Input.input)
+  mounted_nodes : list (S.node Input.input);
+  mounted_task_rows : PNav.task_row_index
 }.
 Record published_child_region := PublishedChildRegion {
   child_owner : string;
@@ -293,9 +296,10 @@ Record region_plan := RegionPlan {
   plan_theme : bool
 }.
 Definition region_node_keys nodes := map (@S.node_key Input.input) nodes.
+Definition cached_region_entry controls key :=
+ find (fun entry=>String.eqb key (mounted_identity entry)) (published_regions controls).
 Definition cached_region controls key :=
- value_or [] (option_map mounted_nodes
-   (find (fun entry=>String.eqb key (mounted_identity entry)) (published_regions controls))).
+ value_or [] (option_map mounted_nodes (cached_region_entry controls key)).
 Definition broad_root scope node :=
  RegionRoot (scope,node) Document.OutsideArea S.Region None None.
 Definition base_roots nodes := map (broad_root None) nodes.
@@ -511,6 +515,11 @@ Definition discarded_projection_changed task before after :=
  let count context:=Documents.discarded_count task (Session.document_retention (prepared_state context)) in
  negb(N.eqb (count before) (count after)).
 Definition scope_equal one other := Json.equal (JArray(map DOM.scope_json one)) (JArray(map DOM.scope_json other)).
+Definition overlay_key layer := "overlay/"++V.overlay_region_identity layer.
+Definition mount_region name nodes :=
+ let rows:=if String.eqb name "navigation" || String.eqb name (overlay_key V.DrawerOverlay)
+   then PNav.index_task_rows nodes else PNav.empty_task_row_index in
+ MountedRegion name nodes rows.
 Definition replace_region_cache changes current :=
  fold_left (fun cache change=>
   let name:=changed_identity change in
@@ -518,8 +527,7 @@ Definition replace_region_cache changes current :=
      String.prefix "overlay/" name then
   let nodes:=map (fun root=>snd(region_node root)) (changed_roots change) in
   let remaining:=filter (fun old=>negb(String.eqb name(mounted_identity old))) cache in
-  match nodes with []=>remaining|_=>MountedRegion name nodes::remaining end else cache) changes current.
-Definition overlay_key layer := "overlay/"++V.overlay_region_identity layer.
+  match nodes with []=>remaining|_=>mount_region name nodes::remaining end else cache) changes current.
 Definition overlay_projection_dirty before after incoming snapshot layer :=
  match layer with
  |V.DrawerOverlay=>negb(Json.equal(navigation_without_layers before)(navigation_without_layers after)) ||
@@ -605,11 +613,12 @@ Definition planned_regions (context : prepared) : option region_plan :=
    match changed_navigation_rows before context with
    |[]=>[]
    |changed=>
-   let find_changed id:=find (fun task=>N.eqb id (Read.task_id task)) changed in
-   flat_map (fun key=>
-     let '(nodes,projections):=PNav.project_changed_task_rows (current_route context) find_changed (cached_region controls key) in
-     match projections with []=>[]|_=>[(MountedRegion key nodes, projections)] end)
-     ["navigation";overlay_key V.DrawerOverlay] end
+   flat_map (fun key=>match cached_region_entry controls key with
+   | None => []
+   | Some region =>
+     let '(mounted, projections):=PNav.project_changed_task_rows (current_route context) changed (mounted_task_rows region) in
+     match projections with []=>[]|_=>[(MountedRegion key (mounted_nodes region) mounted, projections)] end
+   end) ["navigation";overlay_key V.DrawerOverlay] end
    else [] in
  let row_changes:=flat_map (fun '(region,projections)=>
    let drawer:=String.eqb (mounted_identity region) (overlay_key V.DrawerOverlay) in
