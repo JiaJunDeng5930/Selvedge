@@ -132,6 +132,22 @@ test('shared execution preserves task permissions and resumes receiver operation
   assert.equal(working.task.settings.workspace.primary_root, worktree.root);
   assert.equal(await readFile(path.join(worktree.root, 'worktree-only'), 'utf8'), 'receiver-process');
   await assert.rejects(readFile(path.join(root, 'worktree-only')), { code: 'ENOENT' });
+
+  // The receiver discovers newly created nested instruction and skill files on
+  // the next model request, even though the selected workspace did not change.
+  const moduleRoot = path.join(worktree.root, 'nested-module');
+  const skill = path.join(moduleRoot, '.agents', 'skills', 'receiver-example');
+  await mkdir(skill, { recursive: true });
+  await writeFile(path.join(moduleRoot, 'AGENTS.md'), 'New nested receiver guidance.');
+  await writeFile(path.join(skill, 'SKILL.md'),
+    '---\nname: receiver-example\ndescription: Newly installed receiver skill.\n---\nReceiver skill body.');
+  const nextRequest = provider.requests.length;
+  assert.equal((await service.command({ op: 'send', task_id, message: 'Observe the new context.' })).reply.ok, true);
+  await taskIdle(service, task_id);
+  const prompt = JSON.stringify(provider.requests[nextRequest].input);
+  assert.ok(prompt.includes('New nested receiver guidance.'));
+  assert.ok(prompt.includes('Newly installed receiver skill.'));
+
   assert.equal((await service.command({ op: 'archive', task_id })).reply.ok, true);
   const archived = await checkoutWithStatus('archived');
   assert.equal(path.dirname(archived.root), path.join(directory, 'receiver-home', 'worktrees', 'archived'));

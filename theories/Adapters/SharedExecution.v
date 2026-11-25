@@ -108,13 +108,18 @@ Definition file_read := D.Object [("path",true,Workspace.path_declaration);
  ("maximum",true,D.Natural 0 16777216)].
 Definition directory_list := D.Object [("path",true,Workspace.path_declaration);
  ("maximum",true,D.Natural 1 32768)].
+Definition context_discovery := D.Object [
+ ("workspace",true,Codec.workspace_declaration);
+ ("observers",true,D.BoundedArray 1 3
+   (D.Value (Schema.KEnum "primary_guidance" ["workspace_guidance";"workspace_skills"])))].
 Definition methods : list (string * D.t) := [
  ("execution.start",start); ("execution.read",read_output); ("execution.write",write_input);
  ("execution.wait",handle); ("execution.cancel",handle);
  ("execution.mcp_servers",D.Object []); ("execution.mcp_list",mcp_page);
  ("execution.realpath",file_path); ("execution.stat",file_path); ("execution.lstat",file_path);
  ("execution.workspace_git",file_path);
- ("execution.readdir",directory_list); ("execution.read_file",file_read)].
+ ("execution.readdir",directory_list); ("execution.read_file",file_read);
+ ("execution.context_discovery",context_discovery)].
 Definition request_branch (entry : string * D.t) :=
  D.Object [("id",true,identifier);("method",true,D.Const (JString (fst entry)));
            ("params",true,snd entry)].

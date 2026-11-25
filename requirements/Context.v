@@ -17,6 +17,7 @@ Export ContextProofs(context_history_reconstructs_each_accepted_change,
 Export ReasoningProofs(the_actual_scheduler_observes_before_preparing_a_model,
   context_requests_capture_the_current_history_revision,
   context_completion_requires_the_current_ticket,
+  an_actual_context_completion_accepts_unrelated_history_appends,
   an_actual_stale_context_result_restarts_from_the_current_prefix,
   a_frozen_context_completion_waits_for_a_new_observation,
   a_stopped_context_completion_waits_for_a_new_observation,
@@ -38,9 +39,11 @@ Export HistoryRoleProofs(codec_roles_follow_the_shared_projection_vocabulary).
     admission checks both the baseline and captured result.
     Accepted changes apply their captured targets and withdrawals in history
     order. Side returns quote their histories as user-message data; they do not
-    import context events. Observation completion checks the captured history
-    revision before constructing changes, so replay needs no second baseline
-    check. [an_accepted_patch_installs_its_captured_target] ensures an accepted
+    import context events. Observation completion rejects settings and context
+    changes after the captured cursor. Ordinary appended history (including
+    tool results) keeps the observation's baseline. The actual callback accepts
+    this case without emitting a replacement observation.
+    [an_accepted_patch_installs_its_captured_target] ensures an accepted
     amendment installs the value recorded in that event.
 
     Source failures retain the last admitted binding. Descriptor reads and

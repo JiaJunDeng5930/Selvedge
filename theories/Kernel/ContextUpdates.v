@@ -119,6 +119,12 @@ Definition apply_change (change : context_change) (values : list snapshot) : lis
 Definition update_bindings (values:list snapshot) (event:message) :=
  match event with ContextObservation change => apply_change change values | _ => values end.
 Definition bindings (history : list message) := fold_left update_bindings history [].
+Definition changes_observation_inputs (event : message) :=
+ match event with ContextObservation _ | SettingsMessage _ _ _ => true | _ => false end.
+
+Definition observation_inputs_current (cursor : nat) (history : list message) :=
+ Nat.leb cursor (List.length history) &&
+ negb (existsb changes_observation_inputs (skipn cursor history)).
 Definition observation_changes (observation : context_observation) (values : list snapshot) : option (list context_change) :=
  match observation with
  | RejectedObservation => None

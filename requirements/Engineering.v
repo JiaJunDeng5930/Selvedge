@@ -207,6 +207,27 @@ Export BoundedIntegerCorrectness(decode_integer_mathematical_iff,
   decode_safe_integer_mathematical_iff, decode_natural_mathematical_iff,
   unbounded_natural_print_parse).
 
+(** * Local runtime work
+
+    Select an operation's inputs from the objects it reads or changes to
+    satisfy its public contract, including actual dependents and shared
+    resource constraints. Fix that selection and the request. Adding other
+    records, history, or filesystem entries must not increase the bound on
+    work from operation admission through durable completion and publication.
+    The same requirement applies to bounded reads. An explicitly global
+    operation has its own declared scope.
+
+    Instantiate the following requirement against counts from the production
+    computations or their interpreted effects. Relevant counts include
+    visited entries, encoded or written bytes, and filesystem operations.
+    Each count has its own bound. Neither an equal result nor the count of
+    changed rows measures work done to compute that result. Inspect local
+    effects and the end-to-end observation where work crosses boundaries. *)
+Definition work_bounded_by_inputs {state operation inputs : Type}
+ (selected : state -> operation -> inputs) (work : state -> operation -> nat) : Prop :=
+ forall (request : operation) (observed : inputs), exists bound : nat,
+ forall before, selected before request = observed -> (work before request <= bound)%nat.
+
 (** * Local extension without repeated shared obligations
 
     A new declaration must remain reachable by its own name, while adding it

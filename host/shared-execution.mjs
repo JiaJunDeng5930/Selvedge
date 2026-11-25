@@ -13,6 +13,7 @@ import { readImageBytes, retainReadImage, startBash } from './process.mjs';
 import { createManagedWorktree, archiveManagedWorktree, reconcileManagedWorktree,
   observeWorkspaceGit, sharedWorktreeRoot } from './worktrees.mjs';
 import { naturalKey } from './codec.mjs';
+import { discoverExecutionContext } from './context-discovery.mjs';
 
 const protocol = 'selvedge-execution-v1';
 const endpointPath = boundary('effect.execution_endpoint_path', null);
@@ -42,6 +43,7 @@ const kind = value => value.isSymbolicLink() ? 'link'
 const typed = ({ kind, name }) => ({ name, isSymbolicLink: () => kind === 'link',
   isDirectory: () => kind === 'directory', isFile: () => kind === 'file' });
 const observationMethods = {
+  'execution.context_discovery': discoverExecutionContext,
   'execution.workspace_git': ({ path }) => observeWorkspaceGit(path),
   'execution.realpath': ({ path }) => realpath(path),
   'execution.stat': async ({ path }) => ({ kind: kind(await stat(path)) }),
@@ -192,7 +194,7 @@ export async function receiveExecution({ home, host, port, certFile, keyFile, to
   }
 
   async function perform(socket, { method, params }) {
-    if (Object.hasOwn(observationMethods, method)) return observationMethods[method](params);
+    if (Object.hasOwn(observationMethods, method)) return observationMethods[method](params, home);
     if (method === 'execution.mcp_servers') return mcpExports.filter(name => localMcp.get(name)?.available);
     if (method === 'execution.mcp_list') {
       const client = mcpServer(params.server);
@@ -487,7 +489,9 @@ class ExecutionPeer extends EventEmitter {
       .then(entries => entries.map(typed));
     const readFile = (path, { maximum }) => this.#recover('execution.read_file', { path, maximum }, signal)
       .then(bytes => Buffer.from(bytes, 'base64'));
-    return { realpath, stat, lstat, readdir, opendir: readdir, readFile, close() {} };
+    const discoverContext = (workspace, observers) =>
+      this.#recover('execution.context_discovery', { workspace, observers }, signal);
+    return { realpath, stat, lstat, readdir, opendir: readdir, readFile, discoverContext, close() {} };
   }
 
   close() {

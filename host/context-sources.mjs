@@ -109,6 +109,21 @@ export async function observeContextSources(effect, { home, config, limits, sign
     ? createContextDiscovery({ home: installation, settings: effect.settings, signal, filesystem: workspaceEnvironment.filesystem,
       candidates, maximum: maximumEntries })
     : discover;
+  let remoteDiscovery;
+  async function discoverWorkspaceObserver(observer) {
+    const filesystem = workspaceEnvironment?.filesystem;
+    if (!filesystem?.discoverContext) return discoverWorkspace(observer);
+    remoteDiscovery ??= filesystem.discoverContext(effect.settings.workspace, definitions
+      .map(definition => definition.observer)
+      .filter(candidate => isContextDiscovery(candidate) && contextDescriptor(candidate).workspace)
+      .map(candidate => candidate.type));
+    const result = (await remoteDiscovery).find(result => result.type === observer.type);
+    // DEFENSE: A peer can return an incompatible or incomplete observation.
+    if (!result || !Array.isArray(result.entries) || (result.error !== null && typeof result.error !== 'string'))
+      throw new TypeError('Shared execution returned an invalid context discovery result');
+    if (result.error !== null) throw new Error(result.error);
+    return result.entries;
+  }
   const sourceObservations = new Map();
 
   function failure(key, error) {
@@ -144,7 +159,7 @@ export async function observeContextSources(effect, { home, config, limits, sign
         // DEFENSE: Failed configuration refresh cannot establish which explicitly configured skills to exclude.
         if (configuration.error) throw configuration.error;
       }
-      entries = await (descriptor.workspace ? discoverWorkspace : discover)(source);
+      entries = await (descriptor.workspace ? discoverWorkspaceObserver : discover)(source);
       if (skills) {
         const explicitDefinition = definitions.find(definition => definition.observer.type === 'config_files' && definition.observer.setting === 'skills');
         const explicit = new Set();
