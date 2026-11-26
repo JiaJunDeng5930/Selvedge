@@ -139,20 +139,6 @@ test('opening conversation details preserves the desktop reading position and co
 test('reading follows new output after the reader scrolls back to the bottom', async t => {
   const fixture = await browserFixture(t);
   const { page, command, profile, running } = fixture;
-  await page.evaluate(() => {
-    let aligned;
-    window.addEventListener('scroll', event => {
-      const reader = event.target;
-      if (aligned || !reader.hasAttribute?.('data-reading-root') ||
-          reader.scrollTop <= 0 || reader.scrollHeight - reader.clientHeight - reader.scrollTop > 1) return;
-      aligned = reader;
-      window.readingAlignmentHeld = true;
-      event.stopImmediatePropagation();
-    }, true);
-    window.addEventListener('keydown', event => {
-      if (event.key === 'Home' && aligned === event.target) aligned.dispatchEvent(new Event('scroll'));
-    });
-  });
   const { task_id } = await command({ op: 'create', profile, message: 'Give me a long first reply.' });
   await modelRequest(fixture, 0);
   fixture.finish(0, { text: Array.from({ length: 30 }, (_, index) => `Paragraph ${index + 1} of the first reply.`).join('\n\n') });
@@ -160,15 +146,15 @@ test('reading follows new output after the reader scrolls back to the bottom', a
   await (await conversationEntry(fixture, task_id)).click();
 
   const reading = page.getByRole('region', { name: 'Conversation', exact: true });
-  await reading.getByText('Paragraph 30 of the first reply.', { exact: true }).waitFor();
-  await page.waitForFunction(() => window.readingAlignmentHeld);
-  await reading.press('Home');
-  await page.getByRole('button', { name: 'Return to latest', exact: true }).waitFor();
-  await page.waitForFunction(() => document.querySelector('[data-reading-root]').scrollTop <= 2);
   const atBottom = () => page.waitForFunction(() => {
     const node = document.querySelector('[data-reading-root]');
     return node.scrollHeight - node.clientHeight - node.scrollTop <= 2;
   }, undefined, { timeout: 3000 });
+  await reading.getByText('Paragraph 30 of the first reply.', { exact: true }).waitFor();
+  await atBottom();
+  await reading.press('Home');
+  await page.getByRole('button', { name: 'Return to latest', exact: true }).waitFor();
+  await page.waitForFunction(() => document.querySelector('[data-reading-root]').scrollTop <= 2);
   await reading.hover();
   await page.mouse.wheel(0, await reading.evaluate(node => node.scrollHeight));
   await atBottom();

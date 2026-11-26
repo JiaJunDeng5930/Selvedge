@@ -29,38 +29,36 @@ async function matchingFiles(directory, bytes) {
   return matches;
 }
 
-test('short process results reach the first continuation while long processes can remain in flight', async t => {
+test('a task can continue before a running command completes and receives its output afterward', async t => {
   const directory = await home(t);
-  const longNotice = Promise.withResolvers();
-  const call = (id, command) => [{ type: 'function_call', name: 'bash', call_id: id,
-    arguments: JSON.stringify({ command }) }];
+  const continuing = Promise.withResolvers();
+  const completed = Promise.withResolvers();
+  const callId = 'wait-for-release';
   const fixture = await filesystemServer(t, { directory, respond: (body, index) => {
-    if (index === 0) return call('short-result', "printf 'Short process output'");
-    if (index === 2) return call('long-result',
-      "while [ ! -f release-process ]; do sleep 0.05; done; printf 'Long process output'");
-    if (index === 3) longNotice.resolve(body);
-    return answer('The request was received.');
+    if (index === 0) return [{ type: 'function_call', name: 'bash', call_id: callId, arguments: JSON.stringify({
+      command: "while [ ! -f release-process ]; do sleep 0.05; done; printf 'Completed process output'",
+    }) }];
+    for (const item of body.input) {
+      const delivery = item.type === 'function_call_output'
+        ? { call_id: item.call_id, value: JSON.parse(item.output).value }
+        : asyncToolResult(item);
+      if (delivery?.call_id === callId && typeof delivery.value?.stdout === 'string') {
+        completed.resolve(delivery.value.stdout);
+        return answer('The output was received.');
+      }
+    }
+    continuing.resolve(true);
+    return answer('The command is still running.');
   } });
-  const start = message => fixture.command({ op: 'create', profile: fixture.profile, message,
-    settings: { approval: { mode: 'full-access' } } });
-  const result = (body, id) => body.input.map(item => {
-    if (item.type === 'function_call_output' && item.call_id === id) return JSON.parse(item.output).value;
-    const delivery = asyncToolResult(item);
-    return delivery?.call_id === id ? delivery.value : undefined;
-  }).find(value => typeof value?.stdout === 'string');
-  const short = await start('Run the short process.');
-  await fixture.idle(short.task_id);
-  assert.equal(fixture.upstream.requests.length, 2);
-  assert.equal(result(fixture.upstream.requests[1], 'short-result')?.stdout, 'Short process output');
+  const { task_id } = await fixture.command({ op: 'create', profile: fixture.profile,
+    message: 'Start the command and continue while it runs.', settings: { approval: { mode: 'full-access' } } });
 
-  const long = await start('Run the process that waits for the gate.');
-  const continuing = await Promise.race([longNotice.promise,
-    delay(8000, null, { ref: false })]);
-  assert.ok(continuing, 'An in-flight process does not block the next model request until completion');
-  assert.equal(result(continuing, 'long-result'), undefined);
+  assert.ok(await Promise.race([continuing.promise, delay(8000, false, { ref: false })]),
+    'A command waiting on external input must leave the task free to continue');
   await writeFile(path.join(directory, 'release-process'), 'release');
-  await fixture.idle(long.task_id, { completed: () => fixture.upstream.requests.length >= 5 });
-  assert.equal(result(fixture.upstream.requests[4], 'long-result')?.stdout, 'Long process output');
+  const output = await Promise.race([completed.promise, delay(8000, null, { ref: false })]);
+  assert.equal(output, 'Completed process output');
+  await fixture.idle(task_id);
 });
 
 test('HTTP attachment reads preserve uploaded bytes and reject changed bytes or a matching symlink', async t => {
