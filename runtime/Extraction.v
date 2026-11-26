@@ -5,12 +5,23 @@ Extraction Language OCaml.
 (* Extracted modules must not shadow native modules used by string mappings. *)
 Extraction Blacklist String List.
 Extract Constant Json.same_reference => "(==)".
+Extract Constant Json.shared_value => "(==)".
 Extract Constant Json.reuse_observation =>
  "(fun observe ->
    let cached = ref None in fun source ->
    match !cached with
    | Some (prior, result) when prior == source -> result
    | _ -> let result = observe source in cached := Some (source, result); result)".
+Extract Constant Json.reuse_projection =>
+ "(fun observe advance ->
+   let cached = ref None in fun source ->
+   match !cached with
+   | Some (prior, result) when prior == source -> result
+   | previous ->
+       let result = match previous with
+         | None -> observe source
+         | Some (prior, result) -> advance prior source result in
+       cached := Some (source, result); result)".
 
 (* Native strings report their byte length without recursively copying suffixes.
    Convert that representable native length to the exact extracted nat. *)

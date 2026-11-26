@@ -37,7 +37,7 @@ Definition resolve_settings (model : profile) (source : option settings_request)
  | None => Some (WorkspaceBinding.normalize_settings fallback value)
  | Some request => let base := match project_override request with
  | None => Some fallback
- | Some id => match registry_at id (world_projects value) with
+ | Some id => match find_project id value with
    | Some project => if project_deleted project then None else
      Some (Settings (project_workspace project) (Some id) (settings_sandbox fallback)
        (settings_approval fallback) (Domain.project_guidance project) (project_worktree project) (project_resource project)

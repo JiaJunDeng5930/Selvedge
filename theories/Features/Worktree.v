@@ -51,7 +51,7 @@ Definition resource_task (id : N) (backend : WorkspaceBackend.backend) (task : t
 Definition project_primary_matches (settings : task_settings) (value : world) :=
  match settings_project settings with
  | None=>true
- | Some id=>match registry_at id (world_projects value) with
+ | Some id=>match find_project id value with
    | Some project=>Workspace.same_primary (settings_workspace settings) (project_workspace project)
    | None=>false end
  end.
@@ -66,7 +66,7 @@ Definition resolve_workspace (space : option (D.denote (D.nullable Codec.workspa
  | Some (inl source) => match Codec.workspace_of_values source with
    | Some space => WorkspaceBinding.select_resource space value | None => None end
  | None | Some (inr (inl _)) => match project_id with
-   | Some id => match registry_at id (world_projects value) with
+   | Some id => match find_project id value with
      | Some project => if negb (project_deleted project) &&
          WorkspaceBinding.resource_ready (project_workspace project) (project_resource project) value
        then Some (project_resource project) else None

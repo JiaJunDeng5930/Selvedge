@@ -4,6 +4,7 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Programming Require Import Schema Receiver.
 From Selvedge.Foundation Require Import Registry.
+From Selvedge.Foundation Require IndexedRegistry.
 From Selvedge.Kernel Require Import Domain State Codec FeatureRequestAdmission.
 From Selvedge.Kernel Require Tasks.
 From Selvedge.Programming Require CommandResult.
@@ -29,25 +30,25 @@ Definition profile_available name catalog :=
  match require_profile name catalog (fun _ _ _=>CommandResult.Accepted tt) with
  |CommandResult.Accepted _=>true|CommandResult.Rejected _=>false end.
 
-Definition board_contents : Focus.t F.board (list (option F.card) * list N).
+Definition board_contents : Focus.t F.board (IndexedRegistry.t (option F.card) * list N).
 Proof.
  refine (Focus.Focus _ _ _
-   (fun board => ((F.board_cards board,F.board_order board),
-     (F.board_automatic board,F.board_draft_profile board)))
-   (fun parts => let '((cards,order),(automatic,profile)) := parts in
-     F.Board cards order automatic profile) _ _).
+   (fun board => ((F.board_card_registry board,F.board_order board),
+     (F.board_automatic board,F.board_draft_profile board,F.board_pending_profiles board)))
+   (fun parts => let '((cards,order),(automatic,profile,pending)) := parts in
+     F.Board cards order automatic profile pending) _ _).
  - intros []; reflexivity.
- - intros [[cards order] [automatic profile]]; reflexivity.
+ - intros [[cards order] [[automatic profile] pending]]; reflexivity.
 Defined.
 Definition card_slot owner := Receiver.field F.feature_board
- (Receiver.focused board_contents (Receiver.inject (@Some F.card) (Receiver.ordered owner))).
+ (Receiver.focused board_contents (Receiver.inject (@Some F.card) (Receiver.dense_ordered owner))).
 Definition put_card owner := FeatureRequest.install_feature (card_slot owner).
 
 Definition prompt card retitle before := Titles.board_prompt
  (F.title_task_instructions (F.feature_title_settings (world_features before)))
  (F.draft_title (F.card_contents card)) (F.draft_description (F.card_contents card)) retitle.
 Definition fresh_card draft now := F.Card 0 draft None false now now F.NoEnrichment "" false.
-Definition fresh_id before := N.of_nat (List.length (F.board_cards (F.feature_board (world_features before)))).
+Definition fresh_id before := IndexedRegistry.next (F.board_card_registry (F.feature_board (world_features before))).
 Definition live_count before := List.length (filter (fun card => match card with
  Some _ => true | None => false end) (F.board_cards (F.feature_board (world_features before)))).
 
@@ -81,12 +82,12 @@ Proof.
      (Receiver.At.field (world_features before) F.feature_board
        (Receiver.At.focused (F.feature_board (world_features before)) board_contents
          (Receiver.At.inject (@Some F.card)
-           (Receiver.At.ordered_append (Focus.read board_contents (F.feature_board (world_features before)))))))).
+           (Receiver.At.dense_append (Focus.read board_contents (F.feature_board (world_features before)))))))).
  - exact (Receiver.position
      (Receiver.At.field (world_features before) F.feature_board
        (Receiver.At.focused (F.feature_board (world_features before)) board_contents
          (Receiver.At.inject (@Some F.card)
-           (Receiver.At.ordered_present (Focus.read board_contents (F.feature_board (world_features before)))
+           (Receiver.At.dense_present (Focus.read board_contents (F.feature_board (world_features before)))
              id (CardScope.selected_card reference) (CardScope.selected_card_found reference)))))).
 Defined.
 

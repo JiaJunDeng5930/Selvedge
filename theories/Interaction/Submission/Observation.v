@@ -173,9 +173,20 @@ Definition workspace_git_problem snapshot observation draft : option git_problem
  |Some request=>git_request_problem request observation end.
 Definition worktree_available snapshot observation draft:=match workspace_git_problem snapshot observation draft with
  |None=>true|Some _=>false end.
-Definition worktree_required draft:=match Draft.contents draft with
+Definition worktree_selected draft:=match Draft.contents draft with
  |Draft.NewTaskBody _ _ _ _ (Draft.ManagedWorkspace WorkspaceBackend.Local) _=>true
  |Draft.ProjectBody _ _ _ requested=>requested
+ |_=>false end.
+Definition worktree_required snapshot draft:=match Draft.contents draft with
+ |Draft.NewTaskBody _ _ _ _ (Draft.ManagedWorkspace WorkspaceBackend.Local) _=>true
+ |Draft.ProjectBody project _ workspace requested=>
+   requested && match project with
+   |None=>true
+   |Some id=>match project_by_id id snapshot with
+     |Some current=>match bool_field "create_worktree" current, bind(field "workspace" current)Codec.parse_workspace with
+       |Some true,Some previous=>negb (Workspace.same_primary previous workspace)
+       |_,_=>true end
+     |None=>true end end
  |_=>false end.
 Definition cloud_workspace_requested draft:=match Draft.contents draft with
  |Draft.NewTaskBody _ _ _ _ (Draft.ManagedWorkspace WorkspaceBackend.TencentCvm) _=>true
@@ -212,7 +223,7 @@ Definition cloud_source_selection snapshot
   |Context.ContextUnavailable _=>None end
  else None.
 Definition worktree_submission_problem snapshot observation draft :=
- if worktree_required draft then workspace_git_problem snapshot observation draft else None.
+ if worktree_required snapshot draft then workspace_git_problem snapshot observation draft else None.
 Definition worktree_preference snapshot observation (draft:Draft.draft):option(Schema.command_value Selvedge.Kernel.Commands.command_specs):=
  if worktree_available snapshot observation draft then match Draft.contents draft with
  |Draft.NewTaskBody _ _ _ configuration mode _=>match mode with

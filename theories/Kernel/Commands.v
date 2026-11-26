@@ -20,6 +20,10 @@ Definition card_identity := [u32 (req "card_id" KNatural); u32 (req "revision" K
 Definition graph_fields := [typed TaskGraphDeclarations.identifier (req "name" KText); staged graph_nodes_declaration (req "nodes" (KArray KJson)); typed graph_rules_declaration (req "rules" (KArray KJson))].
 Definition connection_project := [u32 (req "connection_id" KNatural); u32 (req "project_id" KNatural)].
 Definition connection_operation := connection_project ++ [u32 (req "operation_id" KNatural)].
+Definition project_worktree_evidence := ArgumentDeclaration.Object
+ [("workspace",true,workspace_declaration);("binding",true,binding_declaration)].
+Definition project_worktree_observation :=
+ host_observed (typed project_worktree_evidence (opt "worktree_git" KJson)).
 
 (** These declarations own public command names and fields. The schema
     interpreter and MetaRocq derivation consume this same list. *)
@@ -74,8 +78,8 @@ Definition command_declarations : list command_declaration := [
   DeclareCommand KernelQuery TaskAllowed (WireCommand "search_history" [req "query" KText; u32 (opt "project_id" KNatural); u32 (opt "work_id" KNatural); u32 (opt "after" KNatural); bounded 1 Pagination.search_limit (opt "limit" KNatural); opt "include_titles" KBool]);
   DeclareCommand KernelQuery TaskExcluded (WireCommand "list" []);
   DeclareCommand KernelQuery TaskExcluded (WireCommand "describe" []);
-  DeclareCommand KernelChange TaskExcluded (WireCommand "create_project" [typed Workspace.project_name_declaration (req "name" KText); typed workspace_declaration (req "workspace" KJson); host_observed (typed guidance_declaration (opt "guidance" KJson)); opt "create_worktree" KBool; host_observed (typed binding_declaration (opt "workspace_binding" KJson))]);
-  DeclareCommand KernelChange TaskExcluded (WireCommand "update_project" [u32 (req "project_id" KNatural); typed Workspace.project_name_declaration (opt "name" KText); typed workspace_declaration (opt "workspace" KJson); host_observed (typed guidance_declaration (opt "guidance" KJson)); opt "create_worktree" KBool; host_observed (typed binding_declaration (opt "workspace_binding" KJson))]);
+  DeclareCommand KernelChange TaskExcluded (WireCommand "create_project" [typed Workspace.project_name_declaration (req "name" KText); typed workspace_declaration (req "workspace" KJson); host_observed (typed guidance_declaration (opt "guidance" KJson)); opt "create_worktree" KBool; host_observed (typed binding_declaration (opt "workspace_binding" KJson)); project_worktree_observation]);
+  DeclareCommand KernelChange TaskExcluded (WireCommand "update_project" [u32 (req "project_id" KNatural); typed Workspace.project_name_declaration (opt "name" KText); typed workspace_declaration (opt "workspace" KJson); host_observed (typed guidance_declaration (opt "guidance" KJson)); opt "create_worktree" KBool; host_observed (typed binding_declaration (opt "workspace_binding" KJson)); project_worktree_observation]);
   DeclareCommand KernelChange TaskExcluded (WireCommand "delete_project" [u32 (req "project_id" KNatural)]);
   DeclareCommand KernelQuery TaskExcluded (WireCommand "list_projects" []);
   DeclareCommand KernelQuery TaskExcluded (WireCommand "read_project" [u32 (req "project_id" KNatural)]);

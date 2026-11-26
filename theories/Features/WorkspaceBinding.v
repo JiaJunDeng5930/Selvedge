@@ -3,6 +3,8 @@ From Selvedge.Foundation Require Import Json Registry.
 From Selvedge.Programming Require Import Receiver.
 From Selvedge.Kernel Require Import Numbers Domain State WorkspaceBackend Workspace.
 From Selvedge.Features Require Import Domain.
+From Selvedge.Kernel Require TaskRegistry WorkspaceUses.
+From Selvedge.Foundation Require DependencyIndex KeyedScope.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -193,6 +195,66 @@ Definition job_uses_resource (owner : N) (job : Selvedge.Features.Domain.connect
  match Selvedge.Features.Domain.job_state job with
  | Selvedge.Features.Domain.JobRunning => Workspace.same_resource (Selvedge.Features.Domain.job_resource job) (Some owner)
  | _ => false end.
+Definition task_users ids value : list (N * task) :=
+ flat_map (fun id => match find_task id value with Some task => [(id,task)] | None => [] end) ids.
+Definition resource_tasks owner value :=
+ task_users (WorkspaceUses.resource_users owner (TaskRegistry.workspace_uses (world_task_registry value))) value.
+Definition directory_tasks machine root value :=
+ task_users (WorkspaceUses.directory_users machine root (TaskRegistry.workspace_uses (world_task_registry value))) value.
+Lemma resource_task_selected owner id value current :
+ find_task id value = Some current ->
+ archived current = false ->
+ settings_resource (contract_settings (task_contract current)) = Some owner ->
+ In (id,current) (resource_tasks owner value).
+Proof.
+ intros Found Live Bound.
+ unfold resource_tasks, task_users. apply in_flat_map. exists id.
+ split; [|now rewrite Found; left].
+ unfold WorkspaceUses.resource_users. eapply DependencyIndex.lookup_in_members.
+ rewrite TaskRegistry.workspace_uses_agree.
+ unfold find_task, task_rows in Found. rewrite Found.
+ assert (Selected : existsb (Pos.eqb (WorkspaceUses.resource_key owner)) (WorkspaceUses.task_addresses current) = true).
+ { apply existsb_exists. exists (WorkspaceUses.resource_key owner). split; [|apply Pos.eqb_refl].
+   unfold WorkspaceUses.task_addresses, WorkspaceUses.addresses.
+   change (task_archived current = false) in Live. rewrite Live, Bound.
+   destruct (settings_project (task_current_settings current)); cbn [In]; auto. }
+ now rewrite Selected.
+Qed.
+Definition job_users key value :=
+ KeyedScope.members key (Selvedge.Features.Domain.sharing_job_registry
+   (Selvedge.Features.Domain.feature_sharing (world_features value))).
+Lemma local_job_selected id job value tree root :
+ In (id,job) (Selvedge.Features.Domain.sharing_jobs
+   (Selvedge.Features.Domain.feature_sharing (world_features value))) ->
+ Selvedge.Features.Domain.job_state job = Selvedge.Features.Domain.JobRunning ->
+ Selvedge.Features.Domain.job_resource job = None ->
+ on_worktree_machine (Selvedge.Features.Domain.job_workspace job) tree value = true ->
+ any_inside root (workspace_roots (Selvedge.Features.Domain.job_workspace job)) = true ->
+ In (id,job) (job_users (WorkspaceUses.directory_key (worktree_environment tree value) root) value).
+Proof.
+ intros Member Running Resource Machine Inside.
+ assert (Environment : workspace_environment (Selvedge.Features.Domain.job_workspace job) =
+   worktree_environment tree value).
+ { unfold on_worktree_machine, Workspace.same_environment in Machine. cbn in Machine.
+   destruct (workspace_environment (Selvedge.Features.Domain.job_workspace job)),
+     (worktree_environment tree value); try discriminate; [|reflexivity].
+   apply String.eqb_eq in Machine. now subst. }
+ unfold job_users. apply KeyedScope.contents_select_member; [exact Member|].
+ unfold Selvedge.Features.Domain.job_addresses. cbn [snd].
+ rewrite Running, Resource, <- Environment. right. now apply WorkspaceUses.directory_address_selected.
+Qed.
+Lemma resource_job_selected id job value owner :
+ In (id,job) (Selvedge.Features.Domain.sharing_jobs
+   (Selvedge.Features.Domain.feature_sharing (world_features value))) ->
+ Selvedge.Features.Domain.job_state job = Selvedge.Features.Domain.JobRunning ->
+ Selvedge.Features.Domain.job_resource job = Some owner ->
+ In (id,job) (job_users (WorkspaceUses.resource_key owner) value).
+Proof.
+ intros Member Running Resource. unfold job_users.
+ apply KeyedScope.contents_select_member; [exact Member|].
+ unfold Selvedge.Features.Domain.job_addresses. cbn [snd].
+ rewrite Running, Resource. now right; left.
+Qed.
 Definition root_unused (owner:N) (root:string) (value:world) :=
  let resource:=owned owner value in
  let uses:=fun task=>match resource with
@@ -204,19 +266,24 @@ Definition root_unused (owner:N) (root:string) (value:world) :=
      | Some bound=>negb (WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend bound)) && task_uses_root root task
      | None=>task_uses_root root task end
  | None=>task_uses_root root task end in
- forallb (fun pair=>N.eqb owner (fst pair) || archived (snd pair) || negb (uses (snd pair)))
- (indexed (fun id task=>(id,task)) 0 (world_tasks value)) &&
+ let candidates := match resource with
+   | Some tree => if WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend tree)
+     then resource_tasks owner value
+     else directory_tasks (worktree_environment tree value) root value
+   | None => indexed (fun id task=>(id,task)) 0 (world_tasks value)
+   end in
+ forallb (fun pair=>N.eqb owner (fst pair) || archived (snd pair) || negb (uses (snd pair))) candidates &&
  match resource with Some tree=>if WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend tree) then
  forallb (fun pair=>negb (job_uses_resource owner (snd pair)))
- (Selvedge.Features.Domain.sharing_jobs (Selvedge.Features.Domain.feature_sharing (world_features value))) else
+ (job_users (WorkspaceUses.resource_key owner) value) else
  forallb (fun pair=>negb (on_worktree_machine (Selvedge.Features.Domain.job_workspace (snd pair)) tree value && job_uses_root root (snd pair)))
- (Selvedge.Features.Domain.sharing_jobs (Selvedge.Features.Domain.feature_sharing (world_features value)))
+ (job_users (WorkspaceUses.directory_key (worktree_environment tree value) root) value)
  | None=>forallb (fun pair=>negb (job_uses_root root (snd pair)))
  (Selvedge.Features.Domain.sharing_jobs (Selvedge.Features.Domain.feature_sharing (world_features value))) end.
 Definition bound_tasks_unused (owner : N) (value : world) :=
  forallb (fun entry => N.eqb owner (fst entry) || archived (snd entry) ||
   negb (Workspace.same_resource (settings_resource (contract_settings (task_contract (snd entry)))) (Some owner)))
-  (indexed (fun id task => (id,task)) 0 (world_tasks value)).
+  (resource_tasks owner value).
 Definition archive_allowed (id:N) (value:world) := match owned id value with
  | Some tree=>match Selvedge.Features.Domain.worktree_root tree with
    | Some root=>root_unused id root value

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { Kernel, isKernelInputRejection } from './kernel.mjs';
 import { integer } from './codec.mjs';
 import { durableDirectory } from './control-records.mjs';
-import { applyProgramUpdates, indexProgramTasks } from './public/program-updates.mjs';
+import { applyProgramUpdates, indexProgramCollections, indexProgramTasks } from './public/program-updates.mjs';
 
 const retainedProgramUpdates = 16;
 
@@ -18,7 +18,7 @@ function rejected(error, outcome) {
   return error;
 }
 
-export const stateSchemaVersion = 5;
+export const stateSchemaVersion = 6;
 
 const schema = `
   CREATE TABLE state (
@@ -28,6 +28,11 @@ const schema = `
   CREATE TABLE state_sections (
     id INTEGER PRIMARY KEY CHECK (id >= 0), data BLOB NOT NULL
   ) STRICT;
+  CREATE TABLE state_entities (
+    kind INTEGER NOT NULL CHECK (kind BETWEEN 0 AND 2),
+    id INTEGER NOT NULL CHECK (id >= 0), data BLOB NOT NULL,
+    PRIMARY KEY (kind, id)
+  ) STRICT, WITHOUT ROWID;
   CREATE TABLE tasks (
     id INTEGER PRIMARY KEY CHECK (id >= 0), created_at INTEGER NOT NULL, data BLOB NOT NULL,
     history_length INTEGER NOT NULL CHECK (history_length >= 0)
@@ -88,8 +93,15 @@ function readState(database) {
     if (tasks[id] === undefined) throw new Error('Invalid Selvedge stored title owner');
     return { id, data: Buffer.from(data).toString('latin1') };
   });
+  const entities = [[], [], []];
+  for (const { kind, id, data } of database.prepare('SELECT kind, id, data FROM state_entities ORDER BY kind, id').all()) {
+    const records = entities[kind];
+    // DEFENSE: Missing rows must not reassign stable identities during restoration.
+    if (records === undefined || id !== records.length) throw new Error('Invalid Selvedge stored entity registry');
+    records.push(Buffer.from(data).toString('latin1'));
+  }
   return { namespace: record.namespace, schema: record.schema, sequence: integer(record.sequence, 'state sequence'),
-    shared, tasks, titles };
+    shared, tasks, titles, entities };
 }
 
 function closeJournalDatabase(database) {
@@ -157,7 +169,7 @@ export class Journal extends EventEmitter {
         const { program, storage } = await journal.#kernel.loadState(null);
         journal.namespace = randomBytes(16).toString('hex');
         journal.sequence = 0;
-        journal.program = indexProgramTasks(program);
+        journal.program = indexProgramCollections(indexProgramTasks(program));
         journal.#database.exec(schema);
         journal.#database.prepare('INSERT INTO state VALUES (1, ?, ?, 0)').run(journal.namespace, storage.schema);
         writeStateSections(journal.#database, storage.shared);
@@ -170,7 +182,8 @@ export class Journal extends EventEmitter {
         }
         // Read the final committed records after ownership transfers.
         const { program } = await journal.#kernel.loadState(state);
-        Object.assign(journal, { namespace: state.namespace, sequence: state.sequence, program: indexProgramTasks(program) });
+        Object.assign(journal, { namespace: state.namespace, sequence: state.sequence,
+          program: indexProgramCollections(indexProgramTasks(program)) });
       }
       await chmod(filename, 0o600);
       journal.#database.exec('COMMIT; PRAGMA journal_mode=WAL');
@@ -245,7 +258,7 @@ export class Journal extends EventEmitter {
       try {
         program = applyProgramUpdates(this.program, [response.programUpdate]);
         this.#database.exec('BEGIN IMMEDIATE');
-        const { shared, tasks, titles } = response.storage;
+        const { shared, tasks, titles, entities } = response.storage;
         const insertTask = this.#database.prepare('INSERT INTO tasks (id, created_at, data, history_length) VALUES (?, ?, ?, ?)');
         const updateTask = this.#database.prepare(`
           UPDATE tasks SET data = ?, history_length = history_length + ?
@@ -281,6 +294,13 @@ export class Journal extends EventEmitter {
           `);
           for (const { id, data } of titles) writeTitle.run(id, Buffer.from(data, 'latin1'));
         }
+        if (entities.length) {
+          const writeEntity = this.#database.prepare(`
+            INSERT INTO state_entities (kind, id, data) VALUES (?, ?, ?)
+            ON CONFLICT (kind, id) DO UPDATE SET data = excluded.data
+          `);
+          for (const { kind, id, data } of entities) writeEntity.run(kind, id, Buffer.from(data, 'latin1'));
+        }
         writeStateSections(this.#database, shared);
         this.#database.prepare('UPDATE state SET sequence = ? WHERE id = 1').run(sequence);
         committing = true;
@@ -294,7 +314,7 @@ export class Journal extends EventEmitter {
       this.sequence = sequence;
       this.#programUpdates.push(response.programUpdate);
       if (this.#programUpdates.length > retainedProgramUpdates) this.#programUpdates.shift();
-      const committed = { sequence, program: this.program, ...response.value };
+      const committed = { sequence, program: this.program, programUpdate: response.programUpdate, ...response.value };
       this.#publish('commit', committed, browserRequest);
       return committed;
     });

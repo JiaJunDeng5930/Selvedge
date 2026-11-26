@@ -72,6 +72,15 @@ Definition same_reference (_ _ : json) := false.
 Definition reuse_observation {A B : Type} (observe : A -> B) : A -> B := observe.
 Arguments reuse_observation {A B} _ _.
 
+(* Extraction may recognize immutable sharing. A miss always permits visiting
+   the value and deriving the same result without the hint. *)
+Definition shared_value {A : Type} (_ _ : A) : bool := false.
+
+(* The incremental projection derives the same observation from a prior
+   immutable source. The specification computes from the current source. *)
+Definition reuse_projection {A B : Type} (observe : A -> B)
+ (_ : A -> A -> B -> B) : A -> B := observe.
+
 Fixpoint equal (lhs rhs : json) : bool :=
   match lhs, rhs with
   | JNull, JNull => true

@@ -877,8 +877,10 @@ export class Service extends EventEmitter {
 
   async #observeCommandWorkspace(command, localGuidance) {
     const plan = workspaceCommandPlan(command);
+    const projectEdit = command.op === 'create_project' ||
+      (command.op === 'update_project' && (command.workspace !== undefined || command.create_worktree === true));
     // DEFENSE: A stale task command needs domain rejection, not an unrelated workspace lookup failure.
-    if (!plan.observe) return command;
+    if (!plan.observe && !projectEdit) return command;
     // DEFENSE: A direct command or a retained draft can request an unconfigured cloud backend.
     if (plan.worktree && command.backend === 'tencent_cvm' && this.config.cloud?.backend !== command.backend) {
       throw new TypeError('Tencent Cloud CVM is not configured on this Selvedge host');
@@ -891,24 +893,52 @@ export class Service extends EventEmitter {
     }
     const selectedSettings = command.settings;
     const projects = new Map();
-    const projectWorkspace = project_id => {
+    const readProject = project_id => {
       const key = naturalKey(project_id);
       if (!projects.has(key)) projects.set(key,
         this.journal.execute({ kind: 'command', command: { op: 'read_project', project_id } })
-          .then(({ reply }) => reply.ok ? reply.result.workspace : undefined));
+          .then(({ reply }) => reply.ok ? reply.result : undefined));
       return projects.get(key);
     };
+    const projectWorkspace = async project_id => (await readProject(project_id))?.workspace;
+    const workspaceEnvironment = async selection => {
+      const result = await this.journal.execute({ kind: 'command', command: { op: 'resolve_workspace', ...selection } });
+      // DEFENSE: A selected cloud resource can be ambiguous, unavailable or archived before directory observation.
+      if (!result.reply.ok) throw new Error(result.reply.error.message);
+      const { resource, workspace_binding } = result.reply.result;
+      const selected = selection.workspace;
+      return { resource, workspace_binding, ...await this.#executionWorkspace(selected ?? {}, resource) };
+    };
     let observed = await observeWorkspaceCommand(plan, this.limits, {
-      workspaceEnvironment: async selection => {
-        const result = await this.journal.execute({ kind: 'command', command: { op: 'resolve_workspace', ...selection } });
-        // DEFENSE: A selected cloud resource can be ambiguous, unavailable or archived before directory observation.
-        if (!result.reply.ok) throw new Error(result.reply.error.message);
-        const { resource, workspace_binding } = result.reply.result;
-        const selected = selection.workspace;
-        return { resource, workspace_binding, ...await this.#executionWorkspace(selected ?? {}, resource) };
-      },
-      projectWorkspace, localGuidance,
+      workspaceEnvironment, projectWorkspace, localGuidance,
     });
+    if (projectEdit && observed.create_worktree !== false) {
+      const previous = command.op === 'update_project' ? await readProject(command.project_id) : undefined;
+      const workspace = observed.workspace ?? previous?.workspace;
+      const binding = observed.workspace === undefined
+        ? { task_id: previous?.workspace_resource ?? null }
+        : observed.workspace_binding;
+      const enabled = observed.create_worktree ?? previous?.create_worktree;
+      const primary = workspace?.primary_root ?? workspace?.roots[0];
+      const sameBinding = binding?.task_id === null
+        ? previous?.workspace_resource === null
+        : binding?.task_id != null && previous?.workspace_resource != null &&
+          naturalKey(binding.task_id) === naturalKey(previous.workspace_resource);
+      const samePrimary = previous?.create_worktree && primary === previous.workspace.primary_root &&
+        workspace?.environment === previous.workspace.environment && sameBinding;
+      if (enabled && primary && binding && !samePrimary) {
+        const selection = observed.workspace === undefined && !workspace.environment ? { project_id: command.project_id } : { workspace };
+        const { workspace_binding, environment } = await workspaceEnvironment(selection);
+        const sameSelection = binding.task_id === null
+          ? workspace_binding.task_id === null
+          : workspace_binding.task_id !== null && naturalKey(binding.task_id) === naturalKey(workspace_binding.task_id);
+        try {
+          if (sameSelection && await observeWorkspaceGit(primary, { environment })) {
+            observed = { ...observed, worktree_git: { workspace, binding } };
+          }
+        } finally { await environment?.filesystem.close(); }
+      }
+    }
     if (plan.worktree) {
       if (!observed.settings?.workspace) {
         const withWorkspace = { ...observed,
@@ -1210,11 +1240,16 @@ export class Service extends EventEmitter {
     return active.map(activity => this.#toolActivitySnapshot(activity, previewLimit));
   }
 
-  async browserCommand(command, browserRequest, after) {
+  async browserCommand(command, browserRequest, after, historyTasks) {
     const result = await this.command(command, browserRequest);
-    const update = this.#browserUpdates(result.sequence, after);
+    let observation = { snapshot_required: true };
+    if (after === result.sequence) observation = { after, updates: [] };
+    else if (after === result.sequence - 1 && result.programUpdate) {
+      const update = historyTasks === undefined ? result.programUpdate : selectUpdateHistory(result.programUpdate, historyTasks);
+      observation = { after, updates: [update] };
+    }
     return { namespace: this.journal.namespace, sequence: result.sequence,
-      ...(update ?? { snapshot_required: true }), reply: browserHistoryReply(command, result) };
+      ...observation, reply: browserHistoryReply(command, result) };
   }
 
   async browserObservation(observation) {

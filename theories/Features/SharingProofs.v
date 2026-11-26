@@ -7,6 +7,7 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Foundation Require Import JsonProofs KeyedListProofs.
+From Selvedge.Foundation Require IndexedRegistry KeyedScope.
 From Selvedge.Kernel Require Import Domain State Numbers Codec ChatgptArguments.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import Domain State Chatgpt.
@@ -22,7 +23,11 @@ Proof. intros sharing [seq tasks ticket env projects features]. destruct feature
 
 Lemma lookup_replaced_job : forall id job state,
  Chatgpt.find_job id (Chatgpt.replace_job id job state) = Some job.
-Proof. intros id job [grants jobs next]. unfold Chatgpt.find_job,Chatgpt.replace_job; cbn. now rewrite N.eqb_refl. Qed.
+Proof.
+ intros id job [grants jobs next].
+ unfold Chatgpt.find_job, Chatgpt.replace_job, KeyedScope.lookup. cbn.
+ now rewrite IndexedRegistry.Slots.gss.
+Qed.
 Lemma authority_replaced_job : forall connection project id job state,
  Chatgpt.authority connection project (Chatgpt.replace_job id job state)=Chatgpt.authority connection project state.
 Proof. intros connection project id job [grants jobs next]. reflexivity. Qed.
@@ -140,7 +145,7 @@ Proof.
  eexists. split; [reflexivity|].
  cbn beta iota zeta delta [decision_world decision_effects decision_reply accept].
  rewrite sharing_registry_store. destruct (Chatgpt.registry value) as [grants jobs next].
- cbn. unfold Chatgpt.find_job. cbn. rewrite removing_a_key_clears_its_lookup.
+ cbn. unfold Chatgpt.find_job, KeyedScope.lookup. cbn. rewrite IndexedRegistry.Slots.grs.
  repeat split; try reflexivity; apply N.le_refl.
 Qed.
 

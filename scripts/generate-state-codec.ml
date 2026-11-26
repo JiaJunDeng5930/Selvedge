@@ -209,23 +209,50 @@ let () =
   let contract_field = qualified task_owner "task_contract" in
   let metadata = List.filter (fun (field, _) -> not (List.mem field ["task_history"; "task_contract"])) task_fields in
   let feature_owner, feature_fields = world_fields (List.assoc "world_features" fields) nodes in
+  let project_owner, project_fields = world_fields (List.assoc "world_project_registry" fields) nodes in
+  let board_owner, board_fields = world_fields (List.assoc "feature_board" feature_fields) nodes in
+  let workflow_owner, workflow_fields = world_fields (List.assoc "feature_instances" feature_fields) nodes in
+  let dense_row registry =
+    let _, registry_fields = world_fields registry nodes in
+    match List.assoc "entries" registry_fields with
+    | Ref ref_id -> (match nodes.(ref_id) with
+      | Variant (_, cases) -> (match List.assoc "Node" cases with
+        | [_; Option row; _] -> row
+        | _ -> fail "unexpected stored registry node")
+      | _ -> fail "unexpected stored registry table")
+    | _ -> fail "unexpected stored registry entries" in
+  let entities = [
+    "project", dense_row (List.assoc "rows" project_fields),
+      qualified owner "world_project_registry" ^ "." ^ qualified project_owner "rows";
+    "card", dense_row (List.assoc "board_card_registry" board_fields),
+      qualified owner "world_features" ^ "." ^ qualified feature_owner "feature_board" ^ "." ^
+        qualified board_owner "board_card_registry";
+    "workflow", dense_row (List.assoc "rows" workflow_fields),
+      qualified owner "world_features" ^ "." ^ qualified feature_owner "feature_instances" ^ "." ^
+        qualified workflow_owner "rows"
+  ] in
   let title = match Array.to_list (Array.mapi (fun index node -> match node with
     | Variant (_, cases) when List.mem_assoc "TitlePending" cases -> Some (Ref index)
     | _ -> None) nodes) |> List.filter_map Fun.id with
     | [title] -> title
     | _ -> fail "kernel state must contain one title state declaration" in
-  let shared_features = List.remove_assoc "feature_titles" feature_fields in
+  let shared_features = List.filter (fun (name, _) ->
+    not (List.mem name ["feature_titles"; "feature_instances"; "feature_board"])) feature_fields in
+  let board_metadata = List.remove_assoc "board_card_registry" board_fields in
   let feature_prefix = qualified owner "world_features" ^ "." in
+  let board_prefix = feature_prefix ^ qualified feature_owner "feature_board" ^ "." in
   let shared = List.filter (fun (name, _) ->
-    not (List.mem name ["world_task_registry"; "world_sequence"; "world_features"])) fields in
+    not (List.mem name ["world_task_registry"; "world_project_registry"; "world_sequence"; "world_features"])) fields in
   let sections = List.map (fun (name, shape) -> qualified owner name, shape) shared
-    @ List.map (fun (name, shape) -> feature_prefix ^ qualified feature_owner name, shape) shared_features in
+    @ List.map (fun (name, shape) -> feature_prefix ^ qualified feature_owner name, shape) shared_features
+    @ List.map (fun (name, shape) -> board_prefix ^ qualified board_owner name, shape) board_metadata in
   write_file (Filename.concat directory "state-shape.txt") (fun output ->
-    Printf.fprintf output "selvedge-state-wire-3 %s\n" (shape_text root);
+    Printf.fprintf output "selvedge-state-wire-4 %s\n" (shape_text root);
     Printf.fprintf output "task metadata %s\ntask contract %s\ntask history %s\n"
       (schema_text (Record (task_owner, metadata))) (shape_text contract) (shape_text history);
     Printf.fprintf output "task title %s\n" (shape_text title);
     List.iter (fun (name, shape) -> Printf.fprintf output "section %s %s\n" name (shape_text shape)) sections;
+    List.iter (fun (name, shape, _) -> Printf.fprintf output "entity %s %s\n" name (shape_text shape)) entities;
     Array.iteri (fun index node -> Printf.fprintf output "%d %s\n" index (schema_text node)) nodes);
   write_file (Filename.concat directory "stored_state.ml") (fun output ->
     Printf.fprintf output "(* Generated from the extracted kernel world. *)\nmodule Wire = State_wire\n";
@@ -242,11 +269,16 @@ let () =
         name field (comparison shape) field) feature_fields;
     Printf.fprintf output "  | _ -> invalid_arg \"Unknown feature in publication dependencies\"\n";
     Printf.fprintf output "let sequence value = value.%s\n" (qualified owner "world_sequence");
+    Printf.fprintf output "let same_board_metadata left right = %s\n"
+      (String.concat " && " (List.filter_map (fun (name, shape) ->
+        if name = "board_pending_profiles" then None else
+        let field = board_prefix ^ qualified board_owner name in
+        Some (Printf.sprintf "(%s left.%s right.%s)" (comparison shape) field field)) board_metadata));
     List.iter (fun (function_name, name) ->
       let field = qualified owner name in
       Printf.fprintf output "let %s left right = %s left.%s right.%s\n"
         function_name (comparison (List.assoc name fields)) field field)
-      ["same_environment", "world_environment"; "same_projects", "world_projects"];
+      ["same_environment", "world_environment"; "same_projects", "world_project_registry"];
     Printf.fprintf output "let task_lineage value = value.%s\n" (qualified task_owner "task_lineage");
     Printf.fprintf output "let task_history value = value.%s\n" (qualified task_owner "task_history");
     Printf.fprintf output "let encode write value = let output = Buffer.create 4_096 in write output value; Buffer.contents output\n";
@@ -261,6 +293,10 @@ let () =
       (codec_name "write" history) (codec_name "read" history);
     Printf.fprintf output "let encode_title = encode %s\nlet decode_title_exn = decode_exn %s\n"
       (codec_name "write" title) (codec_name "read" title);
+    List.iter (fun (name, shape, field) ->
+      Printf.fprintf output
+        "let %s_rows value = value.%s\nlet encode_%s = encode %s\nlet decode_%s_exn = decode_exn %s\n"
+        name field name (codec_name "write" shape) name (codec_name "read" shape)) entities;
     let items = variables (List.map snd metadata) in
     let assignments = List.map2 (fun (field, _) (name, _) -> qualified task_owner field ^ " = " ^ name)
       metadata items in
@@ -274,17 +310,23 @@ let () =
         "  (match before with Some previous when %s previous.%s value.%s -> ()\n   | _ -> updates := (%d, encode %s value.%s) :: !updates);\n"
         (comparison shape) name name id (codec_name "write" shape) name) sections;
     Printf.fprintf output "  List.rev !updates\n";
-    Printf.fprintf output "let restore_exn sections ~sequence ~tasks ~titles =\n";
+    Printf.fprintf output "let restore_exn sections ~sequence ~tasks ~titles ~projects ~cards ~workflows =\n";
     Printf.fprintf output "  (* DEFENSE: A truncated or additional section cannot reconstruct this world. *)\n";
     Printf.fprintf output "  if Array.length sections <> %d then raise Wire.Invalid_state;\n" (List.length sections);
     List.iteri (fun id (_, shape) -> Printf.fprintf output "  let value%d = decode_exn %s sections.(%d) in\n"
       id (codec_name "read" shape) id) sections;
     let assignments_for owner offset fields =
       List.mapi (fun index (name, _) -> Printf.sprintf "%s = value%d" (qualified owner name) (offset + index)) fields in
+    let board_assignments = (qualified board_owner "board_card_registry" ^ " = cards") ::
+      assignments_for board_owner (List.length shared + List.length shared_features) board_metadata in
+    let board = "{ " ^ String.concat "; " board_assignments ^ " }" in
     let feature_assignments = (qualified feature_owner "feature_titles" ^ " = titles") ::
+      (qualified feature_owner "feature_board" ^ " = " ^ board) ::
+      (qualified feature_owner "feature_instances" ^ " = workflows") ::
       assignments_for feature_owner (List.length shared) shared_features in
     let features = "{ " ^ String.concat "; " feature_assignments ^ " }" in
     let assignments = (qualified owner "world_task_registry" ^ " = tasks") ::
+      (qualified owner "world_project_registry" ^ " = projects") ::
       (qualified owner "world_sequence" ^ " = sequence") ::
       (qualified owner "world_features" ^ " = " ^ features) :: assignments_for owner 0 shared in
     Printf.fprintf output "  { %s }\n" (String.concat "; " assignments))

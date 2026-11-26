@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Foundation Require Utf8.
-From Selvedge.Foundation Require IndexedRegistry ScopedRegistry.
+From Selvedge.Foundation Require DependencyIndex IndexedRegistry ScopedRegistry.
 From Selvedge.Kernel Require Import Numbers Domain State Codec Tasks CommandExecution.
 From Selvedge.Features Require Import WorkflowTypes TaskGraph TaskGraphDeclarations Work Worktree Board BoardFacts.
 From Selvedge.Features Require Domain Observation BoardClock.
@@ -174,7 +174,61 @@ Definition authorized_task id before :=
  | None => false end.
 Definition owns_task id (i : execution) :=
  existsb (fun p => match path_value p with Executing _ task _ => N.eqb id task | _ => false end) (instance_paths i).
-Definition task_reserved task v := existsb (fun '(_, i) => owns_task task i) (active_instances v).
+
+Definition delivery_task node (creation : task_creation) (i : execution) :=
+ match creation with
+ | ExistingTask id => Some id
+ | CreateTask _ _ _ false => option_map snd (find (fun pair => String.eqb node (fst pair)) (instance_tasks i))
+ | _ => None
+ end.
+Definition awaited_task p :=
+ match path_value p with
+ | Executing _ task _ | Forwarding _ task _ _ => Some task
+ | _ => None
+ end.
+Definition pending_task (i : execution) p :=
+ match path_value p with
+ | Pending input =>
+   match lookup_node (delivery_node input) (instance_definition i) with
+   | Some (Node node (TaskNode creation)) => delivery_task node creation i
+   | _ => None end
+ | _ => None
+ end.
+Definition immediately_pending (i : execution) p :=
+ match path_value p with
+ | Pending _ => match pending_task i p with None => true | Some _ => false end
+ | _ => false
+ end.
+Record dependencies := Dependencies {
+ awaiting_instances : DependencyIndex.t N;
+ pending_instances : DependencyIndex.t N;
+ immediate_instances : IndexedRegistry.Slots.t N
+}.
+Definition update_dependencies (add : bool) id (i : execution) current :=
+ let update key bucket :=
+   match key with
+   | Some target => let target := IndexedRegistry.key target in
+     if add then DependencyIndex.include target id id bucket else DependencyIndex.exclude target id bucket
+   | None => bucket
+   end in
+ let paths := instance_paths i in
+ let update_paths select := fold_left (fun bucket p => update (select p) bucket) paths in
+ Dependencies (update_paths awaited_task (awaiting_instances current))
+   (update_paths (pending_task i) (pending_instances current))
+   (let immediate := immediate_instances current in
+    if existsb (immediately_pending i) paths then
+      if add then IndexedRegistry.Slots.add (IndexedRegistry.key id) id immediate
+      else IndexedRegistry.Slots.remove (IndexedRegistry.key id) immediate
+    else immediate).
+Definition instance_dependencies := DependencyIndex.project
+ (Dependencies (IndexedRegistry.Slots.empty _) (IndexedRegistry.Slots.empty _) (IndexedRegistry.Slots.empty _))
+ (update_dependencies true) (update_dependencies false).
+Definition dependencies_for v := instance_dependencies (ScopedRegistry.rows (instance_registry v)).
+Definition task_instances task v :=
+ DependencyIndex.members (IndexedRegistry.key task) (awaiting_instances (dependencies_for v)).
+Definition task_reserved task v :=
+ existsb (fun id => match lookup_instance id v with Some i => owns_task task i | None => false end)
+   (task_instances task v).
 Definition attempt_send task input i v :=
  if task_reserved task v then None
  else match find_task task v with
@@ -223,10 +277,7 @@ Definition service_path instance_id (p : path) : DecisionComposition.step := fun
        DecisionComposition.Update (store_instance instance_id
          (replace_path path_id (Arrived exit (delivery_source input) (delivery_content input)) i) v) []
      | Some (Node node (TaskNode creation)) =>
-       let saved := match creation with
-       | ExistingTask id => Some id
-       | CreateTask _ _ _ false => option_map snd (find (fun pair => String.eqb node (fst pair)) (instance_tasks i))
-       | _ => None end in
+       let saved := delivery_task node creation i in
        match saved, creation with
        | Some id, _ => match attempt_send id input i v with
          | Some sent => save_path instance_id path_id input i sent (Some id) false
@@ -304,17 +355,46 @@ Definition sync_ticket instance_id (i : execution) v :=
      else v
    | _, _ => v end
  | None => v end.
-Definition for_paths (operation : N -> path -> DecisionComposition.step) : DecisionComposition.step :=
- fun v effects => DecisionComposition.each (active_instances v)
-   (fun '(key, i) => DecisionComposition.each (instance_paths i) (operation key)) v effects.
-Definition synchronize : DecisionComposition.step :=
+Definition ordered_instances ids :=
+ map (fun id => N.pred (N.pos id))
+   (ScopedRegistry.Ordered.sort
+     (map fst (IndexedRegistry.Slots.elements
+       (fold_left (fun selected id => IndexedRegistry.Slots.add (IndexedRegistry.key id) tt selected)
+         ids (IndexedRegistry.Slots.empty unit))))).
+Definition for_paths ids (eligible : execution -> path -> bool)
+ (operation : N -> path -> DecisionComposition.step) : DecisionComposition.step :=
+ fun v effects =>
+ let selected := flat_map (fun id => match lookup_instance id v with
+   | Some i => [(id, filter (eligible i) (instance_paths i))]
+   | None => [] end) (ordered_instances ids) in
+ DecisionComposition.each selected
+   (fun '(id, paths) => DecisionComposition.each paths (operation id)) v effects.
+Definition changed_tasks before v := DependencyIndex.changed_ids (task_rows before) (task_rows v).
+Definition changed_instances before v := DependencyIndex.changed_ids
+ (ScopedRegistry.rows (instance_registry before)) (ScopedRegistry.rows (instance_registry v)).
+Definition depends_on tasks target :=
+ match target with Some id => existsb (N.eqb id) tasks | None => false end.
+Definition settle before : DecisionComposition.step := fun v effects =>
+ let tasks := changed_tasks before v in
+ for_paths (flat_map (fun id => task_instances id v) tasks)
+   (fun _ p => depends_on tasks (awaited_task p)) (settle_path before) v effects.
+Definition service before (continue : bool) : DecisionComposition.step := fun v effects =>
+ let tasks := changed_tasks before v in
+ let dependencies := dependencies_for v in
+ let pending := flat_map (fun id =>
+   DependencyIndex.members (IndexedRegistry.key id) (pending_instances dependencies)) tasks in
+ let changed := changed_instances before v in
+ let immediate := if continue then DependencyIndex.values (immediate_instances dependencies) else [] in
+ for_paths (pending ++ changed ++ immediate)
+   (fun _ p => match path_value p with Pending _ => true | _ => false end) service_path v effects.
+Definition synchronize before : DecisionComposition.step :=
  DecisionComposition.world_only (fun v =>
- fold_left (fun current '(_, key) => match lookup_instance key current with
+ fold_left (fun current key => match lookup_instance key current with
    | Some i => sync_ticket key i current | None => current end)
-   (F.feature_ticket_instances (world_features v)) v).
-Definition after_transition before :=
- DecisionComposition.and_then (for_paths (settle_path before))
-  (DecisionComposition.and_then (for_paths service_path) synchronize).
+   (changed_instances before v) v).
+Definition after_transition before continue :=
+ DecisionComposition.and_then (settle before)
+  (DecisionComposition.and_then (service before continue) (synchronize before)).
 
 Definition launch_result id := JObject [("instance_id", number id)].
 Definition start id key contents preview_text ticket project clock browser_launch v :=
@@ -333,7 +413,9 @@ Definition choose context key v :=
  | None => reject "workflow_task_required" "Only the Task executing a workflow delivery can choose its connection." v
  | Some caller =>
    let task := Tasks.native_owner caller in
-   match find (fun '(_, i) => owns_task task i) (active_instances v) with
+   match find (fun '(_, i) => owns_task task i)
+    (flat_map (fun id => match lookup_instance id v with Some i => [(id,i)] | None => [] end)
+      (ordered_instances (task_instances task v))) with
    | Some (id, i) =>
      match find (fun p => match path_value p with Executing _ owner _ => N.eqb task owner | _ => false end) (instance_paths i) with
      | Some (Path path (Executing input owner None)) =>

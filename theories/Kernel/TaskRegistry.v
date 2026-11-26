@@ -2,7 +2,7 @@ From Stdlib Require Import List NArith Bool Sorting.Mergesort.
 From Selvedge.Foundation Require IndexedRegistry IndexedRegistryProofs.
 From Selvedge.Foundation Require Utf8.
 From Selvedge.Kernel Require Import Domain.
-From Selvedge.Kernel Require Runnable.
+From Selvedge.Kernel Require Runnable WorkspaceUses.
 Import ListNotations.
 Open Scope N_scope.
 
@@ -38,12 +38,14 @@ Record t := Registry {
  notification_recipients : Slots.t task;
  issued_titles : Slots.t unit;
  title_requests : Slots.t task;
+ workspace_uses : WorkspaceUses.t;
  active_agrees : agrees active_candidate rows active;
  runnable_agrees : agrees Runnable.candidate rows runnable;
  side_conversations_agree : agrees side_candidate rows side_conversations;
  notification_recipients_agree : agrees notification_candidate rows notification_recipients;
  title_requests_agree : forall id, index_at id title_requests =
-   eligible (title_candidate issued_titles id) (IndexedRegistry.lookup id rows)
+   eligible (title_candidate issued_titles id) (IndexedRegistry.lookup id rows);
+ workspace_uses_agree : WorkspaceUses.agrees rows workspace_uses
 }.
 
 Lemma empty_scope_agrees accepts : agrees accepts IndexedRegistry.empty (Slots.empty task).
@@ -52,10 +54,10 @@ Proof. intros id. unfold index_at, IndexedRegistry.lookup. cbn [IndexedRegistry.
 
 Definition empty_with_issued_titles issued : t :=
  Registry IndexedRegistry.empty (Slots.empty task) (Slots.empty task) (Slots.empty task) (Slots.empty task)
-  issued (Slots.empty task)
+  issued (Slots.empty task) WorkspaceUses.empty
   (empty_scope_agrees active_candidate) (empty_scope_agrees Runnable.candidate)
   (empty_scope_agrees side_candidate)
-  (empty_scope_agrees notification_candidate) (fun id => empty_scope_agrees (title_candidate issued id) id).
+  (empty_scope_agrees notification_candidate) (fun id => empty_scope_agrees (title_candidate issued id) id) WorkspaceUses.empty_agrees.
 Definition empty := empty_with_issued_titles (Slots.empty unit).
 
 Definition index_task (accepts : task -> bool) id current (scope : Slots.t task) :=
@@ -86,7 +88,9 @@ Proof.
   (index_task Runnable.candidate id current (runnable table))
   (index_task side_candidate id current (side_conversations table))
   (index_task notification_candidate id current (notification_recipients table))
-  (issued_titles table) (index_task (title_candidate (issued_titles table) id) id current (title_requests table)) _ _ _ _ _).
+  (issued_titles table) (index_task (title_candidate (issued_titles table) id) id current (title_requests table))
+  (WorkspaceUses.replace_task id (IndexedRegistry.lookup id (rows table)) current (workspace_uses table)) _ _ _ _ _
+  (WorkspaceUses.replace_agrees _ _ _ _ (workspace_uses_agree table) Present)).
  all: intros other; destruct (N.eq_dec id other) as [Same|Different].
  all: try (subst other; rewrite index_task_at, IndexedRegistryProofs.lookup_put_present by exact Present; reflexivity).
  all: rewrite index_task_at_other, IndexedRegistryProofs.lookup_put_other by exact Different.
@@ -105,7 +109,9 @@ Proof.
   (index_task Runnable.candidate id current (runnable table))
   (index_task side_candidate id current (side_conversations table))
   (index_task notification_candidate id current (notification_recipients table))
-  (issued_titles table) (index_task (title_candidate (issued_titles table) id) id current (title_requests table)) _ _ _ _ _).
+  (issued_titles table) (index_task (title_candidate (issued_titles table) id) id current (title_requests table))
+  (WorkspaceUses.update true id (WorkspaceUses.task_addresses current) (workspace_uses table)) _ _ _ _ _
+  (WorkspaceUses.append_agrees _ _ _ (workspace_uses_agree table))).
  all: intros other; destruct (N.eq_dec id other) as [Same|Different].
  all: try (subst other; unfold id; rewrite index_task_at, IndexedRegistryProofs.lookup_append_new; reflexivity).
  all: rewrite index_task_at_other by exact Different.
@@ -120,9 +126,9 @@ Defined.
 Definition title_started (id : N) (table : t) : t.
 Proof.
  refine (Registry (rows table) (active table) (runnable table) (side_conversations table) (notification_recipients table)
-   (Slots.add (key id) tt (issued_titles table)) (Slots.remove (key id) (title_requests table))
+   (Slots.add (key id) tt (issued_titles table)) (Slots.remove (key id) (title_requests table)) (workspace_uses table)
    (active_agrees table) (runnable_agrees table)
-   (side_conversations_agree table) (notification_recipients_agree table) _).
+   (side_conversations_agree table) (notification_recipients_agree table) _ (workspace_uses_agree table)).
  intro other. unfold index_at, title_candidate.
  destruct (N.eq_dec id other) as [Same|Different].
  - subst other. rewrite Slots.grs, Slots.gss. now destruct (IndexedRegistry.lookup id (rows table)).

@@ -1,7 +1,7 @@
 From Stdlib Require Import List Bool NArith.
 From Selvedge.Programming Require Import Constructor Focus.
 From Selvedge.Foundation Require Import Registry.
-From Selvedge.Foundation Require IndexedRegistry.
+From Selvedge.Foundation Require IndexedRegistry KeyedScope.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 Import ListNotations.
 
@@ -9,9 +9,11 @@ Import ListNotations.
     writer are interpretations of that path, never independent declarations. *)
 Inductive t : Type -> Type -> Type :=
 | Keyed : forall entry, (entry -> N) -> t (list entry) entry
+| ScopedKeyed : forall entry (addresses : entry -> list positive), (entry -> N) -> t (KeyedScope.t addresses) entry
 | Mapped : forall entry, N -> t (IndexedRegistry.Slots.t entry) entry
 | Indexed : forall entry, N -> t (list entry) entry
 | Ordered : forall entry, N -> t (list entry * list N) entry
+| DenseOrdered : forall entry, N -> t (IndexedRegistry.t entry * list N) entry
 | Field : forall whole part input (get : whole -> part),
     SetterWf get -> t part input -> t whole input
 | Focused : forall whole part input,
@@ -23,9 +25,11 @@ Inductive t : Type -> Type -> Type :=
     forall constructor : input -> field_type, Constructor.View constructor -> row -> t state input.
 
 Definition keyed {entry} := Keyed entry.
+Definition scoped_keyed {entry} := ScopedKeyed entry.
 Definition mapped {entry} := Mapped entry.
 Definition indexed {entry} := Indexed entry.
 Definition ordered {entry} := Ordered entry.
+Definition dense_ordered {entry} := DenseOrdered entry.
 Definition field {whole part input} (get : whole -> part) `{SetterWf whole part get}
  (selected : t part input) := Field whole part input get H selected.
 Definition focused {whole part input} (focus : Focus.t whole part)
@@ -43,8 +47,8 @@ Definition put_at {entry} (position : N) (value : entry) (entries : list entry) 
 
 Fixpoint address {state input} (selected : t state input) : input -> N :=
  match selected with
- | Keyed _ key => key
- | Mapped _ identity | Indexed _ identity | Ordered _ identity => fun _ => identity
+ | Keyed _ key | ScopedKeyed _ _ key => key
+ | Mapped _ identity | Indexed _ identity | Ordered _ identity | DenseOrdered _ identity => fun _ => identity
  | Field _ _ _ _ _ child | Focused _ _ _ _ child => address child
  | Inject _ _ _ constructor _ child => fun request => address child (constructor request)
  | InRecord _ _ _ _ child get law constructor _ base => fun request =>
@@ -52,11 +56,13 @@ Fixpoint address {state input} (selected : t state input) : input -> N :=
  end.
 Fixpoint positioned {state input} (selected : t state input) : state -> Prop :=
  match selected with
- | Keyed _ _ | Mapped _ _ => fun _ => True
+ | Keyed _ _ | ScopedKeyed _ _ _ | Mapped _ _ => fun _ => True
  | Indexed _ position => fun entries =>
      position = N.of_nat (List.length entries) \/ exists value, registry_at position entries = Some value
  | Ordered _ position => fun entries =>
      position = N.of_nat (List.length (fst entries)) \/ exists value, registry_at position (fst entries) = Some value
+ | DenseOrdered _ position => fun entries =>
+     position = IndexedRegistry.next (fst entries) \/ exists value, IndexedRegistry.lookup position (fst entries) = Some value
  | Field _ _ _ get _ child => fun before => positioned child (get before)
  | Focused _ _ _ focus child => fun before => positioned child (Focus.read focus before)
  | Inject _ _ _ _ _ child | InRecord _ _ _ _ child _ _ _ _ _ => positioned child
@@ -64,9 +70,11 @@ Fixpoint positioned {state input} (selected : t state input) : state -> Prop :=
 Fixpoint read_at {state input} (selected : t state input) (identity : N) : state -> option input :=
  match selected with
  | Keyed _ key => find (fun item => N.eqb identity (key item))
+ | ScopedKeyed _ _ _ => fun table => KeyedScope.lookup identity (KeyedScope.rows table)
  | Mapped _ _ => IndexedRegistry.Slots.find (IndexedRegistry.key identity)
  | Indexed _ _ => registry_at identity
  | Ordered _ _ => fun entries => registry_at identity (fst entries)
+ | DenseOrdered _ _ => fun entries => IndexedRegistry.lookup identity (fst entries)
  | Field _ _ _ get _ child => fun before => read_at child identity (get before)
  | Focused _ _ _ focus child => fun before => read_at child identity (Focus.read focus before)
  | Inject _ _ _ constructor view child => fun before =>
@@ -82,10 +90,15 @@ Fixpoint install {state input} (selected : t state input) : input -> state -> st
  match selected with
  | Keyed _ key => fun request entries =>
      request :: filter (fun item => negb (N.eqb (key request) (key item))) entries
+ | ScopedKeyed _ _ key => fun request => KeyedScope.put (key request) request
  | Mapped _ position => IndexedRegistry.Slots.add (IndexedRegistry.key position)
  | Indexed _ position => put_at position
  | Ordered _ position => fun request entries => (put_at position request (fst entries),
      if existsb (N.eqb position) (snd entries) then snd entries else snd entries ++ [position])
+ | DenseOrdered _ position => fun request entries =>
+     if N.eqb position (IndexedRegistry.next (fst entries))
+     then (IndexedRegistry.append request (fst entries), snd entries ++ [position])
+     else (IndexedRegistry.put position request (fst entries), snd entries)
  | Field _ _ _ get law child => fun request => @set _ _ get (@set_wf _ _ get law) (install child request)
  | Focused _ _ _ focus child => fun request => Focus.modify focus (install child request)
  | Inject _ _ _ constructor _ child => fun request => install child (constructor request)
@@ -107,6 +120,8 @@ Arguments position {state input before}.
 Module At.
 Definition keyed {entry} (entries : list entry) (key : entry -> N) : located _ _ entries :=
  Located (Receiver.keyed key) I.
+Definition scoped_keyed {entry addresses} (entries : @KeyedScope.t entry addresses) (key : entry -> N) :
+ located _ _ entries := Located (Receiver.scoped_keyed addresses key) I.
 Definition mapped {entry} (entries : IndexedRegistry.Slots.t entry) (identity : N) : located _ _ entries :=
  Located (Receiver.mapped identity) I.
 Definition ordered_append {entry} (entries : list entry * list N) : located _ _ entries :=
@@ -117,6 +132,16 @@ Definition ordered_present {entry} (entries : list (option entry) * list N) iden
 Proof.
  refine (Located (ordered identity) (or_intror _)).
  destruct (registry_at identity (fst entries)) as [stored|] eqn:Stored; [|discriminate].
+ exists stored; reflexivity.
+Defined.
+Definition dense_append {entry} (entries : IndexedRegistry.t entry * list N) : located _ _ entries :=
+ Located (dense_ordered (IndexedRegistry.next (fst entries))) (or_introl eq_refl).
+Definition dense_present {entry} (entries : IndexedRegistry.t (option entry) * list N) identity value
+ (Found : (match IndexedRegistry.lookup identity (fst entries) with Some found => found | None => None end) = Some value)
+ : located _ (option entry) entries.
+Proof.
+ refine (Located (dense_ordered identity) (or_intror _)).
+ destruct (IndexedRegistry.lookup identity (fst entries)) as [stored|]; [|discriminate].
  exists stored; reflexivity.
 Defined.
 Definition field {whole part input} (before : whole) (get : whole -> part)

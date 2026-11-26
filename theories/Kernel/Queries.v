@@ -65,7 +65,7 @@ Definition list_tasks (value : world) := State.success (JObject [
  ("max_fork", number (environment_max_fork (world_environment value)));
  ("max_descendants", number (environment_max_descendants (world_environment value))) ]).
 Definition read_project (id : N) (value : world) :=
- match registry_at id (world_projects value) with
+ match find_project id value with
  | Some project => if project_deleted project then State.failure "project_not_found" "The project does not exist"
    else State.success (project_json id project)
  | None => State.failure "project_not_found" "The project does not exist" end.

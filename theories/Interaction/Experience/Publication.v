@@ -3,9 +3,10 @@ From Stdlib Require Import String List NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Foundation Require IndexedRegistry.
 From Selvedge.Kernel Require Import Numbers Domain Codec Context State Tasks ContextUpdates Observation Workspace.
-From Selvedge.Kernel Require ContextTypes FeatureRequestAdmission.
+From Selvedge.Kernel Require ContextTypes FeatureRequestAdmission WorkspaceUses TaskRegistry.
 From Selvedge.Kernel Require Conversation.
 From Selvedge.Features Require BoardFacts CompactionCodec Observation.
+From Selvedge.Programming Require CardScope.
 
 Module Features := Selvedge.Features.Observation.
 
@@ -108,11 +109,21 @@ Definition task_snapshot := task_snapshot_with_payload true true true true.
 Definition project_task_count (id : N) (tasks : list task) :=
  N.of_nat (ListCount.count (fun task => match settings_project (task_current_settings task) with
  | Some selected => N.eqb selected id | None => false end) tasks).
-Definition project_summary_json (tasks : list task) (id : N) (value : project) :=
- JObject (project_fields id value ++ [
+Definition project_summary_fields id value count :=
+ project_fields id value ++ [
  ("root_count", number (N.of_nat (List.length (workspace_roots (project_workspace value)))));
  ("primary_root", optional_string (workspace_primary (project_workspace value)));
- ("task_count", number (project_task_count id tasks))]).
+ ("task_count", number count); ("sort_order", number (project_order value))].
+Definition project_summary_json (tasks : list task) (id : N) (value : project) :=
+ JObject (project_summary_fields id value (project_task_count id tasks)).
+Definition published_project_count id value :=
+ N.of_nat (List.length (WorkspaceUses.project_tasks id (TaskRegistry.workspace_uses (world_task_registry value)))).
+Definition project_publication_at id value :=
+ match find_project id value with
+ | Some current => if project_deleted current then JNull else
+   JObject (project_summary_fields id current (published_project_count id value))
+ | None => JNull
+ end.
 Definition projects_json (projects : list project) (tasks : list task) :=
  map (fun entry => project_summary_json tasks (fst entry) (snd entry)) (Workspace.ordered_projects projects).
 Definition graph_snapshot id graph :=
@@ -143,6 +154,12 @@ Definition display_tool_json tool :=
 (** A card preview depends on the admitted board revision, queue, drafting
     eligibility and linked execution activity. Use the same observation for
     live publication and for the world actually used to assess a proposal. *)
+Definition card_fact value id card := JArray [
+ number id;
+ number (Selvedge.Features.Domain.card_revision card);
+ JBool (BoardFacts.busy card value);
+ JBool (BoardFacts.has_workflow id value);
+ JBool (BoardFacts.workflow_in_progress id value)].
 Definition card_save_facts (value : world) :=
  let board := BoardFacts.registry value in
  let cards := Selvedge.Features.Domain.board_cards board in
@@ -151,12 +168,7 @@ Definition card_save_facts (value : world) :=
   ("draft_profile", JString (Selvedge.Features.Domain.board_draft_profile board));
   ("identity_available", JBool (N.ltb (N.of_nat (List.length cards)) 4294967295));
   ("order", JArray (map number (Selvedge.Features.Domain.board_order board)));
-  ("cards", JArray (Features.present_values (fun id card => JArray [
-    number id;
-    number (Selvedge.Features.Domain.card_revision card);
-    JBool (BoardFacts.busy card value);
-    JBool (BoardFacts.has_workflow id value);
-    JBool (BoardFacts.workflow_in_progress id value)]) cards));
+  ("cards", JArray (Features.present_values (card_fact value) cards));
   ("projects", JArray (map (fun item => number (fst item))
     (filter (fun item => negb (project_deleted (snd item)))
       (indexed (fun id project => (id,project)) 0 (world_projects value)))));
@@ -171,6 +183,13 @@ Definition catalog_publication_fields (value : world) := [
  ("defaults", JObject [("settings",experience_settings_json (Tasks.creation_defaults (world_environment value)))]);
  ("profiles", JArray (map profile_json (environment_profiles (world_environment value))));
  ("tools", JArray (map display_tool_json (environment_tools (world_environment value))))].
+Definition card_publication_at id value :=
+ match CardScope.lookup id value with
+ | Some card => JObject [("card",Features.card_json_in_world value id card);("facts",card_fact value id card)]
+ | None => JNull
+ end.
+Definition workflow_instance_at id value :=
+ match Workflow.lookup_instance id value with Some instance => Workflow.instance_json value id instance | None => JNull end.
 Definition project_publication_fields (value : world) := [
  ("projects", JArray (projects_json (world_projects value) (world_tasks value)))].
 Definition live_publication_projections : list (string * (world -> json)) := [
@@ -192,16 +211,6 @@ Definition live_publication_projections : list (string * (world -> json)) := [
 Definition project_field value (projection : string * (world -> json)) :=
  (fst projection, snd projection value).
 
-Definition board_task_dependencies value :=
- flat_map (fun entry => match entry with
-  | Some card => match Selvedge.Features.Domain.card_task card with Some id => [id] | None => [] end
-  | None => [] end)
-  (Selvedge.Features.Domain.board_cards (BoardFacts.registry value)).
-Definition workflow_task_dependencies value :=
- flat_map (fun '(_, instance) =>
-  flat_map (fun path => match WorkflowTypes.path_value path with
-   | WorkflowTypes.Executing _ id _ | WorkflowTypes.Forwarding _ id _ _ => [id]
-   | _ => [] end) (WorkflowTypes.instance_paths instance)) (Workflow.active_instances value).
 Definition compaction_task_dependencies value :=
  map fst (Selvedge.Features.CompactionTypes.maintenance_entries
   (Selvedge.Features.Domain.feature_compaction (world_features value))).

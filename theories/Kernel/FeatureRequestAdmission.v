@@ -25,7 +25,7 @@ Definition connection_grant identity state :=
 Definition connection_authority identity project state := match connection_grant identity state with
  | Some grant => if ConnectionGrants.admits_project project grant then Some grant else None
  | None => None end.
-Definition connection_project identity before := match registry_at identity (world_projects before) with
+Definition connection_project identity before := match find_project identity before with
  | Some project => if project_deleted project then None else Some project | None => None end.
 Definition connection_retry identity request state := find (fun entry =>
  N.eqb identity (F.job_connection (snd entry)) && String.eqb request (F.job_request (snd entry))) (F.sharing_jobs state).

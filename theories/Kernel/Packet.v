@@ -5,6 +5,8 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json TextJson.
 From Selvedge.Foundation Require IndexedRegistry.
 From Selvedge.Kernel Require TaskRegistry.
+From Selvedge.Kernel Require ProjectRegistry.
+From Selvedge.Foundation Require ScopedRegistry.
 From Selvedge.Kernel Require ContextUpdates.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Inputs InputDecoder Queries CommandExecution
@@ -23,6 +25,11 @@ Import ListNotations.
 Open Scope string_scope.
 Definition initial := State.initial.
 Definition task_registry_restore := TaskRegistry.from_list.
+Definition project_registry_restore := ProjectRegistry.from_list.
+Definition card_registry_restore := @IndexedRegistry.from_list (option Selvedge.Features.Domain.card).
+Definition workflow_registry_restore (instances : list Selvedge.Features.Workflow.execution) :=
+ fold_left (fun registry entry => ScopedRegistry.append entry registry) instances
+  (ScopedRegistry.empty (@Selvedge.Features.WorkflowTypes.instance_in_progress Selvedge.Features.Domain.graph_message)).
 Definition restore_title_scope := State.restore_title_scope.
 Definition title_registry_restore (entries : list (N * Selvedge.Features.Domain.title_state)) :=
  fold_left (fun titles '(id, title) => IndexedRegistry.Slots.add (IndexedRegistry.key id) title titles)
@@ -35,8 +42,15 @@ Definition task_registry_changes same_tree same_task before after :=
    (IndexedRegistry.changes same_tree same_task (task_rows before) (task_rows after)).
 Definition world_json := Publication.world_json.
 Definition shared_publication := Publication.shared_publication.
-Definition board_task_dependencies := Publication.board_task_dependencies.
-Definition workflow_task_dependencies := Publication.workflow_task_dependencies.
+Definition board_task_cards := Selvedge.Features.BoardFacts.linked_card_ids.
+Definition board_unlinked_cards := Selvedge.Features.BoardFacts.unlinked_card_ids.
+Definition board_active_owner := Selvedge.Features.BoardFacts.has_active_card.
+Definition board_linked_profile := Selvedge.Features.BoardFacts.linked_card_profile.
+Definition card_publication_at := Publication.card_publication_at.
+Definition workflow_instance_at := Publication.workflow_instance_at.
+Definition workflow_instance_ticket := @Selvedge.Features.WorkflowTypes.instance_card Selvedge.Features.Domain.graph_message.
+Definition task_workflow_instances := Selvedge.Features.Workflow.task_instances.
+Definition project_publication_at := Publication.project_publication_at.
 Definition compaction_task_dependencies := Publication.compaction_task_dependencies.
 Definition task_publication := Publication.task_publication.
 Definition task_history_since cursor task := skipn cursor (task_history task).
@@ -127,7 +141,7 @@ Definition core_transition (source : Inputs.input) (value : world) :=
  | AfterCompleted id operation ticket outcome => Selvedge.Features.Runtime.after_transition value (HookCallbacks.after_completed id operation ticket outcome value)
  | ApprovalCompleted id ticket outcome => Selvedge.Features.Runtime.after_transition value (Callbacks.approval_completed id ticket outcome value)
  | Recover => Selvedge.Features.Runtime.after_recovery_transition value (Recovery.recover (Selvedge.Features.Runtime.recover value))
- | Continue => Selvedge.Features.Runtime.after_transition value (accept JNull value [])
+ | Continue => Selvedge.Features.Runtime.after_continue value (accept JNull value [])
  end.
 Definition input_route := (Inputs.input + (world -> bool * bool * decision))%type.
 Definition input_routes := DeclarationRegistry.declare (@InputRoute.identity input_route)

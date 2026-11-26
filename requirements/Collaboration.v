@@ -152,7 +152,7 @@ Export CardScopeProofs(stale_card_is_atomic).
 Export BoardProofs(ordinary_card_creation_installs_the_requested_draft,
   automatic_queue_follows_pin_priority_and_board_order,
   selecting_the_next_card_follows_the_automatic_queue,
-  board_synchronization_keeps_all_stage_updates,
+  synchronization_installs_selected_stage_update,
   admitted_card_edit_preserves_its_execution,
   admitted_link_preserves_execution_and_drafting,
   linked_assignment_cannot_be_transferred,

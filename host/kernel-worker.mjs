@@ -8,7 +8,8 @@ parentPort.on('message', ({ input, operation }) => {
     if (operation === 'loadState') {
       // DEFENSE: A different durable schema cannot be decoded as this world's records.
       if (input !== null && input.schema !== model.persistenceSchema) throw new Error('Unsupported Selvedge stored state schema');
-      const restored = input === null ? model.initial() : model.restoreState(String(input.sequence), input.shared, input.tasks, input.titles);
+      const restored = input === null ? model.initial() : model.restoreState(String(input.sequence), input.shared,
+        input.tasks, input.titles, input.entities);
       // DEFENSE: A truncated or invalid stored record cannot initialize the Worker.
       if (restored === null) throw new Error('Invalid Selvedge stored state');
       world = projectedWorld = restored;

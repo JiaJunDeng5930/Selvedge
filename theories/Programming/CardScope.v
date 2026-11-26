@@ -6,8 +6,9 @@ From Selvedge.Programming Require CommandResult OptionObservation.
 Open Scope string_scope.
 Module F := Selvedge.Features.Domain.
 
+From Selvedge.Foundation Require IndexedRegistry.
 Definition lookup id before :=
- match registry_at id (F.board_cards (F.feature_board (world_features before))) with
+ match IndexedRegistry.lookup id (F.board_card_registry (F.feature_board (world_features before))) with
  | Some card => card | None => None end.
 Record card_reference (before : world) (id : N) := CardReference {
  selected_card : F.card;

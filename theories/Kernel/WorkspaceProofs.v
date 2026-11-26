@@ -28,7 +28,7 @@ Theorem updating_a_project_preserves_all_existing_tasks : forall id name workspa
   (CommandExecution.update_project id name workspace guidance worktree resource value)) = world_tasks value.
 Proof.
  intros id name workspace guidance worktree resource value; unfold CommandExecution.update_project.
- destruct (registry_at id (world_projects value)) as [previous|]; [|reflexivity].
+ destruct (find_project id value) as [previous|]; [|reflexivity].
  destruct (project_deleted previous); [reflexivity|].
  destruct (match workspace with
   | Some source => workspace_of_values source | None => Some (project_workspace previous) end)
@@ -46,12 +46,12 @@ Qed.
 
 Theorem an_accepted_project_update_uses_the_requested_worktree_preference :
  forall id name workspace guidance requested resource value previous,
- registry_at id (world_projects value) = Some previous ->
+ find_project id value = Some previous ->
  bool_default "ok" (decision_reply
   (CommandExecution.update_project id name workspace guidance requested resource value)) false = true ->
  exists updated,
-  registry_at id (world_projects (decision_world
-   (CommandExecution.update_project id name workspace guidance requested resource value))) = Some updated /\
+  find_project id (decision_world
+   (CommandExecution.update_project id name workspace guidance requested resource value)) = Some updated /\
   project_worktree updated =
    match requested with Some selected => selected | None => project_worktree previous end.
 Proof.
@@ -70,7 +70,7 @@ Proof.
  match type of Accepted with context [if ?allowed then _ else _] =>
    destruct allowed; [|discriminate] end.
  eexists; split.
- - eapply registry_replace_selected; exact Found.
+ - eapply find_project_after_put; exact Found.
  - reflexivity.
 Qed.
 
@@ -82,7 +82,7 @@ Proof.
    (Selvedge.Features.Domain.feature_board (world_features value)) ||
   Selvedge.Features.Domain.sharing_retains_project id
    (Selvedge.Features.Domain.feature_sharing (world_features value))); [reflexivity|].
- destruct (registry_at id (world_projects value)) as [previous|]; [|reflexivity].
+ destruct (find_project id value) as [previous|]; [|reflexivity].
  destruct (project_deleted previous); [reflexivity|].
  destruct (existsb (fun task => match settings_project (task_current_settings task) with
   | Some current => N.eqb id current | None => false end) (world_tasks value)); reflexivity.
@@ -99,13 +99,12 @@ Proof.
    (Selvedge.Features.Domain.feature_board (world_features value)) ||
   Selvedge.Features.Domain.sharing_retains_project id
    (Selvedge.Features.Domain.feature_sharing (world_features value))); [discriminate|].
- destruct (registry_at id (world_projects value)) as [previous|] eqn:Found; [|discriminate].
+ destruct (find_project id value) as [previous|] eqn:Found; [|discriminate].
  destruct (project_deleted previous); [discriminate|].
  destruct (existsb (fun task => match settings_project (task_current_settings task) with
   | Some current => N.eqb id current | None => false end) (world_tasks value)); [discriminate|].
  unfold Queries.read_project.
- unfold accept, with_projects; cbv [set]; cbn [decision_world world_projects].
- rewrite (registry_replace_selected project (world_projects value) id previous _ Found).
+ cbn [accept decision_world]. rewrite (find_project_after_put id value previous _ Found).
  do 2 eexists; reflexivity.
 Qed.
 
@@ -171,7 +170,7 @@ Theorem query_and_snapshot_use_the_same_project_order : forall value,
 Proof. reflexivity. Qed.
 
 Theorem moving_a_project_discards_unselected_guidance : forall id value project raw workspace owner,
- registry_at id (world_projects value) = Some project ->
+ find_project id value = Some project ->
  project_deleted project = false -> workspace_of_values raw = Some workspace ->
  WorkspaceBinding.select_resource workspace value = Some owner ->
  WorkspaceBinding.resource_ready workspace owner value = true ->
@@ -215,3 +214,14 @@ Theorem reviewer_delegation_ignores_display_metadata : forall child parent other
  Workspace.approval_bound (ReviewWith child) (ReviewWith parent) =
  Workspace.approval_bound (ReviewWith other_child) (ReviewWith other_parent).
 Proof. intros; unfold Workspace.approval_bound, Workspace.same_reviewer_profile; congruence. Qed.
+Theorem a_project_change_requiring_git_rejects_unverified_selection id evidence before candidate current :
+ find_project id (decision_world candidate) = Some current ->
+ bool_default "ok" (decision_reply candidate) false = true ->
+ CommandExecution.project_git_required (find_project id before) current = true ->
+ CommandExecution.project_git_matches evidence current = false ->
+ decision_world (CommandExecution.check_project_git id evidence before candidate) = before /\
+ bool_default "ok" (decision_reply (CommandExecution.check_project_git id evidence before candidate)) false = false.
+Proof.
+ intros Found Accepted Required Unverified.
+ unfold CommandExecution.check_project_git. now rewrite Found, Accepted, Required, Unverified.
+Qed.

@@ -100,7 +100,7 @@ Definition workspace_nodes snapshot {e} s occurrence parent (members:UX.collecti
  let roots:=Domain.workspace_roots workspace in
  let editable:=Parameters.editable e Fields.WorkspaceDirectories in
  let heading:=match e with Identity.Project _=>
-  if Selvedge.Browser.Session.Observation.worktree_required(State.current_draft s e)
+  if Selvedge.Browser.Session.Observation.worktree_selected(State.current_draft s e)
   then "工作目录" else "工作目录（可选）" | _=>"" end in
  let buffer:=match find(fun layer=>N.eqb occurrence(State.layer_occurrence layer))(State.layers(State.navigation_state s))with
  |Some layer=>value_or ""(State.layer_parameter_buffer layer)|None=>""end in
@@ -386,7 +386,7 @@ Definition run_environment_choices snapshot (s:State.state) e occurrence parent 
   let is_mode mode (alternative:UX.alternative e subject):=
     Json.equal (JString mode) (Schema.encode_value (UX.subject_kind subject) (UX.alternative_value alternative)) in
   let choices:=filter (fun choice=>negb(is_mode "local" choice)) alternatives in
-  let worktree:=Selvedge.Browser.Session.Observation.worktree_required(State.current_draft s e) in
+  let worktree:=Selvedge.Browser.Session.Observation.worktree_selected(State.current_draft s e) in
   let indicate choice:=if worktree && is_mode "current" choice then
     UX.Alternative (UX.alternative_label choice) (UX.alternative_explanation choice)
       (UX.alternative_value choice) true (UX.alternative_availability choice) (UX.alternative_consequences choice)

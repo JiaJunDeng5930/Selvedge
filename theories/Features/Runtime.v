@@ -9,20 +9,24 @@ Definition completion_inputs (execute : Scheduler.executor) :=
  (Remote.completion_inputs execute ++ Worktree.completion_inputs ++ Board.completion_inputs ++
   Chatgpt.completion_inputs ++ Compaction.completion_inputs ++ TitleRuntime.completion_inputs)%list.
 Definition after_observed_transition (before:world) (archive_worktrees route_output : DecisionComposition.step)
- (completed : option (N * N)) (result:decision) :decision :=
+ (completed : option (N * N)) (continue : bool) (result:decision) :decision :=
  DecisionComposition.run
  (DecisionComposition.and_then archive_worktrees
  (DecisionComposition.and_then route_output
- (DecisionComposition.and_then (Workflow.after_transition before)
- (DecisionComposition.and_then (Board.after_transition before) (Compaction.after_transition before completed))))) result.
+ (DecisionComposition.and_then (Workflow.after_transition before continue)
+ (DecisionComposition.and_then (Board.after_transition before continue) (Compaction.after_transition before completed))))) result.
 Definition after_context_transition (before:world) :=
- after_observed_transition before Worktree.after_transition (fun value _ => DecisionComposition.unchanged value).
+ fun completed => after_observed_transition before Worktree.after_transition
+   (fun value _ => DecisionComposition.unchanged value) completed false.
 Definition after_model_transition before id :=
- after_observed_transition before Worktree.after_transition (TaskGraph.after_model_output before id) None.
+ after_observed_transition before Worktree.after_transition (TaskGraph.after_model_output before id) None false.
 Definition after_transition (before:world) := after_context_transition before None.
+Definition after_continue before :=
+ after_observed_transition before Worktree.after_transition
+   (fun value _ => DecisionComposition.unchanged value) None true.
 Definition after_recovery_transition before :=
  after_observed_transition before Worktree.recover_archives
-   (fun value _ => DecisionComposition.unchanged value) None.
+   (fun value _ => DecisionComposition.unchanged value) None true.
 Definition recover (value:world) :world :=
  TitleRuntime.recover (Compaction.recover (Chatgpt.recover (Board.recover value))).
 Definition reconfigure := Compaction.reconfigure.
@@ -33,6 +37,5 @@ Definition schedules (command:Selvedge.Generated.Commands.command) :bool := matc
  | Selvedge.Generated.Commands.Cmd_remote_revoke _ | Selvedge.Generated.Commands.Cmd_remote_status _ => false | _=>true end.
 Definition can_schedule_task (id:N) (value:world) :=
  Worktree.execution_ready id value && Compaction.can_schedule_task id value.
-Definition finalization := DecisionComposition.compose (DecisionComposition.maintain Board.finish)
- (DecisionComposition.compose Selvedge.Features.Compaction.attach_context TitleCommit.enqueue_title).
+Definition finalization := DecisionComposition.compose Selvedge.Features.Compaction.attach_context TitleCommit.enqueue_title.
 Definition finish := DecisionComposition.transform finalization.

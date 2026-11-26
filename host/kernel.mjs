@@ -36,6 +36,9 @@ export class Kernel {
           if (reconcileRemote) value.reconcileRemote = true;
           const update = programUpdate === undefined ? undefined : {
             shared: parseJson(programUpdate.shared),
+            projects: programUpdate.projects.map(({ id, text }) => ({ id, value: parseJson(text) })),
+            cards: programUpdate.cards.map(({ id, text }) => ({ id, value: parseJson(text) })),
+            workflowInstances: programUpdate.workflowInstances.map(({ id, text }) => ({ id, value: parseJson(text) })),
             tasks: programUpdate.tasks.map(({ id, text, appended }) => ({
               id, value: parseJson(text), appended: parseJson(appended),
             })),
