@@ -300,5 +300,8 @@ Definition command_descriptions : list (string * string) := [
   ("retry_worktree_archive", "Retry archiving a task worktree after an external archive failure.")
 ].
 
-Definition command_description (name : string) : option string :=
-  option_map snd (find (fun entry => String.eqb name (fst entry)) command_descriptions).
+Definition command_description (name : string) : string :=
+  match find (fun entry => String.eqb name (fst entry)) command_descriptions with
+  | Some (_, description) => description
+  | None => ""
+  end.
