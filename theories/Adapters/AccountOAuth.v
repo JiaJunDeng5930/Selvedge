@@ -12,8 +12,7 @@ Definition discovery source :=
     forallb (fun name => discovery_url (get urls name) issuer) ["authorization_endpoint";"token_endpoint";"jwks_uri"]
   (* Public discovery advertises the third-party OAuth paths. The Codex client
      uses the first-party paths on the same admitted issuer. *)
-  then success (if loopback issuer then value else
-    set (set value "authorization_endpoint" (JString (str value "issuer" ++ "/oauth/authorize")))
+  then success (set (set value "authorization_endpoint" (JString (str value "issuer" ++ "/oauth/authorize")))
       "token_endpoint" (JString (str value "issuer" ++ "/oauth/token")))
   else err "Invalid ChatGPT OpenID discovery".
 Definition insecure source := success (JBool
@@ -54,9 +53,6 @@ Definition encode_callback decision :=
     ("message",JString message);("clientId",id);("body",JString body);("headers",headers)].
 Definition callback source := success (encode_callback (decide_callback source)).
 
-Definition callback_ports source := success
-  (if loopback (get source "issuer_url") then JArray [JNumber "0"]
-   else get AccountContracts.contract "callback_ports").
 Definition auth_parameters source :=
   success (JObject [("response_type",JString "code");("redirect_uri",get source "redirectUri");
     ("state",get source "state");("nonce",get source "nonce");("code_challenge",get source "challenge");

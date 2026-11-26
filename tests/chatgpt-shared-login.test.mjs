@@ -61,7 +61,7 @@ test('one ChatGPT authorization makes the model directory and voice transcriptio
   const callbackResponse = await fetch(login.url);
   assert.equal(callbackResponse.status, 200, await callbackResponse.text());
 
-  const authorizationRequests = upstream.oauthRequests.filter(request => request.url.startsWith('/authorize?'));
+  const authorizationRequests = upstream.oauthRequests.filter(request => request.url.startsWith('/oauth/authorize?'));
   assert.equal(authorizationRequests.length, 1);
   const authorization = new URL(authorizationRequests[0].url, upstream.address);
   assert.ok(authorization.searchParams.get('state'));
@@ -100,7 +100,7 @@ test('one ChatGPT authorization makes the model directory and voice transcriptio
   assert.equal(transcriptionRequests[0].mime, 'audio/wav');
   assert.deepEqual(transcriptionRequests[0].bytes, audio);
 
-  assert.equal(upstream.oauthRequests.filter(request => request.url.startsWith('/authorize?')).length, 1,
+  assert.equal(upstream.oauthRequests.filter(request => request.url.startsWith('/oauth/authorize?')).length, 1,
     'Model discovery and transcription must not trigger a second account authorization');
   assert.equal(upstream.oauthRequests.filter(request => request.url === '/oauth/token').length, 1,
     'One browser authorization must produce one authorization-code exchange');
