@@ -223,6 +223,11 @@ Export BoundedIntegerCorrectness(decode_integer_mathematical_iff,
     The same requirement applies to bounded reads. An explicitly global
     operation has its own declared scope.
 
+    A browser command acknowledges its result even when the browser's cursor
+    has fallen outside the retained updates. Complete global synchronization
+    through an independent state read. The browser applies the received state
+    before advancing its cursor or navigating to newly created objects.
+
     Ordinary scheduling takes one runnable step in a journal transaction.
     Later steps use the durable continuation. Assembling a long prefix of
     independent requests repeatedly encodes the accumulated output for model

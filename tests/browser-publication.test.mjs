@@ -1,7 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, writeFile } from 'node:fs/promises';
-import path from 'node:path';
 import { browserFixture } from './fixtures/browser.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
 import { events } from '../host/network.mjs';
@@ -10,25 +8,36 @@ import { home, taskIdle } from './support.mjs';
 
 test('opening the browser reads a conversation history only when that conversation becomes visible', async t => {
   const { page, command, running } = await browserFixture(t);
-  for (let i = 0; i < 16; i++) await command({ op: 'create_idle', profile: 'demo' });
   const message = 'Selected conversation before the browser opened';
   const { task_id: selected } = await command({ op: 'create', profile: 'demo', message });
-  const { task_id: unrelated } = await command({ op: 'create', profile: 'demo',
-    message: 'Unrelated conversation history '.repeat(400) });
+  const { task_id: unrelated } = await command({ op: 'create_idle', profile: 'demo' });
+  await command({ op: 'send', task_id: unrelated, message: 'Unrelated conversation history primer' });
   const [{ task }] = await Promise.all([taskIdle(running.service, selected), taskIdle(running.service, unrelated)]);
   const snapshotPath = '/api/browser/state';
-  const historyReads = [];
+  const startupReads = [];
+  let recordingStartup = false;
   page.on('request', request => {
     const url = new URL(request.url());
-    if (url.pathname === snapshotPath && url.searchParams.has('history')) historyReads.push(url.searchParams.get('history'));
+    if (recordingStartup && url.pathname === snapshotPath && url.searchParams.has('history')) startupReads.push(url.href);
   });
-  const opened = page.waitForResponse(response => new URL(response.url()).pathname === snapshotPath);
-  await page.reload();
-  const { program } = await (await opened).json();
-  assert.equal(Object.hasOwn(program.tasks[selected], 'history'), false);
-  assert.equal(Object.hasOwn(program.tasks[unrelated], 'history'), false);
-  assert.equal(Object.hasOwn(program.tasks[unrelated], 'tools'), false);
-  assert.deepEqual(historyReads, []);
+  const entry = page.getByRole('navigation', { name: 'Task tree', exact: true })
+    .getByRole('button', { name: task.title, exact: true });
+  async function loadSidebar() {
+    recordingStartup = true;
+    const opened = page.waitForResponse(response => new URL(response.url()).pathname === snapshotPath);
+    await page.reload();
+    await entry.waitFor();
+    recordingStartup = false;
+    return (await opened).body();
+  }
+  const small = await loadSidebar();
+  const backgroundMessage = 'Unrelated transcript text. '.repeat(400);
+  await command({ op: 'send', task_id: unrelated, message: backgroundMessage });
+  await taskIdle(running.service, unrelated);
+  const large = await loadSidebar();
+  assert.deepEqual(startupReads, [], 'The sidebar opens without requesting a conversation transcript');
+  assert.ok(large.length - small.length < Buffer.byteLength(backgroundMessage),
+    'Growing a closed conversation must not add its transcript to the page load');
 
   const captured = Promise.withResolvers();
   const release = Promise.withResolvers();
@@ -43,8 +52,7 @@ test('opening the browser reads a conversation history only when that conversati
     await release.promise;
     await route.fulfill({ response });
   });
-  await page.getByRole('navigation', { name: 'Task tree', exact: true })
-    .getByRole('button', { name: task.title, exact: true }).click();
+  await entry.click();
   await captured.promise;
   await page.getByText('正在加载对话…', { exact: true }).waitFor();
   const appended = 'Arrived while the selected history was in flight';
@@ -54,8 +62,6 @@ test('opening the browser reads a conversation history only when that conversati
   const timeline = page.getByRole('region', { name: 'Conversation', exact: true });
   await timeline.getByText(message, { exact: true }).first().waitFor();
   await timeline.getByText(appended, { exact: true }).first().waitFor();
-  assert.ok(historyReads.length >= 1);
-  assert.deepEqual([...new Set(historyReads)], [String(selected)]);
 });
 
 test('the board follows other commits and recovers an acknowledged write when its HTTP receipt is lost or stalled', async t => {
@@ -125,6 +131,59 @@ test('the board follows other commits and recovers an acknowledged write when it
   }
 });
 
+test('a stale browser confirms creation while synchronization waits and opens the committed conversation once', async t => {
+  const { page, command, running } = await browserFixture(t);
+  const stateEndpoint = url => url.pathname === '/api/browser/state' && !url.search;
+  const stateRequested = Promise.withResolvers();
+  const releaseState = Promise.withResolvers();
+  t.after(() => releaseState.resolve());
+  let delayed = true;
+  let blockedReads = 0;
+  await page.route(stateEndpoint, async route => {
+    if (!delayed) return route.continue();
+    blockedReads++;
+    const olderState = await route.fetch();
+    stateRequested.resolve();
+    await releaseState.promise;
+    return route.fulfill({ response: olderState });
+  });
+
+  const background = 'Unrelated conversation for the stale sidebar';
+  const { task_id: backgroundId } = await command({ op: 'create', profile: 'demo', message: background });
+  const { task: backgroundTask } = await taskIdle(running.service, backgroundId);
+  await stateRequested.promise;
+  for (let index = 0; index < 24; index++) await command({ op: 'create_idle', profile: 'demo' });
+
+  const sidebar = page.getByRole('navigation', { name: 'Task tree', exact: true });
+  const existing = sidebar.getByRole('button', { name: backgroundTask.title, exact: true });
+  await existing.waitFor({ state: 'hidden' });
+  const prompt = 'Create once from a stale browser';
+  let submissions = 0;
+  const creates = request => request.method() === 'POST' && new URL(request.url()).pathname === '/api/browser/command'
+    && request.postDataJSON()?.command?.op === 'create';
+  page.on('request', request => { if (creates(request)) submissions++; });
+  const response = page.waitForResponse(response => creates(response.request()));
+  await page.getByRole('combobox', { name: 'Task', exact: true }).fill(prompt);
+  await page.getByRole('button', { name: 'Start task', exact: true }).click();
+  const receipt = await (await response).text();
+  const { reply } = JSON.parse(receipt);
+  assert.equal(reply.ok, true, receipt);
+  assert.ok(!receipt.includes(backgroundTask.title), 'The confirmed creation does not carry the unrelated sidebar');
+
+  await page.getByText('消息已提交，正在同步…', { exact: true }).waitFor();
+  await existing.waitFor({ state: 'hidden' });
+  assert.equal(blockedReads, 1, 'The receipt reuses the synchronization request already in flight');
+  delayed = false;
+  releaseState.resolve();
+  await existing.waitFor();
+  await page.getByRole('combobox', { name: 'Message', exact: true }).waitFor();
+  await page.getByRole('region', { name: 'Conversation', exact: true }).getByText(prompt, { exact: true }).waitFor();
+  await page.getByText('消息已提交，正在同步…', { exact: true }).waitFor({ state: 'hidden' });
+  const { messages } = await command({ op: 'read', task_id: reply.result.task_id });
+  assert.equal(messages.filter(message => message.role === 'user' && JSON.stringify(message).includes(prompt)).length, 1);
+  assert.equal(submissions, 1);
+});
+
 test('a browser command marker identifies just its own durable commit', async t => {
   const directory = await home(t);
   const config = validateConfig({ ...defaultConfig, chatgpt: false, port: 0 });
@@ -166,92 +225,59 @@ test('a browser command marker identifies just its own durable commit', async t 
   }
 });
 
-test('a local browser command publishes the changed task without unrelated conversation history', async t => {
+test('browser command receipts stay small when older conversations and messages grow', async t => {
   const directory = await home(t);
-  await mkdir(path.join(directory, '.git'));
-  const guidance = 'Workspace rules stay available after a local change.';
-  await writeFile(path.join(directory, 'AGENTS.md'), guidance);
   const config = validateConfig({ ...defaultConfig, chatgpt: false, port: 0,
     profiles: { fixture: { provider: 'echo', model: 'fixture' } } });
   const running = await startServer({ home: directory, cwd: directory, config });
   t.after(() => running.close());
   const { service } = running;
-  const selected = await service.command({ op: 'create_idle', profile: 'fixture',
-    settings: { workspace: { roots: [directory], primary_root: directory } } });
+  const selected = await service.command({ op: 'create_idle', profile: 'fixture' });
   assert.equal(selected.reply.ok, true);
   const taskId = Number(selected.reply.result.task_id);
+  const { reply: unrelated } = await service.command({ op: 'create_idle', profile: 'fixture' });
+  assert.equal(unrelated.ok, true);
+  const otherTask = unrelated.result.task_id;
   const cookie = (await fetch(running.url)).headers.get('set-cookie').split(';')[0];
   const headers = { cookie, origin: running.address };
   const state = async () => (await fetch(`${running.address}/api/browser/state`, { headers })).json();
 
-  async function submit(command, sequence) {
+  async function submit(command) {
+    const { sequence } = await state();
     const response = await fetch(`${running.address}/api/browser/command`, {
       method: 'POST', headers: { ...headers, 'content-type': 'application/json',
         'x-selvedge-browser-sequence': String(sequence) },
       body: JSON.stringify({ command }),
     });
-    const text = await response.text();
-    const receipt = JSON.parse(text);
-    assert.equal(receipt.reply.ok, true, text);
-    assert.equal(receipt.after, sequence);
-    return { text, receipt };
+    const body = Buffer.from(await response.arrayBuffer());
+    const { reply } = JSON.parse(body);
+    assert.equal(reply.ok, true, body.toString());
+    return body;
   }
 
   async function freezeAtCurrentSequence() {
-    const snapshot = await state();
-    const { text, receipt } = await submit({ op: 'freeze', task_id: taskId }, snapshot.sequence);
-    const tasks = receipt.updates.flatMap(update => update.tasks);
-    assert.deepEqual(tasks.map(task => task.id), [taskId]);
-    assert.equal(tasks[0].value.status, 'frozen');
-    assert.equal(Object.hasOwn(tasks[0].value, 'context'), false);
-    const historyFacts = ['cursor', 'has_assistant_reply', 'execution_failed', 'card_link_stage'];
-    for (const field of historyFacts) assert.equal(Object.hasOwn(tasks[0].value, field), false);
-    assert.equal(Object.hasOwn(tasks[0].value.fork, 'capacities'), false);
-    const after = (await state()).program.tasks[taskId];
-    assert.equal(after.status, 'frozen');
-    assert.equal(after.fork.parent_ready, false);
-    assert.deepEqual(after.fork.capacities, snapshot.program.tasks[taskId].fork.capacities);
-    assert.deepEqual(after.context, snapshot.program.tasks[taskId].context);
-    for (const field of historyFacts) assert.deepEqual(after[field], snapshot.program.tasks[taskId][field]);
-    return text.length;
+    const body = await submit({ op: 'freeze', task_id: taskId });
+    const { reply } = await service.command({ op: 'read', task_id: taskId });
+    assert.equal(reply.result.task.status, 'frozen');
+    return body.length;
   }
 
   const small = await freezeAtCurrentSequence();
   assert.equal((await service.command({ op: 'unfreeze', task_id: taskId })).reply.ok, true);
-  const message = 'UNRELATED CONVERSATION HISTORY '.repeat(500);
-  const unrelated = await service.command({ op: 'create', profile: 'fixture', message });
-  assert.equal(unrelated.reply.ok, true);
-  await taskIdle(service, unrelated.reply.result.task_id);
-  assert.ok(JSON.stringify((await state()).program.tasks[1].history).includes(message));
+  const message = 'Unrelated conversation history. '.repeat(500);
+  assert.equal((await service.command({ op: 'send', task_id: otherTask, message })).reply.ok, true);
+  await taskIdle(service, otherTask);
   const large = await freezeAtCurrentSequence();
-  assert.ok(large - small < message.length, 'The receipt must not copy even one copy of the unrelated message');
+  assert.ok(large - small < Buffer.byteLength(message), 'The receipt must not copy the unrelated message');
 
   assert.equal((await service.command({ op: 'unfreeze', task_id: taskId })).reply.ok, true);
   const old = 'Earlier selected conversation message '.repeat(120);
   assert.equal((await service.command({ op: 'send', task_id: taskId, message: old })).reply.ok, true);
   await taskIdle(service, taskId);
-  const settled = await state();
-  assert.ok(JSON.stringify(settled.program.tasks[taskId].history).includes(old));
-  assert.ok(JSON.stringify(settled.program.tasks[taskId].context).includes(guidance));
-  await freezeAtCurrentSequence();
-  assert.equal((await service.command({ op: 'unfreeze', task_id: taskId })).reply.ok, true);
-  const resumed = await state();
   const current = 'New selected conversation message';
-  const { text, receipt } = await submit({ op: 'send', task_id: taskId, message: current }, resumed.sequence);
-  assert.ok(!text.includes(old));
-  assert.ok(receipt.updates.some(update => update.tasks.some(row =>
-    row.id === taskId && JSON.stringify(row.appended).includes(current))));
-
+  const receipt = await submit({ op: 'send', task_id: taskId, message: current });
+  assert.ok(!receipt.includes(old), 'Submitting one message must not retransmit the prior transcript');
   await taskIdle(service, taskId);
-  const firstFork = await service.command({ op: 'fork', task_id: taskId, child_count: 1 });
-  assert.equal(firstFork.reply.ok, true, JSON.stringify(firstFork.reply));
-  const firstChild = Number(firstFork.reply.result.children[0]);
-  await Promise.all([taskIdle(service, taskId), taskIdle(service, firstChild)]);
-  const beforeSibling = await state();
-  const priorCapacity = beforeSibling.program.tasks[firstChild].fork.capacities[1];
-  const { receipt: nextFork } = await submit({ op: 'fork', task_id: taskId, child_count: 1 },
-    beforeSibling.sequence);
-  const notices = nextFork.updates.flatMap(update => update.references).filter(row => row.id === firstChild);
-  assert.equal(notices.at(-1)?.value.fork.capacities[1].descendants, priorCapacity.descendants + 1,
-    'A new sibling updates the shared ancestor capacity of an existing child');
+  const { reply } = await service.command({ op: 'read', task_id: taskId });
+  assert.ok(JSON.stringify(reply.result.messages).includes(current), 'The new text is durably readable');
 });

@@ -394,10 +394,12 @@ Definition detail_actions_changed before after (view : task_view) (size : BM.cap
    (V.details_owner (prepared_world context) (prepared_state context) size) view in
  negb (Bool.eqb (expanded before) (expanded after) &&
        Bool.eqb (relocated before) (relocated after)).
-Definition pending_key context := option_map Selvedge.Interaction.Submission.Draft.text_value
- (Navigation.creating_conversation (prepared_state context)).
+Definition pending_key context := option_map
+ (fun '(message,received)=> (Selvedge.Interaction.Submission.Draft.text_value message,received))
+ (Navigation.creating_conversation_submission (prepared_state context)).
 Definition creation_changed before after := match pending_key before,pending_key after with
- |Some a,Some b=>negb(String.eqb a b)|None,None=>false|_,_=>true end.
+ |Some (a,received),Some (b,next)=>negb(String.eqb a b && Bool.eqb received next)
+ |None,None=>false|_,_=>true end.
 Definition current_theme context := Selvedge.Browser.Session.Services.theme
  (Session.service_state (prepared_state context)).
 Definition document_theme env context := Document.NativeAppearance.theme_name (current_theme context) (Layout.system_dark env).

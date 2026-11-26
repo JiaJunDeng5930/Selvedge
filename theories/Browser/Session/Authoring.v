@@ -67,6 +67,10 @@ Definition pending_for_editor owner pending:=match SS.purpose pending with
 |SS.DraftSubmission draft _ _ _|SS.LiveConfiguration draft _ _|SS.ProjectPreference draft _ _ _ _=>
  same_editor owner(Draft.owner draft)
 |_=>false end.
+Definition received_draft_submission owner state :=
+ existsb (fun pending=>match SS.purpose pending with
+ |SS.DraftSubmission draft _ _ _=>same_editor owner(Draft.owner draft) && SS.request_received pending
+ |_=>false end) (SS.awaiting(SS.authoring_state state)).
 (** Dismissing an editor ends its draft and owned browser requests. The
     layer ticket reserves a revision for the next draft of the same owner. *)
 Definition discard_editor owner state:=

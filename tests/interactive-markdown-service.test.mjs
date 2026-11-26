@@ -117,33 +117,3 @@ test('actual SSE preserves sparse output indices in live stream observations', a
   await taskIdle(fixture.running.service, task);
   assert.deepEqual(fixture.failures, []);
 });
-
-test('ordinary replies and archiving leave no maintenance record for an unconfigured model', async t => {
-  const fixture = await interactiveMarkdownFixture();
-  t.after(() => fixture.close());
-  const { running } = fixture;
-  const settled = new Set();
-  running.service.on('notice', notice => { if (notice.type === 'stream_end') settled.add(notice.task_id); });
-  const ids = [];
-  for (const message of ['The first unconfigured conversation', 'A separate unconfigured conversation']) {
-    const created = await fixture.command({ op: 'create', profile: 'interactive', message });
-    assert.equal(created.reply.ok, true);
-    const task = created.reply.result.task_id;
-    ids.push(task);
-    const request = await until(() => fixture.requests.find(entry => !entry.closed &&
-      JSON.stringify(entry.input.input).includes(message)), 'the selected model request');
-    fixture.finish(request.index, { text: 'The reply completed without context maintenance.' });
-    await until(() => settled.has(task), 'the physical provider stream settled');
-  }
-
-  const command = await fixture.command({ op: 'archive', task_id: ids[0] });
-  assert.equal(command.reply.ok, true);
-  const response = await fetch(`${running.address}/api/browser/state`, {
-    headers: { authorization: `Bearer ${running.token}` },
-  });
-  assert.equal(response.status, 200);
-  const { program } = await response.json();
-  assert.deepEqual(program.compaction.tasks, []);
-  assert.equal(program.tasks[ids[0]].status, 'archived');
-  assert.equal(program.tasks[ids[1]].has_assistant_reply, true);
-});

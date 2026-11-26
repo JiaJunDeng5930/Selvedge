@@ -266,6 +266,8 @@ Definition skill_nodes snapshot s e parent :=
    (SkillSuggestions(part parent "message")true active)(List.app entries empty)]
  |_=>[Node(part parent "skill-completion")"skill-completion" "Skills"Roles.Menu
    (SkillSuggestions(part parent "message")false None)[]]end.
+Definition message_submission_status (received:bool) :=
+ if received then "消息已提交，正在同步…" else "正在提交消息…".
 Definition composer_view snapshot (s:Session.state) e parent :=
  match UX.admit_subject e "message"with
  |None=>None
@@ -274,7 +276,7 @@ Definition composer_view snapshot (s:Session.state) e parent :=
  let feedback:=draft_feedback(Session.current_draft s e)in
  let message_label:=match e with NewTask _=>"Task"|_=>"Message"end in
  let submitting:=UX.action_pending unit in
- let status:="正在提交消息…" in
+ let status:=message_submission_status (Selvedge.Browser.Session.Authoring.received_draft_submission e s) in
  let availability:=unit_availability unit assessment
    (visible_obstruction_code (Observe.action_obstruction (UX.assessment_outcome assessment))) in
  let label:=if submitting then status else submit_label snapshot(Session.current_draft s e)e in

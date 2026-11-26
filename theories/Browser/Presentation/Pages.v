@@ -46,7 +46,7 @@ Definition creation_introduction s parent :=
    (information parent "creation/title" Information.IntroductionTitle Navigation.new_conversation_label::graph_return).
 Definition creation_page snapshot s parent :=
  [creation_introduction s parent; creation_composer snapshot s parent].
-Definition creating_conversation_page parent (message:Draft.text) : list(node Input.input) :=
+Definition creating_conversation_page parent (message:Draft.text) received : list(node Input.input) :=
  let pending:=part parent "pending-conversation" in
  [Node pending "pending-conversation" "Conversation" Roles.Section (PageContext None)
   [page_region pending Composition.ConversationHeader Composition.HeadingPosition
@@ -58,7 +58,7 @@ Definition creating_conversation_page parent (message:Draft.text) : list(node In
       (if String.eqb text "" then [] else
        [region pending "pending-user-message" "Message" Roles.UserMessage
         [Node(part pending "message-text")"message-text" "" Roles.Content (ReadOnly text)[]]])++
-      [information pending "pending-first-reply" Information.Status "正在提交消息…"])]]].
+      [information pending "pending-first-reply" Information.Status (Editors.message_submission_status received)])]]].
 Definition approval_availability value:=match ObjectActions.action_status value with
 |ObjectActions.Available=>Available|ObjectActions.InFlight=>Busy "This action is pending"
 |ObjectActions.Unavailable reason=>Unavailable reason end.
@@ -373,7 +373,7 @@ Definition shared_page snapshot s work parent :=
     (let contents:=AuditReading.shared_ui Input.Interactive(document_context snapshot s)(State.document_retention s)(State.interactive_state s)in
      match contents with []=>[information parent "shared-empty" Information.Description "可让智能体创建共享 UI。"]|_=>contents end)]end.
 Definition page_contents snapshot s pending parent hide_details compact_graphs :=match pending with
-|Some message=>creating_conversation_page parent message
+|Some (message,received)=>creating_conversation_page parent message received
 |None=>match State.location(State.navigation_state s)with
 |Start|GraphConversation _ _=>creation_page snapshot s parent
 |Conversation task=>conversation_page_with_details snapshot s(PrimaryTask task)parent hide_details
@@ -397,6 +397,6 @@ Definition page_kind_with snapshot s (pending:option Draft.text) :=match pending
 |SharedUI work _=>match find_work work snapshot with Some _=>Composition.SharedInterface|None=>Composition.Unavailable end end end.
 Definition page_kind snapshot s :=page_kind_with snapshot s (SessionNavigation.creating_conversation s).
 Definition main_with_details snapshot s hide_details compact_graphs :=
- let pending:=SessionNavigation.creating_conversation s in
- Node "/main" "main" "Main content"Roles.Main(PageBody(page_kind_with snapshot s pending))
+ let pending:=SessionNavigation.creating_conversation_submission s in
+ Node "/main" "main" "Main content"Roles.Main(PageBody(page_kind_with snapshot s (option_map fst pending)))
   (page_contents snapshot s pending "/main" hide_details compact_graphs).

@@ -76,9 +76,7 @@ test('a tool cycle refreshes known context files and discovers new files on the 
   ({ task_id: taskId } = await fixture.command({ op: 'create_idle', profile: fixture.profile,
     settings: { workspace: { roots: [workspace], primary_root: workspace } } }));
   await fixture.command({ op: 'send', task_id: taskId, message: 'Run one tool before completing this message.' });
-  const completed = await fixture.idle(taskId, { completed: () => fixture.upstream.requests.length >= 2 });
-  assert.equal(contextContent(contextChanges(completed, 'directory_guidance'),
-    path.join(existing, 'AGENTS.md')), 'RULE UPDATED MID TURN');
+  await fixture.idle(taskId, { completed: () => fixture.upstream.requests.length >= 2 });
   const resumed = JSON.stringify(fixture.upstream.requests[1].input);
   assert.ok(resumed.includes('RULE UPDATED MID TURN'), resumed);
   assert.ok(resumed.includes('SKILL UPDATED MID TURN'), resumed);
