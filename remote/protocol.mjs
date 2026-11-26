@@ -1,11 +1,13 @@
 import { parseJson, stringifyJson } from '../host/public/json-tokens.mjs';
+import { remoteControl } from './control-model.mjs';
 
-export const REMOTE_PROTOCOL_VERSION = 1;
+const { version, pairing_ttl_ms } = remoteControl('protocol_contract', null);
+export const REMOTE_PROTOCOL_VERSION = version;
 // NOTE: The native complete decision is bounded to 4 MiB; encoded observations
 // and their surrounding wire envelope need additional room.
 export const MAX_REMOTE_FRAME_BYTES = 16 * 1024 * 1024;
 export const REMOTE_TICKET_TTL_MS = 30_000;
-export const REMOTE_PAIRING_TTL_MS = 5 * 60_000;
+export const REMOTE_PAIRING_TTL_MS = pairing_ttl_ms;
 
 const encoder = new TextEncoder();
 

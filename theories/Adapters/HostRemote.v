@@ -1,6 +1,7 @@
 From Stdlib Require Import String List Bool.
 Import ListNotations.
 From Selvedge.Adapters Require Import Common.
+From Selvedge.Host Require RemoteProtocol.
 From Selvedge.Host Require Import RemoteConnectorSession RemoteRelaySession RelayAdmission.
 From Selvedge.Foundation Require Import BoundedInteger.
 From Selvedge.Adapters Require Import HostRemoteTransport.
@@ -9,7 +10,8 @@ Definition session_result value := match value with
  | Some value => success value | None => type_error "Invalid remote relay session observation" end.
 Definition session_verdict value := session_result (option_map JBool value).
 Definition call operation source :=
- if String.eqb operation "control.remote.safe_integer" then success (match source with
+ if String.eqb operation "control.remote.protocol_contract" then success RemoteProtocol.contract
+ else if String.eqb operation "control.remote.safe_integer" then success (match source with
  | JString lexeme => match BoundedInteger.decode_safe_integer lexeme with Some value => JString (show_integer (BoundedInteger.integer_value value)) | None => JNull end
  | _ => JNull end)
  else if existsb (String.eqb operation) ["control.remote.transport_initial";"control.remote.transport";"control.remote.transport_running"] then HostRemoteTransport.call operation source

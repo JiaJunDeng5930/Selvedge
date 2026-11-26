@@ -23,12 +23,17 @@ Definition identifier_declaration := D.Textual (D.PrintableUtf16 1 128).
 Definition label_declaration := D.Textual (D.PrintableUtf16 1 80).
 Definition receipt_id_declaration := D.Text (D.TextConstraints 1 D.maximum_natural 128 false false false None).
 Definition epoch_declaration := D.SafeInteger 1 9007199254740991.
-Definition version_declaration := D.SafeInteger 1 1.
+Definition protocol_version : Z := 1%Z.
+Definition pairing_ttl_ms : N := 300000.
+Definition version_declaration := D.SafeInteger protocol_version protocol_version.
 Definition rpc_id_declaration := D.Union [identifier_declaration;D.SafeInteger (-9007199254740991) 9007199254740991].
 Definition identifier := D.denote identifier_declaration.
 Definition identifier_text (value : identifier) := proj1_sig value.
 Definition epoch_value (value : D.denote epoch_declaration) := Z.to_N (proj1_sig value).
-Definition version_value : D.denote version_declaration := exist _ 1%Z eq_refl.
+Definition version_value : D.denote version_declaration := exist _ protocol_version eq_refl.
+Definition contract := JObject [
+ ("version",D.encode version_declaration version_value);
+ ("pairing_ttl_ms",number pairing_ttl_ms)].
 
 (** The two authority coordinates are admitted, stored, and forwarded together. *)
 Definition authority_fields := [F.required "controller_id" RemoteIdentity.controller_declaration;

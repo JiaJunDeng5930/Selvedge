@@ -94,7 +94,7 @@ Definition step (current : state) (event : observation) : state * action :=
    | None=>(current,NoAction) end
  | InstallPairing now revision value=>
    let allowed:=match pairing_of current with Some previous=>N.eqb previous.(pairing_revision) revision &&
-     (now <? (pairing_expiry value)) && ((pairing_expiry value) <=? now + 300000) | None=>false end in
+     (now <? (pairing_expiry value)) && ((pairing_expiry value) <=? now + RP.pairing_ttl_ms) | None=>false end in
    (if allowed then change_pairing current (fun previous=>PairingState previous.(pairing_revision) (Some value)) else current,Decision (decide allowed))
  | ConsumePairing now digest=>
    let allowed:=match pairing_of current with Some previous=>match previous.(pending_pairing) with
