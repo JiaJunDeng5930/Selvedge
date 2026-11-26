@@ -231,7 +231,7 @@ test('an explicit send shows the captured new message in a temporary conversatio
 });
 
 test('a refused new conversation restores its draft and a late receipt respects another page', { timeout: 60_000 }, async t => {
-  const { page, command } = await browserFixture(t);
+  const { page, command, running } = await browserFixture(t);
   const refused = 'Keep this first message if it is refused.';
   const later = 'Create this conversation in the background.';
   const refusal = 'The submitted test message was refused.';
@@ -249,9 +249,9 @@ test('a refused new conversation restores its draft and a late receipt respects 
     const message = typeof request.message === 'string' ? request.message : request.message?.[0]?.text;
     if (message === refused) {
       await releaseRefusal.promise;
-      const state = await page.request.get(new URL('/api/browser/state', page.url()).href).then(response => response.json());
+      const { namespace, sequence } = running.service.journal;
       return route.fulfill({ status: 400, json: {
-        ...state, reply: { ok: false, error: { code: 'test_refusal', message: refusal } },
+        namespace, sequence, snapshot_required: true, reply: { ok: false, error: { code: 'test_refusal', message: refusal } },
       } });
     }
     createdCount++;

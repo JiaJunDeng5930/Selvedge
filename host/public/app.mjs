@@ -32,6 +32,7 @@ const files = new Map();
 const transfers = new Map();
 const workflowReceipts = new Map();
 const browserCommandReplies = new Map();
+const awaitingCommandSnapshots = new Set();
 const assessments = new Map();
 const pendingAssessments = new Map();
 const historyReads = new Map();
@@ -76,6 +77,7 @@ let measureAgain = false;
 let measurementFrame = null;
 let measurementTask = null;
 let connection = null;
+let browserStateRead = null;
 let disposed = false;
 let clockRefresh = null;
 let sourceFresh = false;
@@ -204,31 +206,83 @@ const browserHeaders = (initial = false) => ({
   ...(!initial && world !== null ? { [browserSequenceHeader]: String(integral(publication.sequence)) } : {}),
 });
 
-async function requestCommand(command, signal, returnsCommit = false) {
+function readBrowserState(signal, initial = false) {
+  const read = () => request('/api/browser/state', { headers: browserHeaders(initial),
+    signal: AbortSignal.any([signal, readDeadline()]) });
+  if (initial) return read();
+  if (browserStateRead?.signal === signal) return browserStateRead.result;
+  const result = read().finally(() => {
+    if (browserStateRead?.result === result) browserStateRead = null;
+  });
+  browserStateRead = { signal, result };
+  return result;
+}
+
+function settleCommandSnapshots(replaced = false) {
+  for (const pending of awaitingCommandSnapshots) {
+    if (!replaced && integral(publication.sequence) < pending.sequence) continue;
+    awaitingCommandSnapshots.delete(pending);
+    pending.resolve(!replaced);
+  }
+}
+
+async function refreshCommandSnapshot(pending, namespace, controller) {
+  const scope = requestScope();
+  const current = () => !disposed && connection === controller && !controller.signal.aborted &&
+    publication.namespace === namespace && awaitingCommandSnapshots.has(pending);
+  try {
+    // A shared read may have started before this command committed. In that
+    // case read once more from the newly installed cursor.
+    for (let reads = 0; current() && reads < 2; reads++) {
+      const body = await readBrowserState(controller.signal);
+      if (current() && body !== null) snapshot(body, namespace);
+    }
+    if (current()) throw new Error('The service snapshot did not reach the confirmed command.');
+  } catch (error) {
+    // DEFENSE: A read can fail after the write was confirmed. Recover the
+    // observation through the connection; keep the result and its ticket.
+    if (current() && ownsRequestFailure(scope)) {
+      controller.abort();
+      dispatch({ type: 'disconnected', ticket: scope.ticket, error: error.message, revoked: authorizationRevoked(error) });
+    }
+  }
+}
+
+async function requestCommand(command, signal, returnsCommit = false, received) {
   const expected = publication.namespace;
   const requestId = returnsCommit ? randomBrowserIdentifier() : null;
   const receipt = returnsCommit ? Promise.withResolvers() : null;
   if (receipt) browserCommandReplies.set(requestId, receipt.promise);
+  let body;
   try {
-    let body;
     try {
       const headers = { ...browserHeaders(), ...(receipt ? { 'x-selvedge-browser-request-id': requestId } : {}) };
       body = await post('/api/browser/command', { command }, signal, headers);
     } catch (error) {
-      // DEFENSE: A rejected committed command still returns its authoritative world and reply with a non-2xx status.
-      if (error.body && (Object.hasOwn(error.body, 'program') || Object.hasOwn(error.body, 'updates'))
+      // DEFENSE: An authoritative rejection uses a non-2xx HTTP status.
+      if (error.body && (error.body.snapshot_required === true || Object.hasOwn(error.body, 'updates'))
           && Object.hasOwn(error.body, 'reply')) body = error.body;
       else throw error;
     }
     if (!publicationEvent('completion', { expected_namespace: expected, incoming_namespace: body.namespace })) return;
-    snapshot(body, expected);
-    return body.reply;
+    if (body.snapshot_required !== true) {
+      snapshot(body, expected);
+      return body.reply;
+    }
   } finally {
     if (receipt) {
       browserCommandReplies.delete(requestId);
       receipt.resolve();
     }
   }
+  const sequence = integral(body.sequence);
+  if (sequence <= integral(publication.sequence)) return body.reply;
+  received?.(body.reply);
+  const { promise, resolve } = Promise.withResolvers();
+  const pending = { sequence, resolve };
+  awaitingCommandSnapshots.add(pending);
+  if (connection) void refreshCommandSnapshot(pending, expected, connection);
+  if (await promise) return body.reply;
 }
 
 function publicationEvent(event, values = {}) {
@@ -267,6 +321,7 @@ function snapshot(body, expected = publication.namespace, authenticating = false
   publication = publicationEvent('observe', { observed_namespace: body.namespace, observed_sequence: body.sequence });
   if (firstSnapshot) restoreUpdateSession();
   dispatch({ type: 'snapshot' });
+  settleCommandSnapshots();
   // A committed launch can arrive through the live snapshot before its HTTP
   // reply, or after that connection was interrupted.
   if (workflowReceipts.size) {
@@ -349,6 +404,7 @@ function retireDocumentViews() {
   pendingAssessments.clear();
   workflowReceipts.clear();
   browserCommandReplies.clear();
+  settleCommandSnapshots(true);
   for (const resource of resources) URL.revokeObjectURL(resource);
   resources.clear();
 }
@@ -1430,8 +1486,7 @@ async function authenticate(effect) {
     // A journal namespace change ends the old subscription; the authenticated
     // connection observes a fresh snapshot and binds the new namespace.
     while (!disposed && connection === controller && !controller.signal.aborted) await observeConnection({
-      request: (url, signal, initial) => request(url, { signal: AbortSignal.any([signal, readDeadline()]),
-        headers: browserHeaders(initial) }),
+      request: (_url, signal, initial) => readBrowserState(signal, initial),
       fetchEvents: (url, signal) => fetch(url, { signal, credentials: 'same-origin' }),
       signal: controller.signal, ownership: requestScope,
       sequence: () => publication.sequence instanceof JsonNumber ? publication.sequence.source : publication.sequence,
@@ -1633,8 +1688,17 @@ async function completeCommand(effect) {
       dispatch({ type: 'completion_unknown', ticket: effect.ticket, error: '未收到启动回执，结果待确认。' });
   }, 35_000) : null;
   if (receiptTimer !== null) timers.add(receiptTimer);
+  const clearReceiptTimer = () => {
+    if (receiptTimer === null) return;
+    clearTimeout(receiptTimer);
+    timers.delete(receiptTimer);
+  };
   try {
-    const value = await requestCommand(command, effect.read_only ? readDeadline() : undefined, !effect.read_only);
+    const value = await requestCommand(command, effect.read_only ? readDeadline() : undefined, !effect.read_only,
+      reply => {
+        clearReceiptTimer();
+        if (reply.ok) dispatch({ type: 'completion_received', ticket: effect.ticket });
+      });
     if (publication.namespace === namespace && value !== undefined &&
         (launch === null || workflowReceipts.delete(launch)))
       dispatch({ type: 'completed', ticket: effect.ticket, ok: true, value });
@@ -1649,10 +1713,7 @@ async function completeCommand(effect) {
         workflowReceipts.delete(launch);
     }
   } finally {
-    if (receiptTimer !== null) {
-      clearTimeout(receiptTimer);
-      timers.delete(receiptTimer);
-    }
+    clearReceiptTimer();
   }
 }
 
@@ -1955,6 +2016,7 @@ window.addEventListener('pagehide', event => {
     }
   }
   disposed = true;
+  settleCommandSnapshots(true);
   document.removeEventListener('selectionchange', selectionChanged);
   document.removeEventListener('keydown', dismiss);
   document.removeEventListener('pointerdown', rememberBackdropPress);

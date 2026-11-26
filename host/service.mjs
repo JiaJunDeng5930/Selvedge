@@ -1163,24 +1163,26 @@ export class Service extends EventEmitter {
       execution_environments: this.executionEnvironments.choices() };
   }
 
-  #browserPublication(program, sequence, after, outline, historyTasks) {
+  #browserUpdates(sequence, after, historyTasks) {
     let updates = this.journal.programUpdates(after, sequence);
-    const publication = { namespace: this.journal.namespace, sequence };
-    if (updates === undefined)
-      return { ...publication, program: this.#browserProgram(outline ? browserOutline(program) : programWithTaskArray(program)) };
+    if (updates === undefined) return undefined;
     if (historyTasks !== undefined) updates = updates.map(update => selectUpdateHistory(update, historyTasks));
     if (updates.length) {
       const latest = updates.at(-1);
       updates[updates.length - 1] = { ...latest, shared: this.#browserProgram(latest.shared) };
     }
-    return { ...publication, after, updates };
+    return { after, updates };
   }
 
   browserSnapshot(after, outline = false, historyTasks) {
     // DEFENSE: A browser/relay request may reach snapshot delivery after shutdown or a fatal journal failure.
     if (this.#failure) throw this.#failure;
     if (this.#closing) throw new Error('Service is stopping');
-    return this.#browserPublication(this.journal.program, this.journal.sequence, after, outline, historyTasks);
+    const { namespace, sequence, program } = this.journal;
+    const update = this.#browserUpdates(sequence, after, historyTasks);
+    return { namespace, sequence, ...(update ?? {
+      program: this.#browserProgram(outline ? browserOutline(program) : programWithTaskArray(program)),
+    }) };
   }
 
   browserTaskHistory(id, after) {
@@ -1208,10 +1210,11 @@ export class Service extends EventEmitter {
     return active.map(activity => this.#toolActivitySnapshot(activity, previewLimit));
   }
 
-  async browserCommand(command, browserRequest, after, outline = false) {
+  async browserCommand(command, browserRequest, after) {
     const result = await this.command(command, browserRequest);
-    return { ...this.#browserPublication(result.program, result.sequence, after, outline),
-      reply: browserHistoryReply(command, result) };
+    const update = this.#browserUpdates(result.sequence, after);
+    return { namespace: this.journal.namespace, sequence: result.sequence,
+      ...(update ?? { snapshot_required: true }), reply: browserHistoryReply(command, result) };
   }
 
   async browserObservation(observation) {

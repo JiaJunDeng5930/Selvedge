@@ -484,8 +484,7 @@ export async function startServer(options) {
           const requestId = request.headers['x-selvedge-browser-request-id'];
           // DEFENSE: The optional client marker belongs only to a single direct response.
           const browserRequest = typeof requestId === 'string' && /^[0-9a-f]{32}$/.test(requestId) ? requestId : undefined;
-          const result = await service.browserCommand(command, browserRequest, browserSequence(request),
-            request.headers[browserOutlineHeader] === 'true');
+          const result = await service.browserCommand(command, browserRequest, browserSequence(request));
           browserJson(request, response, httpReplyStatus(boundary('http.reply_status', { reply: result.reply })), result);
           return;
         },

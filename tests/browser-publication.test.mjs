@@ -131,6 +131,59 @@ test('the board follows other commits and recovers an acknowledged write when it
   }
 });
 
+test('a stale browser confirms creation while synchronization waits and opens the committed conversation once', async t => {
+  const { page, command, running } = await browserFixture(t);
+  const stateEndpoint = url => url.pathname === '/api/browser/state' && !url.search;
+  const stateRequested = Promise.withResolvers();
+  const releaseState = Promise.withResolvers();
+  t.after(() => releaseState.resolve());
+  let delayed = true;
+  let blockedReads = 0;
+  await page.route(stateEndpoint, async route => {
+    if (!delayed) return route.continue();
+    blockedReads++;
+    const olderState = await route.fetch();
+    stateRequested.resolve();
+    await releaseState.promise;
+    return route.fulfill({ response: olderState });
+  });
+
+  const background = 'Unrelated conversation for the stale sidebar';
+  const { task_id: backgroundId } = await command({ op: 'create', profile: 'demo', message: background });
+  const { task: backgroundTask } = await taskIdle(running.service, backgroundId);
+  await stateRequested.promise;
+  for (let index = 0; index < 24; index++) await command({ op: 'create_idle', profile: 'demo' });
+
+  const sidebar = page.getByRole('navigation', { name: 'Task tree', exact: true });
+  const existing = sidebar.getByRole('button', { name: backgroundTask.title, exact: true });
+  await existing.waitFor({ state: 'hidden' });
+  const prompt = 'Create once from a stale browser';
+  let submissions = 0;
+  const creates = request => request.method() === 'POST' && new URL(request.url()).pathname === '/api/browser/command'
+    && request.postDataJSON()?.command?.op === 'create';
+  page.on('request', request => { if (creates(request)) submissions++; });
+  const response = page.waitForResponse(response => creates(response.request()));
+  await page.getByRole('combobox', { name: 'Task', exact: true }).fill(prompt);
+  await page.getByRole('button', { name: 'Start task', exact: true }).click();
+  const receipt = await (await response).text();
+  const { reply } = JSON.parse(receipt);
+  assert.equal(reply.ok, true, receipt);
+  assert.ok(!receipt.includes(backgroundTask.title), 'The confirmed creation does not carry the unrelated sidebar');
+
+  await page.getByText('消息已提交，正在同步…', { exact: true }).waitFor();
+  await existing.waitFor({ state: 'hidden' });
+  assert.equal(blockedReads, 1, 'The receipt reuses the synchronization request already in flight');
+  delayed = false;
+  releaseState.resolve();
+  await existing.waitFor();
+  await page.getByRole('combobox', { name: 'Message', exact: true }).waitFor();
+  await page.getByRole('region', { name: 'Conversation', exact: true }).getByText(prompt, { exact: true }).waitFor();
+  await page.getByText('消息已提交，正在同步…', { exact: true }).waitFor({ state: 'hidden' });
+  const { messages } = await command({ op: 'read', task_id: reply.result.task_id });
+  assert.equal(messages.filter(message => message.role === 'user' && JSON.stringify(message).includes(prompt)).length, 1);
+  assert.equal(submissions, 1);
+});
+
 test('a browser command marker identifies just its own durable commit', async t => {
   const directory = await home(t);
   const config = validateConfig({ ...defaultConfig, chatgpt: false, port: 0 });
