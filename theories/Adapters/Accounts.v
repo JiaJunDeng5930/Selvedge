@@ -33,7 +33,6 @@ Definition handlers : list (string * (json -> json)) := [
   ("account.cache_fresh",AccountCatalog.cache_fresh);
   ("account.cache_record",AccountCatalog.cache_record);
   ("account.callback",AccountOAuth.callback);
-  ("account.callback_ports",AccountOAuth.callback_ports);
   ("account.candidate_identity",AccountCatalog.candidate_identity);
   ("account.candidate_paths",AccountMaterialization.candidate_paths);
   ("account.candidates",AccountMaterialization.candidates);

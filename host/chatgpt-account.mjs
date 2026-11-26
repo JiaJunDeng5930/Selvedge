@@ -269,7 +269,7 @@ export async function login(profile, home, { signal, onAuthorize = () => {}, onP
     const abort = () => rejectCallback(lifetime.reason);
     lifetime.addEventListener('abort', abort, { once: true });
     try {
-      await listenForCallback(server, boundary('account.callback_ports', { issuer_url: urlObservation(profile.issuer) }));
+      await listenForCallback(server, contract.callback_ports);
       const redirect = new URL(`http://127.0.0.1:${server.address().port}${contract.callback_path}`);
       server.on('request', (request, response) => receiveCallback(redirect, request, response));
       lifetime.throwIfAborted();

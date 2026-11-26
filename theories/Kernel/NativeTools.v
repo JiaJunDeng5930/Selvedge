@@ -20,6 +20,8 @@ Record command_binding := CommandBinding {
  binding_caller_field : option string;
  binding_description : string
 }.
+Definition shared_command_binding (name : string) :=
+ CommandBinding name name None (Commands.command_description name).
 Definition bindings := [
  CommandBinding "choose_workflow_connection" "choose_workflow_connection" None
    "Choose one of the outgoing connection keys supplied for the current workflow delivery. Call this before giving your final answer. The final answer is forwarded over the selected connection.";
@@ -31,22 +33,18 @@ Definition bindings := [
   CommandBinding "send_message_to_task" "send" None "Commit a user message to another task, or queue it while that task is busy or frozen.";
  CommandBinding "archive_task" "archive" None "Permanently archive a task and cancel its work.";
   CommandBinding "cancel_operation" "cancel_operation" (Some "task_id") "Cancel one live operation without cancelling the task or unrelated work. Use its operation_id from a running status or read_task. Cancellation cannot undo effects already performed.";
- CommandBinding "create_task_graph" "create_task_graph" None "Create Tasks and install their output handlers atomically before scheduling them. Optional work_id scopes the graph: existing Tasks must already belong to that Work and new Tasks join it.";
- CommandBinding "update_task_graph" "update_task_graph" None "Replace a graph declaration atomically; retained Task references keep their existing settings and history.";
- CommandBinding "delete_task_graph" "delete_task_graph" None "Remove a graph and its future output handlers without archiving its Tasks.";
- CommandBinding "list_task_graphs" "list_task_graphs" None "Observe installed Task graphs, resolved Task references and latest delivery receipts.";
- CommandBinding "read_task_graph" "read_task_graph" None "Observe one installed Task graph, its rules and latest delivery receipts.";
- CommandBinding "create_work" "create_work" None "Create a Work independent of Projects; an omitted name becomes Work #id.";
- CommandBinding "rename_work" "rename_work" None "Rename a Work while preserving its Tasks and Task graphs.";
- CommandBinding "create_work_task" "create_work_task" None "Create a root Task and record its immutable Work ownership atomically; optionally create a managed worktree.";
- CommandBinding "list_works" "list_works" None "Observe Works with their derived Task IDs and associated Task graph IDs.";
- CommandBinding "read_work" "read_work" None "Observe one Work with its derived Task IDs and associated Task graph IDs.";
- CommandBinding "read_work_ui" "read_work_ui" None "Read the persistent shared UI source and revision of this calling Task's Work. The source uses the same selvedge-ui DSL as conversation interfaces, without a Markdown fence. No Work or Task identifier is accepted.";
- CommandBinding "apply_work_ui_patch" "apply_work_ui_patch" None "Edit this Task's Work UI atomically using the revision from read_work_ui. Patch exactly one virtual file work-ui.dsl using *** Begin Patch, *** Add File: work-ui.dsl (for empty source), *** Update File: work-ui.dsl with @@ and exact context/-/+ lines, or *** Delete File: work-ui.dsl (clear), then *** End Patch. Example initial patch:
-*** Begin Patch
-*** Add File: work-ui.dsl
-+<ui id=""work""><metric id=""progress"" label=""Progress"" value={0} /></ui>
-*** End Patch. Source is raw selvedge-ui DSL without fences. Concurrent edits reject stale revisions; read again before revising the patch."
+ shared_command_binding "create_task_graph";
+ shared_command_binding "update_task_graph";
+ shared_command_binding "delete_task_graph";
+ shared_command_binding "list_task_graphs";
+ shared_command_binding "read_task_graph";
+ shared_command_binding "create_work";
+ shared_command_binding "rename_work";
+ shared_command_binding "create_work_task";
+ shared_command_binding "list_works";
+ shared_command_binding "read_work";
+ shared_command_binding "read_work_ui";
+ shared_command_binding "apply_work_ui_patch"
 ].
 Definition binding_schema (binding : command_binding) (specification : command_spec) :=
  if String.eqb (binding_tool binding) "read_current_task" then [] else

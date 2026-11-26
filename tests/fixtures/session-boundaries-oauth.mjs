@@ -11,7 +11,7 @@ export async function loginThroughCli(directory, issuer) {
   child.stderr.on('data', chunk => { stderr += chunk; });
   const lines = createInterface({ input: child.stdout });
   lines.on('line', line => {
-    const match = line.match(/http:\/\/127\.0\.0\.1:\d+\/authorize\?\S+/);
+    const match = line.match(/http:\/\/127\.0\.0\.1:\d+\/oauth\/authorize\?\S+/);
     if (match && !authorization) {
       const url = new URL(match[0]);
       if (url.origin !== issuer) throw new Error('CLI selected an unexpected authorization issuer');

@@ -36,15 +36,19 @@ export async function chatgptFixture(t) {
       if (url.pathname === '/.well-known/openid-configuration') {
         oauthRequests.push(entry);
         return jsonResponse(response, { issuer: address, authorization_endpoint: `${address}/authorize`,
-          token_endpoint: `${address}/oauth/token`, jwks_uri: `${address}/jwks`,
+          token_endpoint: `${address}/token`, jwks_uri: `${address}/jwks`,
           response_types_supported: ['code'], subject_types_supported: ['public'],
           id_token_signing_alg_values_supported: ['RS256'], token_endpoint_auth_methods_supported: ['none'],
           code_challenge_methods_supported: ['S256'], scopes_supported: scope.split(' ') });
       }
       if (url.pathname === '/jwks') { oauthRequests.push(entry); return jsonResponse(response, { keys: [jwk] }); }
-      if (url.pathname === '/authorize') {
+      if (url.pathname === '/oauth/authorize') {
         oauthRequests.push(entry);
         const query = url.searchParams;
+        const redirect = new URL(query.get('redirect_uri'));
+        assert.equal(redirect.hostname, '127.0.0.1');
+        assert.ok(['1455', '1457'].includes(redirect.port), 'Login uses a registered Codex callback port');
+        assert.equal(redirect.pathname, '/auth/callback');
         assert.equal(query.get('code_challenge_method'), 'S256');
         assert.equal(query.get('scope'), scope);
         assert.equal(query.get('client_id'), clientId);

@@ -396,7 +396,7 @@ test('CLI login preserves private credentials on bad signatures and service refr
   assert.notEqual(refused.code, 0);
   assert.ok(refused.stderr.trim(), 'Rejected sign-in reports a diagnostic');
   assert.equal(await readFile(filename, 'utf8'), saved);
-  const attempts = upstream.oauthRequests.filter(entry => entry.url.startsWith('/authorize?'));
+  const attempts = upstream.oauthRequests.filter(entry => entry.url.startsWith('/oauth/authorize?'));
   assert.deepEqual(attempts.map(entry => new URL(entry.url, upstream.address).searchParams.get('client_id')),
     ['app_EMoamEEZ73f0CkXaXp7hrann', 'app_EMoamEEZ73f0CkXaXp7hrann']);
   delete upstream.options.privateKey;
