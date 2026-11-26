@@ -11,7 +11,7 @@ let shared_writes before next =
   |> Array.of_list |> Js.array
 let initial_shared () = shared_writes None (initial ())
 
-let restore_state sequence shared tasks titles =
+let restore_state sequence shared tasks titles entities =
   let number row key = Js.float_of_number (Js.Unsafe.get row key) in
   let bytes row = Js.to_bytestring (Js.Unsafe.get row "data") in
   let decode_task row =
@@ -34,7 +34,14 @@ let restore_state sequence shared tasks titles =
       (Array.to_list (Array.map (fun row ->
         Big_int_Z.big_int_of_int (int_of_float (number row "id")), Stored_state.decode_title_exn (bytes row))
         (Js.to_array titles))) in
-    Js.Unsafe.inject (Model.selvedge_kernel_restore_title_scope (Stored_state.restore_exn sections ~sequence ~tasks ~titles))
+    let entities = Js.to_array entities in
+    let rows kind decode = Array.to_list (Array.map (fun data -> decode (Js.to_bytestring data))
+      (Js.to_array entities.(kind))) in
+    let projects = Model.selvedge_kernel_project_registry_restore (rows 0 Stored_state.decode_project_exn) in
+    let cards = Model.selvedge_kernel_card_registry_restore (rows 1 Stored_state.decode_card_exn) in
+    let workflows = Model.selvedge_kernel_workflow_registry_restore (rows 2 Stored_state.decode_workflow_exn) in
+    Js.Unsafe.inject (Model.selvedge_kernel_restore_title_scope
+      (Stored_state.restore_exn sections ~sequence ~tasks ~titles ~projects ~cards ~workflows))
   with State_wire.Invalid_state -> Js.Unsafe.inject Js.null
 
 type ('task, 'message) task_change = {
@@ -96,12 +103,42 @@ let title_writes before next =
   (* DEFENSE: Committed titles are retained, including failed or interrupted requests. *)
   | None -> invalid_arg "The committed title registry cannot lose an owner"
 
+let entity_writes before next =
+  let rows kind select encode =
+    match IndexedRegistry.changes (==) (==) (select before) (select next) with
+    | Some changes -> List.map (fun change -> Js.Unsafe.obj [|
+        "kind", Js.Unsafe.inject (Js.number_of_float (float_of_int kind));
+        "id", Js.Unsafe.inject (Js.number_of_float (Big_int_Z.float_of_big_int change.IndexedRegistry.difference_id));
+        "data", Js.Unsafe.inject (Js.bytestring (encode change.IndexedRegistry.difference_after)) |]) changes
+    (* DEFENSE: A retired record retains its identity in each registry. *)
+    | None -> invalid_arg "A dense entity registry cannot lose a stored record" in
+  rows 0 Stored_state.project_rows Stored_state.encode_project @
+  rows 1 Stored_state.card_rows Stored_state.encode_card @
+  rows 2 Stored_state.workflow_rows Stored_state.encode_workflow
+  |> Array.of_list |> Js.array
+
+let changed_rows select before next =
+  match IndexedRegistry.changes (==) (==) (select before) (select next) with
+  | Some edits -> edits
+  (* DEFENSE: Projects, cards and workflows keep their dense identity positions. *)
+  | None -> invalid_arg "A publication registry cannot lose an identity"
+
+let select_ids () = Hashtbl.create 1
+let mark_id ids id = Hashtbl.replace ids (Big_int_Z.int_of_big_int id) ()
+let row id text =
+  Js.Unsafe.obj [| "id", Js.Unsafe.inject (Js.number_of_float (float_of_int id));
+    "text", Js.Unsafe.inject (Js.string text) |]
+let publish_ids ids project value =
+  Hashtbl.to_seq_keys ids |> List.of_seq |> List.sort Int.compare
+  |> List.map (fun id -> row id (Json.stringify (project (Big_int_Z.big_int_of_int id) value)))
+
 let storage before next changes =
   if Big_int_Z.eq_big_int (Stored_state.sequence before) (Stored_state.sequence next) then
     Js.Unsafe.inject Js.null
   else
     Js.Unsafe.inject (Js.Unsafe.obj [| "shared", Js.Unsafe.inject (shared_writes (Some before) next);
       "tasks", Js.Unsafe.inject (task_writes changes);
+      "entities", Js.Unsafe.inject (entity_writes before next);
       "titles", Js.Unsafe.inject (title_writes before next) |])
 let input_error name message =
   Js.Unsafe.obj [| "inputError", Js.Unsafe.inject (Js.Unsafe.obj [|
@@ -153,9 +190,6 @@ let changed_title_ids before next =
 let observe_patch before next changes =
   let observe_row project id task world =
     Json.stringify (project (Big_int_Z.big_int_of_int id) task world) in
-  let row id text =
-    Js.Unsafe.obj [| "id", Js.Unsafe.inject (Js.number_of_float (float_of_int id));
-      "text", Js.Unsafe.inject (Js.string text) |] in
   let changed = Hashtbl.create (List.length changes) in
   let ancestors = Hashtbl.create (List.length changes) in
   List.iter (fun change ->
@@ -205,17 +239,48 @@ let observe_patch before next changes =
         Option.bind (Model.selvedge_kernel_task_registry_lookup (Big_int_Z.big_int_of_int id) before)
           (reference id)) in
   let catalog_changed = not (Stored_state.same_environment before next) in
-  let membership_changed change =
-    let project = Model.selvedge_kernel_publication_project change.task in
-    let old_project = Option.bind change.previous Model.selvedge_kernel_publication_project in
-    not (Option.equal Big_int_Z.eq_big_int project old_project) in
-  let projects_changed = not (Stored_state.same_projects before next) || List.exists membership_changed changes in
+  let project_ids = select_ids () in
+  let project_id = mark_id project_ids in
+  List.iter (fun edit -> project_id edit.IndexedRegistry.difference_id)
+    (changed_rows Stored_state.project_rows before next);
+  List.iter (fun change ->
+    let current = Model.selvedge_kernel_publication_project change.task in
+    let prior = Option.bind change.previous Model.selvedge_kernel_publication_project in
+    if not (Option.equal Big_int_Z.eq_big_int current prior) then (
+      Option.iter project_id current;
+      Option.iter project_id prior)) changes;
+  let projects = publish_ids project_ids Model.selvedge_kernel_project_publication_at next in
+  let cards = select_ids () and instances = select_ids () in
+  let relevant_owners = Hashtbl.create 1 in
+  let select_owner candidate =
+    Option.iter (fun profile -> Hashtbl.replace relevant_owners profile ())
+      (Model.selvedge_kernel_board_linked_profile candidate) in
+  List.iter (fun edit ->
+    mark_id cards edit.IndexedRegistry.difference_id;
+    Option.iter select_owner edit.IndexedRegistry.difference_before;
+    select_owner edit.IndexedRegistry.difference_after)
+    (changed_rows Stored_state.card_rows before next);
+  List.iter (fun edit ->
+    mark_id instances edit.IndexedRegistry.difference_id;
+    Option.iter (mark_id cards) (Model.selvedge_kernel_workflow_instance_ticket edit.IndexedRegistry.difference_after))
+    (changed_rows Stored_state.workflow_rows before next);
+  List.iter (fun change ->
+    let id = Big_int_Z.big_int_of_int change.id in
+    let linked = Model.selvedge_kernel_board_task_cards id next in
+    List.iter (mark_id cards) linked;
+    List.iter (mark_id instances) (Model.selvedge_kernel_task_workflow_instances id next);
+    if Option.map Model.selvedge_kernel_task_publication_busy change.previous <>
+        Some (Model.selvedge_kernel_task_publication_busy change.task) then
+      List.iter (fun card_id -> Option.iter select_owner
+        (IndexedRegistry.lookup card_id (Stored_state.card_rows next))) linked) changes;
+  Hashtbl.iter (fun profile () ->
+    let owner = Domain0.ProfileOwner profile in
+    if Model.selvedge_kernel_board_active_owner owner before <>
+        Model.selvedge_kernel_board_active_owner owner next then
+      List.iter (mark_id cards) (Model.selvedge_kernel_board_unlinked_cards profile next)) relevant_owners;
   let feature name = not (Stored_state.feature_matches name before next) in
   let related name owners = depends_on_changed_task name owners next changes in
-  let board_workflow_changed = feature "feature_instances" || feature "feature_ticket_instances" ||
-    feature "feature_ticket_workflows" in
-  let board_tasks_changed = feature "feature_board" || board_workflow_changed ||
-    related "feature_board" Model.selvedge_kernel_board_task_dependencies in
+  let board_metadata_changed = not (Stored_state.same_board_metadata before next) in
   let selected_field = function
     | "sequence" -> true
     | "compaction" -> feature "feature_compaction" ||
@@ -223,18 +288,22 @@ let observe_patch before next changes =
     | "title_settings" -> feature "feature_title_settings"
     | "works" -> feature "feature_works"
     | "graphs" -> feature "feature_graphs"
-    | "board" -> board_tasks_changed
-    | "card_save_facts" -> board_tasks_changed || catalog_changed || projects_changed
+    | "board" -> board_metadata_changed
+    | "card_save_facts" -> board_metadata_changed || catalog_changed
     | "workflows" -> feature "feature_workflows"
-    | "workflow_instances" -> feature "feature_instances" ||
-        related "feature_instances" Model.selvedge_kernel_workflow_task_dependencies
+    | "workflow_instances" -> false
     | "ticket_workflows" -> feature "feature_ticket_instances" || feature "feature_ticket_workflows"
     | "worktrees" -> feature "feature_worktrees"
     | "remote" -> feature "feature_remote"
     | _ -> true in
   Js.Unsafe.obj [|
     "shared", Js.Unsafe.inject (Js.string
-      (Json.stringify (Model.selvedge_kernel_shared_publication selected_field catalog_changed projects_changed next)));
+      (Json.stringify (Model.selvedge_kernel_shared_publication selected_field catalog_changed false next)));
+    "projects", Js.Unsafe.inject (Js.array (Array.of_list projects));
+    "cards", Js.Unsafe.inject (Js.array (Array.of_list
+      (if board_metadata_changed then [] else publish_ids cards Model.selvedge_kernel_card_publication_at next)));
+    "workflowInstances", Js.Unsafe.inject (Js.array (Array.of_list
+      (publish_ids instances Model.selvedge_kernel_workflow_instance_at next)));
     "tasks", Js.Unsafe.inject (Js.array (Array.of_list tasks));
     "references", Js.Unsafe.inject (Js.array (Array.of_list references))
   |]

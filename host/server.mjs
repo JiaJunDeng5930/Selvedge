@@ -15,6 +15,12 @@ import { connectionCredentials, connectionAuthorized, connectionCommand } from '
 import { configurationFilename, readServiceConfiguration, changeServiceConfiguration } from './config.mjs';
 import { browserHistoryTasksHeader, browserOutlineHeader, browserSequenceHeader } from './public/program-updates.mjs';
 
+function browserHistories(request) {
+  if (request.headers[browserOutlineHeader] !== 'true') return undefined;
+  const visible = request.headers[browserHistoryTasksHeader];
+  return new Set(typeof visible === 'string' ? visible.split(',') : []);
+}
+
 const compressAsset = promisify(gzip);
 function browserSequence(request) {
   const value = request.headers[browserSequenceHeader];
@@ -388,9 +394,7 @@ export async function startServer(options) {
             return;
           }
           const outline = request.headers[browserOutlineHeader] === 'true';
-          const visible = request.headers[browserHistoryTasksHeader];
-          const histories = outline ? new Set(typeof visible === 'string' ? visible.split(',') : []) : undefined;
-          const snapshot = service.browserSnapshot(browserSequence(request), outline, histories);
+          const snapshot = service.browserSnapshot(browserSequence(request), outline, browserHistories(request));
           browserJson(request, response, 200, snapshot);
           return;
         },
@@ -484,7 +488,7 @@ export async function startServer(options) {
           const requestId = request.headers['x-selvedge-browser-request-id'];
           // DEFENSE: The optional client marker belongs only to a single direct response.
           const browserRequest = typeof requestId === 'string' && /^[0-9a-f]{32}$/.test(requestId) ? requestId : undefined;
-          const result = await service.browserCommand(command, browserRequest, browserSequence(request));
+          const result = await service.browserCommand(command, browserRequest, browserSequence(request), browserHistories(request));
           browserJson(request, response, httpReplyStatus(boundary('http.reply_status', { reply: result.reply })), result);
           return;
         },

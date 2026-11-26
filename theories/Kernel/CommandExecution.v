@@ -3,6 +3,7 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Utf8 TextJson Numbers.
 From Selvedge.Kernel Require Import Numbers Domain Codec Context State Tasks History Workspace Inputs Callbacks Limits Observation ApprovalProtocol.
 From Selvedge.Generated Require Import Commands.
+From Selvedge.Kernel Require ProjectRegistry.
 From Selvedge.Features Require Import WorkspaceBinding.
 Import ListNotations.
 Open Scope string_scope.
@@ -60,12 +61,12 @@ Definition create_project (name : D.denote Workspace.project_name_declaration) (
      | Some guidance =>
      if WorkspaceBinding.resource_ready workspace owner value &&
         guidance_member workspace guidance &&
-        Nat.ltb (List.length (filter (fun project => negb (project_deleted project)) (world_projects value))) 256 &&
-        N.ltb (N.of_nat (List.length (world_projects value))) 4294967295 then
-     let id := N.of_nat (List.length (world_projects value)) in
+        N.ltb (ProjectRegistry.live (world_project_registry value)) 256 &&
+        N.ltb (next_project value) 4294967295 then
+     let id := next_project value in
      let project := Project (proj1_sig name) workspace guidance (match worktree with Some value => value | None => false end)
-      (Workspace.next_project_order (world_projects value)) false owner in
-     accept (project_json id project) (with_projects (world_projects value ++ [project]) value) []
+      (State.next_project_order value) false owner in
+     accept (project_json id project) (append_project project value) []
      else reject "invalid_project" "Project guidance or registry capacity is invalid" value
      end
    end
@@ -74,7 +75,7 @@ Definition update_project (id : N) (name : option (D.denote Workspace.project_na
  (workspace_source : option (D.denote workspace_declaration))
  (guidance : option (D.denote guidance_declaration))
  (worktree : option bool) (resource : option (D.denote binding_declaration)) (value : world) :=
- match registry_at id (world_projects value) with
+ match find_project id value with
  | None => reject "project_not_found" "The project does not exist" value
  | Some project => if project_deleted project then reject "project_not_found" "The project does not exist" value else
    match (match workspace_source with Some source => workspace_of_values source | None => Some (project_workspace project) end) with
@@ -96,8 +97,8 @@ Definition update_project (id : N) (name : option (D.denote Workspace.project_na
        | Some guidance =>
        if ready && guidance_member workspace guidance then
        let project := Project name workspace guidance (match worktree with Some value => value | None => project_worktree project end)
-        (Workspace.next_project_order (world_projects value)) false owner in
-       accept (project_json id project) (with_projects (replace id project (world_projects value)) value) []
+        (State.next_project_order value) false owner in
+       accept (project_json id project) (put_project id project value) []
        else reject "invalid_project" "Project guidance is invalid" value
        end
      end
@@ -109,14 +110,14 @@ Definition delete_project (id : N) (value : world) :=
     Selvedge.Features.Domain.sharing_retains_project id
       (Selvedge.Features.Domain.feature_sharing (world_features value))
  then reject "project_not_empty" "A project referenced by a board card or ChatGPT grant cannot be deleted" value else
- match registry_at id (world_projects value) with
+ match find_project id value with
  | None => reject "project_not_empty" "The project must exist and have no references before it can be deleted" value
  | Some project => if project_deleted project then reject "project_not_empty" "The project must exist and have no references before it can be deleted" value else
    if existsb (fun task => match settings_project (task_current_settings task) with
      | Some current => N.eqb id current | None => false end) (world_tasks value)
    then reject "project_not_empty" "A project referenced by a task cannot be deleted" value
    else accept JNull
-    (with_projects (replace id (Project "" (Workspace [] None) None false (project_order project) true None) (world_projects value)) value) []
+    (put_project id (Project "" (Workspace [] None) None false (project_order project) true None) value) []
  end.
 Definition speech_transcript (id : N) (session_value item_value : D.denote D.nonblank_text) (speaker : Domain.speaker)
  (completion : speech_completion) (text_value : D.denote D.nonblank_text) (value : world) :=
@@ -250,13 +251,51 @@ Definition handle_return_side_conversation (request : Selvedge.Generated.Command
  (context : option Tasks.native_call) (value : world) : decision :=
  return_side (Selvedge.Generated.Commands.return_side_conversation_task_id request) value.
 
+Definition project_git_required (previous : option project) (current : project) :=
+ project_worktree current &&
+ match previous with
+ | None => true
+ | Some old => negb (project_worktree old &&
+     Workspace.same_primary (project_workspace old) (project_workspace current) &&
+     Workspace.same_resource (project_resource old) (project_resource current))
+ end.
+
+Definition project_git_matches (evidence : option (D.denote Selvedge.Kernel.Commands.project_worktree_evidence)) (current : project) :=
+ match evidence with
+ | Some fields =>
+   let '(observed, (binding, _)) := proj1_sig fields in
+   match workspace_of_values observed, workspace_primary (project_workspace current) with
+   | Some workspace, Some _ =>
+     Workspace.same_primary workspace (project_workspace current) &&
+     Workspace.same_resource (binding_of_values binding) (project_resource current)
+   | _, _ => false
+   end
+ | None => false
+ end.
+
+Definition check_project_git id evidence before (candidate : decision) :=
+ match find_project id (decision_world candidate) with
+ | Some current =>
+   if bool_default "ok" (decision_reply candidate) false &&
+      project_git_required (find_project id before) current &&
+      negb (project_git_matches evidence current)
+   then reject "project_worktree_git_required"
+     "Default worktrees require a Git repository with an initial commit in the primary workspace" before
+   else candidate
+ | None => candidate
+ end.
+
 Definition handle_create_project (request : Selvedge.Generated.Commands.create_project_payload)
  (context : option Tasks.native_call) (value : world) : decision :=
- create_project (Selvedge.Generated.Commands.create_project_name_admitted request) (Selvedge.Generated.Commands.create_project_workspace_admitted request) (Selvedge.Generated.Commands.create_project_guidance_admitted request) (Selvedge.Generated.Commands.create_project_create_worktree request) (Selvedge.Generated.Commands.create_project_workspace_binding_admitted request) value.
+ check_project_git (next_project value)
+  (Selvedge.Generated.Commands.create_project_worktree_git_admitted request) value
+  (create_project (Selvedge.Generated.Commands.create_project_name_admitted request) (Selvedge.Generated.Commands.create_project_workspace_admitted request) (Selvedge.Generated.Commands.create_project_guidance_admitted request) (Selvedge.Generated.Commands.create_project_create_worktree request) (Selvedge.Generated.Commands.create_project_workspace_binding_admitted request) value).
 
 Definition handle_update_project (request : Selvedge.Generated.Commands.update_project_payload)
  (context : option Tasks.native_call) (value : world) : decision :=
- update_project (Selvedge.Generated.Commands.update_project_project_id request) (Selvedge.Generated.Commands.update_project_name_admitted request) (Selvedge.Generated.Commands.update_project_workspace_admitted request) (Selvedge.Generated.Commands.update_project_guidance_admitted request) (Selvedge.Generated.Commands.update_project_create_worktree request) (Selvedge.Generated.Commands.update_project_workspace_binding_admitted request) value.
+ let id := Selvedge.Generated.Commands.update_project_project_id request in
+ check_project_git id (Selvedge.Generated.Commands.update_project_worktree_git_admitted request) value
+  (update_project id (Selvedge.Generated.Commands.update_project_name_admitted request) (Selvedge.Generated.Commands.update_project_workspace_admitted request) (Selvedge.Generated.Commands.update_project_guidance_admitted request) (Selvedge.Generated.Commands.update_project_create_worktree request) (Selvedge.Generated.Commands.update_project_workspace_binding_admitted request) value).
 
 Definition handle_delete_project (request : Selvedge.Generated.Commands.delete_project_payload)
  (context : option Tasks.native_call) (value : world) : decision :=

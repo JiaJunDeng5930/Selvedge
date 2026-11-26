@@ -6,11 +6,17 @@
     and recovery must preserve authority even when a physical outcome is lost. *)
 
 From Selvedge.Features Require Worktree WorktreeProofs WorktreeCompletionProofs.
+From Selvedge.Kernel Require WorkspaceProofs.
+Export WorkspaceProofs(a_project_change_requiring_git_rejects_unverified_selection).
 Export Worktree(owner_observation_reads_one_owned_worktree).
 Export WorktreeProofs(reusing_a_binding_never_provisions_another_resource,
   admitted_scheduler_requires_ready_binding,
   a_live_pending_binding_holds_its_owner,
   mismatched_cloud_project_is_rejected).
+
+(** Enabling a Project's default worktree or moving an enabled default to a
+    different primary or resource consumes Git evidence for that exact
+    selection. A rejected observation cannot replace the stored Project. *)
 Export WorktreeCompletionProofs(received_creation_binds_or_stops,
   successful_setup_commits_queued_input_before_request_capture).
 

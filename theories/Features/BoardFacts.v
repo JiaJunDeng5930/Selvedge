@@ -2,6 +2,7 @@ From Selvedge.Features Require WorkflowTypes.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Foundation Require IndexedRegistry ScopedRegistry.
+From Selvedge.Foundation Require DependencyIndex.
 From Selvedge.Kernel Require Import Numbers Domain State.
 From Selvedge.Features Require Import Domain BoardParameters.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
@@ -16,7 +17,7 @@ Definition valid_metadata (draft:Selvedge.Features.Domain.card_draft) (value:wor
  title_within_limit (Selvedge.Features.Domain.draft_title draft) &&
  description_within_limit (Selvedge.Features.Domain.draft_description draft) &&
  Nat.leb (List.length (Selvedge.Features.Domain.draft_labels draft)) 32 && forallb (fun label=>Codec.nonempty label && BoardParameters.limited label 128) (Selvedge.Features.Domain.draft_labels draft) &&
- (match Selvedge.Features.Domain.draft_project draft with None=>true | Some id=>match registry_at id (world_projects value) with Some project=>negb (project_deleted project) | None=>false end end).
+ (match Selvedge.Features.Domain.draft_project draft with None=>true | Some id=>match find_project id value with Some project=>negb (project_deleted project) | None=>false end end).
 Definition attachment_limit (draft:Selvedge.Features.Domain.card_draft) :=
  Nat.leb (List.length (Selvedge.Features.Domain.draft_attachments draft)) 4.
 Definition valid_draft draft value := valid_metadata draft value && attachment_limit draft.
@@ -38,8 +39,6 @@ Definition active_card_for owner value candidate :=
    busy card value
  | None => false
  end.
-Definition has_active_card owner value :=
- existsb (active_card_for owner value) (Selvedge.Features.Domain.board_cards (registry value)).
 Definition workflow_binding {A} id (bindings : list (N * A)) :=
  option_map snd (find (fun pair => N.eqb (fst pair) id) bindings).
 Definition workflow_setting id value :=
@@ -57,14 +56,13 @@ Definition workflow_in_progress id value :=
  | None => false end.
 Definition has_workflow id value :=
  match workflow_setting id value with Some _=>true | None=>false end.
-Definition runnable_profile (card:Selvedge.Features.Domain.card) (value:world) :=
+Definition runnable_profile_with (occupied : Selvedge.Features.Domain.owner -> world -> bool)
+ (card:Selvedge.Features.Domain.card) (value:world) :=
  if request_available card && unlinked card then
  match Selvedge.Features.Domain.draft_owner (Selvedge.Features.Domain.card_contents card) with
  | Selvedge.Features.Domain.ProfileOwner profile=>
-   if has_active_card (Selvedge.Features.Domain.ProfileOwner profile) value then None else Some profile
+   if occupied (Selvedge.Features.Domain.ProfileOwner profile) value then None else Some profile
  | _=>None end else None.
-Definition runnable (card:Selvedge.Features.Domain.card) (value:world) :=
- match runnable_profile card value with Some _=>true | None=>false end.
 Definition observe_failure (failed:bool) (event:message) := match event with
  |FailureMessage _=>true |UserMessage _|AssistantMessage _ _|ModelContext _ _=>false
  |_=>failed end.
@@ -83,6 +81,64 @@ Definition queued_candidate (card:Selvedge.Features.Domain.card) :=
  negb (Selvedge.Features.Domain.card_archived card) && unlinked card &&
  enrichment_ready card && automatic_stage (Selvedge.Features.Domain.draft_stage (Selvedge.Features.Domain.card_contents card)) &&
  match Selvedge.Features.Domain.draft_owner (Selvedge.Features.Domain.card_contents card) with Selvedge.Features.Domain.ProfileOwner _=>true|_=>false end.
+
+Module F := Selvedge.Features.Domain.
+Record card_dependencies := CardDependencies {
+ task_cards : DependencyIndex.t N;
+ owner_cards : DependencyIndex.t N;
+ owner_unlinked : DependencyIndex.t N;
+ profile_queue : DependencyIndex.t N;
+ queued_profiles : IndexedRegistry.Slots.t string
+}.
+Definition update_dependencies (add : bool) id (candidate : option F.card) current :=
+ match candidate with
+ | None => current
+ | Some card =>
+   let update key index :=
+     if add then DependencyIndex.include key id id index else DependencyIndex.exclude key id index in
+   let owner := F.draft_owner (F.card_contents card) in
+   let address := DependencyIndex.text_address (F.owner_name owner) in
+   let linked := match F.card_task card with
+     | Some task => (update (IndexedRegistry.key task) (task_cards current), update address (owner_cards current))
+     | None => (task_cards current, owner_cards current) end in
+   let queues := profile_queue current in
+   let profiles := queued_profiles current in
+   let '(queues, profiles) := if queued_candidate card then
+     let next := update address queues in
+     (next, match owner with
+       | F.ProfileOwner profile =>
+         if add then IndexedRegistry.Slots.add address profile profiles
+         else match IndexedRegistry.Slots.find address next with
+           | None => IndexedRegistry.Slots.remove address profiles | Some _ => profiles end
+       | _ => profiles end)
+     else (queues, profiles) in
+   CardDependencies (fst linked) (snd linked)
+     (if unlinked card then update address (owner_unlinked current) else owner_unlinked current)
+     queues profiles
+ end.
+Definition projections := DependencyIndex.project
+ (CardDependencies (IndexedRegistry.Slots.empty _) (IndexedRegistry.Slots.empty _)
+   (IndexedRegistry.Slots.empty _) (IndexedRegistry.Slots.empty _) (IndexedRegistry.Slots.empty _))
+ (update_dependencies true) (update_dependencies false).
+Definition rows value := F.board_card_registry (registry value).
+Definition dependencies value := projections (rows value).
+Definition linked_card_ids task value :=
+ DependencyIndex.members (IndexedRegistry.key task) (task_cards (dependencies value)).
+Definition unlinked_card_ids profile value :=
+ DependencyIndex.members (DependencyIndex.text_address (F.owner_name (F.ProfileOwner profile)))
+   (owner_unlinked (dependencies value)).
+Definition linked_card_profile (candidate : option F.card) :=
+ match candidate with
+ | Some card => match F.card_task card, F.draft_owner (F.card_contents card) with
+   | Some _, F.ProfileOwner profile => Some profile | _, _ => None end
+ | None => None end.
+Definition has_active_card owner value :=
+ existsb (fun id => match IndexedRegistry.lookup id (rows value) with
+   | Some row => active_card_for owner value row | None => false end)
+ (DependencyIndex.members (DependencyIndex.text_address (F.owner_name owner)) (owner_cards (dependencies value))).
+Definition runnable_profile := runnable_profile_with has_active_card.
+Definition runnable card value :=
+ match runnable_profile card value with Some _=>true | None=>false end.
 Inductive save_consequence := SaveManual | SaveNeedsStage | SaveStarts | SaveQueues | SaveWaitsForModel
  | SaveDrafts | SaveDraftsThenQueues | SaveLinked.
 Definition save_consequence_name consequence := match consequence with

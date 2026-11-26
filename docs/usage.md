@@ -87,8 +87,10 @@ machine and directories. To use a different paired machine, choose its
 directories there. The switch becomes available when the selected host or
 receiver primary belongs to a Git repository with a commit. Selecting Tencent
 Cloud CVM turns the switch off. The cloud machine provisions its own checkout.
-A project's `create_worktree` preference initializes the local choice. The
-Project editor requires a verified primary to save with that default enabled.
+A project's `create_worktree` preference initializes the local choice. Enabling
+the default, or changing its primary workspace while enabled, requires a Git
+repository with an initial commit on the selected machine. The Project editor
+and the public Project commands use the same verification.
 Starting a conversation with a local worktree remembers it as the Project default
 when the verified primary is also the Project primary. The programmatic local entry is
 `create_worktree_task`; `create_workspace_task` additionally accepts the typed

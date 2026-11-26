@@ -4,7 +4,7 @@ From Selvedge.Foundation Require IndexedRegistry IndexedRegistryProofs.
 From Selvedge.Programming Require Import RequestEnvelope.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Kernel Require Import Numbers Domain WorkspaceBackend ModelRequest.
-From Selvedge.Kernel Require TaskRegistry.
+From Selvedge.Kernel Require ProjectRegistry TaskRegistry.
 From Selvedge.Features Require Import Domain CompactionTypes.
 From Selvedge.Features Require State.
 From Selvedge.Programming Require Import RequestTypes.
@@ -15,10 +15,14 @@ Record world := World {
  world_task_registry : TaskRegistry.t;
  world_next_ticket : N;
  world_environment : environment;
- world_projects : list project;
+ world_project_registry : ProjectRegistry.t;
  world_features : Selvedge.Features.Domain.state
 }.
-Definition initial := World 0 TaskRegistry.empty 0 empty_environment [] Selvedge.Features.Domain.initial.
+Definition initial := World 0 TaskRegistry.empty 0 empty_environment ProjectRegistry.empty Selvedge.Features.Domain.initial.
+Definition world_projects value := ProjectRegistry.contents (world_project_registry value).
+Definition find_project id value := ProjectRegistry.lookup id (world_project_registry value).
+Definition next_project value := ProjectRegistry.next (world_project_registry value).
+Definition next_project_order value := ProjectRegistry.next_order (world_project_registry value).
 Definition task_rows (value : world) := TaskRegistry.rows (world_task_registry value).
 Definition world_tasks (value : world) := IndexedRegistry.contents (task_rows value).
 Definition active_tasks (value : world) :=
@@ -47,8 +51,21 @@ Definition with_ticket (replacement : N) (value : world) :=
  set world_next_ticket (fun _ => replacement) value.
 Definition with_environment (replacement : environment) (value : world) :=
  set world_environment (fun _ => replacement) value.
-Definition with_projects (replacement : list project) (value : world) :=
- set world_projects (fun _ => replacement) value.
+Definition put_project id project :=
+ set world_project_registry (ProjectRegistry.put id project).
+Definition append_project project :=
+ set world_project_registry (ProjectRegistry.append project).
+Lemma find_project_after_put id value previous replacement :
+ find_project id value = Some previous ->
+ find_project id (put_project id replacement value) = Some replacement.
+Proof.
+ intro Found. unfold find_project, ProjectRegistry.lookup in Found.
+ unfold find_project, put_project. cbv [set]. cbn [world_project_registry].
+ unfold ProjectRegistry.put, ProjectRegistry.lookup. rewrite Found.
+ apply IndexedRegistryProofs.lookup_put_present.
+ apply (IndexedRegistry.filled (ProjectRegistry.rows (world_project_registry value)) id).
+ now exists previous.
+Qed.
 Definition with_features (replacement : Selvedge.Features.Domain.state) (value : world) :=
  set world_features (fun _ => replacement) value.
 Inductive identity_space := TaskTicket | ConnectionIdentity.

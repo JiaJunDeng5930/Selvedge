@@ -5,7 +5,7 @@ From Selvedge.Programming Require CommandResult CardScope.
 From Stdlib Require Import String List Bool NArith Lia.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Foundation Require Import RegistryProofs Json.
-From Selvedge.Foundation Require IndexedRegistry IndexedRegistryProofs OptionList.
+From Selvedge.Foundation Require DependencyIndex IndexedRegistry IndexedRegistryProofs OptionList.
 From Selvedge.Programming Require Import Schema.
 From Selvedge.Foundation Require Import Utf8.
 From Selvedge.Programming Require Import CompletionProofs.
@@ -44,7 +44,7 @@ Proof.
    cbn in Found.
    assert (Located : CardScope.lookup id value=Some (Completion.Row.previous received)).
    { unfold CardScope.lookup.
-     destruct (registry_at id (F.board_cards (F.feature_board (world_features value)))) as [[card|]|]; exact Found. }
+     destruct (IndexedRegistry.lookup id (F.board_card_registry (F.feature_board (world_features value)))) as [[card|]|]; exact Found. }
    apply (no_lease _ Located).
    destruct (CompletionProofs.candidate_spec _ _ _ _ _ _ _ _ (Completion.Row.admitted received))
      as [Pending Matches].
@@ -70,7 +70,7 @@ Proof.
  set (id:=head address) in *; set (ticket:=head (tail address)) in *.
  assert (Located:Receiver.read_at (Board.completion_path id) id value=Some card).
  { cbn. unfold CardScope.lookup in Found.
-   destruct (registry_at id (F.board_cards (F.feature_board (world_features value)))) as [[stored|]|]; exact Found. }
+   destruct (IndexedRegistry.lookup id (F.board_card_registry (F.feature_board (world_features value)))) as [[stored|]|]; exact Found. }
  assert (Current:Completion.candidate F.Enriching Completion.Ticket ticket (F.card_enrichment card)=
    Some (RequestEnvelope.Envelope ticket retitle)).
  { unfold Completion.candidate. rewrite Pending. unfold Constructor.recognize.
@@ -473,6 +473,54 @@ Proof.
  cbn [orb]. rewrite Bool.andb_false_r. repeat split; reflexivity.
 Qed.
 
+Lemma owner_change_preserves_card key id address candidate current :
+ DependencyIndex.lookup key id (BoardFacts.owner_cards current) = Some id ->
+ DependencyIndex.lookup key id
+  (BoardFacts.owner_cards (BoardFacts.update_dependencies true (N.pred (N.pos address)) candidate current)) = Some id.
+Proof.
+ intro Present. unfold BoardFacts.update_dependencies.
+ destruct candidate as [card|]; [|exact Present].
+ destruct (F.card_task card), (BoardFacts.queued_candidate card);
+   cbn [BoardFacts.owner_cards fst snd]; try exact Present;
+   rewrite DependencyIndex.lookup_include;
+   destruct (Pos.eqb key (DependencyIndex.text_address (F.owner_name (F.draft_owner (F.card_contents card)))));
+   destruct (N.eqb_spec id (N.pred (N.pos address))); cbn [andb]; congruence.
+Qed.
+Lemma linked_card_in_owner_scope value id card task :
+ CardScope.lookup id value = Some card -> F.card_task card = Some task ->
+ In id (DependencyIndex.members (DependencyIndex.text_address (F.owner_name (F.draft_owner (F.card_contents card))))
+   (BoardFacts.owner_cards (BoardFacts.dependencies value))).
+Proof.
+ intros Found Linked. apply DependencyIndex.lookup_in_members with (source:=id).
+ unfold BoardFacts.dependencies, BoardFacts.projections, DependencyIndex.project, Json.reuse_projection.
+ rewrite IndexedRegistry.Slots.fold_1.
+ set (entries := IndexedRegistry.Slots.elements (IndexedRegistry.entries (BoardFacts.rows value))).
+ set (key := DependencyIndex.text_address (F.owner_name (F.draft_owner (F.card_contents card)))).
+ assert (Stored : In (IndexedRegistry.key id,Some card) entries).
+ { unfold entries. apply IndexedRegistry.Slots.elements_correct.
+   change (match IndexedRegistry.Slots.find (IndexedRegistry.key id) (IndexedRegistry.entries (BoardFacts.rows value)) with
+     | Some row => row | None => None end = Some card) in Found.
+   destruct (IndexedRegistry.Slots.find (IndexedRegistry.key id) (IndexedRegistry.entries (BoardFacts.rows value)))
+     as [[stored|]|]; [congruence|discriminate|discriminate]. }
+ assert (Preserves : forall tail initial,
+   DependencyIndex.lookup key id (BoardFacts.owner_cards initial) = Some id ->
+   DependencyIndex.lookup key id (BoardFacts.owner_cards
+     (fold_left (fun a p => BoardFacts.update_dependencies true (N.pred (N.pos (fst p))) (snd p) a) tail initial)) = Some id).
+ { induction tail as [|[address candidate] rest IH]; intros initial Present; cbn [fold_left fst snd]; [exact Present|].
+   apply IH. now apply owner_change_preserves_card. }
+ generalize (BoardFacts.CardDependencies (IndexedRegistry.Slots.empty _)
+   (IndexedRegistry.Slots.empty _) (IndexedRegistry.Slots.empty _) (IndexedRegistry.Slots.empty _) (IndexedRegistry.Slots.empty _)) as initial.
+ induction entries as [|[address candidate] rest IH]; intro initial; [contradiction|].
+ cbn [In fold_left fst snd] in Stored |- *. destruct Stored as [Selected|Later].
+ - injection Selected as -> ->.
+   apply Preserves. unfold IndexedRegistry.key at 1.
+   rewrite N.succ_pos_spec, N.pred_succ.
+   unfold BoardFacts.update_dependencies. rewrite Linked.
+   destruct (BoardFacts.queued_candidate card); cbn [BoardFacts.owner_cards fst snd];
+   unfold key; rewrite DependencyIndex.lookup_include, Pos.eqb_refl, N.eqb_refl; reflexivity.
+ - now apply IH.
+Qed.
+
 (** Stopping suppresses the next model turn; committed asynchronous work
     still owns its Board concurrency slot until its callbacks settle. *)
 Theorem stopped_operation_retains_its_concurrency_slot : forall id card value task phase first rest,
@@ -485,77 +533,56 @@ Proof.
  intros id card value task phase first rest Found linked stopped.
  assert (busy:BoardFacts.busy card value=true).
  { unfold BoardFacts.busy. rewrite linked. unfold BoardFacts.busy_task, Selvedge.Kernel.Domain.task_busy, Selvedge.Kernel.Domain.task_activity, Selvedge.Kernel.Domain.task_operations. rewrite stopped. apply Bool.orb_true_r. }
- assert (Present:In (Some card) (F.board_cards (BoardFacts.registry value))).
- { unfold CardScope.lookup in Found.
-   destruct (registry_at id (F.board_cards (F.feature_board (world_features value)))) as [[stored|]|] eqn:Located; try discriminate.
-   injection Found as Same; subst stored. eapply registry_lookup_is_member; exact Located. }
+ assert (CardTask : exists owner, F.card_task card = Some owner).
+ { unfold BoardFacts.linked_task in linked. destruct (F.card_task card) as [owner|]; [eauto|discriminate]. }
+ destruct CardTask as [owner CardTask].
  split.
- - unfold BoardFacts.has_active_card. apply existsb_exists.
-   exists (Some card). split; [exact Present|].
-   cbn [BoardFacts.active_card_for]. now rewrite String.eqb_refl,busy.
+ - unfold BoardFacts.has_active_card. apply existsb_exists. exists id; split.
+   + now apply linked_card_in_owner_scope with (task:=owner).
+   + change (match IndexedRegistry.lookup id (BoardFacts.rows value) with Some row => row | None => None end = Some card) in Found.
+     destruct (IndexedRegistry.lookup id (BoardFacts.rows value)) as [[stored|]|]; try discriminate.
+     injection Found as ->. cbn [BoardFacts.active_card_for]. now rewrite String.eqb_refl,busy.
  - assert (Linked:BoardFacts.unlinked card=false).
    { unfold BoardFacts.linked_task in linked; unfold BoardFacts.unlinked.
      destruct (F.card_task card); [reflexivity|discriminate]. }
-   unfold BoardFacts.runnable,BoardFacts.runnable_profile.
+   unfold BoardFacts.runnable,BoardFacts.runnable_profile,BoardFacts.runnable_profile_with.
    rewrite Linked,Bool.andb_false_r. reflexivity.
 Qed.
 
-Theorem synchronized_cards_preserve_stage_updates : forall value cards,
-  match Board.synchronized_cards value cards with Some updated=>updated | None=>cards end =
-  map (option_map (fun card=>match Board.card_stage_change card value with
-    | Some updated=>updated | None=>card end)) cards.
+Theorem synchronization_installs_selected_stage_update value id card updated :
+ CardScope.lookup id value = Some card ->
+ Board.card_stage_change card value = Some updated ->
+ CardScope.lookup id (Board.synchronize_card id value) = Some updated.
 Proof.
- intros value cards; induction cards as [|[card|] rest IH]; cbn [Board.synchronized_cards map option_map].
- - reflexivity.
- - destruct (Board.card_stage_change card value), (Board.synchronized_cards value rest);
-     cbn in IH |- *; now rewrite <- IH.
- - destruct (Board.synchronized_cards value rest); cbn in IH |- *; now rewrite <- IH.
+ intros Located Changed. unfold Board.synchronize_card.
+ rewrite Located, Changed. now apply board_lookup_after_put_selected with (before:=card).
 Qed.
 
-Local Lemma unchanged_linked_cards_leave_every_stage value cards :
- existsb (Board.card_row_stage_changes value) (filter Board.linked_card_row cards) = false ->
- Board.synchronized_cards value cards = None.
+Theorem finish_schedules_remaining_work : forall result profiles name id,
+ In name profiles ->
+ Board.next_for [name] (decision_world result)=Some id ->
+ In ContinueScheduling (decision_effects (DecisionComposition.run (Board.finish profiles) result)).
 Proof.
- induction cards as [|[card|] rest IH]; cbn [filter Board.synchronized_cards Board.linked_card_row]; [easy| |].
- - destruct (F.card_task card) eqn:Linked.
-   + cbn [existsb Board.card_row_stage_changes]. rewrite Bool.orb_false_iff.
-     intros [Current Rest]. rewrite (IH Rest).
-     now destruct (Board.card_stage_change card value).
-   + intro Rest. rewrite (IH Rest).
-     unfold Board.card_stage_change, Board.linked_task, BoardFacts.linked_task. rewrite Linked.
-     now destruct (F.card_archived card).
- - intro Rest. now rewrite (IH Rest).
+ intros result profiles name id Selected Queued.
+ unfold DecisionComposition.run, DecisionComposition.transform, DecisionComposition.maintain, Board.finish.
+ cbn [DecisionComposition.updated_world DecisionComposition.appended_effects].
+ set (waiting := filter _ profiles).
+ assert (Nonempty : In name waiting).
+ { unfold waiting. apply filter_In. split; [exact Selected|now rewrite Queued]. }
+ destruct waiting as [|first rest]; [contradiction|].
+ destruct (existsb (fun effect => match effect with ContinueScheduling => true | _ => false end)
+   (decision_effects result)) eqn:Continuing; cbn.
+ - apply existsb_exists in Continuing. destruct Continuing as [effect [Present Kind]].
+   destruct effect; cbn in Kind; try discriminate. apply in_or_app; now left.
+ - apply in_or_app; right; now left.
 Qed.
 
-Theorem board_synchronization_keeps_all_stage_updates value :
- Board.synchronize value =
- match Board.synchronized_cards value (F.board_cards (Board.registry value)) with
- | Some cards => Board.store (set F.board_cards (fun _ => cards) (Board.registry value)) value
- | None => value end.
-Proof.
- unfold Board.synchronize, Board.observe_linked_card_rows, Json.reuse_observation.
- destruct (existsb (Board.card_row_stage_changes value)
-   (filter Board.linked_card_row (F.board_cards (Board.registry value)))) eqn:Changed; [reflexivity|].
- now rewrite (unchanged_linked_cards_leave_every_stage _ _ Changed).
-Qed.
-
-Theorem finish_schedules_remaining_work : forall result id,
- Board.next (Board.synchronize (decision_world result))=Some id ->
- In ContinueScheduling (decision_effects (DecisionComposition.run Board.finish result)).
-Proof.
- intros result id remaining. unfold DecisionComposition.run, DecisionComposition.transform, DecisionComposition.maintain, Board.finish; cbn [DecisionComposition.updated_world DecisionComposition.appended_effects]. rewrite remaining. cbn.
- destruct (existsb (fun effect=>match effect with ContinueScheduling=>true | _=>false end)
-   (decision_effects result)) eqn:continuing; cbn.
- - apply existsb_exists in continuing. destruct continuing as [effect [present is_continue]].
-   destruct effect; cbn in is_continue; try discriminate. apply in_or_app; now left.
- - apply in_or_app. right. now left.
-Qed.
-
-Theorem finish_retains_existing_continuation : forall result,
+Theorem finish_retains_existing_continuation : forall result profiles,
  In ContinueScheduling (decision_effects result) ->
- decision_effects (DecisionComposition.run Board.finish result)=decision_effects result.
+ decision_effects (DecisionComposition.run (Board.finish profiles) result)=decision_effects result.
 Proof.
- intros result continuing. unfold DecisionComposition.run, DecisionComposition.transform, DecisionComposition.maintain, Board.finish; cbn [DecisionComposition.updated_world DecisionComposition.appended_effects].
+ intros result profiles continuing. unfold DecisionComposition.run, DecisionComposition.transform, DecisionComposition.maintain, Board.finish.
+ cbn [DecisionComposition.updated_world DecisionComposition.appended_effects].
  assert (present:existsb (fun effect=>match effect with ContinueScheduling=>true | _=>false end)
    (decision_effects result)=true).
  { apply existsb_exists. exists ContinueScheduling. now split. }
@@ -592,14 +619,14 @@ Qed.
 
 (** A real one-attempt batch removes its selected card from the runnable
     queue: success links it to its new Task, while failure blocks it. *)
-Theorem pump_one_resolves_selected_card : forall result id card,
- Board.next (decision_world result)=Some id ->
+Theorem pump_one_resolves_selected_card : forall select result id card,
+ select (decision_world result)=Some id ->
  CardScope.lookup id (decision_world result)=Some card ->
  exists updated,
- CardScope.lookup id (decision_world (DecisionComposition.run (Board.pump 1) result))=Some updated /\
- Board.ready updated (decision_world (DecisionComposition.run (Board.pump 1) result))=false.
+ CardScope.lookup id (decision_world (DecisionComposition.run (Board.pump select 1) result))=Some updated /\
+ Board.ready updated (decision_world (DecisionComposition.run (Board.pump select 1) result))=false.
 Proof.
- intros result id card selected found. unfold DecisionComposition.run, DecisionComposition.transform, DecisionComposition.maintain; cbn [decision_world Board.pump]. rewrite selected,found.
+ intros select result id card selected found. unfold DecisionComposition.run, DecisionComposition.transform, DecisionComposition.maintain; cbn [decision_world Board.pump]. rewrite selected,found.
  destruct (Board.run_result id (F.card_revision card)
    (F.card_updated_at card) None (decision_world result))
    as [advanced|reason] eqn:Outcome; cbn [DecisionComposition.and_then DecisionComposition.unchanged DecisionComposition.from_decision DecisionComposition.updated_world DecisionComposition.appended_effects decision_world].
@@ -611,7 +638,7 @@ Proof.
      as [updated [linked task_id]].
    unfold Board.run in linked; rewrite Outcome in linked; cbn [CommandResult.decide CommandResult.resolve CommandResult.accept decision_world accept] in linked.
    exists updated. split; [exact linked|].
-   unfold Board.ready,Board.potential_queue_member,Board.runnable,BoardFacts.runnable,BoardFacts.runnable_profile,BoardFacts.unlinked,Board.unlinked.
+   unfold Board.ready,Board.potential_queue_member,Board.runnable,BoardFacts.runnable,BoardFacts.runnable_profile,BoardFacts.runnable_profile_with,BoardFacts.unlinked,Board.unlinked.
    rewrite task_id, Bool.andb_false_r.
    now destruct (BoardFacts.automatic_stage (F.draft_stage (F.card_contents updated)) && BoardFacts.enrichment_ready updated).
  - eexists. split.
@@ -644,13 +671,13 @@ Proof.
  - pose proof (ReceiverProofs.installed
      (BoardDrafting.card_slot (BoardDrafting.fresh_id value))
      (BoardDrafting.fresh_card draft observed) (world_features value) (or_introl eq_refl)) as Installed.
-   change (match registry_at (BoardDrafting.fresh_id value)
-     (F.board_cards (F.feature_board (world_features
+   change (match IndexedRegistry.lookup (BoardDrafting.fresh_id value)
+     (F.board_card_registry (F.feature_board (world_features
        (Board.put (BoardDrafting.fresh_id value) (BoardDrafting.fresh_card draft observed) value)))) with
      | Some stored => Constructor.project (@Some F.card) stored | None => None end =
      Some (BoardDrafting.fresh_card draft observed)) in Installed.
    unfold CardScope.lookup.
-   destruct (registry_at (BoardDrafting.fresh_id value) (F.board_cards (F.feature_board
+   destruct (IndexedRegistry.lookup (BoardDrafting.fresh_id value) (F.board_card_registry (F.feature_board
      (world_features (Board.put (BoardDrafting.fresh_id value) (BoardDrafting.fresh_card draft observed) value)))))
      as [[stored|]|]; exact Installed.
  - split; reflexivity.
@@ -690,55 +717,6 @@ Proof.
  reflexivity.
 Qed.
 
-Local Lemma first_in_filtered_sequence {A} (eligible : A -> bool) values :
- hd_error (filter eligible values) = find eligible values.
-Proof. induction values as [|first rest IH]; cbn; [reflexivity|now destruct (eligible first)]. Qed.
-
-Local Lemma first_in_ordered_groups {A B} (members : A -> list B) groups :
- hd_error (flat_map members groups) = OptionList.find_map (fun group => hd_error (members group)) groups.
-Proof.
- induction groups as [|first rest IH]; cbn; [reflexivity|].
- destruct (members first); cbn; [exact IH|reflexivity].
-Qed.
-
-Local Lemma same_group_selections {A B} (left right : A -> option B) groups :
- (forall group, left group = right group) -> OptionList.find_map left groups = OptionList.find_map right groups.
-Proof.
- intro Same. induction groups as [|first rest IH]; cbn [OptionList.find_map]; [reflexivity|].
- rewrite Same, IH. reflexivity.
-Qed.
-
 Theorem selecting_the_next_card_follows_the_automatic_queue value :
  Board.next value = if F.board_automatic (Board.registry value) then hd_error (Board.queued value) else None.
-Proof.
- unfold Board.next, Board.queued.
- destruct (F.board_automatic (Board.registry value)); [|reflexivity].
- unfold Board.observe_automatic_queue, Json.reuse_observation, Board.automatic_queue_scope.
- rewrite first_in_ordered_groups.
- apply same_group_selections; intro pin.
- rewrite first_in_ordered_groups.
- apply same_group_selections; intro priority.
- rewrite first_in_filtered_sequence.
- assert (Lookup : forall id,
-   Board.indexed_card_lookup (IndexedRegistry.from_list (F.board_cards (Board.registry value))) id = CardScope.lookup id value).
- { intro id. unfold Board.indexed_card_lookup.
-   now rewrite <- IndexedRegistryProofs.contents_lookup, IndexedRegistryProofs.contents_from_list. }
- assert (SameCheck : forall id, Board.queue_candidate_from
-   (Board.indexed_card_lookup (IndexedRegistry.from_list (F.board_cards (Board.registry value)))) value pin priority id =
-   Board.queue_candidate value pin priority id).
- { intro id. unfold Board.queue_candidate, Board.queue_candidate_from. now rewrite Lookup. }
- assert (Possible : forall id, Board.queue_candidate value pin priority id = true ->
-   Board.potential_queue_member
-     (Board.indexed_card_lookup (IndexedRegistry.from_list (F.board_cards (Board.registry value))) id) = true).
- { intro id. rewrite Lookup. unfold Board.queue_candidate, Board.queue_candidate_from.
-   destruct (CardScope.lookup id value) as [card|]; [|discriminate].
-   unfold Board.ready. destruct (Board.potential_queue_member (Some card));
-     [reflexivity|now rewrite Bool.andb_false_r]. }
- generalize (F.board_order (Board.registry value)) as ordered; intro ordered.
- induction ordered as [|id rest IH]; cbn [filter find]; [reflexivity|].
- destruct (Board.potential_queue_member
-   (Board.indexed_card_lookup (IndexedRegistry.from_list (F.board_cards (Board.registry value))) id)) eqn:Potential.
- - cbn [find]. now rewrite SameCheck, IH.
- - rewrite IH. destruct (Board.queue_candidate value pin priority id) eqn:Chosen; [|reflexivity].
-   now rewrite (Possible id Chosen) in Potential.
-Qed.
+Proof. reflexivity. Qed.

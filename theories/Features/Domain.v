@@ -1,10 +1,11 @@
 From Stdlib Require Import String List Bool NArith Numbers.DecimalString.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Foundation Require IndexedRegistry ScopedRegistry.
+From Selvedge.Foundation Require IndexedRegistry ScopedRegistry KeyedScope.
 From Selvedge.Programming Require Import Schema RequestEnvelope FiniteChoice.
 From Selvedge.Features Require WorkflowTypes.
 From Selvedge.Features Require Import Titles CompactionTypes ConnectionGrants BoardClock.
 From Selvedge.Kernel Require Import Domain ChatgptArguments WorkspaceBackend Codec.
+From Selvedge.Kernel Require WorkspaceUses.
 From Selvedge.Foundation Require Export RemoteIdentity.
 Import ListNotations.
 
@@ -24,8 +25,9 @@ Record card := Card { card_revision : N; card_contents : card_draft;
  card_enrichment : enrichment; card_start_error : string; card_pinned : bool }.
 Definition card_created card := BoardClock.value (card_created_at card).
 Definition card_updated card := BoardClock.value (card_updated_at card).
-Record board := Board { board_cards : list (option card); board_order : list N;
- board_automatic : bool; board_draft_profile : string }.
+Record board := Board { board_card_registry : IndexedRegistry.t (option card); board_order : list N;
+ board_automatic : bool; board_draft_profile : string; board_pending_profiles : list string }.
+Definition board_cards value := IndexedRegistry.contents (board_card_registry value).
 Definition board_card_uses_project (id : N) (value : board) :=
  existsb (fun item => match item with
  | Some card => match draft_project (card_contents card) with
@@ -91,12 +93,21 @@ Record connection_job := ConnectionJob { job_connection : N; job_project : N;
  job_request : string; job_arguments : ChatgptArguments.arguments;
  job_workspace : workspace; job_resource : option N; job_sandbox : sandbox; job_state : job_status }.
 Definition job_arguments_json job := ChatgptArguments.encode (job_arguments job).
+Definition job_addresses (entry : N * connection_job) :=
+ let job := snd entry in WorkspaceUses.project_key (job_project job) ::
+ match job_state job with
+ | JobRunning => match job_resource job with
+   | Some owner => [WorkspaceUses.resource_key owner]
+   | None => WorkspaceUses.addresses (job_workspace job) None end
+ | _ => [] end.
 Record connection_state := ConnectionState { sharing_authorities : ConnectionGrants.Grants.t;
- sharing_jobs : list (N * connection_job); sharing_next : N }.
+ sharing_job_registry : KeyedScope.t job_addresses; sharing_next : N }.
+Definition sharing_jobs value := KeyedScope.contents (sharing_job_registry value).
 Definition sharing_grants value := ConnectionGrants.Grants.values (sharing_authorities value).
 Definition sharing_retains_project (id : N) (value : connection_state) :=
  existsb (ConnectionGrants.admits_project id) (sharing_grants value) ||
- existsb (fun item => N.eqb id (job_project (snd item))) (sharing_jobs value).
+ match KeyedScope.members (WorkspaceUses.project_key id) (sharing_job_registry value) with
+ | [] => false | _ => true end.
 Record title_settings := TitleSettings { title_revision : N;
  title_task_instructions : Titles.instruction; title_agent_instructions : Titles.instruction;
  title_agent_profile : option string }.
@@ -119,8 +130,8 @@ Record state := State {
  feature_ticket_workflows : list (N * WorkflowTypes.invocation);
  feature_ticket_instances : list (N * N)
 }.
-Definition initial := State (Board [] [] false ""%string) [] [] [] []
- (Remote false [] 1 []) (ConnectionState ConnectionGrants.Grants.empty [] 0) (IndexedRegistry.Slots.empty title_state)
+Definition initial := State (Board IndexedRegistry.empty [] false ""%string []) [] [] [] []
+ (Remote false [] 1 []) (ConnectionState ConnectionGrants.Grants.empty (KeyedScope.empty job_addresses) 0) (IndexedRegistry.Slots.empty title_state)
  (TitleSettings 0 Titles.default_board_instructions Titles.default_instructions None) CompactionTypes.initial []
  (ScopedRegistry.empty (@WorkflowTypes.instance_in_progress graph_message)) [] [].
 

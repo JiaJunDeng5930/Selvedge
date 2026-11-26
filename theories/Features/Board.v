@@ -3,7 +3,7 @@ From Selvedge.Programming Require InputRoute.
 From Selvedge.Programming Require CommandResult DecisionComposition.
 From Stdlib Require Import String Ascii List Bool NArith PeanoNat.
 From Selvedge.Foundation Require Import Json Utf8.
-From Selvedge.Foundation Require IndexedRegistry OptionList.
+From Selvedge.Foundation Require DependencyIndex IndexedRegistry OptionList.
 From Selvedge.Programming Require Import Schema Completion.
 From Selvedge.Kernel Require Import Numbers Domain State Codec Tasks Workspace CommandExecution.
 From Selvedge.Programming Require Import FeatureRequest.
@@ -173,7 +173,7 @@ Definition archive_card (id revision:N) (observed:BoardParameters.clock) (archiv
  let stopped:=Tasks.control_command target Tasks.Interrupt (decision_world saved) in
  Selvedge.Kernel.State.Decision (decision_world stopped) (decision_reply saved) (decision_effects stopped) | None=>saved end).
 Definition delete_card (id revision:N) (value:world) := CardScope.with_card id revision value (fun card=>if busy card value || BoardFacts.workflow_in_progress id value then Selvedge.Kernel.State.reject "card_locked" "Wait for the linked conversation's active work to settle before deleting this card" value else
- let b:=registry value in Selvedge.Kernel.State.accept JNull (store ((set Selvedge.Features.Domain.board_order (fun _=>(filter (fun other=>negb (N.eqb id other)) (Selvedge.Features.Domain.board_order b))) (set Selvedge.Features.Domain.board_cards (fun _=>(replace id None (Selvedge.Features.Domain.board_cards b))) (b)))) value) []).
+ let b:=registry value in Selvedge.Kernel.State.accept JNull (store ((set Selvedge.Features.Domain.board_order (fun _=>(filter (fun other=>negb (N.eqb id other)) (Selvedge.Features.Domain.board_order b))) (set Selvedge.Features.Domain.board_card_registry (fun _=>IndexedRegistry.put id None (Selvedge.Features.Domain.board_card_registry b)) (b)))) value) []).
 Fixpoint attachment_prompt (files:list Selvedge.Features.Domain.attachment) := match files with []=>"" | file::rest=>String.append "
 - " (String.append (Selvedge.Features.Domain.attachment_name file) (String.append ": " (String.append (Selvedge.Features.Domain.attachment_path file) (attachment_prompt rest)))) end.
 Definition task_contents (id:N) (draft:Selvedge.Features.Domain.card_draft) :=
@@ -292,32 +292,18 @@ Definition card_stage_change (card:Selvedge.Features.Domain.card) (value:world) 
  let next:=BoardFacts.stage_after_task previous task in
  if String.eqb (Selvedge.Features.Domain.stage_name previous) (Selvedge.Features.Domain.stage_name next) then None
  else Some (revised (with_stage next (Selvedge.Features.Domain.card_contents card)) (Selvedge.Features.Domain.card_updated_at card) card) end.
-Fixpoint synchronized_cards (value:world) (cards:list (option Selvedge.Features.Domain.card)) :=
- match cards with
- | []=>None
- | card::rest=>
-   let change:=match card with Some card=>card_stage_change card value | None=>None end in
-   match change,synchronized_cards value rest with
-   | None,None=>None
-   | Some current,None=>Some (Some current::rest)
-   | None,Some updated=>Some (card::updated)
-   | Some current,Some updated=>Some (Some current::updated)
-   end
+Definition synchronize_card id (value : world) :=
+ match CardScope.lookup id value with
+ | Some card => match card_stage_change card value with
+   | Some changed => put id changed value | None => value end
+ | None => value
  end.
-Definition linked_card_row (row : option Selvedge.Features.Domain.card) :=
- match row with Some card => match Selvedge.Features.Domain.card_task card with
-   | Some _ => true | None => false end | None => false end.
-Definition observe_linked_card_rows := Json.reuse_observation (fun board =>
- filter linked_card_row (Selvedge.Features.Domain.board_cards board)).
-Definition card_row_stage_changes value row :=
- match row with Some card => match card_stage_change card value with
-   | Some _ => true | None => false end | None => false end.
-Definition synchronize (value:world) := let b:=registry value in
- if existsb (card_row_stage_changes value) (observe_linked_card_rows b) then
- match synchronized_cards value (Selvedge.Features.Domain.board_cards b) with
- | Some cards=>store (set Selvedge.Features.Domain.board_cards (fun _=>cards) b) value
- | None=>value
- end else value.
+Definition affected_cards (before value : world) :=
+ let changed := DependencyIndex.changed_ids (task_rows before) (task_rows value) in
+ DependencyIndex.changed_ids (BoardFacts.rows before) (BoardFacts.rows value) ++
+ flat_map (fun id => BoardFacts.linked_card_ids id value) changed.
+Definition synchronize (before value : world) :=
+ fold_left (fun current id => synchronize_card id current) (affected_cards before value) value.
 Definition potential_queue_member (row : option Selvedge.Features.Domain.card) :=
  match row with Some card =>
    BoardFacts.automatic_stage (Selvedge.Features.Domain.draft_stage (Selvedge.Features.Domain.card_contents card)) &&
@@ -333,26 +319,46 @@ Definition queue_candidate_from (lookup : N -> option Selvedge.Features.Domain.c
    ready card value && negb (BoardFacts.has_workflow id value)
  | None => false end.
 Definition queue_candidate (value : world) := queue_candidate_from (fun id => CardScope.lookup id value) value.
-Definition indexed_card_lookup (rows : IndexedRegistry.t (option Selvedge.Features.Domain.card)) id :=
- match IndexedRegistry.lookup id rows with Some row => row | None => None end.
-Definition automatic_queue_scope (board : Selvedge.Features.Domain.board) :=
- let rows := IndexedRegistry.from_list (Selvedge.Features.Domain.board_cards board) in
- (rows, filter (fun id => potential_queue_member (indexed_card_lookup rows id))
-   (Selvedge.Features.Domain.board_order board)).
-Definition observe_automatic_queue := Json.reuse_observation automatic_queue_scope.
 Definition queue_priorities := [4%N;3%N;2%N;1%N;0%N].
 Definition queue_pin_order := [true;false].
 Definition queued (value:world) := let order:=Selvedge.Features.Domain.board_order (registry value) in
  flat_map (fun pinned => flat_map (fun priority => filter (queue_candidate value pinned priority) order)
    queue_priorities) queue_pin_order.
-Definition next (value:world) :=
- let board := registry value in
- if Selvedge.Features.Domain.board_automatic board then
-   let '(rows, order) := observe_automatic_queue board in
-   let eligible := queue_candidate_from (indexed_card_lookup rows) value in
-   OptionList.find_map (fun pinned => OptionList.find_map
-     (fun priority => find (eligible pinned priority) order) queue_priorities) queue_pin_order
+
+Module F := Selvedge.Features.Domain.
+Module Slots := IndexedRegistry.Slots.
+Definition observe_positions := Json.reuse_observation (fun order =>
+ fold_left (fun positions '(position,id) => Slots.add (IndexedRegistry.key id) position positions)
+   (indexed (fun index id => (index,id)) 0 order) (Slots.empty N)).
+Definition position_before positions left right :=
+ match Slots.find (IndexedRegistry.key left) positions, Slots.find (IndexedRegistry.key right) positions with
+ | Some l, Some r => N.ltb l r | Some _, None => true | _, _ => false end.
+Definition queue_precedes positions (left : N * F.card) (right : N * F.card) :=
+ let l := snd left in let r := snd right in
+ if Bool.eqb (F.card_pinned l) (F.card_pinned r)
+ then let priority item := priority_rank (F.draft_priority (F.card_contents item)) in
+   if N.eqb (priority l) (priority r) then position_before positions (fst left) (fst right)
+   else N.ltb (priority r) (priority l)
+ else F.card_pinned l.
+Definition queued_profiles value := DependencyIndex.values (BoardFacts.queued_profiles (BoardFacts.dependencies value)).
+Definition ready_profile profile value :=
+ if BoardFacts.has_active_card (F.ProfileOwner profile) value then [] else
+ filter (fun id => negb (BoardFacts.has_workflow id value))
+   (DependencyIndex.members (DependencyIndex.text_address (F.owner_name (F.ProfileOwner profile)))
+     (BoardFacts.profile_queue (BoardFacts.dependencies value))).
+Definition next_for profiles (value : world) :=
+ if F.board_automatic (registry value) then
+ let positions := observe_positions (F.board_order (registry value)) in
+ let selected := fold_left (fun current id =>
+   match CardScope.lookup id value, current with
+   | Some candidate, Some previous =>
+     if queue_precedes positions (id,candidate) previous then Some (id,candidate) else current
+   | Some candidate, None => Some (id,candidate)
+   | None, _ => current end) (flat_map (fun profile => ready_profile profile value) profiles) None in
+ option_map fst selected
  else None.
+Definition next value :=
+ if F.board_automatic (registry value) then hd_error (queued value) else None.
 Definition save_consequence (id:N) (value:world) : option BoardFacts.save_consequence :=
  match CardScope.lookup id value with None=>None|Some card=>
  let draft:=Selvedge.Features.Domain.card_contents card in
@@ -370,9 +376,9 @@ Definition save_consequence (id:N) (value:world) : option BoardFacts.save_conseq
    |None=>BoardFacts.SaveQueues end) else None end.
 Definition start_failed (id:N) (card:Selvedge.Features.Domain.card) (reason:string) (value:world) := put id
  ((set Selvedge.Features.Domain.card_start_error (fun _=>(failure_text reason)) (set Selvedge.Features.Domain.card_contents (fun _=>(with_stage Selvedge.Features.Domain.Blocked (Selvedge.Features.Domain.card_contents card))) (set Selvedge.Features.Domain.card_revision (fun _=>(N.succ (Selvedge.Features.Domain.card_revision card))) (card))))) value.
-Fixpoint pump (fuel:nat) : DecisionComposition.step := fun value effects => match fuel with
+Fixpoint pump select (fuel:nat) : DecisionComposition.step := fun value effects => match fuel with
  | O=>DecisionComposition.unchanged value
- | S rest=>match next value with None=>DecisionComposition.unchanged value | Some id=>
+ | S rest=>match select value with None=>DecisionComposition.unchanged value | Some id=>
  match CardScope.lookup id value with None=>DecisionComposition.unchanged value | Some card=>
  let current:=match run_result id (Selvedge.Features.Domain.card_revision card)
    (Selvedge.Features.Domain.card_updated_at card) None value with
@@ -380,15 +386,57 @@ Fixpoint pump (fuel:nat) : DecisionComposition.step := fun value effects => matc
  | CommandResult.Rejected reason=>DecisionComposition.unchanged
    (start_failed id card (String.append (CommandResult.refusal_code reason)
      (String.append ": " (CommandResult.refusal_message reason))) value) end in
- DecisionComposition.and_then (fun _ _=>current) (pump rest) value effects end end end.
-Definition after_transition (_before:world) : DecisionComposition.step :=
- DecisionComposition.and_then (DecisionComposition.world_only synchronize) (pump 8).
-Definition finish : DecisionComposition.step := fun value effects =>
- let value:=synchronize value in
- let more:=match next value with Some _=>true | None=>false end in
- let continuing:=existsb (fun effect=>match effect with Selvedge.Kernel.State.ContinueScheduling=>true | _=>false end) effects in
- DecisionComposition.Update value (if more && negb continuing then [Selvedge.Kernel.State.ContinueScheduling] else []).
+ DecisionComposition.and_then (fun _ _=>current) (pump select rest) value effects end end end.
+Definition profile_of_card id value :=
+ match CardScope.lookup id value with
+ | Some card => match F.draft_owner (F.card_contents card) with
+   | F.ProfileOwner name => [name] | _ => [] end
+ | None => []
+ end.
+Definition activation_profiles before value :=
+ let modified := DependencyIndex.changed_ids (BoardFacts.rows before) (BoardFacts.rows value) in
+ let owners ids := flat_map (fun id => profile_of_card id before ++ profile_of_card id value) ids in
+ let dependencies := flat_map (fun id => BoardFacts.linked_card_ids id value)
+   (DependencyIndex.changed_ids (task_rows before) (task_rows value)) in
+ owners modified ++ filter (fun name =>
+   let owner := F.ProfileOwner name in
+   negb (Bool.eqb (BoardFacts.has_active_card owner before) (BoardFacts.has_active_card owner value)))
+   (owners dependencies).
+Definition note_pending profiles value :=
+ let board := registry value in
+ if Json.shared_value profiles (F.board_pending_profiles board) then value
+ else match profiles, F.board_pending_profiles board with
+   | [], [] => value
+   | _, _ => store (set F.board_pending_profiles (fun _ => profiles) board) value end.
+Definition prepare_creation before : DecisionComposition.step := fun value _ =>
+ let value := synchronize before value in
+ let board := registry value in
+ let selected := if F.board_automatic board then
+   nodup String.string_dec (activation_profiles before value ++ F.board_pending_profiles board)
+   else [] in
+ DecisionComposition.Update (note_pending selected value) [].
+Definition finish profiles : DecisionComposition.step := fun value effects =>
+ let waiting := filter (fun name => match next_for [name] value with Some _ => true | None => false end) profiles in
+ let continuing := existsb (fun effect => match effect with ContinueScheduling => true | _ => false end) effects in
+ DecisionComposition.Update (note_pending waiting value)
+   (if negb (List.length waiting =? 0)%nat && negb continuing then [ContinueScheduling] else []).
+Definition after_transition before (continue : bool) : DecisionComposition.step := fun value effects =>
+ let value := synchronize before value in
+ let board := registry value in
+ let profiles := if F.board_automatic board then
+   if F.board_automatic (registry before)
+   then activation_profiles before value ++ (if continue then F.board_pending_profiles board else [])
+   else queued_profiles value
+   else [] in
+ match nodup String.string_dec profiles with
+ | [] => DecisionComposition.Update (if F.board_automatic board then value else note_pending [] value) []
+ | selected =>
+   let unhandled := if continue then [] else F.board_pending_profiles board in
+   let select := if F.board_automatic (registry before) then next_for selected else next in
+   DecisionComposition.and_then (pump select 8)
+     (finish (nodup String.string_dec (selected ++ unhandled))) value effects
+ end.
 Definition recover (value:world) := let b:=registry value in
  let cards:=map (option_map (fun card=>if pending card then
  (set Selvedge.Features.Domain.card_enrichment (fun _=>(Selvedge.Features.Domain.EnrichmentFailed "The service restarted during drafting. Review the saved request and explicitly retry; no paid drafting request was replayed.")) (set Selvedge.Features.Domain.card_revision (fun _=>(N.succ (Selvedge.Features.Domain.card_revision card))) (card))) else card)) (Selvedge.Features.Domain.board_cards b) in
- store ((set Selvedge.Features.Domain.board_cards (fun _=>cards) (b))) value.
+ store ((set F.board_pending_profiles (fun _ => queued_profiles value) (set F.board_card_registry (fun _=>IndexedRegistry.from_list cards) b))) value.

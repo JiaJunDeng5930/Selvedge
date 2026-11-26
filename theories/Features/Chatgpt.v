@@ -11,6 +11,7 @@ From Selvedge.Kernel Require FeatureRequestAdmission.
 From Selvedge.Kernel Require Import Domain State Numbers Codec Workspace Queries ChatgptArguments.
 From Selvedge.Programming Require Import FeatureRequest.
 From Selvedge.Generated Require Import Commands.
+From Selvedge.Foundation Require KeyedScope.
 From Selvedge.Features Require Import Domain State Worktree WorkspaceBinding.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 Import ListNotations.
@@ -21,7 +22,7 @@ Open Scope list_scope.
 Definition registry := FeatureRequestAdmission.sharing_registry.
 Definition store replacement value := with_features (Selvedge.Features.State.with_sharing replacement (world_features value)) value.
 Definition grant := FeatureRequestAdmission.connection_grant.
-Definition find_job id state := option_map snd (find (fun item=>N.eqb id (fst item)) (Selvedge.Features.Domain.sharing_jobs state)).
+Definition find_job id state := option_map snd (KeyedScope.lookup id (KeyedScope.rows (Selvedge.Features.Domain.sharing_job_registry state))).
 Definition project := FeatureRequestAdmission.connection_project.
 Definition authority := FeatureRequestAdmission.connection_authority.
 Definition owned connection project job := N.eqb connection (Selvedge.Features.Domain.job_connection job) && N.eqb project (Selvedge.Features.Domain.job_project job).
@@ -79,13 +80,13 @@ Definition configure entries value := match ConnectionGrants.admit_grants entrie
  | Some entries=>if forallb (grant_projects_exist value) (ConnectionGrants.Grants.values entries) then
    accept (JObject []) (store (set Selvedge.Features.Domain.sharing_authorities (fun _=>entries) (registry value)) value) []
    else reject "invalid_connections" "Connections need distinct identities and existing project grants" value end.
-Definition connection_jobs := Receiver.field Selvedge.Features.Domain.sharing_jobs
- (Receiver.keyed (@fst N Selvedge.Features.Domain.connection_job)).
+Definition connection_jobs := Receiver.field Selvedge.Features.Domain.sharing_job_registry
+ (Receiver.scoped_keyed Selvedge.Features.Domain.job_addresses (@fst N Selvedge.Features.Domain.connection_job)).
 Definition replace_job id job := Receiver.install connection_jobs (id,job).
 Definition storage (features : Selvedge.Features.Domain.state) :=
  Receiver.At.field features Selvedge.Features.Domain.feature_sharing
-   (Receiver.At.field (Selvedge.Features.Domain.feature_sharing features) Selvedge.Features.Domain.sharing_jobs
-     (Receiver.At.keyed (Selvedge.Features.Domain.sharing_jobs (Selvedge.Features.Domain.feature_sharing features))
+   (Receiver.At.field (Selvedge.Features.Domain.feature_sharing features) Selvedge.Features.Domain.sharing_job_registry
+     (Receiver.At.scoped_keyed (Selvedge.Features.Domain.sharing_job_registry (Selvedge.Features.Domain.feature_sharing features))
        (@fst N Selvedge.Features.Domain.connection_job))).
 Definition protocol (features : Selvedge.Features.Domain.state)
  : RequestTypes.located Selvedge.Features.Domain.connection_job features :=
@@ -127,7 +128,7 @@ Definition edit (remove:bool) connection project id value :=
    | None=>Decision value missing_operation []
    | Some job=>if negb (owned connection project job) then Decision value missing_operation []
      else if remove then if pending job then reject "operation_running" "Cancel or finish the operation before forgetting it" value
-       else let next:=set Selvedge.Features.Domain.sharing_jobs (filter (fun item=>negb (N.eqb id (fst item)))) (registry value) in
+       else let next:=set Selvedge.Features.Domain.sharing_job_registry (KeyedScope.remove id) (registry value) in
        accept JNull (store next value) []
      else if pending job then
        let stopped:=with_outcome (Selvedge.Features.Domain.JobInterrupted "Cancellation requested; physical changes are not undone") job in
@@ -172,4 +173,8 @@ Definition completion_inputs := [InputRoute.callback ModelDeclarations.ChatgptEx
 Definition recover_job job := match Selvedge.Features.Domain.job_state job with
  | Selvedge.Features.Domain.JobRunning=>with_outcome (Selvedge.Features.Domain.JobInterrupted "Service restarted; execution may have happened and will not be replayed") job
  | _=>job end.
-Definition recover value := store (set Selvedge.Features.Domain.sharing_jobs (map (fun item=>(fst item,recover_job (snd item)))) (registry value)) value.
+Definition recover value :=
+ let current := registry value in
+ let rows := fold_right (fun '(id,job) rows => KeyedScope.put id (id,recover_job job) rows)
+   (KeyedScope.empty Selvedge.Features.Domain.job_addresses) (Selvedge.Features.Domain.sharing_jobs current) in
+ store (set Selvedge.Features.Domain.sharing_job_registry (fun _ => rows) current) value.

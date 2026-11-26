@@ -191,6 +191,33 @@ test('model native admission rejects final invalid arguments after hooks and pre
   assert.deepEqual((await service.hooks()).map(event => event.call.id), [...invalidCalls.map(call => call.id), 'primitive-omitted', 'fork-two']);
 });
 
+test('public project writes verify the selected Git workspace before enabling default worktrees', async t => {
+  const service = await fixture(t, async () => done);
+  const ordinary = path.join(service.directory, 'ordinary-project');
+  const repository = path.join(service.directory, 'project-repository');
+  await Promise.all([mkdir(ordinary), mkdir(repository)]);
+  const git = promisify(execFile);
+  const atRepository = args => git('git', ['-C', repository, '-c', 'core.hooksPath=/dev/null',
+    '-c', 'commit.gpgsign=false', '-c', 'user.name=Selvedge', '-c', 'user.email=fixture@example.test', ...args]);
+  await atRepository(['init', '--initial-branch=main']);
+  const workspace = primary => ({ roots: [primary], primary_root: primary });
+  const create = { op: 'create_project', name: 'Release project', workspace: workspace(repository), create_worktree: true };
+  const unavailable = async command => {
+    const reply = await service.command(command);
+    assert.equal(reply.ok, false);
+    assert.match(reply.error.message, /initial commit/);
+  };
+  await unavailable(create);
+  await atRepository(['commit', '--allow-empty', '-m', 'Initial commit']);
+  const { project_id } = (await service.successful(create)).result;
+  await unavailable({ op: 'update_project', project_id, workspace: workspace(ordinary) });
+  const saved = (await service.successful({ op: 'read_project', project_id })).result;
+  assert.equal(saved.create_worktree, true);
+  assert.equal(saved.workspace.primary_root, repository);
+  await service.successful({ op: 'update_project', project_id, workspace: workspace(ordinary), create_worktree: false });
+  await unavailable({ op: 'update_project', project_id, create_worktree: true });
+});
+
 test('authenticated assessment is read-only and shares trusted preparation and command admission', { timeout: 30000 }, async t => {
   const service = await fixture(t, async () => done);
   const workspace = path.join(service.directory, 'project 工作区');

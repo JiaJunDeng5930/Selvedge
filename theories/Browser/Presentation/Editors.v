@@ -215,7 +215,7 @@ Definition creation_workspace snapshot (s:Session.state) e parent (property:UX.p
    (secondary key "Workspace" (Input.OpenActivity e run_environment_request (part parent key))).
 Definition creation_worktree snapshot (s:Session.state) e parent :=
  let draft:=Session.current_draft s e in
- let checked:=Selvedge.Browser.Session.Observation.worktree_required draft in
+ let checked:=Selvedge.Browser.Session.Observation.worktree_selected draft in
  let availability:=if Selvedge.Browser.Session.Observation.cloud_workspace_requested draft then
      Unavailable "云机器启动时检出项目。"
    else if checked then Available else

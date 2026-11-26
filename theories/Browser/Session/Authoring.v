@@ -486,7 +486,7 @@ Definition apply_activity snapshot occurrence (owner:editor) (assignment:Activit
  |Some(actual,request)=>if same_editor owner actual then
  let current:=SS.current_draft state owner in
  let subject:=Activity.assignment_subject assignment in
- if EditorContext.is_run_environment_request request && SO.worktree_required current &&
+ if EditorContext.is_run_environment_request request && SO.worktree_selected current &&
    Json.equal (Schema.encode_value (EM.subject_kind subject) (Activity.assignment_value assignment)) (JString "current")
  then keep state else
  if Parameters.live_configuration owner(EM.subject_declaration(Activity.assignment_subject assignment))then
@@ -744,7 +744,7 @@ Definition ensure_workspace_git snapshot state:=
  let services:=SS.service_state state in
  let draft:=match find(fun owner=>match owner with Identity.Project _=>true|_=>false end)(visible_editors state)with
   |Some project=>let edited:=SS.current_draft state project in
-    if SO.worktree_required edited then edited else SS.current_draft state owner
+    if SO.worktree_required snapshot edited then edited else SS.current_draft state owner
   |None=>SS.current_draft state owner end in
  match SO.directory_preview snapshot state with Some SO.AwaitingDirectory=>keep state|preview=>
  let selected:=match preview with

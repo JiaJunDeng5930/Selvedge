@@ -83,7 +83,7 @@ Definition search (query : string) (project work : option N) (after : N)
  (size : Pagination.size Pagination.search_limit) (include_titles : bool) (value : world) :=
  let limit := proj1_sig size in
  let project_exists := match project with None => true | Some id =>
-   match registry_at id (world_projects value) with Some entry => negb (project_deleted entry) | None => false end end in
+   match find_project id value with Some entry => negb (project_deleted entry) | None => false end end in
  let work_exists := match work with None => true | Some id =>
    match registry_at id (Features.Domain.feature_works (world_features value)) with Some _ => true | None => false end end in
  if negb project_exists then State.failure "project_not_found" "The project does not exist" else

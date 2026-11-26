@@ -20,6 +20,7 @@ Definition workspace_for_edit := Selvedge.Interaction.Submission.Observation.wor
 Definition workspace_git_request := Selvedge.Interaction.Submission.Observation.workspace_git_request.
 Definition workspace_git_request_matches := Selvedge.Interaction.Submission.Observation.workspace_git_request_matches.
 Definition worktree_required := Selvedge.Interaction.Submission.Observation.worktree_required.
+Definition worktree_selected := Selvedge.Interaction.Submission.Observation.worktree_selected.
 Definition cloud_workspace_requested := Selvedge.Interaction.Submission.Observation.cloud_workspace_requested.
 Definition cloud_workspace_configured := Selvedge.Interaction.Submission.Observation.cloud_workspace_configured.
 
@@ -31,7 +32,7 @@ Definition directory_preview snapshot state : option directory_selection_preview
  request<-resource_request listing;;
  let owner:=Services.directory_editor request in
  let draft:=State.current_draft state owner in
- let requires_git:=worktree_required draft in
+ let requires_git:=worktree_selected draft in
  match listing with
  |Loaded _ _ catalog=>match Json.string_field "path" catalog with
   |Some path=>if String.eqb path(Services.directory_location services)then

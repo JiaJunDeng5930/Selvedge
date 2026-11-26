@@ -106,14 +106,15 @@ Proof.
  apply Bool.not_true_is_false. intro available.
  unfold Worktree.root_unused, WorkspaceBinding.root_unused in available; unfold Worktree.lookup in found. rewrite found,backend in available.
  apply Bool.andb_true_iff in available as [_ jobs].
- apply forallb_forall with (x:=(id,job)) in jobs; [|exact member].
+ apply forallb_forall with (x:=(id,job)) in jobs;
+  [|eapply WorkspaceBinding.local_job_selected; eassumption].
  cbn in jobs. unfold WorkspaceBinding.job_uses_root in jobs. rewrite machine,running,resource,uses in jobs. discriminate.
 Qed.
 (** A frozen borrower holds the owner's cloud resource regardless of path text
     or whether the owner later changes its current task settings. *)
 Theorem frozen_cloud_borrower_blocks_archive : forall owner root value tree id task,
  Worktree.lookup owner value=Some tree -> F.worktree_backend tree=WorkspaceBackend.TencentCvm ->
- In (id,task) (indexed (fun id task=>(id,task)) 0 (world_tasks value)) ->
+ find_task id value = Some task ->
  id<>owner -> Worktree.archived task=false ->
  settings_resource (contract_settings (task_contract task))=Some owner ->
  Worktree.root_unused owner root value=false.
@@ -123,7 +124,8 @@ Proof.
  apply Bool.not_true_is_false. intro available.
  unfold Worktree.root_unused, WorkspaceBinding.root_unused in available; unfold Worktree.lookup in found. rewrite found,backend in available.
  apply Bool.andb_true_iff in available as [tasks _].
- apply forallb_forall with (x:=(id,task)) in tasks; [|exact member].
+ apply forallb_forall with (x:=(id,task)) in tasks;
+  [|eapply WorkspaceBinding.resource_task_selected; eassumption].
  cbn in tasks. assert (different:N.eqb owner id=false) by (apply N.eqb_neq;congruence).
  rewrite different,live,reference in tasks. unfold Workspace.same_resource in tasks.
  rewrite N.eqb_refl in tasks. discriminate.
@@ -285,7 +287,7 @@ Qed.
 Theorem a_live_pending_binding_holds_its_owner : forall owner id value task tree archived,
  Worktree.lookup owner value = Some tree ->
  F.worktree_phase tree = F.TreeCreating (RequestEnvelope.Owned archived) ->
- In (id,task) (Selvedge.Foundation.Registry.indexed (fun id task => (id,task)) 0 (world_tasks value)) ->
+ find_task id value = Some task ->
  id <> owner -> Worktree.archived task = false ->
  settings_resource (contract_settings (task_contract task)) = Some owner ->
  Worktree.archive_allowed owner value = false.
@@ -296,7 +298,8 @@ Proof.
  unfold F.worktree_root; rewrite Pending.
  apply Bool.not_true_is_false; intro Available.
  unfold WorkspaceBinding.bound_tasks_unused in Available.
- apply forallb_forall with (x:=(id,task)) in Available; [|exact Member].
+ apply forallb_forall with (x:=(id,task)) in Available;
+  [|eapply WorkspaceBinding.resource_task_selected; eassumption].
  cbn in Available.
  assert (Different : N.eqb owner id = false) by (apply N.eqb_neq; congruence).
  rewrite Different, Live, Bound in Available; unfold Workspace.same_resource in Available.
@@ -313,7 +316,8 @@ Proof.
  apply Bool.not_true_is_false. intro Available.
  unfold Worktree.root_unused, WorkspaceBinding.root_unused in Available; unfold Worktree.lookup in Found. rewrite Found,Backend in Available.
  apply Bool.andb_true_iff in Available as [_ Jobs].
- apply forallb_forall with (x:=(id,job)) in Jobs; [|exact Member].
+ apply forallb_forall with (x:=(id,job)) in Jobs;
+  [|eapply WorkspaceBinding.resource_job_selected; eassumption].
  cbn in Jobs. unfold WorkspaceBinding.job_uses_resource in Jobs.
  rewrite Running,Resource in Jobs. unfold Workspace.same_resource in Jobs.
  rewrite N.eqb_refl in Jobs. discriminate.

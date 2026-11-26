@@ -242,8 +242,8 @@ test('browser command receipts stay small when older conversations and messages 
   const headers = { cookie, origin: running.address };
   const state = async () => (await fetch(`${running.address}/api/browser/state`, { headers })).json();
 
-  async function submit(command) {
-    const { sequence } = await state();
+  async function submit(command, after) {
+    const sequence = after ?? (await state()).sequence;
     const response = await fetch(`${running.address}/api/browser/command`, {
       method: 'POST', headers: { ...headers, 'content-type': 'application/json',
         'x-selvedge-browser-sequence': String(sequence) },
@@ -264,9 +264,15 @@ test('browser command receipts stay small when older conversations and messages 
 
   const small = await freezeAtCurrentSequence();
   assert.equal((await service.command({ op: 'unfreeze', task_id: taskId })).reply.ok, true);
+  const { sequence: beforeOtherMessage } = await state();
   const message = 'Unrelated conversation history. '.repeat(500);
   assert.equal((await service.command({ op: 'send', task_id: otherTask, message })).reply.ok, true);
+  const lagged = await submit({ op: 'freeze', task_id: taskId }, beforeOtherMessage);
+  assert.ok(!lagged.includes(message), 'A missing intervening commit must not put its message in this command receipt');
+  const { reply: frozen } = await service.command({ op: 'read', task_id: taskId });
+  assert.equal(frozen.result.task.status, 'frozen');
   await taskIdle(service, otherTask);
+  assert.equal((await service.command({ op: 'unfreeze', task_id: taskId })).reply.ok, true);
   const large = await freezeAtCurrentSequence();
   assert.ok(large - small < Buffer.byteLength(message), 'The receipt must not copy the unrelated message');
 
