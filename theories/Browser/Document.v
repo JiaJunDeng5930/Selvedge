@@ -811,7 +811,7 @@ Fixpoint surface_heading {A} (value:S.node A) : option string :=
 Definition reading_identity {A}(value:S.node A) := match S.node_meaning value with
  |S.PublishedText document=>CodeSource.source_key(DocumentPublication.published_code_source document)
  |S.RichText source _=>CodeSource.source_key source
- |S.MonitoredText source _ _ _ _ _ _ _=>CodeSource.source_key source
+ |S.MonitoredText source _ _ _ _ _ _=>CodeSource.source_key source
  |_=>S.semantic_key value end.
 
 (** Group headings and their indented members are separate enclosures. *)
@@ -1042,7 +1042,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  (String.append key "/@physical-markdown") (message_markdown_key key) text
  (match provenance with CodeSource.Generated _ _ _ complete=>complete|_=>true end)
  (JObject [("source",CodeSource.encode_source provenance);("view",Observation.encode_view view)])::children))
- |S.MonitoredText provenance tone author avatar phase text joins_previous joins_next=>
+ |S.MonitoredText provenance tone author avatar text joins_previous joins_next=>
    element "article" [("data-monitored-tone",show_natural tone);
      ("data-monitored-continuation",flag joins_previous);("data-monitored-continues",flag joins_next)] [] empty
    ((if joins_next then [] else
@@ -1052,9 +1052,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
        [DOM.Element (key++"/sender-name") "div" [("data-monitored-author","")] [] [] empty [DOM.Text author]]) ++
       [physical_markdown env Typography.Body NativeAppearance.PublishedMarkdown
        (key++"/@physical-markdown") (message_markdown_key key) text true
-       (JObject [("source",CodeSource.encode_source provenance);("view",Observation.encode_view view)])] ++
-      (if String.eqb phase "" then [] else
-       [DOM.Element (key++"/phase") "footer" [("data-monitored-phase","")] [] [] empty [DOM.Text phase]]))])
+       (JObject [("source",CodeSource.encode_source provenance);("view",Observation.encode_view view)])])])
  |S.EmbeddedMarkdown text=>physical_markdown env (if activity then Typography.ActivityPrimary else Typography.Body) NativeAppearance.EmbeddedMarkdown
  (String.append key "/@physical-markdown") key text true empty
  |S.CodeFacts facts=>

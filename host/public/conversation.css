@@ -55,7 +55,7 @@
   min-inline-size: 0;
   /* The compact reader's jump-to-latest button floats over its trailing edge. */
   max-inline-size: min(calc(100% - clamp(28px, 1.5rem, 44px)), 58ch);
-  padding: .38rem .65rem .28rem;
+  padding: .38rem .65rem;
   border: 1px solid var(--selvedge-border);
   border-radius: 12px;
   background: color-mix(in srgb, var(--monitored-tint) 6%, var(--selvedge-surface));
@@ -74,13 +74,6 @@
   font-size: .82rem;
   font-weight: 650;
   overflow-wrap: anywhere;
-}
-[data-monitored-phase] {
-  margin-block-start: .08rem;
-  color: var(--selvedge-muted);
-  font-size: .7rem;
-  line-height: 1.35;
-  text-align: end;
 }
 [data-reading-root]:focus-visible {
   outline-offset: calc(-1 * var(--native-focus-width));

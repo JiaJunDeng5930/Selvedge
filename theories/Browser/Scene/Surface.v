@@ -99,7 +99,7 @@ Inductive meaning (Action : Type) :=
 | EmbeddedMarkdown (value : string)
 | PublishedText (document : DocumentPublication.document)
 | RichText (source : CodeSource.source) (value : string)
-| MonitoredText (source : CodeSource.source) (tone : N) (author avatar phase value : string)
+| MonitoredText (source : CodeSource.source) (tone : N) (author avatar value : string)
     (joins_previous joins_next : bool)
 | CodeFacts (view : CodeBlock.presentation)
 | InteractiveRegion (policy : DocumentPublication.fence_policy)
@@ -393,8 +393,8 @@ Definition map_meaning {A B} (f : A -> B) (value : meaning A) : meaning B :=
   | EmbeddedMarkdown value => EmbeddedMarkdown value
   | PublishedText document => PublishedText document
   | RichText source value => RichText source value
-  | MonitoredText source tone author avatar phase value before after =>
-    MonitoredText source tone author avatar phase value before after
+  | MonitoredText source tone author avatar value before after =>
+    MonitoredText source tone author avatar value before after
   | CodeFacts view => CodeFacts view
   | InteractiveRegion policy => InteractiveRegion policy
   | InteractiveNode component => InteractiveNode component

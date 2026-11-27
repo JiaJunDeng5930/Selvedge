@@ -220,14 +220,10 @@ Definition monitored_node {A} context task occurrence message id previous next :
  let title := bind (DocumentState.find_task id (context_world context)) (string_field "title") in
  let author := value_or ("会话 #" ++ show_natural id) title in
  let avatar := value_or "#" (bind title (Utf8.take 1)) in
- let phase := match string_field "phase" message with
-  | Some "commentary" => "进展"
-  | Some "final_answer" => "最终答复"
-  | _ => "" end in
  let source := CodeSource.Message task occurrence in
  let joins other := value_or false (option_map (N.eqb id) other) in
  S.Node (CodeSource.source_key source) ("message/" ++ show_natural occurrence) author R.MonitoredMessage
-   (S.MonitoredText source (N.modulo id 5) author avatar phase
+   (S.MonitoredText source (N.modulo id 5) author avatar
      (value_or "" (Conversation.json_message_text message)) (joins previous) (joins next)) [].
 Definition task_history_node {A} (action:actions A) context retained interactive task disclosures history previous next entry : S.node A :=
  match entry with
