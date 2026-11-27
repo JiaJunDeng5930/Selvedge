@@ -668,6 +668,9 @@ Definition planned_regions (context : prepared) : option region_plan :=
    |_=>snapshot end in
  let command_state_changed:=section_changed "authoring" ["pending"] before context ||
     section_changed "services" ["connection"] before context in
+ let sender_titles_changed:=if snapshot then flat_map (fun '(old,new) =>
+   if changed_fields ["title"] old new then some_list (natural_field "id" new) else [])
+   (World.changed_task_rows (prepared_world before) world) else [] in
  let per_task view :=
    let task:=task_view_task view in
    let parent:=V.task_parent view in
@@ -679,9 +682,14 @@ Definition planned_regions (context : prepared) : option region_plan :=
    let loading_changed:=negb(Bool.eqb (Read.task_history_loaded task (prepared_world before)) loaded) in
    let waiting_changed:=negb(Bool.eqb (AuditReading.waiting_for_input task (prepared_world before))
      (AuditReading.waiting_for_input task world)) in
+   let sender_changed:=match sender_titles_changed with
+    | [] => false
+    | ids => existsb (fun message => value_or false (option_map (fun id =>
+        existsb (N.eqb id) ids) (AuditReading.monitored_source message)))
+      (AuditReading.task_messages_in world task) end in
    (* Tool execution can begin or settle between two history appends. *)
    let history:=loading_changed || (loaded && (local_reading ||
-     (snapshot && (waiting_changed || task_field_changed ["cursor";"operations";"working"] task before context ||
+     (snapshot && (waiting_changed || sender_changed || task_field_changed ["cursor";"operations";"working"] task before context ||
        world_fields_changed ["tools"] before context)))) in
    let operations:=(snapshot && operation_projection_changed task before context) ||
      (command_state_changed &&
