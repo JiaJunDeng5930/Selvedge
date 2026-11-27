@@ -201,7 +201,7 @@ Proof. split; reflexivity. Qed.
 Theorem nonassistant_provider_context_is_not_a_graph_output : forall origin content,
  Conversation.provider_assistant_message content=false ->
  TaskGraph.assistant_output (ModelContext origin content)=None.
-Proof. intros; cbn [TaskGraph.assistant_output]; now rewrite H. Qed.
+Proof. intros; cbn [TaskGraph.assistant_output Conversation.assistant_output]; now rewrite H. Qed.
 
 Theorem fresh_provider_reply_is_observed : forall before source task origin text,
  K.find_task source before=Some task ->
@@ -215,7 +215,7 @@ Proof.
    task_history task++[ModelContext origin (observed_provider_reply text)]) by (destruct task; reflexivity).
  rewrite history.
  rewrite skipn_app,skipn_all,Nat.sub_diag. cbn.
- unfold TaskGraph.assistant_output.
+ unfold TaskGraph.assistant_output, Conversation.assistant_output.
  cbn [Conversation.provider_assistant_message Conversation.provider_text].
  rewrite producer,N.eqb_refl,string_append_empty,nonempty. reflexivity.
 Qed.

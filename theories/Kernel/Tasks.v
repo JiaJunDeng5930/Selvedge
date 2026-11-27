@@ -8,6 +8,7 @@ From Selvedge.Foundation Require Import Json Utf8 FreshNames.
 From Selvedge.Programming Require Import Refinement.
 From Selvedge.Kernel Require Import Numbers Domain Codec Context ContextUpdates State History ModelCapabilities TaskConstraints.
 From Selvedge.Foundation Require ListCount.
+From Selvedge.Kernel Require TaskMonitoring.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -170,6 +171,9 @@ Definition receive_changes (contents : content) (value : task) : list TaskChange
  match task_lifecycle value with
  | Archived _ => []
  | Frozen _ _ => [TaskChange.AppendQueued contents]
+ | Running (WaitingForInput invocation remaining) _ | Stopped (WaitingForInput invocation remaining) _ =>
+   TaskChange.ChangeStatus TaskChange.RunningStatus ::
+   TaskWake.receive_waiting invocation remaining (task_queued value ++ [contents])
  | Running Idle [] | Running (PendingCalls []) [] | Stopped Idle [] | Stopped (PendingCalls []) [] =>
    [TaskChange.AppendHistory (map UserMessage (task_queued value ++ [contents]));
     TaskChange.ReplaceQueued []; TaskChange.ChangeStatus TaskChange.RunningStatus;
@@ -228,11 +232,14 @@ Definition admit_input {before : world} (target : TaskScope.task_reference befor
  | right _ => CommandResult.Rejected failed_input_reason end.
 
 Inductive input_mode := AppendInput | ReplaceInput.
+Definition steering_receipts (phase : activity) := match phase with
+ | WaitingForInput invocation remaining => TaskWake.wait_result invocation :: map History.cancelled_call remaining
+ | _ => History.interrupted_phase phase end.
 Definition input_changes (mode : input_mode) (contents : content) (task : task) :=
  match mode with
  | AppendInput => receive_changes contents task
  | ReplaceInput => [TaskChange.AppendHistory
-     (History.interrupted_phase (task_activity task) ++ [UserMessage contents]);
+     (steering_receipts (task_activity task) ++ [UserMessage contents]);
      TaskChange.ChangeStatus (match task_lifecycle task with Frozen _ _ => TaskChange.FrozenStatus
        | _ => TaskChange.RunningStatus end); TaskChange.ChangePhase WantsModel]
  end.
@@ -278,9 +285,11 @@ Definition admit_control (command : control) {before : world} (target : TaskScop
 Definition perform_control (command : control) {before : world} (reference : TaskScope.task_reference before)
  (_ : control_admission command reference) :=
  let current := TaskScope.selected reference in
+ let id := TaskScope.owner reference in
+ let updated := TaskChange.interpret (TaskChange.Plan before reference (control_changes command current)) in
  CommandResult.Change JNull
-   (TaskChange.interpret (TaskChange.Plan before reference (control_changes command current)))
-   (control_effects (TaskScope.owner reference) command).
+   (match command with Archive => TaskMonitoring.archive id updated | _ => updated end)
+   (control_effects id command).
 Definition control_result (id : N) (command : control) (before : world) :=
  match TaskScope.select id before with
  | None => CommandResult.refuse "task_not_found" "The target task does not exist"

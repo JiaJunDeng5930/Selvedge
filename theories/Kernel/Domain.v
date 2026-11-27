@@ -255,7 +255,8 @@ Inductive message :=
 | ApprovalReceipt (owner operation : N) (invocation : call) (outcome : json)
 | ToolReceipt (owner operation : N) (invocation : call) (result : json) (error : bool)
 | AfterReceipt (owner operation : N) (plugin : json) (outcome : after_outcome)
-| ForkReceipt (owner : N) (invocation : call) (branch : N).
+| ForkReceipt (owner : N) (invocation : call) (branch : N)
+| MonitoredOutput (origin : output_origin) (text : string).
 
 Fixpoint first_request (messages : list message) : string := match messages with
  | [] => ""
@@ -293,7 +294,8 @@ Inductive activity :=
 | EvaluatingReasoning (ticket : N) (source_length : nat)
 | PendingCalls (calls : list call)
 | ReadyForHooks (invocation : call) (pending : list json) (calls : list call)
-| CheckingHook (ticket : N) (plugin : json) (invocation : call) (remaining : list json) (calls : list call).
+| CheckingHook (ticket : N) (plugin : json) (invocation : call) (remaining : list json) (calls : list call)
+| WaitingForInput (invocation : call) (remaining : list call).
 
 Definition context_follow_up (phase : activity) :=
  match phase with ObservingContext _ _ continuation => continuation | _ => ForInference end.
@@ -376,8 +378,10 @@ Definition with_model_cursor (cursor : nat) (value : task) := set task_model_cur
 (* Only committed input not included in the latest actual model request can
    demand a later inference; model output and administrative receipts do not. *)
 Definition unseen_model_input (value : task) := existsb (fun item => match item with
- | UserMessage _ | FunctionOutput _ _ _ | OperationResult _ _ _ _ | ApprovalReceipt _ _ _ _ => true | _ => false end)
+ | UserMessage _ | MonitoredOutput _ _ | FunctionOutput _ _ _ | OperationResult _ _ _ _ | ApprovalReceipt _ _ _ _ => true | _ => false end)
  (skipn (task_model_cursor value) (task_history value)).
+Definition waiting_input_available (value : task) :=
+ unseen_model_input value || match task_queued value with [] => false | _ => true end.
 Definition with_execution (chosen : profile) (settings : task_settings) (value : task) :=
  set task_current_settings (fun _ => settings) (set task_current_profile (fun _ => chosen) value).
 Definition append_history (messages : list message) (value : task) :=
@@ -405,5 +409,6 @@ Definition task_busy (value : task) :=
 
 Definition activity_name (value : activity) := match value with
  | Idle => "idle" | WantsModel | ReadyForModel | PendingCalls _ => "ready"
+ | WaitingForInput _ _ => "waiting_for_input"
  | ObservingContext _ _ _ => "context_pending" | AskingModel _ _ _ => "model_pending"
  | EvaluatingReasoning _ _ => "reasoning_pending" | ReadyForHooks _ _ _ | CheckingHook _ _ _ _ _ => "hook_pending" end.

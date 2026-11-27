@@ -104,6 +104,7 @@ Definition input_item value profile : outcome (list json) :=
   | Some HistoryRole.Transcript => Accepted [message (str value "speaker") (get value "content")]
   | Some HistoryRole.Delegation => Accepted []
   | Some HistoryRole.Data => Accepted (history_data value)
+  | Some HistoryRole.Monitored => Accepted (history_data value)
   | Some HistoryRole.Context => context_item value
   | Some HistoryRole.User | Some HistoryRole.Assistant =>
     bind (message_content (get value "content") profile) (fun content => Accepted [message role content])

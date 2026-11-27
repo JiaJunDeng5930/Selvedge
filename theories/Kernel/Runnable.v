@@ -25,6 +25,7 @@ Definition task_action (task : task) : option runnable_step :=
      | PendingCalls (first :: rest) => Some (CallStep first rest)
      | PendingCalls [] => Some FinishCallsStep
      | Idle => match task_queued task with [] => None | _ => Some PromoteInputStep end
+     | WaitingForInput _ _ => if waiting_input_available task then Some PromoteInputStep else None
      | _ => None end end
  | Stopped phase operations => match ready_settlement operations with
    | Some operation => Some (OperationStep operation)

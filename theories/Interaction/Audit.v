@@ -6,7 +6,7 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
 
-Definition speech message := existsb(String.eqb(value_or ""(Conversation.json_message_role message)))["user";"assistant"].
+Definition speech message := existsb(String.eqb(value_or ""(Conversation.json_message_role message)))["user";"assistant";"monitored_output"].
 Definition hidden message := String.eqb(text "role" message)"speech_delegation_receipt".
 Definition failed message :=
  let decision:=text "decision"(value_or JNull(field "content" message))in

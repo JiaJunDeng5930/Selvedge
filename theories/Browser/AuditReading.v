@@ -33,7 +33,8 @@ Definition control {A} key label (input:A) :=
   (S.Activate (M.Control key label M.Secondary input M.Available)) [].
 Definition fact {A} key value : S.node A := S.Node key "conversation/fact" "" R.Content (S.Fact value) [].
 Definition source_for namespace task occurrence message :=
- match bind (field "origin" message) Origin.decode_origin with
+ match (if String.eqb (text "role" message) "monitored_output" then None
+   else bind (field "origin" message) Origin.decode_origin) with
  |Some origin=>CodeSource.Generated namespace task origin true
  |None=>CodeSource.Message task occurrence end.
 Definition history_target namespace task occurrence message:=
@@ -67,11 +68,24 @@ Definition reading {A} source value retained : S.meaning A :=
 Definition speech {A} action context retained interactive task occurrence message : S.node A :=
  let source:=source_for (context_namespace context) task occurrence message in
  let key:=CodeSource.source_key source in
+ let monitored:=String.eqb (text "role" message) "monitored_output" in
  S.Node key ("message/"++show_natural occurrence) "Message"
-  (if Conversation.json_message_assistant message ||
+  (if monitored then R.MonitoredMessage else if Conversation.json_message_assistant message ||
     String.eqb (value_or "" (Conversation.json_message_role message)) "assistant"
    then R.AssistantMessage else R.UserMessage)
-  (reading source (value_or "" (Conversation.json_message_text message)) retained)
+  (let body := value_or "" (Conversation.json_message_text message) in
+   let shown := if monitored then
+     let source := bind (field "origin" message) (natural_field "producer_task") in
+     let phase := match string_field "phase" message with
+       | Some "commentary" => Some "进展"
+       | Some "final_answer" => Some "最终答复"
+       | _ => None end in
+     match source,phase with
+     | Some id,Some phase => "**会话 #" ++ show_natural id ++ " · " ++ phase ++ "**
+
+" ++ body
+     | _,_ => body end else body in
+   reading source shown retained)
   (attachments action context retained interactive source).
 Definition group {A} (action:actions A) context retained interactive task disclosures history (entry:Audit.group) : S.node A :=
  match entry with
@@ -204,13 +218,17 @@ Definition process_step {A} (action:actions A) context retained interactive task
  end.
 Definition step_invocations step :=
  match step with TaskHistory.Tools first rest=>first::rest | _=>[] end.
+Definition waiting_for_input task world :=
+ value_or false (option_map (fun task => String.eqb (text "phase" task) "waiting_for_input")
+   (DocumentState.find_task task world)).
 Definition task_history_node {A} (action:actions A) context retained interactive task disclosures history entry : S.node A :=
  match entry with
  |TaskHistory.Speech (index,message)=>speech action.(reading_interactive) context retained interactive task (N.of_nat index) message
  |TaskHistory.Process index steps ended=>
-   let running:=negb ended && value_or false
+   let waiting:=negb ended && waiting_for_input task (context_world context) in
+   let running:=negb ended && negb waiting && value_or false
      (option_map (flag "working") (DocumentState.find_task task (context_world context))) in
-   let title:=if running then "处理中…" else "处理完成" in
+   let title:=if waiting then "等待输入" else if running then "处理中…" else "处理完成" in
    let key:="task-process/"++show_nat index in
    let '(expanded,toggle):=history_card_control action task key title index 0%N (negb ended) disclosures in
    let latest:=if running then option_map (invocation_face context task) (latest_tool (flat_map step_invocations steps)) else None in

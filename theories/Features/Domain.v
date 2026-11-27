@@ -2,7 +2,7 @@ From Stdlib Require Import String List Bool NArith Numbers.DecimalString.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Foundation Require IndexedRegistry ScopedRegistry KeyedScope.
 From Selvedge.Programming Require Import Schema RequestEnvelope FiniteChoice.
-From Selvedge.Features Require WorkflowTypes.
+From Selvedge.Features Require WorkflowTypes TaskMonitoringTypes.
 From Selvedge.Features Require Import Titles CompactionTypes ConnectionGrants BoardClock.
 From Selvedge.Kernel Require Import Domain ChatgptArguments WorkspaceBackend Codec.
 From Selvedge.Kernel Require WorkspaceUses.
@@ -128,12 +128,14 @@ Record state := State {
  feature_workflows : list (option (@WorkflowTypes.definition graph_message));
  feature_instances : ScopedRegistry.t (@WorkflowTypes.instance_in_progress graph_message);
  feature_ticket_workflows : list (N * WorkflowTypes.invocation);
- feature_ticket_instances : list (N * N)
+ feature_ticket_instances : list (N * N);
+ feature_task_monitoring : TaskMonitoringTypes.registry
 }.
 Definition initial := State (Board IndexedRegistry.empty [] false ""%string []) [] [] [] []
  (Remote false [] 1 []) (ConnectionState ConnectionGrants.Grants.empty (KeyedScope.empty job_addresses) 0) (IndexedRegistry.Slots.empty title_state)
  (TitleSettings 0 Titles.default_board_instructions Titles.default_instructions None) CompactionTypes.initial []
- (ScopedRegistry.empty (@WorkflowTypes.instance_in_progress graph_message)) [] [].
+ (ScopedRegistry.empty (@WorkflowTypes.instance_in_progress graph_message)) [] []
+ (KeyedScope.empty TaskMonitoringTypes.observers).
 
 Definition resource_json (tree : worktree) := JObject [
  ("task_id"%string, JNumber (show_natural (worktree_task tree)));

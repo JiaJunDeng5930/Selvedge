@@ -25,8 +25,10 @@ Definition shared_command_binding (name : string) :=
 Definition bindings := [
  CommandBinding "choose_workflow_connection" "choose_workflow_connection" None
    "Choose one of the outgoing connection keys supplied for the current workflow delivery. Call this before giving your final answer. The final answer is forwarded over the selected connection.";
-  CommandBinding "create_task" "create" None "Create an independent task with a configured model. Settings obey the caller's workspace and permission bounds.";
-  CommandBinding "fork_task" "fork" (Some "task_id") "Fork this task within every ancestor's descendant limit. The caller receives 0 and each child receives its one-based branch number. Supply no messages or exactly one message per child.";
+  CommandBinding "create_task" "create" None "Create an independent task with a configured model. Settings obey the caller's workspace and permission bounds. Set monitor to true to receive its future commentary and final answers automatically.";
+  CommandBinding "fork_task" "fork" (Some "task_id") "Fork this task within every ancestor's descendant limit. The caller receives 0 and each child receives its one-based branch number. Supply no messages or exactly one message per child. Set monitor to true to receive each child's future commentary and final answers automatically.";
+  CommandBinding "monitor_task" "monitor_task" None "Receive this task's future commentary and final answers automatically in your history. Monitoring lasts across turns until you cancel it or either task is archived.";
+  CommandBinding "unmonitor_task" "unmonitor_task" None "Stop receiving new messages from this task. Messages already received stay in your history.";
   CommandBinding "search_history" "search_history" None "Search committed user and assistant messages by literal keyword or phrase (ASCII case-insensitive). Restrict to a project or Work, or both. Message matches include a zero-based message_index; use read_task with after=message_index to read the original message. Set include_titles to also find conversations by their current title.";
  CommandBinding "read_task" "read" None "Read a task's identity, lifecycle, available controls and a bounded page of its original history.";
  CommandBinding "read_current_task" "read" (Some "task_id") "Read this task's identity, lifecycle and Work ownership.";
@@ -110,7 +112,15 @@ Definition discover_arguments := map (fun field =>
 Definition discover_entry := Tool "discover_tools"
   "Find external MCP and plugin tools by keywords, or load complete definitions with exact names. External function declarations are a lightweight directory, not parameter definitions. Discover an unfamiliar external tool before calling it and copy its parameters from the result. names bypasses query, offset and limit; unknown names are returned in missing. Without query or names, returns a bounded directory page; use offset for later pages. Definitions remain ordinary tool results, so rediscover after compaction if needed."
   (NativeToolSource discover_arguments (JObject [("kind", JString "Discover")])).
-Definition catalog (max_fork : N) := discover_entry ::
+Definition wait_name := "wait".
+Definition wait_entry := Tool wait_name
+ "Suspend this task without a final answer until new input arrives. This call returns 0 on resumption. Input may come from the user, a monitored task, another task, or a pending operation. Call it separately when other calls in the same turn are needed to produce input."
+ (NativeToolSource [] (JObject [("kind", JString "Wait")])).
+Definition is_wait (definition : tool) :=
+ match tool_origin definition with
+ | NativeToolSource _ program => String.eqb (text_default "kind" program "") "Wait"
+ | _ => false end.
+Definition catalog (max_fork : N) := discover_entry :: wait_entry ::
   map primitive_entry [Bash; ReadProcess; WriteProcess; ReadImage] ++ flat_map (binding_entry max_fork) bindings.
 Definition find_binding (name : string) := find (fun binding => String.eqb name (binding_tool binding)) bindings.
 Definition admit_command (caller : N) (invocation : call) : option Selvedge.Generated.Commands.admitted_command :=
@@ -139,7 +149,7 @@ Definition arguments_valid (definition : tool) (invocation : call) :=
    | None => Arguments.valid parameters (call_arguments invocation) &&
      match find_binding (call_name invocation) with
      | Some _ => true
-     | None => String.eqb (call_name invocation) "discover_tools"
+     | None => String.eqb (call_name invocation) "discover_tools" || String.eqb (call_name invocation) wait_name
      end
    end
  | _ => false

@@ -1,4 +1,4 @@
-From Selvedge.Kernel Require TaskWake.
+From Selvedge.Kernel Require TaskWake TaskMonitoring.
 From Selvedge.Programming Require TaskBirth TaskResult.
 From Selvedge.Programming Require Callback.
 From Selvedge.Programming Require InputRoute.
@@ -452,7 +452,13 @@ Definition handle_create_result (payload:Selvedge.Generated.Commands.create_payl
      (Selvedge.Generated.Commands.create_reasoning payload) contents
      (option_map (Codec.settings_request_of_values true) (Selvedge.Generated.Commands.create_settings_admitted payload)) false caller None value).
 Definition handle_create (payload:Selvedge.Generated.Commands.create_payload) (caller:option N) (value:world) :decision :=
- creation_decision (handle_create_result payload caller value).
+ CommandResult.commit value (fun created =>
+  let change := transition_change created in
+  match caller, Selvedge.Generated.Commands.create_monitor payload with
+  | Some observer, Some true => CommandResult.Change (CommandResult.change_value change)
+    (TaskMonitoring.subscribe observer (transition_identity created) (CommandResult.change_world change))
+    (CommandResult.change_effects change)
+  | _, _ => change end) (handle_create_result payload caller value).
 Definition handle_create_idle (payload:Selvedge.Generated.Commands.create_idle_payload) (caller:option N) (value:world) :decision :=
  create_idle_owned
    (Selvedge.Generated.Commands.create_idle_work_id payload) (Selvedge.Generated.Commands.create_idle_profile payload)

@@ -78,7 +78,7 @@ Theorem steering_replaces_inference_and_preserves_independent_work :
     | _ => Running WantsModel (task_operations current) end) /\
  task_queued updated = task_queued current /\
  task_history updated = task_history current ++
-   (History.interrupted_phase (task_activity current) ++ [UserMessage contents]) /\
+   (Tasks.steering_receipts (task_activity current) ++ [UserMessage contents]) /\
  decision_effects (Tasks.steer id contents value) =
    (match task_activity current with
     | ObservingContext ticket _ _ | AskingModel ticket _ _ | EvaluatingReasoning ticket _

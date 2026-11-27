@@ -246,6 +246,17 @@ Export SchedulerProofs(continuation_tracks_available_work,
   a_full_task_records_external_call_refusal,
   a_full_task_refuses_native_result_work_before_execution).
 
+From Selvedge.Kernel Require TaskMonitoringProofs.
+Export TaskMonitoringProofs(monitoring_preserves_actual_assistant_output,
+  a_wait_cannot_suspend_with_unseen_input, a_wait_without_input_has_no_main_action,
+  monitored_input_resumes_a_suspended_call).
+
+(** Monitoring follows the task across model turns. Delivery retains the source
+    and phase of a committed assistant message and wakes the observer through
+    normal task input. A wait checks inputs since the observer's last model
+    request so even an arrival during that request cannot strand the task.
+    Resumption settles the original invocation once before accepting new input. *)
+
 (** After an admitted scheduling pass exhausts its budget, the continuation
     predicate must agree with whether an eligible step remains.
     [continuation_tracks_available_work] connects that predicate to the actual

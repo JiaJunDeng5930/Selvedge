@@ -209,7 +209,7 @@ Definition role_tag role := match role with
  | Roles.NavigationHeader | Roles.DialogHeader => "div"
  | Roles.Main => "main" | Roles.Heading => "h2"
  | Roles.Section | Roles.Activity | Roles.Approval => "section"
-  | Roles.UserMessage | Roles.AssistantMessage => "article"
+  | Roles.UserMessage | Roles.AssistantMessage | Roles.MonitoredMessage => "article"
  | Roles.Decorative => "span"
   | Roles.Dialog => "dialog" | Roles.DialogActions => "footer" | _ => "div" end.
 Definition text_tag role := match role with
@@ -688,9 +688,12 @@ Definition native_node_dimensions {A} role current_area (meaning:S.meaning A) :=
  | S.SupportingControl _ _ _ _ | S.SkillSuggestion _ _ => true
  | S.InformationText _ | S.Fact _ | S.ReadOnly _ => false
  | S.Choice _ _ _ _ => match current_area with BoardViewArea=>true|_=>false end
- | _ => match role with Roles.UserMessage=>true|_=>false end end in
+ | _ => match role with Roles.UserMessage | Roles.MonitoredMessage => true | _ => false end end in
  [("inline-size",if intrinsic then "fit-content"else"100%");("block-size","fit-content")] ++
- match role with Roles.UserMessage=>[("align-self","flex-end")]|_=>[]end.
+ match role with
+ | Roles.UserMessage => [("align-self","flex-end")]
+ | Roles.MonitoredMessage => [("align-self","flex-start")]
+ | _ => [] end.
 Definition navigation_child_properties {A} (source:S.meaning A) role : list(string*string) :=
  match source with
  |S.NavigationRegion NavigationIdentity.TasksDrawer _=>match role with
@@ -875,7 +878,12 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  (if single_line then ControlContent.single_line_attributes label else []) ++
  (if String.eqb (S.semantic_key value) "task-commentary" then [("data-task-commentary","")] else []) ++
  (match meaning with S.ActionUnit _ _=>[("data-focus-owner","aggregate")]|_=>[]end) ++
- (match role with Roles.Timeline=>[("tabindex","0")]|Roles.UserMessage|Roles.AssistantMessage|Roles.Activity=>[("data-reading-anchor","true");("data-reading-identity",reading_identity value)]|Roles.Composer=>[("data-composer-dock","true");("data-focus-owner","aggregate")]|_=>[] end) ++
+ (match role with
+  | Roles.Timeline => [("tabindex","0")]
+  | Roles.UserMessage | Roles.AssistantMessage | Roles.MonitoredMessage | Roles.Activity =>
+    [("data-reading-anchor","true");("data-reading-identity",reading_identity value)]
+  | Roles.Composer => [("data-composer-dock","true");("data-focus-owner","aggregate")]
+  | _ => [] end) ++
  (if supporting then ControlContent.support_row_attributes key
   else if responsive then [("data-native-responsive-row",key);("data-native-row-direction","column")] else []) in
  let styles:=node_styles describe env activity source role meaning current_area supporting responsive in

@@ -4,6 +4,7 @@ From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Inputs Scheduler.
 From Selvedge.Programming Require Import TaskScope.
 From Selvedge.Kernel Require Import CommandExecution ForkCommit.
+From Selvedge.Kernel Require TaskMonitoring TaskConstraints.
 From Selvedge.Features Require Import Runtime.
 Import ListNotations.
 
@@ -38,6 +39,18 @@ Definition business_result {before : world} (accepted : plan before) :=
  CommandExecution.handle_fork_result (Scheduler.native_fork_request step)
      (Some (Tasks.NativeCall (Scheduler.native_fork_owner step)
        (Scheduler.native_fork_invocation step) (Scheduler.native_fork_remaining step))) started.
+Definition monitor_children {before : world} (accepted : plan before) (change : CommandResult.change) :=
+ let step := planned_step accepted in
+ let request := Scheduler.native_fork_request step in
+ match Commands.fork_monitor request with
+ | Some true =>
+   let first := next_task before in
+   let children := seq 0 (N.to_nat (proj1_sig (Commands.fork_child_count_admitted request))) in
+   let updated := fold_left (fun value offset =>
+    TaskMonitoring.subscribe (Scheduler.native_fork_owner step) (first + N.of_nat offset)%N value)
+    children (CommandResult.change_world change) in
+   CommandResult.Change (CommandResult.change_value change) updated (CommandResult.change_effects change)
+ | _ => change end.
 Definition settle_result owner invocation remaining before (outcome : CommandResult.result CommandResult.change) :=
  let result := CommandResult.decide before outcome in
  let '(value,failed) := match outcome with
@@ -47,7 +60,8 @@ Definition settle_result owner invocation remaining before (outcome : CommandRes
 Definition interpret {before : world} (accepted : plan before) :=
  let step := planned_step accepted in
  settle_result (Scheduler.native_fork_owner step) (Scheduler.native_fork_invocation step)
-   (Scheduler.native_fork_remaining step) (started_world accepted) (business_result accepted).
+   (Scheduler.native_fork_remaining step) (started_world accepted)
+   (CommandResult.map (monitor_children accepted) (business_result accepted)).
 Definition candidate {before : world} (accepted : plan before) :=
  let result := interpret accepted in
  (* The native invocation already receives its exact business result through

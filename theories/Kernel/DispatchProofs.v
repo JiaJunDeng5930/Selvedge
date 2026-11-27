@@ -179,7 +179,7 @@ Proof.
  destruct (task_activity current) as
    [| | | expected revision continuation | modelTicket callable mode
     | reasoningTicket length | calls | invocation pending remaining
-    | hookTicket plugin invocation pending remaining] eqn:Phase; try reflexivity.
+    | hookTicket plugin invocation pending remaining | invocation remaining] eqn:Phase; try reflexivity.
  destruct (N.eqb expected ticket) eqn:Matches; [|reflexivity].
  apply N.eqb_eq in Matches; subst expected.
  exfalso; apply (WrongPhase revision continuation); reflexivity.

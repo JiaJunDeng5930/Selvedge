@@ -60,7 +60,7 @@ Record command_declaration := DeclareCommand {
 Definition declared_schema (declaration : command_declaration) := command_shape (declared_wire declaration).
 Definition command_declarations : list command_declaration := [
   DeclareCommand WorktreeChange TaskExcluded (WireCommand "configure_task_execution" (task_identity ++ [opt "profile" KText; opt "reasoning" KText; typed (sandbox_patch_declaration) (opt "sandbox" KJson); typed (approval_declaration) (opt "approval" KJson)]));
-  DeclareCommand WorktreeChange TaskAllowed (WireCommand "create" creation_fields);
+  DeclareCommand WorktreeChange TaskAllowed (WireCommand "create" (creation_fields ++ [opt "monitor" KBool]));
   DeclareCommand WorktreeChange TaskExcluded (WireCommand "create_idle" ([req "profile" KText; opt "reasoning" KText; staged settings_declaration (opt "settings" KJson); u32 (opt "work_id" KNatural); opt "create_worktree" KBool]));
   DeclareCommand KernelChange TaskAllowed (WireCommand "send" (task_identity ++ content_fields));
   DeclareCommand KernelChange TaskExcluded (WireCommand "steer" (task_identity ++ content_fields));
@@ -70,7 +70,9 @@ Definition command_declarations : list command_declaration := [
   DeclareCommand KernelChange TaskExcluded (WireCommand "stop" task_identity);
   DeclareCommand KernelChange TaskExcluded (WireCommand "interrupt" task_identity);
   DeclareCommand KernelChange TaskAllowed (WireCommand "archive" task_identity);
-  DeclareCommand KernelChange TaskAllowed (WireCommand "fork" (task_identity ++ [typed TaskConstraints.fork_count_declaration (req "child_count" KNatural); typed (D.Array content_declaration) (opt "messages" (KArray KJson)); staged settings_declaration (opt "settings" KJson); nullable "settings_origin" (KEnum "parent" ["environment"])]));
+  DeclareCommand KernelChange TaskAllowed (WireCommand "fork" (task_identity ++ [typed TaskConstraints.fork_count_declaration (req "child_count" KNatural); typed (D.Array content_declaration) (opt "messages" (KArray KJson)); staged settings_declaration (opt "settings" KJson); nullable "settings_origin" (KEnum "parent" ["environment"]); opt "monitor" KBool]));
+  DeclareCommand KernelChange TaskAllowed (WireCommand "monitor_task" task_identity);
+  DeclareCommand KernelChange TaskAllowed (WireCommand "unmonitor_task" task_identity);
   DeclareCommand KernelChange TaskExcluded (WireCommand "open_side_conversation" (task_identity ++ content_fields));
   DeclareCommand KernelChange TaskExcluded (WireCommand "return_side_conversation" task_identity);
   DeclareCommand CompactionChange TaskExcluded (WireCommand "compact" (task_identity ++ [typed Compaction.summary_declaration (opt "summary" KText)]));

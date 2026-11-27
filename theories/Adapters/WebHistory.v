@@ -26,6 +26,7 @@ Definition history_item item : outcome (list json) :=
   | Some HistoryRole.Transcript => Accepted [message (str item "speaker") (get item "content")]
   | Some HistoryRole.Delegation => Accepted []
   | Some HistoryRole.Data => history_data item
+  | Some HistoryRole.Monitored => history_data item
   | Some HistoryRole.Context =>
     match str item "type" with
     | "environment_notice" => Accepted [message "developer" (get item "content")]

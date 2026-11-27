@@ -677,9 +677,11 @@ Definition planned_regions (context : prepared) : option region_plan :=
      (Pages.reader_disclosures task (prepared_state before)) (Pages.reader_disclosures task (prepared_state context))) in
    let loaded:=Read.task_history_loaded task world in
    let loading_changed:=negb(Bool.eqb (Read.task_history_loaded task (prepared_world before)) loaded) in
+   let waiting_changed:=negb(Bool.eqb (AuditReading.waiting_for_input task (prepared_world before))
+     (AuditReading.waiting_for_input task world)) in
    (* Tool execution can begin or settle between two history appends. *)
    let history:=loading_changed || (loaded && (local_reading ||
-     (snapshot && (task_field_changed ["cursor";"operations";"working"] task before context ||
+     (snapshot && (waiting_changed || task_field_changed ["cursor";"operations";"working"] task before context ||
        world_fields_changed ["tools"] before context)))) in
    let operations:=(snapshot && operation_projection_changed task before context) ||
      (command_state_changed &&

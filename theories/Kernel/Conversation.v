@@ -27,6 +27,12 @@ Definition provider_part_text (value : json) :=
 Definition provider_text (value : json) :=
  fold_right (fun part text => String.append (provider_part_text part) text) ""
   (array_default "content" (provider_value value)).
+Definition assistant_output (item : message) : option (output_origin * string) :=
+ match item with
+ | AssistantMessage origin text => Some (origin,text)
+ | ModelContext origin content =>
+   if provider_assistant_message content then Some (origin,provider_text content) else None
+ | _ => None end.
 Definition content_part_text (value : json) :=
  match string_field "type" value with
  | Some "text" => text_default "text" value ""
