@@ -133,7 +133,7 @@ Definition activity_entry item := match item with
 Definition visible calls (item : entry) : option (entry + activity) :=
  let '(position,message) := item in
  match Conversation.json_message_role message with
- | Some "user" => Some (inl item)
+ | Some "user" | Some "monitored_output" => Some (inl item)
  | Some "assistant" => match KCodec.assistant_phase_from_json message with
    | Some Domain.Commentary => Some (inr (Explain item))
    | _ => Some (inl item) end

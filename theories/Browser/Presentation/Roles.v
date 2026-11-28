@@ -12,7 +12,7 @@ Inductive role :=
 | NavigationCollection | NavigationSection
 | Main | Heading | PrimaryButton | DestructiveButton | SelectedButton
 | ComposerActions | DialogActions | DialogHeader | DialogBody | Timeline | Activity
-| UserMessage | AssistantMessage | Composer | Approval | Toolbar | CodeBlock
+| UserMessage | AssistantMessage | MonitoredMessage | Composer | Approval | Toolbar | CodeBlock
 | ApprovalQueue | Section | Dialog | Menu | Details | Card | Button | Field
 | Content | Decorative | Alert.
 
@@ -33,6 +33,7 @@ Definition role_name value :=
   | DialogActions => "dialog-actions" | DialogHeader => "dialog-header"
   | DialogBody => "dialog-body" | Timeline => "timeline" | Activity => "activity"
   | UserMessage => "user-message" | AssistantMessage => "assistant-message"
+  | MonitoredMessage => "monitored-message"
   | Composer => "composer" | Approval => "approval" | Toolbar => "toolbar"
   | CodeBlock => "code-block" | ApprovalQueue => "approval-queue" | Section => "section"
   | Dialog => "dialog" | Menu => "menu" | Details => "details" | Card => "card"

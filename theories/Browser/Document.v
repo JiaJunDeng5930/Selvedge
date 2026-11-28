@@ -209,7 +209,7 @@ Definition role_tag role := match role with
  | Roles.NavigationHeader | Roles.DialogHeader => "div"
  | Roles.Main => "main" | Roles.Heading => "h2"
  | Roles.Section | Roles.Activity | Roles.Approval => "section"
-  | Roles.UserMessage | Roles.AssistantMessage => "article"
+  | Roles.UserMessage | Roles.AssistantMessage | Roles.MonitoredMessage => "article"
  | Roles.Decorative => "span"
   | Roles.Dialog => "dialog" | Roles.DialogActions => "footer" | _ => "div" end.
 Definition text_tag role := match role with
@@ -688,9 +688,11 @@ Definition native_node_dimensions {A} role current_area (meaning:S.meaning A) :=
  | S.SupportingControl _ _ _ _ | S.SkillSuggestion _ _ => true
  | S.InformationText _ | S.Fact _ | S.ReadOnly _ => false
  | S.Choice _ _ _ _ => match current_area with BoardViewArea=>true|_=>false end
- | _ => match role with Roles.UserMessage=>true|_=>false end end in
+ | _ => match role with Roles.UserMessage => true | _ => false end end in
  [("inline-size",if intrinsic then "fit-content"else"100%");("block-size","fit-content")] ++
- match role with Roles.UserMessage=>[("align-self","flex-end")]|_=>[]end.
+ match role with
+ | Roles.UserMessage => [("align-self","flex-end")]
+ | _ => [] end.
 Definition navigation_child_properties {A} (source:S.meaning A) role : list(string*string) :=
  match source with
  |S.NavigationRegion NavigationIdentity.TasksDrawer _=>match role with
@@ -809,6 +811,7 @@ Fixpoint surface_heading {A} (value:S.node A) : option string :=
 Definition reading_identity {A}(value:S.node A) := match S.node_meaning value with
  |S.PublishedText document=>CodeSource.source_key(DocumentPublication.published_code_source document)
  |S.RichText source _=>CodeSource.source_key source
+ |S.MonitoredText source _ _ _ _ _ _=>CodeSource.source_key source
  |_=>S.semantic_key value end.
 
 (** Group headings and their indented members are separate enclosures. *)
@@ -875,7 +878,12 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  (if single_line then ControlContent.single_line_attributes label else []) ++
  (if String.eqb (S.semantic_key value) "task-commentary" then [("data-task-commentary","")] else []) ++
  (match meaning with S.ActionUnit _ _=>[("data-focus-owner","aggregate")]|_=>[]end) ++
- (match role with Roles.Timeline=>[("tabindex","0")]|Roles.UserMessage|Roles.AssistantMessage|Roles.Activity=>[("data-reading-anchor","true");("data-reading-identity",reading_identity value)]|Roles.Composer=>[("data-composer-dock","true");("data-focus-owner","aggregate")]|_=>[] end) ++
+ (match role with
+  | Roles.Timeline => [("tabindex","0")]
+  | Roles.UserMessage | Roles.AssistantMessage | Roles.MonitoredMessage | Roles.Activity =>
+    [("data-reading-anchor","true");("data-reading-identity",reading_identity value)]
+  | Roles.Composer => [("data-composer-dock","true");("data-focus-owner","aggregate")]
+  | _ => [] end) ++
  (if supporting then ControlContent.support_row_attributes key
   else if responsive then [("data-native-responsive-row",key);("data-native-row-direction","column")] else []) in
  let styles:=node_styles describe env activity source role meaning current_area supporting responsive in
@@ -1034,6 +1042,17 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  (String.append key "/@physical-markdown") (message_markdown_key key) text
  (match provenance with CodeSource.Generated _ _ _ complete=>complete|_=>true end)
  (JObject [("source",CodeSource.encode_source provenance);("view",Observation.encode_view view)])::children))
+ |S.MonitoredText provenance tone author avatar text joins_previous joins_next=>
+   element "article" [("data-monitored-tone",show_natural tone);
+     ("data-monitored-continuation",flag joins_previous);("data-monitored-continues",flag joins_next)] [] empty
+   ((if joins_next then [] else
+     [DOM.Element (key++"/sender-avatar") "span" [("data-monitored-avatar","");("aria-hidden","true")] [] [] empty [DOM.Text avatar]]) ++
+    [DOM.Element (key++"/bubble") "div" [("data-monitored-bubble","")] [] [] empty
+     ((if joins_previous then [] else
+       [DOM.Element (key++"/sender-name") "div" [("data-monitored-author","")] [] [] empty [DOM.Text author]]) ++
+      [physical_markdown env Typography.Body NativeAppearance.PublishedMarkdown
+       (key++"/@physical-markdown") (message_markdown_key key) text true
+       (JObject [("source",CodeSource.encode_source provenance);("view",Observation.encode_view view)])])])
  |S.EmbeddedMarkdown text=>physical_markdown env (if activity then Typography.ActivityPrimary else Typography.Body) NativeAppearance.EmbeddedMarkdown
  (String.append key "/@physical-markdown") key text true empty
  |S.CodeFacts facts=>

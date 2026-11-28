@@ -12,6 +12,28 @@ Open Scope string_scope.
 Open Scope list_scope.
 Module G := Selvedge.Generated.Commands.
 
+Lemma monitoring_a_new_child_keeps_fork_effects : forall before (accepted : NativeForkCommit.plan before) change,
+ CommandResult.change_effects (NativeForkCommit.monitor_children accepted change) =
+ CommandResult.change_effects change.
+Proof.
+ intros. unfold NativeForkCommit.monitor_children.
+ destruct (G.fork_monitor (Scheduler.native_fork_request (NativeForkCommit.planned_step accepted))) as [[]|];
+ reflexivity.
+Qed.
+
+Lemma settling_a_native_fork_keeps_its_effects owner invocation remaining before outcome :
+ decision_effects (NativeForkCommit.settle_result owner invocation remaining before outcome) =
+ decision_effects (CommandResult.decide before outcome).
+Proof.
+ unfold NativeForkCommit.settle_result, Scheduler.finish_call.
+ destruct outcome; cbn zeta;
+ match goal with |- context [find_task ?id ?value] => destruct (find_task id value) end;
+ cbn [DecisionComposition.follow DecisionComposition.run DecisionComposition.transform DecisionComposition.maintain
+   DecisionComposition.from_decision DecisionComposition.appended_effects Scheduler.internal_result
+   Callbacks.acknowledged accept decision_effects snd];
+ now rewrite ?app_nil_r.
+Qed.
+
 Theorem a_native_fork_transaction_acknowledges_its_delivery :
  forall before (accepted : NativeForkCommit.plan before),
  decision_reply (NativeForkCommit.candidate accepted) = success JNull /\
@@ -22,14 +44,12 @@ Proof.
    | CommandResult.Accepted change => CommandResult.change_effects change = []
    | CommandResult.Rejected _ => True end).
  { unfold NativeForkCommit.business_result; apply fork_command_has_no_external_effects. }
- unfold NativeForkCommit.candidate, NativeForkCommit.interpret, NativeForkCommit.settle_result.
- destruct (NativeForkCommit.business_result accepted) as [[value next effects]|reason];
-   cbn in Empty; try subst effects;
-   unfold Scheduler.finish_call;
-   cbn [CommandResult.decide CommandResult.resolve CommandResult.accept CommandResult.reject
-     CommandResult.change_world CommandResult.change_value CommandResult.change_effects
-     decision_world accept reject].
- all: destruct (find_task _ _); reflexivity.
+ unfold NativeForkCommit.candidate, NativeForkCommit.interpret.
+ cbn [accept decision_effects]. rewrite settling_a_native_fork_keeps_its_effects.
+ destruct (NativeForkCommit.business_result accepted) as [change|reason]; [|reflexivity].
+ change (CommandResult.change_effects (NativeForkCommit.monitor_children accepted change) ++
+   [ContinueScheduling] = [ContinueScheduling]).
+ now rewrite monitoring_a_new_child_keeps_fork_effects, Empty.
 Qed.
 
 Lemma every_native_fork_plan_has_its_actual_final_dispatch_gate :
@@ -94,6 +114,7 @@ Proof.
  destruct Started as [current [Started [History Plugins]]].
  unfold NativeForkCommit.candidate, NativeForkCommit.interpret, NativeForkCommit.settle_result.
  fold step; rewrite Refused.
+ cbn [CommandResult.map CommandResult.bind].
  cbn [CommandResult.decide CommandResult.resolve CommandResult.reject CommandResult.refusal_code
    CommandResult.refusal_message reject decision_world decision_effects].
  unfold Scheduler.finish_call, CommandResult.reject.

@@ -2,6 +2,7 @@ From Stdlib Require Import String List NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Kernel Require Import Domain State Queries CommandExecution Tasks.
+From Selvedge.Kernel Require TaskMonitoring.
 From Selvedge.Features Require Import Work Board Worktree TaskGraph Remote Chatgpt Compaction TitleRuntime WorkspaceBinding Workflow.
 Module G := Selvedge.Generated.Commands.
 Module Declarations := Selvedge.Kernel.Commands.
@@ -22,6 +23,10 @@ Definition handlers : G.handler_table interpretation := {|
  G.handle_interrupt := fun payload => Mutation (fun context value => Selvedge.Kernel.CommandExecution.handle_interrupt payload context value);
  G.handle_archive := fun payload => Mutation (fun context value => Selvedge.Kernel.CommandExecution.handle_archive payload context value);
  G.handle_fork := fun payload => Mutation (fun context value => Selvedge.Kernel.CommandExecution.handle_fork payload context value);
+ G.handle_monitor_task := fun payload => Mutation (fun context =>
+   TaskMonitoring.monitor (option_map Tasks.native_owner context) (G.monitor_task_task_id payload));
+ G.handle_unmonitor_task := fun payload => Mutation (fun context =>
+   TaskMonitoring.unmonitor (option_map Tasks.native_owner context) (G.unmonitor_task_task_id payload));
  G.handle_open_side_conversation := fun payload => Mutation (fun context value => Selvedge.Kernel.CommandExecution.handle_open_side_conversation payload context value);
  G.handle_return_side_conversation := fun payload => Mutation (fun context value => Selvedge.Kernel.CommandExecution.handle_return_side_conversation payload context value);
  G.handle_compact := fun payload => Mutation (fun context value => Selvedge.Features.Compaction.handle_compact payload (option_map Tasks.native_owner context) value);

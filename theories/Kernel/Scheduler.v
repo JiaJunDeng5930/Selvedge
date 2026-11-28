@@ -86,7 +86,7 @@ Definition call_admission (tool : tool) (invocation : call) (value : world) :=
  else None.
 Definition retry_safe (tool : tool) := match tool_origin tool with
  | NativeToolSource _ program => match field "kind" program with
-   | Some (JString "Command") | Some (JString "Discover") => true | _ => false end
+   | Some (JString "Command") | Some (JString "Discover") | Some (JString "Wait") => true | _ => false end
  | _ => false end.
 Definition finish_call (id : N) (invocation : call) (remaining : list call)
  (value : json) (failed : bool) (result : decision) :=
@@ -115,6 +115,11 @@ Definition execute_checked_call (execute : executor) (id : N) (tool : tool) (inv
     if internal_result_available task then
      internal_result id invocation remaining (State.success (discover task (call_arguments invocation))) false task value
     else call_error id invocation "operation_limit" "This task has reached its result-processing operation limit; wait for results or cancel an operation" remaining value
+   else if NativeTools.is_wait tool then
+    match task_lifecycle task with
+    | Running _ _ => acknowledged (commit_changes id (TaskWake.wait_for_input invocation remaining) value)
+    | _ => call_error id invocation "wait_interrupted" "Only a running task can wait for input" remaining value
+    end
    else start_external id value
  end end.
 Definition before_hook_step (execute : executor) (id : N) (tool : tool) (invocation : call)
@@ -171,7 +176,7 @@ Definition interpret_step (execute : executor) (id : N) (task : task) (value : w
  | HookStep invocation pending remaining => ready_hooks execute id invocation pending remaining task value
  | CallStep invocation remaining => start_call execute id invocation remaining task value
  | FinishCallsStep => acknowledged (commit_changes id continue_after_calls_changes value)
- | PromoteInputStep => acknowledged (commit_changes id TaskWake.promote_changes value)
+ | PromoteInputStep => acknowledged (commit_changes id TaskWake.promote_scheduled_input value)
  | StopInferenceStep => acknowledged (commit_changes id
      (fun task => TaskWake.promote_changes task ++ [TaskChange.ChangePhase Idle]) value)
  end.

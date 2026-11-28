@@ -17,6 +17,7 @@ Theorem codec_roles_follow_the_shared_projection_vocabulary : forall project_cal
  | ModelContext _ _ => Some Provider | ContextReplacement _ => Some Replacement
  | SpeechTranscript _ _ _ _ _ _ => Some Transcript
  | SpeechDelegation _ _ _ _ _ => Some Delegation
+ | MonitoredOutput _ _ => Some Monitored
  | HookReceipt _ _ _ _ => Some Hook
  end.
 Proof. intros project_call owner value;destruct value;reflexivity. Qed.

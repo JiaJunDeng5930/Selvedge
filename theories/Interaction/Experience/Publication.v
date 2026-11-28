@@ -20,6 +20,7 @@ Open Scope bool_scope.
 Definition awaiting_human (value : task) := existsb (fun operation =>
  match operation_stage operation with AwaitingApproval _ HumanReviewer => true | _ => false end) (task_operations value).
 Definition status_label (value : task) := match task_lifecycle value with
+ | Running (WaitingForInput _ _) _ => "Waiting for input"
  | Running _ _ => if task_busy value then "Working" else "Ready"
  | Frozen _ _ => "Paused" | Stopped _ _ => "Stopped" | Archived _ => "Archived" end.
 From Selvedge.Kernel Require RealtimeContext.

@@ -2,6 +2,7 @@ From Selvedge.Programming Require InputRoute.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Domain State Scheduler TitleCommit.
+From Selvedge.Kernel Require TaskMonitoring.
 From Selvedge.Programming Require Import DecisionComposition.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import Work Board Worktree TaskGraph Remote Chatgpt Compaction TitleRuntime Workflow.
@@ -19,7 +20,8 @@ Definition after_context_transition (before:world) :=
  fun completed => after_observed_transition before Worktree.after_transition
    (fun value _ => DecisionComposition.unchanged value) completed false.
 Definition after_model_transition before id :=
- after_observed_transition before Worktree.after_transition (TaskGraph.after_model_output before id) None false.
+ after_observed_transition before Worktree.after_transition
+   (DecisionComposition.and_then (TaskMonitoring.after_model_output before id) (TaskGraph.after_model_output before id)) None false.
 Definition after_transition (before:world) := after_context_transition before None.
 Definition after_continue before :=
  after_observed_transition before Worktree.after_transition

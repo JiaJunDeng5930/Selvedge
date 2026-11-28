@@ -47,7 +47,7 @@ Proof.
  assert (NoAdmitted : NativeTools.admit_command id invocation = None).
  { unfold NativeTools.command in NoNative.
    destruct (NativeTools.admit_command id invocation); [discriminate|reflexivity]. }
- rewrite NoAdmitted, NoDiscover.
+ rewrite NoAdmitted, NoDiscover. cbn [NativeTools.is_wait advertised tool_origin].
  destruct (starting_selects_the_current_call id value task advertised invocation remaining
    (TicketedRequest.Scoped.external_authority_for task invocation) Found
    ltac:(unfold TicketedRequest.Scoped.call_action; now rewrite ExecuteAllowed,Ready,Known))

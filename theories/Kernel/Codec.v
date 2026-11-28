@@ -283,6 +283,7 @@ Definition message_json_with_output_phase (include_phase : bool)
  | ReasoningConfigurationMessage effort => JObject [("role",JString "task_context"); ("type",JString "reasoning_configuration"); ("effort",JString effort)]
  | SettingsMessage settings profile reasoning => JObject [("role",JString "task_context"); ("type",JString "settings"); ("content",settings_json settings); ("profile",JString profile); ("reasoning",JString reasoning)]
  | UserMessage parts => JObject [("role", JString "user"); ("content", content_json parts)]
+ | MonitoredOutput origin text => output_message_json true "monitored_output" origin (JString text)
  | AssistantMessage origin text => output_message_json include_phase "assistant" origin (JString text)
  | FunctionCall call => JObject [("role", JString "function_call"); ("content", project_call call)]
  | FunctionOutput id value error => JObject [("role", JString "function_output"); ("call_id", JString id); ("content", value); ("is_error", JBool error)]

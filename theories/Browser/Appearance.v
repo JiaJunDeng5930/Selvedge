@@ -192,7 +192,8 @@ Definition role_style (role : Roles.role) :=
   | Roles.Timeline => fields EmbeddedPaint "transparent" 0 0 false Stretch ColumnFlow ContentFlow 0 0 16 0 100 false false
   | Roles.Activity => fields EmbeddedPaint "transparent" 0 0 false Stretch ColumnFlow ContentFlow 0 0 4 0 100 false true
   | Roles.UserMessage => enclosure_fields MessagePaint "transparent" 0 12 false Trailing BlockFlow ContentFlow Enclosure.UserMessage 0 0 70 false false
-  | Roles.AssistantMessage => fields EmbeddedPaint "transparent" 0 0 false Leading BlockFlow ContentFlow 0 0 0 0 100 false false
+  | Roles.AssistantMessage | Roles.MonitoredMessage =>
+    fields EmbeddedPaint "transparent" 0 0 false Leading BlockFlow ContentFlow 0 0 0 0 100 false false
   | Roles.Composer => enclosure_fields CanvasPaint border_color 1 10 false Stretch ColumnFlow ContentFlow Enclosure.Composer 4 0 100 false false
   | Roles.ComposerActions => fields EmbeddedPaint "transparent" 0 0 false Trailing SplitRowFlow ContentFlow 0 0 Layout.composer_clearance 32 100 false false
   | Roles.DialogActions => partition_fields Enclosure.Footer RowFlow ContentFlow (Enclosure.separation Enclosure.DialogActions)
@@ -286,7 +287,7 @@ Definition role_typography env role : list (string * string) :=
   | Roles.WorkOverviewButton _ | Roles.WorkTab _ => set Typography.ActivityPrimary Typography.Medium
   | Roles.NavigationHeader => set Typography.Body Typography.Medium
   | Roles.Heading => set Typography.Section Typography.Medium
-  | Roles.UserMessage | Roles.AssistantMessage | Roles.Composer
+  | Roles.UserMessage | Roles.AssistantMessage | Roles.MonitoredMessage | Roles.Composer
   | Roles.Field | Roles.Dialog | Roles.Menu | Roles.Details | Roles.Toolbar
   | Roles.DialogActions | Roles.DialogHeader | Roles.DialogBody | Roles.ComposerActions => set Typography.Body Typography.Regular
   | Roles.Activity => set Typography.Support Typography.Regular

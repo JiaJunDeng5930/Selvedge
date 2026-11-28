@@ -23,7 +23,7 @@ Proof.
  intros [contract profile settings lifecycle history queued lineage handoff consumed].
  destruct lifecycle as [phase operations|phase operations|phase operations|];
  try destruct phase as [ | | | observing revision continuation | asking allowed mode | checking revision |
-   calls | invocation plugins calls | checking plugin invocation plugins calls ];
+   calls | invocation plugins calls | checking plugin invocation plugins calls | invocation calls ];
  try (destruct continuation as [|purpose resume]; [|destruct resume]);
  try destruct calls as [|first_call other_calls];
  destruct queued as [|first rest];

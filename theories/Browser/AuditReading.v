@@ -1,6 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Foundation Require TextJson.
+From Selvedge.Foundation Require Utf8.
 From Selvedge.Kernel Require Import Conversation Streams.
 From Selvedge.Browser Require Import NavigationIdentity.
 From Selvedge.Interaction Require Import Codec Identity Origin CodeSource Audit.
@@ -32,8 +33,13 @@ Definition control {A} key label (input:A) :=
  S.Node key "conversation/control" label R.Button
   (S.Activate (M.Control key label M.Secondary input M.Available)) [].
 Definition fact {A} key value : S.node A := S.Node key "conversation/fact" "" R.Content (S.Fact value) [].
+Definition is_monitored_output message := String.eqb (text "role" message) "monitored_output".
+Definition monitored_source message :=
+ if is_monitored_output message then bind (field "origin" message) (natural_field "producer_task")
+ else None.
 Definition source_for namespace task occurrence message :=
- match bind (field "origin" message) Origin.decode_origin with
+ match (if is_monitored_output message then None
+   else bind (field "origin" message) Origin.decode_origin) with
  |Some origin=>CodeSource.Generated namespace task origin true
  |None=>CodeSource.Message task occurrence end.
 Definition history_target namespace task occurrence message:=
@@ -116,8 +122,9 @@ Definition retained_part {A} (action:actions A) context retained interactive sta
      [control (identity++"/dismiss-unfinished") "关闭未完成回复" (action.(reading_retained) identity false)]))]
  (if visible then [S.Node identity "generated-output" "Interrupted output" R.AssistantMessage (reading source (document_source stamp) retained)
    (attachments action.(reading_interactive) context retained interactive source)] else []).
-Definition task_messages context task :=
- value_or [] (option_map (items "history") (DocumentState.find_task task (context_world context))).
+Definition task_messages_in world task :=
+ value_or [] (option_map (items "history") (DocumentState.find_task task world)).
+Definition task_messages context task := task_messages_in (context_world context) task.
 Definition has_history context task :=
  Audit.has_reading (task_messages context task).
 Definition history_card_address index level := (4 * N.of_nat index + level)%N.
@@ -204,13 +211,30 @@ Definition process_step {A} (action:actions A) context retained interactive task
  end.
 Definition step_invocations step :=
  match step with TaskHistory.Tools first rest=>first::rest | _=>[] end.
-Definition task_history_node {A} (action:actions A) context retained interactive task disclosures history entry : S.node A :=
+Definition waiting_for_input task world :=
+ value_or false (option_map (fun task => String.eqb (text "phase" task) "waiting_for_input")
+   (DocumentState.find_task task world)).
+Definition section_sender entry :=
+ match entry with TaskHistory.Speech (_,message) => monitored_source message | _ => None end.
+Definition monitored_node {A} context task occurrence message id previous next : S.node A :=
+ let title := bind (DocumentState.find_task id (context_world context)) (string_field "title") in
+ let author := value_or ("会话 #" ++ show_natural id) title in
+ let avatar := value_or "#" (bind title (Utf8.take 1)) in
+ let source := CodeSource.Message task occurrence in
+ let joins other := value_or false (option_map (N.eqb id) other) in
+ S.Node (CodeSource.source_key source) ("message/" ++ show_natural occurrence) author R.MonitoredMessage
+   (S.MonitoredText source (N.modulo id 5) author avatar
+     (value_or "" (Conversation.json_message_text message)) (joins previous) (joins next)) [].
+Definition task_history_node {A} (action:actions A) context retained interactive task disclosures history previous next entry : S.node A :=
  match entry with
- |TaskHistory.Speech (index,message)=>speech action.(reading_interactive) context retained interactive task (N.of_nat index) message
+ |TaskHistory.Speech (index,message)=>match monitored_source message with
+   |Some id=>monitored_node context task (N.of_nat index) message id previous next
+   |None=>speech action.(reading_interactive) context retained interactive task (N.of_nat index) message end
  |TaskHistory.Process index steps ended=>
-   let running:=negb ended && value_or false
+   let waiting:=negb ended && waiting_for_input task (context_world context) in
+   let running:=negb ended && negb waiting && value_or false
      (option_map (flag "working") (DocumentState.find_task task (context_world context))) in
-   let title:=if running then "处理中…" else "处理完成" in
+   let title:=if waiting then "等待输入" else if running then "处理中…" else "处理完成" in
    let key:="task-process/"++show_nat index in
    let '(expanded,toggle):=history_card_control action task key title index 0%N (negb ended) disclosures in
    let latest:=if running then option_map (invocation_face context task) (latest_tool (flat_map step_invocations steps)) else None in
@@ -219,10 +243,18 @@ Definition task_history_node {A} (action:actions A) context retained interactive
  end.
 Definition task_operations context task :=
  value_or [] (option_map (items "operations") (DocumentState.find_task task (context_world context))).
+Fixpoint present_history {A} (render : option N -> option N -> TaskHistory.section -> S.node A)
+ previous sections :=
+ match sections with
+ | [] => []
+ | entry :: rest =>
+   let next := bind (hd_error rest) section_sender in
+   render previous next entry :: present_history render (section_sender entry) rest end.
 Definition history {A} (action:actions A) context retained interactive view disclosures : list (S.node A) :=
  let task:=NavigationIdentity.task_view_task view in
  let messages:=task_messages context task in
- map (fun entry=>in_view view (task_history_node action context retained interactive task disclosures messages entry))
+ present_history (fun previous next entry=>in_view view
+   (task_history_node action context retained interactive task disclosures messages previous next entry)) None
    (TaskHistory.project messages (task_operations context task)).
 
 Definition commentary_process index history operations :=

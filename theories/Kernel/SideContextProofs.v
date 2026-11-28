@@ -80,7 +80,7 @@ Proof.
    destruct (task_activity current) as
      [| | | contextTicket contextLength | modelTicket callable mode
       | reasoningTicket reasoningLength | pendingCalls
-      | invocation pendingCalls' calls | hookTicket plugin invocation' remaining calls']
+      | invocation pendingCalls' calls | hookTicket plugin invocation' remaining calls' | invocation remaining]
      eqn:Activity; try reflexivity.
    destruct (N.eqb modelTicket (ModelRequest.ticket request)) eqn:TicketMatches; [|reflexivity].
    apply N.eqb_eq in TicketMatches. subst modelTicket.
@@ -104,7 +104,7 @@ Proof.
    destruct (task_activity current) as
      [| | | contextTicket contextLength | modelTicket callable mode
       | reasoningTicket reasoningLength | pendingCalls
-      | invocation pendingCalls' calls | hookTicket plugin invocation' remaining calls']
+      | invocation pendingCalls' calls | hookTicket plugin invocation' remaining calls' | invocation remaining]
      eqn:Activity; try reflexivity.
    destruct (N.eqb reasoningTicket ticket) eqn:TicketMatches; [|reflexivity].
    apply N.eqb_eq in TicketMatches.

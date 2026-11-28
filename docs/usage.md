@@ -536,6 +536,23 @@ Later MCP catalog notifications change availability without rewriting that
 contract. Forked tasks inherit the contract and message prefix, with explicit
 branch results and fresh task identities.
 
+### Task monitoring and waiting
+
+A task can pass `monitor: true` to `create_task` or `fork_task` to monitor each
+new task from its first reply. The option defaults to false. To follow an
+existing task, call `monitor_task` with its `task_id`.
+
+New commentary and final answers enter the observer's history automatically,
+with the source task and message phase. Monitoring spans later turns in both
+tasks, including turns that start after a final answer. Use `unmonitor_task`
+to stop future delivery. Archiving either task ends the subscription.
+
+Use `wait` to suspend the current turn until new input is available. The task
+shows `waiting_for_input` and does not spend model requests while waiting.
+User input, a message from another task, monitored output, or a completed
+operation can resume it. The original call returns `0` on resumption. If unread
+input has already arrived, the call returns immediately.
+
 ## Speech input and voice conversations
 
 Dictation and live voice use the installation's ChatGPT sign-in. If you have

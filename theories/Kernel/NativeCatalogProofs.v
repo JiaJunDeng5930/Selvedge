@@ -9,6 +9,6 @@ Open Scope list_scope.
    a builtin through binding_entry's failed command lookup. *)
 Theorem native_catalog_contains_every_declared_tool : forall maximum,
  map Domain.tool_name (NativeTools.catalog maximum) =
- "discover_tools" :: map ToolArguments.tool_name [Bash;ReadProcess;WriteProcess;ReadImage] ++
+ "discover_tools" :: NativeTools.wait_name :: map ToolArguments.tool_name [Bash;ReadProcess;WriteProcess;ReadImage] ++
  map NativeTools.binding_tool NativeTools.bindings.
 Proof. intros; reflexivity. Qed.

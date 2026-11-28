@@ -29,7 +29,7 @@ Definition create_schema := command_fields (List.nth 1 Selvedge.Kernel.Commands.
 Definition create_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 1 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition create_payload := CommandPayload.t create_schema create_input_declaration true.
 Definition create_proposal := CommandPayload.t create_schema create_input_declaration false.
-Definition Build_create (proposed_create_profile : denote KText) (proposed_create_reasoning : option (denote KText)) (proposed_create_message : option (denote KJson)) (proposed_create_images : option (denote (KArray KJson))) (proposed_create_settings : option (denote KJson)) : create_proposal := CommandPayload.propose (@FCons (Field "profile" KText) _ proposed_create_profile (@FCons (OmittableField "reasoning" KText) _ proposed_create_reasoning (@FCons (OmittableField "message" KJson) _ proposed_create_message (@FCons (OmittableField "images" (KArray KJson)) _ proposed_create_images (@FCons (OmittableField "settings" KJson) _ proposed_create_settings FNil))))).
+Definition Build_create (proposed_create_profile : denote KText) (proposed_create_reasoning : option (denote KText)) (proposed_create_message : option (denote KJson)) (proposed_create_images : option (denote (KArray KJson))) (proposed_create_settings : option (denote KJson)) (proposed_create_monitor : option (denote KBool)) : create_proposal := CommandPayload.propose (@FCons (Field "profile" KText) _ proposed_create_profile (@FCons (OmittableField "reasoning" KText) _ proposed_create_reasoning (@FCons (OmittableField "message" KJson) _ proposed_create_message (@FCons (OmittableField "images" (KArray KJson)) _ proposed_create_images (@FCons (OmittableField "settings" KJson) _ proposed_create_settings (@FCons (OmittableField "monitor" KBool) _ proposed_create_monitor FNil)))))).
 Definition Admit_create := @CommandPayload.admit create_schema create_input_declaration.
 Definition create_profile_admitted (payload : create_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd values)).
 Definition create_profile (payload : create_payload) := ArgumentProjection.field (Field "profile" KText) (List.nth 1 create_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (create_profile_admitted payload).
@@ -41,6 +41,8 @@ Definition create_images_admitted (payload : create_payload) := let values := pr
 Definition create_images (payload : create_payload) := ArgumentProjection.field (OmittableField "images" (KArray KJson)) (List.nth 4 create_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (create_images_admitted payload).
 Definition create_settings_admitted (payload : create_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd (snd (snd values)))))).
 Definition create_settings (payload : create_payload) := ArgumentProjection.field (OmittableField "settings" KJson) (List.nth 5 create_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (create_settings_admitted payload).
+Definition create_monitor_admitted (payload : create_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd (snd (snd (snd values))))))).
+Definition create_monitor (payload : create_payload) := ArgumentProjection.field (OmittableField "monitor" KBool) (List.nth 6 create_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (create_monitor_admitted payload).
 
 Definition create_idle_schema := command_fields (List.nth 2 Selvedge.Kernel.Commands.command_specs (Command "" [])).
 Definition create_idle_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 2 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
@@ -145,7 +147,7 @@ Definition fork_schema := command_fields (List.nth 11 Selvedge.Kernel.Commands.c
 Definition fork_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 11 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition fork_payload := CommandPayload.t fork_schema fork_input_declaration true.
 Definition fork_proposal := CommandPayload.t fork_schema fork_input_declaration false.
-Definition Build_fork (proposed_fork_task_id : denote KNatural) (proposed_fork_child_count : denote KNatural) (proposed_fork_messages : option (denote (KArray KJson))) (proposed_fork_settings : option (denote KJson)) (proposed_fork_settings_origin : denote (KOptional (KEnum "parent" ["environment"]))) : fork_proposal := CommandPayload.propose (@FCons (Field "task_id" KNatural) _ proposed_fork_task_id (@FCons (Field "child_count" KNatural) _ proposed_fork_child_count (@FCons (OmittableField "messages" (KArray KJson)) _ proposed_fork_messages (@FCons (OmittableField "settings" KJson) _ proposed_fork_settings (@FCons (Field "settings_origin" (KOptional (KEnum "parent" ["environment"]))) _ proposed_fork_settings_origin FNil))))).
+Definition Build_fork (proposed_fork_task_id : denote KNatural) (proposed_fork_child_count : denote KNatural) (proposed_fork_messages : option (denote (KArray KJson))) (proposed_fork_settings : option (denote KJson)) (proposed_fork_settings_origin : denote (KOptional (KEnum "parent" ["environment"]))) (proposed_fork_monitor : option (denote KBool)) : fork_proposal := CommandPayload.propose (@FCons (Field "task_id" KNatural) _ proposed_fork_task_id (@FCons (Field "child_count" KNatural) _ proposed_fork_child_count (@FCons (OmittableField "messages" (KArray KJson)) _ proposed_fork_messages (@FCons (OmittableField "settings" KJson) _ proposed_fork_settings (@FCons (Field "settings_origin" (KOptional (KEnum "parent" ["environment"]))) _ proposed_fork_settings_origin (@FCons (OmittableField "monitor" KBool) _ proposed_fork_monitor FNil)))))).
 Definition Admit_fork := @CommandPayload.admit fork_schema fork_input_declaration.
 Definition fork_task_id_admitted (payload : fork_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd values)).
 Definition fork_task_id (payload : fork_payload) := ArgumentProjection.field (Field "task_id" KNatural) (List.nth 1 fork_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (fork_task_id_admitted payload).
@@ -157,9 +159,29 @@ Definition fork_settings_admitted (payload : fork_payload) := let values := proj
 Definition fork_settings (payload : fork_payload) := ArgumentProjection.field (OmittableField "settings" KJson) (List.nth 4 fork_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (fork_settings_admitted payload).
 Definition fork_settings_origin_admitted (payload : fork_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd (snd (snd values)))))).
 Definition fork_settings_origin (payload : fork_payload) := ArgumentProjection.field (Field "settings_origin" (KOptional (KEnum "parent" ["environment"]))) (List.nth 5 fork_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (fork_settings_origin_admitted payload).
+Definition fork_monitor_admitted (payload : fork_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd (snd (snd (snd values))))))).
+Definition fork_monitor (payload : fork_payload) := ArgumentProjection.field (OmittableField "monitor" KBool) (List.nth 6 fork_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (fork_monitor_admitted payload).
 
-Definition open_side_conversation_schema := command_fields (List.nth 12 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition open_side_conversation_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 12 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition monitor_task_schema := command_fields (List.nth 12 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition monitor_task_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 12 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition monitor_task_payload := CommandPayload.t monitor_task_schema monitor_task_input_declaration true.
+Definition monitor_task_proposal := CommandPayload.t monitor_task_schema monitor_task_input_declaration false.
+Definition Build_monitor_task (proposed_monitor_task_task_id : denote KNatural) : monitor_task_proposal := CommandPayload.propose (@FCons (Field "task_id" KNatural) _ proposed_monitor_task_task_id FNil).
+Definition Admit_monitor_task := @CommandPayload.admit monitor_task_schema monitor_task_input_declaration.
+Definition monitor_task_task_id_admitted (payload : monitor_task_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd values)).
+Definition monitor_task_task_id (payload : monitor_task_payload) := ArgumentProjection.field (Field "task_id" KNatural) (List.nth 1 monitor_task_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (monitor_task_task_id_admitted payload).
+
+Definition unmonitor_task_schema := command_fields (List.nth 13 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition unmonitor_task_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 13 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition unmonitor_task_payload := CommandPayload.t unmonitor_task_schema unmonitor_task_input_declaration true.
+Definition unmonitor_task_proposal := CommandPayload.t unmonitor_task_schema unmonitor_task_input_declaration false.
+Definition Build_unmonitor_task (proposed_unmonitor_task_task_id : denote KNatural) : unmonitor_task_proposal := CommandPayload.propose (@FCons (Field "task_id" KNatural) _ proposed_unmonitor_task_task_id FNil).
+Definition Admit_unmonitor_task := @CommandPayload.admit unmonitor_task_schema unmonitor_task_input_declaration.
+Definition unmonitor_task_task_id_admitted (payload : unmonitor_task_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd values)).
+Definition unmonitor_task_task_id (payload : unmonitor_task_payload) := ArgumentProjection.field (Field "task_id" KNatural) (List.nth 1 unmonitor_task_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (unmonitor_task_task_id_admitted payload).
+
+Definition open_side_conversation_schema := command_fields (List.nth 14 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition open_side_conversation_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 14 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition open_side_conversation_payload := CommandPayload.t open_side_conversation_schema open_side_conversation_input_declaration true.
 Definition open_side_conversation_proposal := CommandPayload.t open_side_conversation_schema open_side_conversation_input_declaration false.
 Definition Build_open_side_conversation (proposed_open_side_conversation_task_id : denote KNatural) (proposed_open_side_conversation_message : option (denote KJson)) (proposed_open_side_conversation_images : option (denote (KArray KJson))) : open_side_conversation_proposal := CommandPayload.propose (@FCons (Field "task_id" KNatural) _ proposed_open_side_conversation_task_id (@FCons (OmittableField "message" KJson) _ proposed_open_side_conversation_message (@FCons (OmittableField "images" (KArray KJson)) _ proposed_open_side_conversation_images FNil))).
@@ -171,8 +193,8 @@ Definition open_side_conversation_message (payload : open_side_conversation_payl
 Definition open_side_conversation_images_admitted (payload : open_side_conversation_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd values)))).
 Definition open_side_conversation_images (payload : open_side_conversation_payload) := ArgumentProjection.field (OmittableField "images" (KArray KJson)) (List.nth 3 open_side_conversation_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (open_side_conversation_images_admitted payload).
 
-Definition return_side_conversation_schema := command_fields (List.nth 13 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition return_side_conversation_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 13 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition return_side_conversation_schema := command_fields (List.nth 15 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition return_side_conversation_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 15 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition return_side_conversation_payload := CommandPayload.t return_side_conversation_schema return_side_conversation_input_declaration true.
 Definition return_side_conversation_proposal := CommandPayload.t return_side_conversation_schema return_side_conversation_input_declaration false.
 Definition Build_return_side_conversation (proposed_return_side_conversation_task_id : denote KNatural) : return_side_conversation_proposal := CommandPayload.propose (@FCons (Field "task_id" KNatural) _ proposed_return_side_conversation_task_id FNil).
@@ -180,8 +202,8 @@ Definition Admit_return_side_conversation := @CommandPayload.admit return_side_c
 Definition return_side_conversation_task_id_admitted (payload : return_side_conversation_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd values)).
 Definition return_side_conversation_task_id (payload : return_side_conversation_payload) := ArgumentProjection.field (Field "task_id" KNatural) (List.nth 1 return_side_conversation_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (return_side_conversation_task_id_admitted payload).
 
-Definition compact_schema := command_fields (List.nth 14 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition compact_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 14 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition compact_schema := command_fields (List.nth 16 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition compact_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 16 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition compact_payload := CommandPayload.t compact_schema compact_input_declaration true.
 Definition compact_proposal := CommandPayload.t compact_schema compact_input_declaration false.
 Definition Build_compact (proposed_compact_task_id : denote KNatural) (proposed_compact_summary : option (denote KText)) : compact_proposal := CommandPayload.propose (@FCons (Field "task_id" KNatural) _ proposed_compact_task_id (@FCons (OmittableField "summary" KText) _ proposed_compact_summary FNil)).
@@ -191,8 +213,8 @@ Definition compact_task_id (payload : compact_payload) := ArgumentProjection.fie
 Definition compact_summary_admitted (payload : compact_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd values))).
 Definition compact_summary (payload : compact_payload) := ArgumentProjection.field (OmittableField "summary" KText) (List.nth 2 compact_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (compact_summary_admitted payload).
 
-Definition read_schema := command_fields (List.nth 15 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition read_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 15 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition read_schema := command_fields (List.nth 17 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition read_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 17 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition read_payload := CommandPayload.t read_schema read_input_declaration true.
 Definition read_proposal := CommandPayload.t read_schema read_input_declaration false.
 Definition Build_read (proposed_read_task_id : denote KNatural) (proposed_read_after : option (denote KNatural)) (proposed_read_limit : option (denote KNatural)) : read_proposal := CommandPayload.propose (@FCons (Field "task_id" KNatural) _ proposed_read_task_id (@FCons (OmittableField "after" KNatural) _ proposed_read_after (@FCons (OmittableField "limit" KNatural) _ proposed_read_limit FNil))).
@@ -204,8 +226,8 @@ Definition read_after (payload : read_payload) := ArgumentProjection.field (Omit
 Definition read_limit_admitted (payload : read_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd values)))).
 Definition read_limit (payload : read_payload) := ArgumentProjection.field (OmittableField "limit" KNatural) (List.nth 3 read_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (read_limit_admitted payload).
 
-Definition search_history_schema := command_fields (List.nth 16 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition search_history_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 16 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition search_history_schema := command_fields (List.nth 18 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition search_history_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 18 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition search_history_payload := CommandPayload.t search_history_schema search_history_input_declaration true.
 Definition search_history_proposal := CommandPayload.t search_history_schema search_history_input_declaration false.
 Definition Build_search_history (proposed_search_history_query : denote KText) (proposed_search_history_project_id : option (denote KNatural)) (proposed_search_history_work_id : option (denote KNatural)) (proposed_search_history_after : option (denote KNatural)) (proposed_search_history_limit : option (denote KNatural)) (proposed_search_history_include_titles : option (denote KBool)) : search_history_proposal := CommandPayload.propose (@FCons (Field "query" KText) _ proposed_search_history_query (@FCons (OmittableField "project_id" KNatural) _ proposed_search_history_project_id (@FCons (OmittableField "work_id" KNatural) _ proposed_search_history_work_id (@FCons (OmittableField "after" KNatural) _ proposed_search_history_after (@FCons (OmittableField "limit" KNatural) _ proposed_search_history_limit (@FCons (OmittableField "include_titles" KBool) _ proposed_search_history_include_titles FNil)))))).
@@ -223,22 +245,22 @@ Definition search_history_limit (payload : search_history_payload) := ArgumentPr
 Definition search_history_include_titles_admitted (payload : search_history_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd (snd (snd (snd values))))))).
 Definition search_history_include_titles (payload : search_history_payload) := ArgumentProjection.field (OmittableField "include_titles" KBool) (List.nth 6 search_history_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (search_history_include_titles_admitted payload).
 
-Definition list_schema := command_fields (List.nth 17 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition list_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 17 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition list_schema := command_fields (List.nth 19 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition list_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 19 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition list_payload := CommandPayload.t list_schema list_input_declaration true.
 Definition list_proposal := CommandPayload.t list_schema list_input_declaration false.
 Definition Build_list  : list_proposal := CommandPayload.propose FNil.
 Definition Admit_list := @CommandPayload.admit list_schema list_input_declaration.
 
-Definition describe_schema := command_fields (List.nth 18 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition describe_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 18 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition describe_schema := command_fields (List.nth 20 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition describe_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 20 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition describe_payload := CommandPayload.t describe_schema describe_input_declaration true.
 Definition describe_proposal := CommandPayload.t describe_schema describe_input_declaration false.
 Definition Build_describe  : describe_proposal := CommandPayload.propose FNil.
 Definition Admit_describe := @CommandPayload.admit describe_schema describe_input_declaration.
 
-Definition create_project_schema := command_fields (List.nth 19 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition create_project_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 19 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition create_project_schema := command_fields (List.nth 21 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition create_project_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 21 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition create_project_payload := CommandPayload.t create_project_schema create_project_input_declaration true.
 Definition create_project_proposal := CommandPayload.t create_project_schema create_project_input_declaration false.
 Definition Build_create_project (proposed_create_project_name : denote KText) (proposed_create_project_workspace : denote KJson) (proposed_create_project_guidance : option (denote KJson)) (proposed_create_project_create_worktree : option (denote KBool)) (proposed_create_project_workspace_binding : option (denote KJson)) (proposed_create_project_worktree_git : option (denote KJson)) : create_project_proposal := CommandPayload.propose (@FCons (Field "name" KText) _ proposed_create_project_name (@FCons (Field "workspace" KJson) _ proposed_create_project_workspace (@FCons (OmittableField "guidance" KJson) _ proposed_create_project_guidance (@FCons (OmittableField "create_worktree" KBool) _ proposed_create_project_create_worktree (@FCons (OmittableField "workspace_binding" KJson) _ proposed_create_project_workspace_binding (@FCons (OmittableField "worktree_git" KJson) _ proposed_create_project_worktree_git FNil)))))).
@@ -256,8 +278,8 @@ Definition create_project_workspace_binding (payload : create_project_payload) :
 Definition create_project_worktree_git_admitted (payload : create_project_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd (snd (snd (snd values))))))).
 Definition create_project_worktree_git (payload : create_project_payload) := ArgumentProjection.field (OmittableField "worktree_git" KJson) (List.nth 6 create_project_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (create_project_worktree_git_admitted payload).
 
-Definition update_project_schema := command_fields (List.nth 20 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition update_project_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 20 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition update_project_schema := command_fields (List.nth 22 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition update_project_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 22 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition update_project_payload := CommandPayload.t update_project_schema update_project_input_declaration true.
 Definition update_project_proposal := CommandPayload.t update_project_schema update_project_input_declaration false.
 Definition Build_update_project (proposed_update_project_project_id : denote KNatural) (proposed_update_project_name : option (denote KText)) (proposed_update_project_workspace : option (denote KJson)) (proposed_update_project_guidance : option (denote KJson)) (proposed_update_project_create_worktree : option (denote KBool)) (proposed_update_project_workspace_binding : option (denote KJson)) (proposed_update_project_worktree_git : option (denote KJson)) : update_project_proposal := CommandPayload.propose (@FCons (Field "project_id" KNatural) _ proposed_update_project_project_id (@FCons (OmittableField "name" KText) _ proposed_update_project_name (@FCons (OmittableField "workspace" KJson) _ proposed_update_project_workspace (@FCons (OmittableField "guidance" KJson) _ proposed_update_project_guidance (@FCons (OmittableField "create_worktree" KBool) _ proposed_update_project_create_worktree (@FCons (OmittableField "workspace_binding" KJson) _ proposed_update_project_workspace_binding (@FCons (OmittableField "worktree_git" KJson) _ proposed_update_project_worktree_git FNil))))))).
@@ -277,8 +299,8 @@ Definition update_project_workspace_binding (payload : update_project_payload) :
 Definition update_project_worktree_git_admitted (payload : update_project_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd (snd (snd (snd (snd values)))))))).
 Definition update_project_worktree_git (payload : update_project_payload) := ArgumentProjection.field (OmittableField "worktree_git" KJson) (List.nth 7 update_project_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (update_project_worktree_git_admitted payload).
 
-Definition delete_project_schema := command_fields (List.nth 21 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition delete_project_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 21 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition delete_project_schema := command_fields (List.nth 23 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition delete_project_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 23 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition delete_project_payload := CommandPayload.t delete_project_schema delete_project_input_declaration true.
 Definition delete_project_proposal := CommandPayload.t delete_project_schema delete_project_input_declaration false.
 Definition Build_delete_project (proposed_delete_project_project_id : denote KNatural) : delete_project_proposal := CommandPayload.propose (@FCons (Field "project_id" KNatural) _ proposed_delete_project_project_id FNil).
@@ -286,15 +308,15 @@ Definition Admit_delete_project := @CommandPayload.admit delete_project_schema d
 Definition delete_project_project_id_admitted (payload : delete_project_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd values)).
 Definition delete_project_project_id (payload : delete_project_payload) := ArgumentProjection.field (Field "project_id" KNatural) (List.nth 1 delete_project_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (delete_project_project_id_admitted payload).
 
-Definition list_projects_schema := command_fields (List.nth 22 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition list_projects_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 22 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition list_projects_schema := command_fields (List.nth 24 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition list_projects_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 24 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition list_projects_payload := CommandPayload.t list_projects_schema list_projects_input_declaration true.
 Definition list_projects_proposal := CommandPayload.t list_projects_schema list_projects_input_declaration false.
 Definition Build_list_projects  : list_projects_proposal := CommandPayload.propose FNil.
 Definition Admit_list_projects := @CommandPayload.admit list_projects_schema list_projects_input_declaration.
 
-Definition read_project_schema := command_fields (List.nth 23 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition read_project_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 23 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition read_project_schema := command_fields (List.nth 25 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition read_project_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 25 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition read_project_payload := CommandPayload.t read_project_schema read_project_input_declaration true.
 Definition read_project_proposal := CommandPayload.t read_project_schema read_project_input_declaration false.
 Definition Build_read_project (proposed_read_project_project_id : denote KNatural) : read_project_proposal := CommandPayload.propose (@FCons (Field "project_id" KNatural) _ proposed_read_project_project_id FNil).
@@ -302,8 +324,8 @@ Definition Admit_read_project := @CommandPayload.admit read_project_schema read_
 Definition read_project_project_id_admitted (payload : read_project_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd values)).
 Definition read_project_project_id (payload : read_project_payload) := ArgumentProjection.field (Field "project_id" KNatural) (List.nth 1 read_project_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (read_project_project_id_admitted payload).
 
-Definition review_approval_schema := command_fields (List.nth 24 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition review_approval_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 24 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition review_approval_schema := command_fields (List.nth 26 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition review_approval_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 26 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition review_approval_payload := CommandPayload.t review_approval_schema review_approval_input_declaration true.
 Definition review_approval_proposal := CommandPayload.t review_approval_schema review_approval_input_declaration false.
 Definition Build_review_approval (proposed_review_approval_task_id : denote KNatural) (proposed_review_approval_operation_id : denote KNatural) (proposed_review_approval_decision : denote (KEnum "allow" ["deny"])) (proposed_review_approval_reason : option (denote KText)) : review_approval_proposal := CommandPayload.propose (@FCons (Field "task_id" KNatural) _ proposed_review_approval_task_id (@FCons (Field "operation_id" KNatural) _ proposed_review_approval_operation_id (@FCons (Field "decision" (KEnum "allow" ["deny"])) _ proposed_review_approval_decision (@FCons (OmittableField "reason" KText) _ proposed_review_approval_reason FNil)))).
@@ -317,8 +339,8 @@ Definition review_approval_decision (payload : review_approval_payload) := Argum
 Definition review_approval_reason_admitted (payload : review_approval_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd (snd values))))).
 Definition review_approval_reason (payload : review_approval_payload) := ArgumentProjection.field (OmittableField "reason" KText) (List.nth 4 review_approval_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (review_approval_reason_admitted payload).
 
-Definition record_speech_transcript_schema := command_fields (List.nth 25 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition record_speech_transcript_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 25 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition record_speech_transcript_schema := command_fields (List.nth 27 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition record_speech_transcript_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 27 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition record_speech_transcript_payload := CommandPayload.t record_speech_transcript_schema record_speech_transcript_input_declaration true.
 Definition record_speech_transcript_proposal := CommandPayload.t record_speech_transcript_schema record_speech_transcript_input_declaration false.
 Definition Build_record_speech_transcript (proposed_record_speech_transcript_task_id : denote KNatural) (proposed_record_speech_transcript_session_id : denote KText) (proposed_record_speech_transcript_item_id : denote KText) (proposed_record_speech_transcript_speaker : denote (KEnum "user" ["assistant"])) (proposed_record_speech_transcript_completion : denote (KEnum "completed" ["interrupted"])) (proposed_record_speech_transcript_text : denote KText) : record_speech_transcript_proposal := CommandPayload.propose (@FCons (Field "task_id" KNatural) _ proposed_record_speech_transcript_task_id (@FCons (Field "session_id" KText) _ proposed_record_speech_transcript_session_id (@FCons (Field "item_id" KText) _ proposed_record_speech_transcript_item_id (@FCons (Field "speaker" (KEnum "user" ["assistant"])) _ proposed_record_speech_transcript_speaker (@FCons (Field "completion" (KEnum "completed" ["interrupted"])) _ proposed_record_speech_transcript_completion (@FCons (Field "text" KText) _ proposed_record_speech_transcript_text FNil)))))).
@@ -336,8 +358,8 @@ Definition record_speech_transcript_completion (payload : record_speech_transcri
 Definition record_speech_transcript_text_admitted (payload : record_speech_transcript_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd (snd (snd (snd values))))))).
 Definition record_speech_transcript_text (payload : record_speech_transcript_payload) := ArgumentProjection.field (Field "text" KText) (List.nth 6 record_speech_transcript_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (record_speech_transcript_text_admitted payload).
 
-Definition accept_speech_delegation_schema := command_fields (List.nth 26 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition accept_speech_delegation_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 26 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition accept_speech_delegation_schema := command_fields (List.nth 28 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition accept_speech_delegation_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 28 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition accept_speech_delegation_payload := CommandPayload.t accept_speech_delegation_schema accept_speech_delegation_input_declaration true.
 Definition accept_speech_delegation_proposal := CommandPayload.t accept_speech_delegation_schema accept_speech_delegation_input_declaration false.
 Definition Build_accept_speech_delegation (proposed_accept_speech_delegation_task_id : denote KNatural) (proposed_accept_speech_delegation_session_id : denote KText) (proposed_accept_speech_delegation_delegation_id : denote KText) (proposed_accept_speech_delegation_message : denote KText) (proposed_accept_speech_delegation_mode : denote (KEnum "send" ["steer"])) : accept_speech_delegation_proposal := CommandPayload.propose (@FCons (Field "task_id" KNatural) _ proposed_accept_speech_delegation_task_id (@FCons (Field "session_id" KText) _ proposed_accept_speech_delegation_session_id (@FCons (Field "delegation_id" KText) _ proposed_accept_speech_delegation_delegation_id (@FCons (Field "message" KText) _ proposed_accept_speech_delegation_message (@FCons (Field "mode" (KEnum "send" ["steer"])) _ proposed_accept_speech_delegation_mode FNil))))).
@@ -353,8 +375,8 @@ Definition accept_speech_delegation_message (payload : accept_speech_delegation_
 Definition accept_speech_delegation_mode_admitted (payload : accept_speech_delegation_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd (snd (snd values)))))).
 Definition accept_speech_delegation_mode (payload : accept_speech_delegation_payload) := ArgumentProjection.field (Field "mode" (KEnum "send" ["steer"])) (List.nth 5 accept_speech_delegation_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (accept_speech_delegation_mode_admitted payload).
 
-Definition create_card_schema := command_fields (List.nth 27 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition create_card_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 27 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition create_card_schema := command_fields (List.nth 29 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition create_card_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 29 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition create_card_payload := CommandPayload.t create_card_schema create_card_input_declaration true.
 Definition create_card_proposal := CommandPayload.t create_card_schema create_card_input_declaration false.
 Definition Build_create_card (proposed_create_card_observed_at : option (denote KText)) (proposed_create_card_title : option (denote KText)) (proposed_create_card_description : option (denote KText)) (proposed_create_card_status : option (denote KText)) (proposed_create_card_priority : option (denote KText)) (proposed_create_card_assignee : option (denote KText)) (proposed_create_card_project : option (denote KText)) (proposed_create_card_labels : option (denote (KArray KText))) (proposed_create_card_attachments : option (denote (KArray KJson))) (proposed_create_card_assisted : option (denote KBool)) (proposed_create_card_draft_profile : option (denote KText)) (proposed_create_card_task_id : option (denote KNatural)) : create_card_proposal := CommandPayload.propose (@FCons (OmittableField "observed_at" KText) _ proposed_create_card_observed_at (@FCons (OmittableField "title" KText) _ proposed_create_card_title (@FCons (OmittableField "description" KText) _ proposed_create_card_description (@FCons (OmittableField "status" KText) _ proposed_create_card_status (@FCons (OmittableField "priority" KText) _ proposed_create_card_priority (@FCons (OmittableField "assignee" KText) _ proposed_create_card_assignee (@FCons (OmittableField "project" KText) _ proposed_create_card_project (@FCons (OmittableField "labels" (KArray KText)) _ proposed_create_card_labels (@FCons (OmittableField "attachments" (KArray KJson)) _ proposed_create_card_attachments (@FCons (OmittableField "assisted" KBool) _ proposed_create_card_assisted (@FCons (OmittableField "draft_profile" KText) _ proposed_create_card_draft_profile (@FCons (OmittableField "task_id" KNatural) _ proposed_create_card_task_id FNil)))))))))))).
@@ -384,8 +406,8 @@ Definition create_card_draft_profile (payload : create_card_payload) := Argument
 Definition create_card_task_id_admitted (payload : create_card_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd (snd (snd (snd (snd (snd (snd (snd (snd (snd values))))))))))))).
 Definition create_card_task_id (payload : create_card_payload) := ArgumentProjection.field (OmittableField "task_id" KNatural) (List.nth 12 create_card_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (create_card_task_id_admitted payload).
 
-Definition update_card_schema := command_fields (List.nth 28 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition update_card_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 28 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition update_card_schema := command_fields (List.nth 30 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition update_card_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 30 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition update_card_payload := CommandPayload.t update_card_schema update_card_input_declaration true.
 Definition update_card_proposal := CommandPayload.t update_card_schema update_card_input_declaration false.
 Definition Build_update_card (proposed_update_card_card_id : denote KNatural) (proposed_update_card_revision : denote KNatural) (proposed_update_card_observed_at : option (denote KText)) (proposed_update_card_title : option (denote KText)) (proposed_update_card_description : option (denote KText)) (proposed_update_card_status : option (denote KText)) (proposed_update_card_priority : option (denote KText)) (proposed_update_card_assignee : option (denote KText)) (proposed_update_card_project : option (denote KText)) (proposed_update_card_labels : option (denote (KArray KText))) (proposed_update_card_attachments : option (denote (KArray KJson))) : update_card_proposal := CommandPayload.propose (@FCons (Field "card_id" KNatural) _ proposed_update_card_card_id (@FCons (Field "revision" KNatural) _ proposed_update_card_revision (@FCons (OmittableField "observed_at" KText) _ proposed_update_card_observed_at (@FCons (OmittableField "title" KText) _ proposed_update_card_title (@FCons (OmittableField "description" KText) _ proposed_update_card_description (@FCons (OmittableField "status" KText) _ proposed_update_card_status (@FCons (OmittableField "priority" KText) _ proposed_update_card_priority (@FCons (OmittableField "assignee" KText) _ proposed_update_card_assignee (@FCons (OmittableField "project" KText) _ proposed_update_card_project (@FCons (OmittableField "labels" (KArray KText)) _ proposed_update_card_labels (@FCons (OmittableField "attachments" (KArray KJson)) _ proposed_update_card_attachments FNil))))))))))).
@@ -413,8 +435,8 @@ Definition update_card_labels (payload : update_card_payload) := ArgumentProject
 Definition update_card_attachments_admitted (payload : update_card_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd (snd (snd (snd (snd (snd (snd (snd (snd values)))))))))))).
 Definition update_card_attachments (payload : update_card_payload) := ArgumentProjection.field (OmittableField "attachments" (KArray KJson)) (List.nth 11 update_card_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (update_card_attachments_admitted payload).
 
-Definition move_card_schema := command_fields (List.nth 29 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition move_card_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 29 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition move_card_schema := command_fields (List.nth 31 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition move_card_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 31 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition move_card_payload := CommandPayload.t move_card_schema move_card_input_declaration true.
 Definition move_card_proposal := CommandPayload.t move_card_schema move_card_input_declaration false.
 Definition Build_move_card (proposed_move_card_card_id : denote KNatural) (proposed_move_card_revision : denote KNatural) (proposed_move_card_observed_at : option (denote KText)) (proposed_move_card_status : option (denote KText)) (proposed_move_card_before_card : option (denote KText)) : move_card_proposal := CommandPayload.propose (@FCons (Field "card_id" KNatural) _ proposed_move_card_card_id (@FCons (Field "revision" KNatural) _ proposed_move_card_revision (@FCons (OmittableField "observed_at" KText) _ proposed_move_card_observed_at (@FCons (OmittableField "status" KText) _ proposed_move_card_status (@FCons (OmittableField "before_card" KText) _ proposed_move_card_before_card FNil))))).
@@ -430,8 +452,8 @@ Definition move_card_status (payload : move_card_payload) := ArgumentProjection.
 Definition move_card_before_card_admitted (payload : move_card_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd (snd (snd values)))))).
 Definition move_card_before_card (payload : move_card_payload) := ArgumentProjection.field (OmittableField "before_card" KText) (List.nth 5 move_card_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (move_card_before_card_admitted payload).
 
-Definition archive_card_schema := command_fields (List.nth 30 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition archive_card_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 30 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition archive_card_schema := command_fields (List.nth 32 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition archive_card_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 32 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition archive_card_payload := CommandPayload.t archive_card_schema archive_card_input_declaration true.
 Definition archive_card_proposal := CommandPayload.t archive_card_schema archive_card_input_declaration false.
 Definition Build_archive_card (proposed_archive_card_card_id : denote KNatural) (proposed_archive_card_revision : denote KNatural) (proposed_archive_card_observed_at : option (denote KText)) : archive_card_proposal := CommandPayload.propose (@FCons (Field "card_id" KNatural) _ proposed_archive_card_card_id (@FCons (Field "revision" KNatural) _ proposed_archive_card_revision (@FCons (OmittableField "observed_at" KText) _ proposed_archive_card_observed_at FNil))).
@@ -443,8 +465,8 @@ Definition archive_card_revision (payload : archive_card_payload) := ArgumentPro
 Definition archive_card_observed_at_admitted (payload : archive_card_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd values)))).
 Definition archive_card_observed_at (payload : archive_card_payload) := ArgumentProjection.field (OmittableField "observed_at" KText) (List.nth 3 archive_card_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (archive_card_observed_at_admitted payload).
 
-Definition restore_card_schema := command_fields (List.nth 31 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition restore_card_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 31 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition restore_card_schema := command_fields (List.nth 33 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition restore_card_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 33 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition restore_card_payload := CommandPayload.t restore_card_schema restore_card_input_declaration true.
 Definition restore_card_proposal := CommandPayload.t restore_card_schema restore_card_input_declaration false.
 Definition Build_restore_card (proposed_restore_card_card_id : denote KNatural) (proposed_restore_card_revision : denote KNatural) (proposed_restore_card_observed_at : option (denote KText)) : restore_card_proposal := CommandPayload.propose (@FCons (Field "card_id" KNatural) _ proposed_restore_card_card_id (@FCons (Field "revision" KNatural) _ proposed_restore_card_revision (@FCons (OmittableField "observed_at" KText) _ proposed_restore_card_observed_at FNil))).
@@ -456,8 +478,8 @@ Definition restore_card_revision (payload : restore_card_payload) := ArgumentPro
 Definition restore_card_observed_at_admitted (payload : restore_card_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd values)))).
 Definition restore_card_observed_at (payload : restore_card_payload) := ArgumentProjection.field (OmittableField "observed_at" KText) (List.nth 3 restore_card_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (restore_card_observed_at_admitted payload).
 
-Definition delete_card_schema := command_fields (List.nth 32 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition delete_card_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 32 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition delete_card_schema := command_fields (List.nth 34 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition delete_card_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 34 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition delete_card_payload := CommandPayload.t delete_card_schema delete_card_input_declaration true.
 Definition delete_card_proposal := CommandPayload.t delete_card_schema delete_card_input_declaration false.
 Definition Build_delete_card (proposed_delete_card_card_id : denote KNatural) (proposed_delete_card_revision : denote KNatural) (proposed_delete_card_observed_at : option (denote KText)) : delete_card_proposal := CommandPayload.propose (@FCons (Field "card_id" KNatural) _ proposed_delete_card_card_id (@FCons (Field "revision" KNatural) _ proposed_delete_card_revision (@FCons (OmittableField "observed_at" KText) _ proposed_delete_card_observed_at FNil))).
@@ -469,8 +491,8 @@ Definition delete_card_revision (payload : delete_card_payload) := ArgumentProje
 Definition delete_card_observed_at_admitted (payload : delete_card_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd values)))).
 Definition delete_card_observed_at (payload : delete_card_payload) := ArgumentProjection.field (OmittableField "observed_at" KText) (List.nth 3 delete_card_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (delete_card_observed_at_admitted payload).
 
-Definition run_card_schema := command_fields (List.nth 33 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition run_card_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 33 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition run_card_schema := command_fields (List.nth 35 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition run_card_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 35 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition run_card_payload := CommandPayload.t run_card_schema run_card_input_declaration true.
 Definition run_card_proposal := CommandPayload.t run_card_schema run_card_input_declaration false.
 Definition Build_run_card (proposed_run_card_card_id : denote KNatural) (proposed_run_card_revision : denote KNatural) (proposed_run_card_observed_at : option (denote KText)) : run_card_proposal := CommandPayload.propose (@FCons (Field "card_id" KNatural) _ proposed_run_card_card_id (@FCons (Field "revision" KNatural) _ proposed_run_card_revision (@FCons (OmittableField "observed_at" KText) _ proposed_run_card_observed_at FNil))).
@@ -482,8 +504,8 @@ Definition run_card_revision (payload : run_card_payload) := ArgumentProjection.
 Definition run_card_observed_at_admitted (payload : run_card_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd values)))).
 Definition run_card_observed_at (payload : run_card_payload) := ArgumentProjection.field (OmittableField "observed_at" KText) (List.nth 3 run_card_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (run_card_observed_at_admitted payload).
 
-Definition link_card_schema := command_fields (List.nth 34 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition link_card_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 34 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition link_card_schema := command_fields (List.nth 36 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition link_card_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 36 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition link_card_payload := CommandPayload.t link_card_schema link_card_input_declaration true.
 Definition link_card_proposal := CommandPayload.t link_card_schema link_card_input_declaration false.
 Definition Build_link_card (proposed_link_card_card_id : denote KNatural) (proposed_link_card_revision : denote KNatural) (proposed_link_card_observed_at : option (denote KText)) (proposed_link_card_task_id : option (denote KNatural)) : link_card_proposal := CommandPayload.propose (@FCons (Field "card_id" KNatural) _ proposed_link_card_card_id (@FCons (Field "revision" KNatural) _ proposed_link_card_revision (@FCons (OmittableField "observed_at" KText) _ proposed_link_card_observed_at (@FCons (OmittableField "task_id" KNatural) _ proposed_link_card_task_id FNil)))).
@@ -497,8 +519,8 @@ Definition link_card_observed_at (payload : link_card_payload) := ArgumentProjec
 Definition link_card_task_id_admitted (payload : link_card_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd (snd values))))).
 Definition link_card_task_id (payload : link_card_payload) := ArgumentProjection.field (OmittableField "task_id" KNatural) (List.nth 4 link_card_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (link_card_task_id_admitted payload).
 
-Definition regenerate_card_title_schema := command_fields (List.nth 35 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition regenerate_card_title_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 35 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition regenerate_card_title_schema := command_fields (List.nth 37 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition regenerate_card_title_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 37 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition regenerate_card_title_payload := CommandPayload.t regenerate_card_title_schema regenerate_card_title_input_declaration true.
 Definition regenerate_card_title_proposal := CommandPayload.t regenerate_card_title_schema regenerate_card_title_input_declaration false.
 Definition Build_regenerate_card_title (proposed_regenerate_card_title_card_id : denote KNatural) (proposed_regenerate_card_title_revision : denote KNatural) (proposed_regenerate_card_title_observed_at : option (denote KText)) (proposed_regenerate_card_title_draft_profile : option (denote KText)) : regenerate_card_title_proposal := CommandPayload.propose (@FCons (Field "card_id" KNatural) _ proposed_regenerate_card_title_card_id (@FCons (Field "revision" KNatural) _ proposed_regenerate_card_title_revision (@FCons (OmittableField "observed_at" KText) _ proposed_regenerate_card_title_observed_at (@FCons (OmittableField "draft_profile" KText) _ proposed_regenerate_card_title_draft_profile FNil)))).
@@ -512,8 +534,8 @@ Definition regenerate_card_title_observed_at (payload : regenerate_card_title_pa
 Definition regenerate_card_title_draft_profile_admitted (payload : regenerate_card_title_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd (snd values))))).
 Definition regenerate_card_title_draft_profile (payload : regenerate_card_title_payload) := ArgumentProjection.field (OmittableField "draft_profile" KText) (List.nth 4 regenerate_card_title_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (regenerate_card_title_draft_profile_admitted payload).
 
-Definition pin_card_schema := command_fields (List.nth 36 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition pin_card_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 36 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition pin_card_schema := command_fields (List.nth 38 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition pin_card_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 38 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition pin_card_payload := CommandPayload.t pin_card_schema pin_card_input_declaration true.
 Definition pin_card_proposal := CommandPayload.t pin_card_schema pin_card_input_declaration false.
 Definition Build_pin_card (proposed_pin_card_card_id : denote KNatural) (proposed_pin_card_revision : denote KNatural) (proposed_pin_card_observed_at : option (denote KText)) (proposed_pin_card_pinned : option (denote KBool)) : pin_card_proposal := CommandPayload.propose (@FCons (Field "card_id" KNatural) _ proposed_pin_card_card_id (@FCons (Field "revision" KNatural) _ proposed_pin_card_revision (@FCons (OmittableField "observed_at" KText) _ proposed_pin_card_observed_at (@FCons (OmittableField "pinned" KBool) _ proposed_pin_card_pinned FNil)))).
@@ -527,8 +549,8 @@ Definition pin_card_observed_at (payload : pin_card_payload) := ArgumentProjecti
 Definition pin_card_pinned_admitted (payload : pin_card_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd (snd values))))).
 Definition pin_card_pinned (payload : pin_card_payload) := ArgumentProjection.field (OmittableField "pinned" KBool) (List.nth 4 pin_card_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (pin_card_pinned_admitted payload).
 
-Definition board_settings_schema := command_fields (List.nth 37 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition board_settings_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 37 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition board_settings_schema := command_fields (List.nth 39 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition board_settings_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 39 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition board_settings_payload := CommandPayload.t board_settings_schema board_settings_input_declaration true.
 Definition board_settings_proposal := CommandPayload.t board_settings_schema board_settings_input_declaration false.
 Definition Build_board_settings (proposed_board_settings_automatic : denote KBool) (proposed_board_settings_draft_profile : denote KText) : board_settings_proposal := CommandPayload.propose (@FCons (Field "automatic" KBool) _ proposed_board_settings_automatic (@FCons (Field "draft_profile" KText) _ proposed_board_settings_draft_profile FNil)).
@@ -538,15 +560,15 @@ Definition board_settings_automatic (payload : board_settings_payload) := Argume
 Definition board_settings_draft_profile_admitted (payload : board_settings_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd values))).
 Definition board_settings_draft_profile (payload : board_settings_payload) := ArgumentProjection.field (Field "draft_profile" KText) (List.nth 2 board_settings_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (board_settings_draft_profile_admitted payload).
 
-Definition list_cards_schema := command_fields (List.nth 38 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition list_cards_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 38 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition list_cards_schema := command_fields (List.nth 40 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition list_cards_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 40 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition list_cards_payload := CommandPayload.t list_cards_schema list_cards_input_declaration true.
 Definition list_cards_proposal := CommandPayload.t list_cards_schema list_cards_input_declaration false.
 Definition Build_list_cards  : list_cards_proposal := CommandPayload.propose FNil.
 Definition Admit_list_cards := @CommandPayload.admit list_cards_schema list_cards_input_declaration.
 
-Definition read_card_schema := command_fields (List.nth 39 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition read_card_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 39 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition read_card_schema := command_fields (List.nth 41 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition read_card_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 41 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition read_card_payload := CommandPayload.t read_card_schema read_card_input_declaration true.
 Definition read_card_proposal := CommandPayload.t read_card_schema read_card_input_declaration false.
 Definition Build_read_card (proposed_read_card_card_id : denote KNatural) : read_card_proposal := CommandPayload.propose (@FCons (Field "card_id" KNatural) _ proposed_read_card_card_id FNil).
@@ -554,8 +576,8 @@ Definition Admit_read_card := @CommandPayload.admit read_card_schema read_card_i
 Definition read_card_card_id_admitted (payload : read_card_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd values)).
 Definition read_card_card_id (payload : read_card_payload) := ArgumentProjection.field (Field "card_id" KNatural) (List.nth 1 read_card_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (read_card_card_id_admitted payload).
 
-Definition configure_chatgpt_connections_schema := command_fields (List.nth 40 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition configure_chatgpt_connections_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 40 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition configure_chatgpt_connections_schema := command_fields (List.nth 42 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition configure_chatgpt_connections_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 42 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition configure_chatgpt_connections_payload := CommandPayload.t configure_chatgpt_connections_schema configure_chatgpt_connections_input_declaration true.
 Definition configure_chatgpt_connections_proposal := CommandPayload.t configure_chatgpt_connections_schema configure_chatgpt_connections_input_declaration false.
 Definition Build_configure_chatgpt_connections (proposed_configure_chatgpt_connections_connections : denote (KArray KJson)) : configure_chatgpt_connections_proposal := CommandPayload.propose (@FCons (Field "connections" (KArray KJson)) _ proposed_configure_chatgpt_connections_connections FNil).
@@ -563,8 +585,8 @@ Definition Admit_configure_chatgpt_connections := @CommandPayload.admit configur
 Definition configure_chatgpt_connections_connections_admitted (payload : configure_chatgpt_connections_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd values)).
 Definition configure_chatgpt_connections_connections (payload : configure_chatgpt_connections_payload) := ArgumentProjection.field (Field "connections" (KArray KJson)) (List.nth 1 configure_chatgpt_connections_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (configure_chatgpt_connections_connections_admitted payload).
 
-Definition chatgpt_exec_schema := command_fields (List.nth 41 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition chatgpt_exec_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 41 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition chatgpt_exec_schema := command_fields (List.nth 43 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition chatgpt_exec_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 43 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition chatgpt_exec_payload := CommandPayload.t chatgpt_exec_schema chatgpt_exec_input_declaration true.
 Definition chatgpt_exec_proposal := CommandPayload.t chatgpt_exec_schema chatgpt_exec_input_declaration false.
 Definition Build_chatgpt_exec (proposed_chatgpt_exec_connection_id : denote KNatural) (proposed_chatgpt_exec_project_id : denote KNatural) (proposed_chatgpt_exec_request_id : denote KText) (proposed_chatgpt_exec_arguments : denote KJson) : chatgpt_exec_proposal := CommandPayload.propose (@FCons (Field "connection_id" KNatural) _ proposed_chatgpt_exec_connection_id (@FCons (Field "project_id" KNatural) _ proposed_chatgpt_exec_project_id (@FCons (Field "request_id" KText) _ proposed_chatgpt_exec_request_id (@FCons (Field "arguments" KJson) _ proposed_chatgpt_exec_arguments FNil)))).
@@ -578,8 +600,8 @@ Definition chatgpt_exec_request_id (payload : chatgpt_exec_payload) := ArgumentP
 Definition chatgpt_exec_arguments_admitted (payload : chatgpt_exec_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd (snd values))))).
 Definition chatgpt_exec_arguments (payload : chatgpt_exec_payload) := ArgumentProjection.field (Field "arguments" KJson) (List.nth 4 chatgpt_exec_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (chatgpt_exec_arguments_admitted payload).
 
-Definition chatgpt_cancel_schema := command_fields (List.nth 42 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition chatgpt_cancel_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 42 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition chatgpt_cancel_schema := command_fields (List.nth 44 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition chatgpt_cancel_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 44 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition chatgpt_cancel_payload := CommandPayload.t chatgpt_cancel_schema chatgpt_cancel_input_declaration true.
 Definition chatgpt_cancel_proposal := CommandPayload.t chatgpt_cancel_schema chatgpt_cancel_input_declaration false.
 Definition Build_chatgpt_cancel (proposed_chatgpt_cancel_connection_id : denote KNatural) (proposed_chatgpt_cancel_project_id : denote KNatural) (proposed_chatgpt_cancel_operation_id : denote KNatural) : chatgpt_cancel_proposal := CommandPayload.propose (@FCons (Field "connection_id" KNatural) _ proposed_chatgpt_cancel_connection_id (@FCons (Field "project_id" KNatural) _ proposed_chatgpt_cancel_project_id (@FCons (Field "operation_id" KNatural) _ proposed_chatgpt_cancel_operation_id FNil))).
@@ -591,8 +613,8 @@ Definition chatgpt_cancel_project_id (payload : chatgpt_cancel_payload) := Argum
 Definition chatgpt_cancel_operation_id_admitted (payload : chatgpt_cancel_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd values)))).
 Definition chatgpt_cancel_operation_id (payload : chatgpt_cancel_payload) := ArgumentProjection.field (Field "operation_id" KNatural) (List.nth 3 chatgpt_cancel_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (chatgpt_cancel_operation_id_admitted payload).
 
-Definition chatgpt_forget_schema := command_fields (List.nth 43 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition chatgpt_forget_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 43 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition chatgpt_forget_schema := command_fields (List.nth 45 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition chatgpt_forget_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 45 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition chatgpt_forget_payload := CommandPayload.t chatgpt_forget_schema chatgpt_forget_input_declaration true.
 Definition chatgpt_forget_proposal := CommandPayload.t chatgpt_forget_schema chatgpt_forget_input_declaration false.
 Definition Build_chatgpt_forget (proposed_chatgpt_forget_connection_id : denote KNatural) (proposed_chatgpt_forget_project_id : denote KNatural) (proposed_chatgpt_forget_operation_id : denote KNatural) : chatgpt_forget_proposal := CommandPayload.propose (@FCons (Field "connection_id" KNatural) _ proposed_chatgpt_forget_connection_id (@FCons (Field "project_id" KNatural) _ proposed_chatgpt_forget_project_id (@FCons (Field "operation_id" KNatural) _ proposed_chatgpt_forget_operation_id FNil))).
@@ -604,8 +626,8 @@ Definition chatgpt_forget_project_id (payload : chatgpt_forget_payload) := Argum
 Definition chatgpt_forget_operation_id_admitted (payload : chatgpt_forget_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd values)))).
 Definition chatgpt_forget_operation_id (payload : chatgpt_forget_payload) := ArgumentProjection.field (Field "operation_id" KNatural) (List.nth 3 chatgpt_forget_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (chatgpt_forget_operation_id_admitted payload).
 
-Definition chatgpt_projects_schema := command_fields (List.nth 44 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition chatgpt_projects_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 44 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition chatgpt_projects_schema := command_fields (List.nth 46 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition chatgpt_projects_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 46 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition chatgpt_projects_payload := CommandPayload.t chatgpt_projects_schema chatgpt_projects_input_declaration true.
 Definition chatgpt_projects_proposal := CommandPayload.t chatgpt_projects_schema chatgpt_projects_input_declaration false.
 Definition Build_chatgpt_projects (proposed_chatgpt_projects_connection_id : denote KNatural) : chatgpt_projects_proposal := CommandPayload.propose (@FCons (Field "connection_id" KNatural) _ proposed_chatgpt_projects_connection_id FNil).
@@ -613,8 +635,8 @@ Definition Admit_chatgpt_projects := @CommandPayload.admit chatgpt_projects_sche
 Definition chatgpt_projects_connection_id_admitted (payload : chatgpt_projects_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd values)).
 Definition chatgpt_projects_connection_id (payload : chatgpt_projects_payload) := ArgumentProjection.field (Field "connection_id" KNatural) (List.nth 1 chatgpt_projects_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (chatgpt_projects_connection_id_admitted payload).
 
-Definition chatgpt_project_schema := command_fields (List.nth 45 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition chatgpt_project_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 45 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition chatgpt_project_schema := command_fields (List.nth 47 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition chatgpt_project_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 47 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition chatgpt_project_payload := CommandPayload.t chatgpt_project_schema chatgpt_project_input_declaration true.
 Definition chatgpt_project_proposal := CommandPayload.t chatgpt_project_schema chatgpt_project_input_declaration false.
 Definition Build_chatgpt_project (proposed_chatgpt_project_connection_id : denote KNatural) (proposed_chatgpt_project_project_id : denote KNatural) : chatgpt_project_proposal := CommandPayload.propose (@FCons (Field "connection_id" KNatural) _ proposed_chatgpt_project_connection_id (@FCons (Field "project_id" KNatural) _ proposed_chatgpt_project_project_id FNil)).
@@ -624,8 +646,8 @@ Definition chatgpt_project_connection_id (payload : chatgpt_project_payload) := 
 Definition chatgpt_project_project_id_admitted (payload : chatgpt_project_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd values))).
 Definition chatgpt_project_project_id (payload : chatgpt_project_payload) := ArgumentProjection.field (Field "project_id" KNatural) (List.nth 2 chatgpt_project_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (chatgpt_project_project_id_admitted payload).
 
-Definition chatgpt_operation_schema := command_fields (List.nth 46 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition chatgpt_operation_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 46 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition chatgpt_operation_schema := command_fields (List.nth 48 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition chatgpt_operation_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 48 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition chatgpt_operation_payload := CommandPayload.t chatgpt_operation_schema chatgpt_operation_input_declaration true.
 Definition chatgpt_operation_proposal := CommandPayload.t chatgpt_operation_schema chatgpt_operation_input_declaration false.
 Definition Build_chatgpt_operation (proposed_chatgpt_operation_connection_id : denote KNatural) (proposed_chatgpt_operation_project_id : denote KNatural) (proposed_chatgpt_operation_operation_id : denote KNatural) : chatgpt_operation_proposal := CommandPayload.propose (@FCons (Field "connection_id" KNatural) _ proposed_chatgpt_operation_connection_id (@FCons (Field "project_id" KNatural) _ proposed_chatgpt_operation_project_id (@FCons (Field "operation_id" KNatural) _ proposed_chatgpt_operation_operation_id FNil))).
@@ -637,8 +659,8 @@ Definition chatgpt_operation_project_id (payload : chatgpt_operation_payload) :=
 Definition chatgpt_operation_operation_id_admitted (payload : chatgpt_operation_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd values)))).
 Definition chatgpt_operation_operation_id (payload : chatgpt_operation_payload) := ArgumentProjection.field (Field "operation_id" KNatural) (List.nth 3 chatgpt_operation_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (chatgpt_operation_operation_id_admitted payload).
 
-Definition chatgpt_operations_schema := command_fields (List.nth 47 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition chatgpt_operations_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 47 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition chatgpt_operations_schema := command_fields (List.nth 49 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition chatgpt_operations_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 49 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition chatgpt_operations_payload := CommandPayload.t chatgpt_operations_schema chatgpt_operations_input_declaration true.
 Definition chatgpt_operations_proposal := CommandPayload.t chatgpt_operations_schema chatgpt_operations_input_declaration false.
 Definition Build_chatgpt_operations (proposed_chatgpt_operations_connection_id : denote KNatural) (proposed_chatgpt_operations_project_id : denote KNatural) : chatgpt_operations_proposal := CommandPayload.propose (@FCons (Field "connection_id" KNatural) _ proposed_chatgpt_operations_connection_id (@FCons (Field "project_id" KNatural) _ proposed_chatgpt_operations_project_id FNil)).
@@ -648,22 +670,22 @@ Definition chatgpt_operations_connection_id (payload : chatgpt_operations_payloa
 Definition chatgpt_operations_project_id_admitted (payload : chatgpt_operations_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd values))).
 Definition chatgpt_operations_project_id (payload : chatgpt_operations_payload) := ArgumentProjection.field (Field "project_id" KNatural) (List.nth 2 chatgpt_operations_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (chatgpt_operations_project_id_admitted payload).
 
-Definition remote_enable_schema := command_fields (List.nth 48 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition remote_enable_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 48 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition remote_enable_schema := command_fields (List.nth 50 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition remote_enable_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 50 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition remote_enable_payload := CommandPayload.t remote_enable_schema remote_enable_input_declaration true.
 Definition remote_enable_proposal := CommandPayload.t remote_enable_schema remote_enable_input_declaration false.
 Definition Build_remote_enable  : remote_enable_proposal := CommandPayload.propose FNil.
 Definition Admit_remote_enable := @CommandPayload.admit remote_enable_schema remote_enable_input_declaration.
 
-Definition remote_disable_schema := command_fields (List.nth 49 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition remote_disable_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 49 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition remote_disable_schema := command_fields (List.nth 51 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition remote_disable_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 51 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition remote_disable_payload := CommandPayload.t remote_disable_schema remote_disable_input_declaration true.
 Definition remote_disable_proposal := CommandPayload.t remote_disable_schema remote_disable_input_declaration false.
 Definition Build_remote_disable  : remote_disable_proposal := CommandPayload.propose FNil.
 Definition Admit_remote_disable := @CommandPayload.admit remote_disable_schema remote_disable_input_declaration.
 
-Definition remote_grant_schema := command_fields (List.nth 50 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition remote_grant_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 50 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition remote_grant_schema := command_fields (List.nth 52 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition remote_grant_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 52 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition remote_grant_payload := CommandPayload.t remote_grant_schema remote_grant_input_declaration true.
 Definition remote_grant_proposal := CommandPayload.t remote_grant_schema remote_grant_input_declaration false.
 Definition Build_remote_grant (proposed_remote_grant_controller_id : denote KText) (proposed_remote_grant_permissions : denote KJson) : remote_grant_proposal := CommandPayload.propose (@FCons (Field "controller_id" KText) _ proposed_remote_grant_controller_id (@FCons (Field "permissions" KJson) _ proposed_remote_grant_permissions FNil)).
@@ -673,8 +695,8 @@ Definition remote_grant_controller_id (payload : remote_grant_payload) := Argume
 Definition remote_grant_permissions_admitted (payload : remote_grant_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd values))).
 Definition remote_grant_permissions (payload : remote_grant_payload) := ArgumentProjection.field (Field "permissions" KJson) (List.nth 2 remote_grant_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (remote_grant_permissions_admitted payload).
 
-Definition remote_revoke_schema := command_fields (List.nth 51 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition remote_revoke_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 51 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition remote_revoke_schema := command_fields (List.nth 53 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition remote_revoke_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 53 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition remote_revoke_payload := CommandPayload.t remote_revoke_schema remote_revoke_input_declaration true.
 Definition remote_revoke_proposal := CommandPayload.t remote_revoke_schema remote_revoke_input_declaration false.
 Definition Build_remote_revoke (proposed_remote_revoke_controller_id : denote KText) : remote_revoke_proposal := CommandPayload.propose (@FCons (Field "controller_id" KText) _ proposed_remote_revoke_controller_id FNil).
@@ -682,15 +704,15 @@ Definition Admit_remote_revoke := @CommandPayload.admit remote_revoke_schema rem
 Definition remote_revoke_controller_id_admitted (payload : remote_revoke_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd values)).
 Definition remote_revoke_controller_id (payload : remote_revoke_payload) := ArgumentProjection.field (Field "controller_id" KText) (List.nth 1 remote_revoke_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (remote_revoke_controller_id_admitted payload).
 
-Definition remote_status_schema := command_fields (List.nth 52 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition remote_status_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 52 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition remote_status_schema := command_fields (List.nth 54 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition remote_status_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 54 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition remote_status_payload := CommandPayload.t remote_status_schema remote_status_input_declaration true.
 Definition remote_status_proposal := CommandPayload.t remote_status_schema remote_status_input_declaration false.
 Definition Build_remote_status  : remote_status_proposal := CommandPayload.propose FNil.
 Definition Admit_remote_status := @CommandPayload.admit remote_status_schema remote_status_input_declaration.
 
-Definition create_task_graph_schema := command_fields (List.nth 53 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition create_task_graph_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 53 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition create_task_graph_schema := command_fields (List.nth 55 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition create_task_graph_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 55 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition create_task_graph_payload := CommandPayload.t create_task_graph_schema create_task_graph_input_declaration true.
 Definition create_task_graph_proposal := CommandPayload.t create_task_graph_schema create_task_graph_input_declaration false.
 Definition Build_create_task_graph (proposed_create_task_graph_work_id : option (denote KNatural)) (proposed_create_task_graph_name : denote KText) (proposed_create_task_graph_nodes : denote (KArray KJson)) (proposed_create_task_graph_rules : denote (KArray KJson)) : create_task_graph_proposal := CommandPayload.propose (@FCons (OmittableField "work_id" KNatural) _ proposed_create_task_graph_work_id (@FCons (Field "name" KText) _ proposed_create_task_graph_name (@FCons (Field "nodes" (KArray KJson)) _ proposed_create_task_graph_nodes (@FCons (Field "rules" (KArray KJson)) _ proposed_create_task_graph_rules FNil)))).
@@ -704,8 +726,8 @@ Definition create_task_graph_nodes (payload : create_task_graph_payload) := Argu
 Definition create_task_graph_rules_admitted (payload : create_task_graph_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd (snd values))))).
 Definition create_task_graph_rules (payload : create_task_graph_payload) := ArgumentProjection.field (Field "rules" (KArray KJson)) (List.nth 4 create_task_graph_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (create_task_graph_rules_admitted payload).
 
-Definition update_task_graph_schema := command_fields (List.nth 54 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition update_task_graph_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 54 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition update_task_graph_schema := command_fields (List.nth 56 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition update_task_graph_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 56 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition update_task_graph_payload := CommandPayload.t update_task_graph_schema update_task_graph_input_declaration true.
 Definition update_task_graph_proposal := CommandPayload.t update_task_graph_schema update_task_graph_input_declaration false.
 Definition Build_update_task_graph (proposed_update_task_graph_graph_id : denote KNatural) (proposed_update_task_graph_name : denote KText) (proposed_update_task_graph_nodes : denote (KArray KJson)) (proposed_update_task_graph_rules : denote (KArray KJson)) : update_task_graph_proposal := CommandPayload.propose (@FCons (Field "graph_id" KNatural) _ proposed_update_task_graph_graph_id (@FCons (Field "name" KText) _ proposed_update_task_graph_name (@FCons (Field "nodes" (KArray KJson)) _ proposed_update_task_graph_nodes (@FCons (Field "rules" (KArray KJson)) _ proposed_update_task_graph_rules FNil)))).
@@ -719,8 +741,8 @@ Definition update_task_graph_nodes (payload : update_task_graph_payload) := Argu
 Definition update_task_graph_rules_admitted (payload : update_task_graph_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd (snd values))))).
 Definition update_task_graph_rules (payload : update_task_graph_payload) := ArgumentProjection.field (Field "rules" (KArray KJson)) (List.nth 4 update_task_graph_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (update_task_graph_rules_admitted payload).
 
-Definition delete_task_graph_schema := command_fields (List.nth 55 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition delete_task_graph_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 55 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition delete_task_graph_schema := command_fields (List.nth 57 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition delete_task_graph_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 57 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition delete_task_graph_payload := CommandPayload.t delete_task_graph_schema delete_task_graph_input_declaration true.
 Definition delete_task_graph_proposal := CommandPayload.t delete_task_graph_schema delete_task_graph_input_declaration false.
 Definition Build_delete_task_graph (proposed_delete_task_graph_graph_id : denote KNatural) : delete_task_graph_proposal := CommandPayload.propose (@FCons (Field "graph_id" KNatural) _ proposed_delete_task_graph_graph_id FNil).
@@ -728,15 +750,15 @@ Definition Admit_delete_task_graph := @CommandPayload.admit delete_task_graph_sc
 Definition delete_task_graph_graph_id_admitted (payload : delete_task_graph_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd values)).
 Definition delete_task_graph_graph_id (payload : delete_task_graph_payload) := ArgumentProjection.field (Field "graph_id" KNatural) (List.nth 1 delete_task_graph_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (delete_task_graph_graph_id_admitted payload).
 
-Definition list_task_graphs_schema := command_fields (List.nth 56 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition list_task_graphs_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 56 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition list_task_graphs_schema := command_fields (List.nth 58 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition list_task_graphs_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 58 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition list_task_graphs_payload := CommandPayload.t list_task_graphs_schema list_task_graphs_input_declaration true.
 Definition list_task_graphs_proposal := CommandPayload.t list_task_graphs_schema list_task_graphs_input_declaration false.
 Definition Build_list_task_graphs  : list_task_graphs_proposal := CommandPayload.propose FNil.
 Definition Admit_list_task_graphs := @CommandPayload.admit list_task_graphs_schema list_task_graphs_input_declaration.
 
-Definition read_task_graph_schema := command_fields (List.nth 57 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition read_task_graph_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 57 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition read_task_graph_schema := command_fields (List.nth 59 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition read_task_graph_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 59 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition read_task_graph_payload := CommandPayload.t read_task_graph_schema read_task_graph_input_declaration true.
 Definition read_task_graph_proposal := CommandPayload.t read_task_graph_schema read_task_graph_input_declaration false.
 Definition Build_read_task_graph (proposed_read_task_graph_graph_id : denote KNatural) : read_task_graph_proposal := CommandPayload.propose (@FCons (Field "graph_id" KNatural) _ proposed_read_task_graph_graph_id FNil).
@@ -744,15 +766,15 @@ Definition Admit_read_task_graph := @CommandPayload.admit read_task_graph_schema
 Definition read_task_graph_graph_id_admitted (payload : read_task_graph_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd values)).
 Definition read_task_graph_graph_id (payload : read_task_graph_payload) := ArgumentProjection.field (Field "graph_id" KNatural) (List.nth 1 read_task_graph_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (read_task_graph_graph_id_admitted payload).
 
-Definition read_title_settings_schema := command_fields (List.nth 58 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition read_title_settings_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 58 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition read_title_settings_schema := command_fields (List.nth 60 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition read_title_settings_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 60 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition read_title_settings_payload := CommandPayload.t read_title_settings_schema read_title_settings_input_declaration true.
 Definition read_title_settings_proposal := CommandPayload.t read_title_settings_schema read_title_settings_input_declaration false.
 Definition Build_read_title_settings  : read_title_settings_proposal := CommandPayload.propose FNil.
 Definition Admit_read_title_settings := @CommandPayload.admit read_title_settings_schema read_title_settings_input_declaration.
 
-Definition configure_title_settings_schema := command_fields (List.nth 59 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition configure_title_settings_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 59 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition configure_title_settings_schema := command_fields (List.nth 61 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition configure_title_settings_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 61 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition configure_title_settings_payload := CommandPayload.t configure_title_settings_schema configure_title_settings_input_declaration true.
 Definition configure_title_settings_proposal := CommandPayload.t configure_title_settings_schema configure_title_settings_input_declaration false.
 Definition Build_configure_title_settings (proposed_configure_title_settings_revision : denote KNatural) (proposed_configure_title_settings_task_prompt : denote KText) (proposed_configure_title_settings_agent_prompt : denote KText) (proposed_configure_title_settings_agent_profile : option (denote KText)) : configure_title_settings_proposal := CommandPayload.propose (@FCons (Field "revision" KNatural) _ proposed_configure_title_settings_revision (@FCons (Field "task_prompt" KText) _ proposed_configure_title_settings_task_prompt (@FCons (Field "agent_prompt" KText) _ proposed_configure_title_settings_agent_prompt (@FCons (OmittableField "agent_profile" KText) _ proposed_configure_title_settings_agent_profile FNil)))).
@@ -766,8 +788,8 @@ Definition configure_title_settings_agent_prompt (payload : configure_title_sett
 Definition configure_title_settings_agent_profile_admitted (payload : configure_title_settings_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd (snd values))))).
 Definition configure_title_settings_agent_profile (payload : configure_title_settings_payload) := ArgumentProjection.field (OmittableField "agent_profile" KText) (List.nth 4 configure_title_settings_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (configure_title_settings_agent_profile_admitted payload).
 
-Definition create_work_schema := command_fields (List.nth 60 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition create_work_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 60 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition create_work_schema := command_fields (List.nth 62 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition create_work_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 62 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition create_work_payload := CommandPayload.t create_work_schema create_work_input_declaration true.
 Definition create_work_proposal := CommandPayload.t create_work_schema create_work_input_declaration false.
 Definition Build_create_work (proposed_create_work_name : option (denote KText)) : create_work_proposal := CommandPayload.propose (@FCons (OmittableField "name" KText) _ proposed_create_work_name FNil).
@@ -775,8 +797,8 @@ Definition Admit_create_work := @CommandPayload.admit create_work_schema create_
 Definition create_work_name_admitted (payload : create_work_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd values)).
 Definition create_work_name (payload : create_work_payload) := ArgumentProjection.field (OmittableField "name" KText) (List.nth 1 create_work_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (create_work_name_admitted payload).
 
-Definition rename_work_schema := command_fields (List.nth 61 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition rename_work_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 61 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition rename_work_schema := command_fields (List.nth 63 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition rename_work_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 63 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition rename_work_payload := CommandPayload.t rename_work_schema rename_work_input_declaration true.
 Definition rename_work_proposal := CommandPayload.t rename_work_schema rename_work_input_declaration false.
 Definition Build_rename_work (proposed_rename_work_work_id : denote KNatural) (proposed_rename_work_name : denote KText) : rename_work_proposal := CommandPayload.propose (@FCons (Field "work_id" KNatural) _ proposed_rename_work_work_id (@FCons (Field "name" KText) _ proposed_rename_work_name FNil)).
@@ -786,8 +808,8 @@ Definition rename_work_work_id (payload : rename_work_payload) := ArgumentProjec
 Definition rename_work_name_admitted (payload : rename_work_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd values))).
 Definition rename_work_name (payload : rename_work_payload) := ArgumentProjection.field (Field "name" KText) (List.nth 2 rename_work_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (rename_work_name_admitted payload).
 
-Definition create_work_task_schema := command_fields (List.nth 62 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition create_work_task_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 62 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition create_work_task_schema := command_fields (List.nth 64 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition create_work_task_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 64 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition create_work_task_payload := CommandPayload.t create_work_task_schema create_work_task_input_declaration true.
 Definition create_work_task_proposal := CommandPayload.t create_work_task_schema create_work_task_input_declaration false.
 Definition Build_create_work_task (proposed_create_work_task_work_id : denote KNatural) (proposed_create_work_task_profile : denote KText) (proposed_create_work_task_reasoning : option (denote KText)) (proposed_create_work_task_message : option (denote KJson)) (proposed_create_work_task_images : option (denote (KArray KJson))) (proposed_create_work_task_settings : option (denote KJson)) (proposed_create_work_task_create_worktree : option (denote KBool)) : create_work_task_proposal := CommandPayload.propose (@FCons (Field "work_id" KNatural) _ proposed_create_work_task_work_id (@FCons (Field "profile" KText) _ proposed_create_work_task_profile (@FCons (OmittableField "reasoning" KText) _ proposed_create_work_task_reasoning (@FCons (OmittableField "message" KJson) _ proposed_create_work_task_message (@FCons (OmittableField "images" (KArray KJson)) _ proposed_create_work_task_images (@FCons (OmittableField "settings" KJson) _ proposed_create_work_task_settings (@FCons (OmittableField "create_worktree" KBool) _ proposed_create_work_task_create_worktree FNil))))))).
@@ -807,15 +829,15 @@ Definition create_work_task_settings (payload : create_work_task_payload) := Arg
 Definition create_work_task_create_worktree_admitted (payload : create_work_task_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd (snd (snd (snd (snd values)))))))).
 Definition create_work_task_create_worktree (payload : create_work_task_payload) := ArgumentProjection.field (OmittableField "create_worktree" KBool) (List.nth 7 create_work_task_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (create_work_task_create_worktree_admitted payload).
 
-Definition list_works_schema := command_fields (List.nth 63 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition list_works_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 63 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition list_works_schema := command_fields (List.nth 65 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition list_works_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 65 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition list_works_payload := CommandPayload.t list_works_schema list_works_input_declaration true.
 Definition list_works_proposal := CommandPayload.t list_works_schema list_works_input_declaration false.
 Definition Build_list_works  : list_works_proposal := CommandPayload.propose FNil.
 Definition Admit_list_works := @CommandPayload.admit list_works_schema list_works_input_declaration.
 
-Definition read_work_schema := command_fields (List.nth 64 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition read_work_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 64 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition read_work_schema := command_fields (List.nth 66 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition read_work_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 66 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition read_work_payload := CommandPayload.t read_work_schema read_work_input_declaration true.
 Definition read_work_proposal := CommandPayload.t read_work_schema read_work_input_declaration false.
 Definition Build_read_work (proposed_read_work_work_id : denote KNatural) : read_work_proposal := CommandPayload.propose (@FCons (Field "work_id" KNatural) _ proposed_read_work_work_id FNil).
@@ -823,15 +845,15 @@ Definition Admit_read_work := @CommandPayload.admit read_work_schema read_work_i
 Definition read_work_work_id_admitted (payload : read_work_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd values)).
 Definition read_work_work_id (payload : read_work_payload) := ArgumentProjection.field (Field "work_id" KNatural) (List.nth 1 read_work_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (read_work_work_id_admitted payload).
 
-Definition read_work_ui_schema := command_fields (List.nth 65 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition read_work_ui_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 65 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition read_work_ui_schema := command_fields (List.nth 67 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition read_work_ui_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 67 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition read_work_ui_payload := CommandPayload.t read_work_ui_schema read_work_ui_input_declaration true.
 Definition read_work_ui_proposal := CommandPayload.t read_work_ui_schema read_work_ui_input_declaration false.
 Definition Build_read_work_ui  : read_work_ui_proposal := CommandPayload.propose FNil.
 Definition Admit_read_work_ui := @CommandPayload.admit read_work_ui_schema read_work_ui_input_declaration.
 
-Definition apply_work_ui_patch_schema := command_fields (List.nth 66 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition apply_work_ui_patch_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 66 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition apply_work_ui_patch_schema := command_fields (List.nth 68 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition apply_work_ui_patch_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 68 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition apply_work_ui_patch_payload := CommandPayload.t apply_work_ui_patch_schema apply_work_ui_patch_input_declaration true.
 Definition apply_work_ui_patch_proposal := CommandPayload.t apply_work_ui_patch_schema apply_work_ui_patch_input_declaration false.
 Definition Build_apply_work_ui_patch (proposed_apply_work_ui_patch_patch : denote KText) (proposed_apply_work_ui_patch_revision : denote KNatural) : apply_work_ui_patch_proposal := CommandPayload.propose (@FCons (Field "patch" KText) _ proposed_apply_work_ui_patch_patch (@FCons (Field "revision" KNatural) _ proposed_apply_work_ui_patch_revision FNil)).
@@ -841,8 +863,8 @@ Definition apply_work_ui_patch_patch (payload : apply_work_ui_patch_payload) := 
 Definition apply_work_ui_patch_revision_admitted (payload : apply_work_ui_patch_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd values))).
 Definition apply_work_ui_patch_revision (payload : apply_work_ui_patch_payload) := ArgumentProjection.field (Field "revision" KNatural) (List.nth 2 apply_work_ui_patch_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (apply_work_ui_patch_revision_admitted payload).
 
-Definition create_worktree_task_schema := command_fields (List.nth 67 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition create_worktree_task_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 67 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition create_worktree_task_schema := command_fields (List.nth 69 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition create_worktree_task_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 69 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition create_worktree_task_payload := CommandPayload.t create_worktree_task_schema create_worktree_task_input_declaration true.
 Definition create_worktree_task_proposal := CommandPayload.t create_worktree_task_schema create_worktree_task_input_declaration false.
 Definition Build_create_worktree_task (proposed_create_worktree_task_profile : denote KText) (proposed_create_worktree_task_reasoning : option (denote KText)) (proposed_create_worktree_task_message : option (denote KJson)) (proposed_create_worktree_task_images : option (denote (KArray KJson))) (proposed_create_worktree_task_settings : option (denote KJson)) : create_worktree_task_proposal := CommandPayload.propose (@FCons (Field "profile" KText) _ proposed_create_worktree_task_profile (@FCons (OmittableField "reasoning" KText) _ proposed_create_worktree_task_reasoning (@FCons (OmittableField "message" KJson) _ proposed_create_worktree_task_message (@FCons (OmittableField "images" (KArray KJson)) _ proposed_create_worktree_task_images (@FCons (OmittableField "settings" KJson) _ proposed_create_worktree_task_settings FNil))))).
@@ -858,8 +880,8 @@ Definition create_worktree_task_images (payload : create_worktree_task_payload) 
 Definition create_worktree_task_settings_admitted (payload : create_worktree_task_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd (snd (snd values)))))).
 Definition create_worktree_task_settings (payload : create_worktree_task_payload) := ArgumentProjection.field (OmittableField "settings" KJson) (List.nth 5 create_worktree_task_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (create_worktree_task_settings_admitted payload).
 
-Definition create_workspace_task_schema := command_fields (List.nth 68 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition create_workspace_task_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 68 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition create_workspace_task_schema := command_fields (List.nth 70 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition create_workspace_task_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 70 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition create_workspace_task_payload := CommandPayload.t create_workspace_task_schema create_workspace_task_input_declaration true.
 Definition create_workspace_task_proposal := CommandPayload.t create_workspace_task_schema create_workspace_task_input_declaration false.
 Definition Build_create_workspace_task (proposed_create_workspace_task_backend : denote (KEnum "local" ["tencent_cvm"])) (proposed_create_workspace_task_profile : denote KText) (proposed_create_workspace_task_reasoning : option (denote KText)) (proposed_create_workspace_task_message : option (denote KJson)) (proposed_create_workspace_task_images : option (denote (KArray KJson))) (proposed_create_workspace_task_settings : option (denote KJson)) (proposed_create_workspace_task_work_id : option (denote KNatural)) : create_workspace_task_proposal := CommandPayload.propose (@FCons (Field "backend" (KEnum "local" ["tencent_cvm"])) _ proposed_create_workspace_task_backend (@FCons (Field "profile" KText) _ proposed_create_workspace_task_profile (@FCons (OmittableField "reasoning" KText) _ proposed_create_workspace_task_reasoning (@FCons (OmittableField "message" KJson) _ proposed_create_workspace_task_message (@FCons (OmittableField "images" (KArray KJson)) _ proposed_create_workspace_task_images (@FCons (OmittableField "settings" KJson) _ proposed_create_workspace_task_settings (@FCons (OmittableField "work_id" KNatural) _ proposed_create_workspace_task_work_id FNil))))))).
@@ -879,15 +901,15 @@ Definition create_workspace_task_settings (payload : create_workspace_task_paylo
 Definition create_workspace_task_work_id_admitted (payload : create_workspace_task_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd (snd (snd (snd (snd values)))))))).
 Definition create_workspace_task_work_id (payload : create_workspace_task_payload) := ArgumentProjection.field (OmittableField "work_id" KNatural) (List.nth 7 create_workspace_task_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (create_workspace_task_work_id_admitted payload).
 
-Definition list_worktrees_schema := command_fields (List.nth 69 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition list_worktrees_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 69 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition list_worktrees_schema := command_fields (List.nth 71 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition list_worktrees_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 71 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition list_worktrees_payload := CommandPayload.t list_worktrees_schema list_worktrees_input_declaration true.
 Definition list_worktrees_proposal := CommandPayload.t list_worktrees_schema list_worktrees_input_declaration false.
 Definition Build_list_worktrees  : list_worktrees_proposal := CommandPayload.propose FNil.
 Definition Admit_list_worktrees := @CommandPayload.admit list_worktrees_schema list_worktrees_input_declaration.
 
-Definition read_worktree_schema := command_fields (List.nth 70 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition read_worktree_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 70 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition read_worktree_schema := command_fields (List.nth 72 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition read_worktree_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 72 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition read_worktree_payload := CommandPayload.t read_worktree_schema read_worktree_input_declaration true.
 Definition read_worktree_proposal := CommandPayload.t read_worktree_schema read_worktree_input_declaration false.
 Definition Build_read_worktree (proposed_read_worktree_task_id : denote KNatural) : read_worktree_proposal := CommandPayload.propose (@FCons (Field "task_id" KNatural) _ proposed_read_worktree_task_id FNil).
@@ -895,8 +917,8 @@ Definition Admit_read_worktree := @CommandPayload.admit read_worktree_schema rea
 Definition read_worktree_task_id_admitted (payload : read_worktree_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd values)).
 Definition read_worktree_task_id (payload : read_worktree_payload) := ArgumentProjection.field (Field "task_id" KNatural) (List.nth 1 read_worktree_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (read_worktree_task_id_admitted payload).
 
-Definition retry_worktree_archive_schema := command_fields (List.nth 71 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition retry_worktree_archive_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 71 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition retry_worktree_archive_schema := command_fields (List.nth 73 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition retry_worktree_archive_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 73 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition retry_worktree_archive_payload := CommandPayload.t retry_worktree_archive_schema retry_worktree_archive_input_declaration true.
 Definition retry_worktree_archive_proposal := CommandPayload.t retry_worktree_archive_schema retry_worktree_archive_input_declaration false.
 Definition Build_retry_worktree_archive (proposed_retry_worktree_archive_task_id : denote KNatural) : retry_worktree_archive_proposal := CommandPayload.propose (@FCons (Field "task_id" KNatural) _ proposed_retry_worktree_archive_task_id FNil).
@@ -904,8 +926,8 @@ Definition Admit_retry_worktree_archive := @CommandPayload.admit retry_worktree_
 Definition retry_worktree_archive_task_id_admitted (payload : retry_worktree_archive_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd values)).
 Definition retry_worktree_archive_task_id (payload : retry_worktree_archive_payload) := ArgumentProjection.field (Field "task_id" KNatural) (List.nth 1 retry_worktree_archive_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (retry_worktree_archive_task_id_admitted payload).
 
-Definition resolve_workspace_schema := command_fields (List.nth 72 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition resolve_workspace_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 72 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition resolve_workspace_schema := command_fields (List.nth 74 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition resolve_workspace_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 74 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition resolve_workspace_payload := CommandPayload.t resolve_workspace_schema resolve_workspace_input_declaration true.
 Definition resolve_workspace_proposal := CommandPayload.t resolve_workspace_schema resolve_workspace_input_declaration false.
 Definition Build_resolve_workspace (proposed_resolve_workspace_workspace : denote (KOptional KJson)) (proposed_resolve_workspace_project_id : denote (KOptional KNatural)) : resolve_workspace_proposal := CommandPayload.propose (@FCons (Field "workspace" (KOptional KJson)) _ proposed_resolve_workspace_workspace (@FCons (Field "project_id" (KOptional KNatural)) _ proposed_resolve_workspace_project_id FNil)).
@@ -915,8 +937,8 @@ Definition resolve_workspace_workspace (payload : resolve_workspace_payload) := 
 Definition resolve_workspace_project_id_admitted (payload : resolve_workspace_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd values))).
 Definition resolve_workspace_project_id (payload : resolve_workspace_payload) := ArgumentProjection.field (Field "project_id" (KOptional KNatural)) (List.nth 2 resolve_workspace_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (resolve_workspace_project_id_admitted payload).
 
-Definition create_workflow_schema := command_fields (List.nth 73 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition create_workflow_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 73 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition create_workflow_schema := command_fields (List.nth 75 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition create_workflow_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 75 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition create_workflow_payload := CommandPayload.t create_workflow_schema create_workflow_input_declaration true.
 Definition create_workflow_proposal := CommandPayload.t create_workflow_schema create_workflow_input_declaration false.
 Definition Build_create_workflow (proposed_create_workflow_work_id : option (denote KNatural)) (proposed_create_workflow_name : denote KText) (proposed_create_workflow_nodes : denote (KArray KJson)) (proposed_create_workflow_connections : denote (KArray KJson)) : create_workflow_proposal := CommandPayload.propose (@FCons (OmittableField "work_id" KNatural) _ proposed_create_workflow_work_id (@FCons (Field "name" KText) _ proposed_create_workflow_name (@FCons (Field "nodes" (KArray KJson)) _ proposed_create_workflow_nodes (@FCons (Field "connections" (KArray KJson)) _ proposed_create_workflow_connections FNil)))).
@@ -930,8 +952,8 @@ Definition create_workflow_nodes (payload : create_workflow_payload) := Argument
 Definition create_workflow_connections_admitted (payload : create_workflow_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd (snd values))))).
 Definition create_workflow_connections (payload : create_workflow_payload) := ArgumentProjection.field (Field "connections" (KArray KJson)) (List.nth 4 create_workflow_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (create_workflow_connections_admitted payload).
 
-Definition update_workflow_schema := command_fields (List.nth 74 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition update_workflow_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 74 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition update_workflow_schema := command_fields (List.nth 76 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition update_workflow_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 76 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition update_workflow_payload := CommandPayload.t update_workflow_schema update_workflow_input_declaration true.
 Definition update_workflow_proposal := CommandPayload.t update_workflow_schema update_workflow_input_declaration false.
 Definition Build_update_workflow (proposed_update_workflow_workflow_id : denote KNatural) (proposed_update_workflow_name : denote KText) (proposed_update_workflow_nodes : denote (KArray KJson)) (proposed_update_workflow_connections : denote (KArray KJson)) : update_workflow_proposal := CommandPayload.propose (@FCons (Field "workflow_id" KNatural) _ proposed_update_workflow_workflow_id (@FCons (Field "name" KText) _ proposed_update_workflow_name (@FCons (Field "nodes" (KArray KJson)) _ proposed_update_workflow_nodes (@FCons (Field "connections" (KArray KJson)) _ proposed_update_workflow_connections FNil)))).
@@ -945,8 +967,8 @@ Definition update_workflow_nodes (payload : update_workflow_payload) := Argument
 Definition update_workflow_connections_admitted (payload : update_workflow_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd (snd values))))).
 Definition update_workflow_connections (payload : update_workflow_payload) := ArgumentProjection.field (Field "connections" (KArray KJson)) (List.nth 4 update_workflow_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (update_workflow_connections_admitted payload).
 
-Definition start_workflow_schema := command_fields (List.nth 75 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition start_workflow_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 75 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition start_workflow_schema := command_fields (List.nth 77 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition start_workflow_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 77 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition start_workflow_payload := CommandPayload.t start_workflow_schema start_workflow_input_declaration true.
 Definition start_workflow_proposal := CommandPayload.t start_workflow_schema start_workflow_input_declaration false.
 Definition Build_start_workflow (proposed_start_workflow_workflow_id : denote KNatural) (proposed_start_workflow_entrance : denote KText) (proposed_start_workflow_message : denote KText) (proposed_start_workflow_browser_launch_id : option (denote KText)) (proposed_start_workflow_observed_at : option (denote KText)) : start_workflow_proposal := CommandPayload.propose (@FCons (Field "workflow_id" KNatural) _ proposed_start_workflow_workflow_id (@FCons (Field "entrance" KText) _ proposed_start_workflow_entrance (@FCons (Field "message" KText) _ proposed_start_workflow_message (@FCons (OmittableField "browser_launch_id" KText) _ proposed_start_workflow_browser_launch_id (@FCons (OmittableField "observed_at" KText) _ proposed_start_workflow_observed_at FNil))))).
@@ -962,15 +984,15 @@ Definition start_workflow_browser_launch_id (payload : start_workflow_payload) :
 Definition start_workflow_observed_at_admitted (payload : start_workflow_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd (snd (snd values)))))).
 Definition start_workflow_observed_at (payload : start_workflow_payload) := ArgumentProjection.field (OmittableField "observed_at" KText) (List.nth 5 start_workflow_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (start_workflow_observed_at_admitted payload).
 
-Definition list_workflows_schema := command_fields (List.nth 76 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition list_workflows_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 76 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition list_workflows_schema := command_fields (List.nth 78 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition list_workflows_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 78 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition list_workflows_payload := CommandPayload.t list_workflows_schema list_workflows_input_declaration true.
 Definition list_workflows_proposal := CommandPayload.t list_workflows_schema list_workflows_input_declaration false.
 Definition Build_list_workflows  : list_workflows_proposal := CommandPayload.propose FNil.
 Definition Admit_list_workflows := @CommandPayload.admit list_workflows_schema list_workflows_input_declaration.
 
-Definition read_workflow_instance_schema := command_fields (List.nth 77 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition read_workflow_instance_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 77 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition read_workflow_instance_schema := command_fields (List.nth 79 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition read_workflow_instance_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 79 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition read_workflow_instance_payload := CommandPayload.t read_workflow_instance_schema read_workflow_instance_input_declaration true.
 Definition read_workflow_instance_proposal := CommandPayload.t read_workflow_instance_schema read_workflow_instance_input_declaration false.
 Definition Build_read_workflow_instance (proposed_read_workflow_instance_instance_id : denote KNatural) : read_workflow_instance_proposal := CommandPayload.propose (@FCons (Field "instance_id" KNatural) _ proposed_read_workflow_instance_instance_id FNil).
@@ -978,8 +1000,8 @@ Definition Admit_read_workflow_instance := @CommandPayload.admit read_workflow_i
 Definition read_workflow_instance_instance_id_admitted (payload : read_workflow_instance_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd values)).
 Definition read_workflow_instance_instance_id (payload : read_workflow_instance_payload) := ArgumentProjection.field (Field "instance_id" KNatural) (List.nth 1 read_workflow_instance_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (read_workflow_instance_instance_id_admitted payload).
 
-Definition choose_workflow_connection_schema := command_fields (List.nth 78 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition choose_workflow_connection_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 78 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition choose_workflow_connection_schema := command_fields (List.nth 80 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition choose_workflow_connection_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 80 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition choose_workflow_connection_payload := CommandPayload.t choose_workflow_connection_schema choose_workflow_connection_input_declaration true.
 Definition choose_workflow_connection_proposal := CommandPayload.t choose_workflow_connection_schema choose_workflow_connection_input_declaration false.
 Definition Build_choose_workflow_connection (proposed_choose_workflow_connection_connection : denote KText) : choose_workflow_connection_proposal := CommandPayload.propose (@FCons (Field "connection" KText) _ proposed_choose_workflow_connection_connection FNil).
@@ -987,8 +1009,8 @@ Definition Admit_choose_workflow_connection := @CommandPayload.admit choose_work
 Definition choose_workflow_connection_connection_admitted (payload : choose_workflow_connection_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd values)).
 Definition choose_workflow_connection_connection (payload : choose_workflow_connection_payload) := ArgumentProjection.field (Field "connection" KText) (List.nth 1 choose_workflow_connection_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (choose_workflow_connection_connection_admitted payload).
 
-Definition configure_ticket_workflow_schema := command_fields (List.nth 79 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition configure_ticket_workflow_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 79 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition configure_ticket_workflow_schema := command_fields (List.nth 81 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition configure_ticket_workflow_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 81 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition configure_ticket_workflow_payload := CommandPayload.t configure_ticket_workflow_schema configure_ticket_workflow_input_declaration true.
 Definition configure_ticket_workflow_proposal := CommandPayload.t configure_ticket_workflow_schema configure_ticket_workflow_input_declaration false.
 Definition Build_configure_ticket_workflow (proposed_configure_ticket_workflow_card_id : denote KNatural) (proposed_configure_ticket_workflow_revision : denote KNatural) (proposed_configure_ticket_workflow_observed_at : option (denote KText)) (proposed_configure_ticket_workflow_workflow_id : denote KNatural) (proposed_configure_ticket_workflow_entrance : denote KText) : configure_ticket_workflow_proposal := CommandPayload.propose (@FCons (Field "card_id" KNatural) _ proposed_configure_ticket_workflow_card_id (@FCons (Field "revision" KNatural) _ proposed_configure_ticket_workflow_revision (@FCons (OmittableField "observed_at" KText) _ proposed_configure_ticket_workflow_observed_at (@FCons (Field "workflow_id" KNatural) _ proposed_configure_ticket_workflow_workflow_id (@FCons (Field "entrance" KText) _ proposed_configure_ticket_workflow_entrance FNil))))).
@@ -1004,8 +1026,8 @@ Definition configure_ticket_workflow_workflow_id (payload : configure_ticket_wor
 Definition configure_ticket_workflow_entrance_admitted (payload : configure_ticket_workflow_payload) := let values := proj1_sig (CommandPayload.values payload) in (fst (snd (snd (snd (snd (snd values)))))).
 Definition configure_ticket_workflow_entrance (payload : configure_ticket_workflow_payload) := ArgumentProjection.field (Field "entrance" KText) (List.nth 5 configure_ticket_workflow_input_declaration (Arguments.Argument "" (Arguments.Scalar KJson) false "")) eq_refl (configure_ticket_workflow_entrance_admitted payload).
 
-Definition start_ticket_workflow_schema := command_fields (List.nth 80 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Definition start_ticket_workflow_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 80 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
+Definition start_ticket_workflow_schema := command_fields (List.nth 82 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition start_ticket_workflow_input_declaration := Selvedge.Programming.CommandDeclarations.command_arguments true (List.nth 82 Selvedge.Kernel.Commands.command_declarations (DeclareCommand KernelChange TaskExcluded (WireCommand "" []))).
 Definition start_ticket_workflow_payload := CommandPayload.t start_ticket_workflow_schema start_ticket_workflow_input_declaration true.
 Definition start_ticket_workflow_proposal := CommandPayload.t start_ticket_workflow_schema start_ticket_workflow_input_declaration false.
 Definition Build_start_ticket_workflow (proposed_start_ticket_workflow_card_id : denote KNatural) (proposed_start_ticket_workflow_revision : denote KNatural) (proposed_start_ticket_workflow_observed_at : option (denote KText)) (proposed_start_ticket_workflow_browser_launch_id : option (denote KText)) : start_ticket_workflow_proposal := CommandPayload.propose (@FCons (Field "card_id" KNatural) _ proposed_start_ticket_workflow_card_id (@FCons (Field "revision" KNatural) _ proposed_start_ticket_workflow_revision (@FCons (OmittableField "observed_at" KText) _ proposed_start_ticket_workflow_observed_at (@FCons (OmittableField "browser_launch_id" KText) _ proposed_start_ticket_workflow_browser_launch_id FNil)))).
@@ -1044,6 +1066,10 @@ Inductive command_value (admitted : bool) : Type :=
 | Cmd_archive (payload : CommandPayload.t archive_schema archive_input_declaration admitted)
 
 | Cmd_fork (payload : CommandPayload.t fork_schema fork_input_declaration admitted)
+
+| Cmd_monitor_task (payload : CommandPayload.t monitor_task_schema monitor_task_input_declaration admitted)
+
+| Cmd_unmonitor_task (payload : CommandPayload.t unmonitor_task_schema unmonitor_task_input_declaration admitted)
 
 | Cmd_open_side_conversation (payload : CommandPayload.t open_side_conversation_schema open_side_conversation_input_declaration admitted)
 
@@ -1209,6 +1235,10 @@ Arguments Cmd_archive {admitted}.
 
 Arguments Cmd_fork {admitted}.
 
+Arguments Cmd_monitor_task {admitted}.
+
+Arguments Cmd_unmonitor_task {admitted}.
+
 Arguments Cmd_open_side_conversation {admitted}.
 
 Arguments Cmd_return_side_conversation {admitted}.
@@ -1357,7 +1387,7 @@ Definition proposal := command_value false.
 
 Definition command_interpretations : Selvedge.Programming.CommandDeclarations.interpretations true Selvedge.Kernel.Commands.command_declarations command :=
 
-((fun arguments => Cmd_configure_task_execution (Admit_configure_task_execution arguments)), ((fun arguments => Cmd_create (Admit_create arguments)), ((fun arguments => Cmd_create_idle (Admit_create_idle arguments)), ((fun arguments => Cmd_send (Admit_send arguments)), ((fun arguments => Cmd_steer (Admit_steer arguments)), ((fun arguments => Cmd_cancel_operation (Admit_cancel_operation arguments)), ((fun arguments => Cmd_freeze (Admit_freeze arguments)), ((fun arguments => Cmd_unfreeze (Admit_unfreeze arguments)), ((fun arguments => Cmd_stop (Admit_stop arguments)), ((fun arguments => Cmd_interrupt (Admit_interrupt arguments)), ((fun arguments => Cmd_archive (Admit_archive arguments)), ((fun arguments => Cmd_fork (Admit_fork arguments)), ((fun arguments => Cmd_open_side_conversation (Admit_open_side_conversation arguments)), ((fun arguments => Cmd_return_side_conversation (Admit_return_side_conversation arguments)), ((fun arguments => Cmd_compact (Admit_compact arguments)), ((fun arguments => Cmd_read (Admit_read arguments)), ((fun arguments => Cmd_search_history (Admit_search_history arguments)), ((fun arguments => Cmd_list (Admit_list arguments)), ((fun arguments => Cmd_describe (Admit_describe arguments)), ((fun arguments => Cmd_create_project (Admit_create_project arguments)), ((fun arguments => Cmd_update_project (Admit_update_project arguments)), ((fun arguments => Cmd_delete_project (Admit_delete_project arguments)), ((fun arguments => Cmd_list_projects (Admit_list_projects arguments)), ((fun arguments => Cmd_read_project (Admit_read_project arguments)), ((fun arguments => Cmd_review_approval (Admit_review_approval arguments)), ((fun arguments => Cmd_record_speech_transcript (Admit_record_speech_transcript arguments)), ((fun arguments => Cmd_accept_speech_delegation (Admit_accept_speech_delegation arguments)), ((fun arguments => Cmd_create_card (Admit_create_card arguments)), ((fun arguments => Cmd_update_card (Admit_update_card arguments)), ((fun arguments => Cmd_move_card (Admit_move_card arguments)), ((fun arguments => Cmd_archive_card (Admit_archive_card arguments)), ((fun arguments => Cmd_restore_card (Admit_restore_card arguments)), ((fun arguments => Cmd_delete_card (Admit_delete_card arguments)), ((fun arguments => Cmd_run_card (Admit_run_card arguments)), ((fun arguments => Cmd_link_card (Admit_link_card arguments)), ((fun arguments => Cmd_regenerate_card_title (Admit_regenerate_card_title arguments)), ((fun arguments => Cmd_pin_card (Admit_pin_card arguments)), ((fun arguments => Cmd_board_settings (Admit_board_settings arguments)), ((fun arguments => Cmd_list_cards (Admit_list_cards arguments)), ((fun arguments => Cmd_read_card (Admit_read_card arguments)), ((fun arguments => Cmd_configure_chatgpt_connections (Admit_configure_chatgpt_connections arguments)), ((fun arguments => Cmd_chatgpt_exec (Admit_chatgpt_exec arguments)), ((fun arguments => Cmd_chatgpt_cancel (Admit_chatgpt_cancel arguments)), ((fun arguments => Cmd_chatgpt_forget (Admit_chatgpt_forget arguments)), ((fun arguments => Cmd_chatgpt_projects (Admit_chatgpt_projects arguments)), ((fun arguments => Cmd_chatgpt_project (Admit_chatgpt_project arguments)), ((fun arguments => Cmd_chatgpt_operation (Admit_chatgpt_operation arguments)), ((fun arguments => Cmd_chatgpt_operations (Admit_chatgpt_operations arguments)), ((fun arguments => Cmd_remote_enable (Admit_remote_enable arguments)), ((fun arguments => Cmd_remote_disable (Admit_remote_disable arguments)), ((fun arguments => Cmd_remote_grant (Admit_remote_grant arguments)), ((fun arguments => Cmd_remote_revoke (Admit_remote_revoke arguments)), ((fun arguments => Cmd_remote_status (Admit_remote_status arguments)), ((fun arguments => Cmd_create_task_graph (Admit_create_task_graph arguments)), ((fun arguments => Cmd_update_task_graph (Admit_update_task_graph arguments)), ((fun arguments => Cmd_delete_task_graph (Admit_delete_task_graph arguments)), ((fun arguments => Cmd_list_task_graphs (Admit_list_task_graphs arguments)), ((fun arguments => Cmd_read_task_graph (Admit_read_task_graph arguments)), ((fun arguments => Cmd_read_title_settings (Admit_read_title_settings arguments)), ((fun arguments => Cmd_configure_title_settings (Admit_configure_title_settings arguments)), ((fun arguments => Cmd_create_work (Admit_create_work arguments)), ((fun arguments => Cmd_rename_work (Admit_rename_work arguments)), ((fun arguments => Cmd_create_work_task (Admit_create_work_task arguments)), ((fun arguments => Cmd_list_works (Admit_list_works arguments)), ((fun arguments => Cmd_read_work (Admit_read_work arguments)), ((fun arguments => Cmd_read_work_ui (Admit_read_work_ui arguments)), ((fun arguments => Cmd_apply_work_ui_patch (Admit_apply_work_ui_patch arguments)), ((fun arguments => Cmd_create_worktree_task (Admit_create_worktree_task arguments)), ((fun arguments => Cmd_create_workspace_task (Admit_create_workspace_task arguments)), ((fun arguments => Cmd_list_worktrees (Admit_list_worktrees arguments)), ((fun arguments => Cmd_read_worktree (Admit_read_worktree arguments)), ((fun arguments => Cmd_retry_worktree_archive (Admit_retry_worktree_archive arguments)), ((fun arguments => Cmd_resolve_workspace (Admit_resolve_workspace arguments)), ((fun arguments => Cmd_create_workflow (Admit_create_workflow arguments)), ((fun arguments => Cmd_update_workflow (Admit_update_workflow arguments)), ((fun arguments => Cmd_start_workflow (Admit_start_workflow arguments)), ((fun arguments => Cmd_list_workflows (Admit_list_workflows arguments)), ((fun arguments => Cmd_read_workflow_instance (Admit_read_workflow_instance arguments)), ((fun arguments => Cmd_choose_workflow_connection (Admit_choose_workflow_connection arguments)), ((fun arguments => Cmd_configure_ticket_workflow (Admit_configure_ticket_workflow arguments)), ((fun arguments => Cmd_start_ticket_workflow (Admit_start_ticket_workflow arguments)), tt))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))).
+((fun arguments => Cmd_configure_task_execution (Admit_configure_task_execution arguments)), ((fun arguments => Cmd_create (Admit_create arguments)), ((fun arguments => Cmd_create_idle (Admit_create_idle arguments)), ((fun arguments => Cmd_send (Admit_send arguments)), ((fun arguments => Cmd_steer (Admit_steer arguments)), ((fun arguments => Cmd_cancel_operation (Admit_cancel_operation arguments)), ((fun arguments => Cmd_freeze (Admit_freeze arguments)), ((fun arguments => Cmd_unfreeze (Admit_unfreeze arguments)), ((fun arguments => Cmd_stop (Admit_stop arguments)), ((fun arguments => Cmd_interrupt (Admit_interrupt arguments)), ((fun arguments => Cmd_archive (Admit_archive arguments)), ((fun arguments => Cmd_fork (Admit_fork arguments)), ((fun arguments => Cmd_monitor_task (Admit_monitor_task arguments)), ((fun arguments => Cmd_unmonitor_task (Admit_unmonitor_task arguments)), ((fun arguments => Cmd_open_side_conversation (Admit_open_side_conversation arguments)), ((fun arguments => Cmd_return_side_conversation (Admit_return_side_conversation arguments)), ((fun arguments => Cmd_compact (Admit_compact arguments)), ((fun arguments => Cmd_read (Admit_read arguments)), ((fun arguments => Cmd_search_history (Admit_search_history arguments)), ((fun arguments => Cmd_list (Admit_list arguments)), ((fun arguments => Cmd_describe (Admit_describe arguments)), ((fun arguments => Cmd_create_project (Admit_create_project arguments)), ((fun arguments => Cmd_update_project (Admit_update_project arguments)), ((fun arguments => Cmd_delete_project (Admit_delete_project arguments)), ((fun arguments => Cmd_list_projects (Admit_list_projects arguments)), ((fun arguments => Cmd_read_project (Admit_read_project arguments)), ((fun arguments => Cmd_review_approval (Admit_review_approval arguments)), ((fun arguments => Cmd_record_speech_transcript (Admit_record_speech_transcript arguments)), ((fun arguments => Cmd_accept_speech_delegation (Admit_accept_speech_delegation arguments)), ((fun arguments => Cmd_create_card (Admit_create_card arguments)), ((fun arguments => Cmd_update_card (Admit_update_card arguments)), ((fun arguments => Cmd_move_card (Admit_move_card arguments)), ((fun arguments => Cmd_archive_card (Admit_archive_card arguments)), ((fun arguments => Cmd_restore_card (Admit_restore_card arguments)), ((fun arguments => Cmd_delete_card (Admit_delete_card arguments)), ((fun arguments => Cmd_run_card (Admit_run_card arguments)), ((fun arguments => Cmd_link_card (Admit_link_card arguments)), ((fun arguments => Cmd_regenerate_card_title (Admit_regenerate_card_title arguments)), ((fun arguments => Cmd_pin_card (Admit_pin_card arguments)), ((fun arguments => Cmd_board_settings (Admit_board_settings arguments)), ((fun arguments => Cmd_list_cards (Admit_list_cards arguments)), ((fun arguments => Cmd_read_card (Admit_read_card arguments)), ((fun arguments => Cmd_configure_chatgpt_connections (Admit_configure_chatgpt_connections arguments)), ((fun arguments => Cmd_chatgpt_exec (Admit_chatgpt_exec arguments)), ((fun arguments => Cmd_chatgpt_cancel (Admit_chatgpt_cancel arguments)), ((fun arguments => Cmd_chatgpt_forget (Admit_chatgpt_forget arguments)), ((fun arguments => Cmd_chatgpt_projects (Admit_chatgpt_projects arguments)), ((fun arguments => Cmd_chatgpt_project (Admit_chatgpt_project arguments)), ((fun arguments => Cmd_chatgpt_operation (Admit_chatgpt_operation arguments)), ((fun arguments => Cmd_chatgpt_operations (Admit_chatgpt_operations arguments)), ((fun arguments => Cmd_remote_enable (Admit_remote_enable arguments)), ((fun arguments => Cmd_remote_disable (Admit_remote_disable arguments)), ((fun arguments => Cmd_remote_grant (Admit_remote_grant arguments)), ((fun arguments => Cmd_remote_revoke (Admit_remote_revoke arguments)), ((fun arguments => Cmd_remote_status (Admit_remote_status arguments)), ((fun arguments => Cmd_create_task_graph (Admit_create_task_graph arguments)), ((fun arguments => Cmd_update_task_graph (Admit_update_task_graph arguments)), ((fun arguments => Cmd_delete_task_graph (Admit_delete_task_graph arguments)), ((fun arguments => Cmd_list_task_graphs (Admit_list_task_graphs arguments)), ((fun arguments => Cmd_read_task_graph (Admit_read_task_graph arguments)), ((fun arguments => Cmd_read_title_settings (Admit_read_title_settings arguments)), ((fun arguments => Cmd_configure_title_settings (Admit_configure_title_settings arguments)), ((fun arguments => Cmd_create_work (Admit_create_work arguments)), ((fun arguments => Cmd_rename_work (Admit_rename_work arguments)), ((fun arguments => Cmd_create_work_task (Admit_create_work_task arguments)), ((fun arguments => Cmd_list_works (Admit_list_works arguments)), ((fun arguments => Cmd_read_work (Admit_read_work arguments)), ((fun arguments => Cmd_read_work_ui (Admit_read_work_ui arguments)), ((fun arguments => Cmd_apply_work_ui_patch (Admit_apply_work_ui_patch arguments)), ((fun arguments => Cmd_create_worktree_task (Admit_create_worktree_task arguments)), ((fun arguments => Cmd_create_workspace_task (Admit_create_workspace_task arguments)), ((fun arguments => Cmd_list_worktrees (Admit_list_worktrees arguments)), ((fun arguments => Cmd_read_worktree (Admit_read_worktree arguments)), ((fun arguments => Cmd_retry_worktree_archive (Admit_retry_worktree_archive arguments)), ((fun arguments => Cmd_resolve_workspace (Admit_resolve_workspace arguments)), ((fun arguments => Cmd_create_workflow (Admit_create_workflow arguments)), ((fun arguments => Cmd_update_workflow (Admit_update_workflow arguments)), ((fun arguments => Cmd_start_workflow (Admit_start_workflow arguments)), ((fun arguments => Cmd_list_workflows (Admit_list_workflows arguments)), ((fun arguments => Cmd_read_workflow_instance (Admit_read_workflow_instance arguments)), ((fun arguments => Cmd_choose_workflow_connection (Admit_choose_workflow_connection arguments)), ((fun arguments => Cmd_configure_ticket_workflow (Admit_configure_ticket_workflow arguments)), ((fun arguments => Cmd_start_ticket_workflow (Admit_start_ticket_workflow arguments)), tt))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))).
 
 Definition admitted_command := Selvedge.Kernel.CommandDeclarations.observed_command.
 
@@ -1397,143 +1427,147 @@ Definition declared_command {admitted} (value : command_value admitted) : comman
 
 | Cmd_fork _ => List.nth 11 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_open_side_conversation _ => List.nth 12 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_monitor_task _ => List.nth 12 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_return_side_conversation _ => List.nth 13 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_unmonitor_task _ => List.nth 13 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_compact _ => List.nth 14 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_open_side_conversation _ => List.nth 14 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_read _ => List.nth 15 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_return_side_conversation _ => List.nth 15 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_search_history _ => List.nth 16 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_compact _ => List.nth 16 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_list _ => List.nth 17 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_read _ => List.nth 17 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_describe _ => List.nth 18 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_search_history _ => List.nth 18 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_create_project _ => List.nth 19 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_list _ => List.nth 19 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_update_project _ => List.nth 20 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_describe _ => List.nth 20 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_delete_project _ => List.nth 21 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_create_project _ => List.nth 21 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_list_projects _ => List.nth 22 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_update_project _ => List.nth 22 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_read_project _ => List.nth 23 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_delete_project _ => List.nth 23 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_review_approval _ => List.nth 24 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_list_projects _ => List.nth 24 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_record_speech_transcript _ => List.nth 25 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_read_project _ => List.nth 25 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_accept_speech_delegation _ => List.nth 26 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_review_approval _ => List.nth 26 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_create_card _ => List.nth 27 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_record_speech_transcript _ => List.nth 27 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_update_card _ => List.nth 28 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_accept_speech_delegation _ => List.nth 28 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_move_card _ => List.nth 29 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_create_card _ => List.nth 29 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_archive_card _ => List.nth 30 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_update_card _ => List.nth 30 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_restore_card _ => List.nth 31 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_move_card _ => List.nth 31 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_delete_card _ => List.nth 32 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_archive_card _ => List.nth 32 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_run_card _ => List.nth 33 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_restore_card _ => List.nth 33 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_link_card _ => List.nth 34 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_delete_card _ => List.nth 34 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_regenerate_card_title _ => List.nth 35 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_run_card _ => List.nth 35 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_pin_card _ => List.nth 36 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_link_card _ => List.nth 36 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_board_settings _ => List.nth 37 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_regenerate_card_title _ => List.nth 37 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_list_cards _ => List.nth 38 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_pin_card _ => List.nth 38 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_read_card _ => List.nth 39 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_board_settings _ => List.nth 39 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_configure_chatgpt_connections _ => List.nth 40 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_list_cards _ => List.nth 40 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_chatgpt_exec _ => List.nth 41 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_read_card _ => List.nth 41 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_chatgpt_cancel _ => List.nth 42 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_configure_chatgpt_connections _ => List.nth 42 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_chatgpt_forget _ => List.nth 43 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_chatgpt_exec _ => List.nth 43 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_chatgpt_projects _ => List.nth 44 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_chatgpt_cancel _ => List.nth 44 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_chatgpt_project _ => List.nth 45 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_chatgpt_forget _ => List.nth 45 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_chatgpt_operation _ => List.nth 46 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_chatgpt_projects _ => List.nth 46 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_chatgpt_operations _ => List.nth 47 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_chatgpt_project _ => List.nth 47 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_remote_enable _ => List.nth 48 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_chatgpt_operation _ => List.nth 48 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_remote_disable _ => List.nth 49 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_chatgpt_operations _ => List.nth 49 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_remote_grant _ => List.nth 50 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_remote_enable _ => List.nth 50 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_remote_revoke _ => List.nth 51 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_remote_disable _ => List.nth 51 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_remote_status _ => List.nth 52 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_remote_grant _ => List.nth 52 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_create_task_graph _ => List.nth 53 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_remote_revoke _ => List.nth 53 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_update_task_graph _ => List.nth 54 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_remote_status _ => List.nth 54 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_delete_task_graph _ => List.nth 55 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_create_task_graph _ => List.nth 55 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_list_task_graphs _ => List.nth 56 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_update_task_graph _ => List.nth 56 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_read_task_graph _ => List.nth 57 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_delete_task_graph _ => List.nth 57 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_read_title_settings _ => List.nth 58 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_list_task_graphs _ => List.nth 58 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_configure_title_settings _ => List.nth 59 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_read_task_graph _ => List.nth 59 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_create_work _ => List.nth 60 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_read_title_settings _ => List.nth 60 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_rename_work _ => List.nth 61 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_configure_title_settings _ => List.nth 61 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_create_work_task _ => List.nth 62 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_create_work _ => List.nth 62 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_list_works _ => List.nth 63 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_rename_work _ => List.nth 63 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_read_work _ => List.nth 64 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_create_work_task _ => List.nth 64 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_read_work_ui _ => List.nth 65 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_list_works _ => List.nth 65 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_apply_work_ui_patch _ => List.nth 66 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_read_work _ => List.nth 66 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_create_worktree_task _ => List.nth 67 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_read_work_ui _ => List.nth 67 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_create_workspace_task _ => List.nth 68 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_apply_work_ui_patch _ => List.nth 68 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_list_worktrees _ => List.nth 69 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_create_worktree_task _ => List.nth 69 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_read_worktree _ => List.nth 70 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_create_workspace_task _ => List.nth 70 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_retry_worktree_archive _ => List.nth 71 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_list_worktrees _ => List.nth 71 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_resolve_workspace _ => List.nth 72 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_read_worktree _ => List.nth 72 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_create_workflow _ => List.nth 73 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_retry_worktree_archive _ => List.nth 73 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_update_workflow _ => List.nth 74 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_resolve_workspace _ => List.nth 74 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_start_workflow _ => List.nth 75 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_create_workflow _ => List.nth 75 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_list_workflows _ => List.nth 76 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_update_workflow _ => List.nth 76 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_read_workflow_instance _ => List.nth 77 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_start_workflow _ => List.nth 77 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_choose_workflow_connection _ => List.nth 78 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_list_workflows _ => List.nth 78 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_configure_ticket_workflow _ => List.nth 79 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_read_workflow_instance _ => List.nth 79 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_start_ticket_workflow _ => List.nth 80 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_choose_workflow_connection _ => List.nth 80 Selvedge.Kernel.Commands.command_specs (Command "" [])
+
+| Cmd_configure_ticket_workflow _ => List.nth 81 Selvedge.Kernel.Commands.command_specs (Command "" [])
+
+| Cmd_start_ticket_workflow _ => List.nth 82 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
 end.
 
@@ -1563,143 +1597,147 @@ Definition encode {admitted} (value : command_value admitted) : json := match va
 
 | Cmd_fork payload => CommandPayload.encode (List.nth 11 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_open_side_conversation payload => CommandPayload.encode (List.nth 12 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_monitor_task payload => CommandPayload.encode (List.nth 12 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_return_side_conversation payload => CommandPayload.encode (List.nth 13 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_unmonitor_task payload => CommandPayload.encode (List.nth 13 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_compact payload => CommandPayload.encode (List.nth 14 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_open_side_conversation payload => CommandPayload.encode (List.nth 14 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_read payload => CommandPayload.encode (List.nth 15 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_return_side_conversation payload => CommandPayload.encode (List.nth 15 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_search_history payload => CommandPayload.encode (List.nth 16 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_compact payload => CommandPayload.encode (List.nth 16 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_list payload => CommandPayload.encode (List.nth 17 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_read payload => CommandPayload.encode (List.nth 17 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_describe payload => CommandPayload.encode (List.nth 18 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_search_history payload => CommandPayload.encode (List.nth 18 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_create_project payload => CommandPayload.encode (List.nth 19 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_list payload => CommandPayload.encode (List.nth 19 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_update_project payload => CommandPayload.encode (List.nth 20 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_describe payload => CommandPayload.encode (List.nth 20 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_delete_project payload => CommandPayload.encode (List.nth 21 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_create_project payload => CommandPayload.encode (List.nth 21 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_list_projects payload => CommandPayload.encode (List.nth 22 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_update_project payload => CommandPayload.encode (List.nth 22 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_read_project payload => CommandPayload.encode (List.nth 23 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_delete_project payload => CommandPayload.encode (List.nth 23 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_review_approval payload => CommandPayload.encode (List.nth 24 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_list_projects payload => CommandPayload.encode (List.nth 24 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_record_speech_transcript payload => CommandPayload.encode (List.nth 25 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_read_project payload => CommandPayload.encode (List.nth 25 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_accept_speech_delegation payload => CommandPayload.encode (List.nth 26 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_review_approval payload => CommandPayload.encode (List.nth 26 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_create_card payload => CommandPayload.encode (List.nth 27 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_record_speech_transcript payload => CommandPayload.encode (List.nth 27 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_update_card payload => CommandPayload.encode (List.nth 28 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_accept_speech_delegation payload => CommandPayload.encode (List.nth 28 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_move_card payload => CommandPayload.encode (List.nth 29 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_create_card payload => CommandPayload.encode (List.nth 29 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_archive_card payload => CommandPayload.encode (List.nth 30 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_update_card payload => CommandPayload.encode (List.nth 30 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_restore_card payload => CommandPayload.encode (List.nth 31 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_move_card payload => CommandPayload.encode (List.nth 31 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_delete_card payload => CommandPayload.encode (List.nth 32 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_archive_card payload => CommandPayload.encode (List.nth 32 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_run_card payload => CommandPayload.encode (List.nth 33 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_restore_card payload => CommandPayload.encode (List.nth 33 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_link_card payload => CommandPayload.encode (List.nth 34 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_delete_card payload => CommandPayload.encode (List.nth 34 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_regenerate_card_title payload => CommandPayload.encode (List.nth 35 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_run_card payload => CommandPayload.encode (List.nth 35 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_pin_card payload => CommandPayload.encode (List.nth 36 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_link_card payload => CommandPayload.encode (List.nth 36 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_board_settings payload => CommandPayload.encode (List.nth 37 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_regenerate_card_title payload => CommandPayload.encode (List.nth 37 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_list_cards payload => CommandPayload.encode (List.nth 38 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_pin_card payload => CommandPayload.encode (List.nth 38 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_read_card payload => CommandPayload.encode (List.nth 39 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_board_settings payload => CommandPayload.encode (List.nth 39 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_configure_chatgpt_connections payload => CommandPayload.encode (List.nth 40 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_list_cards payload => CommandPayload.encode (List.nth 40 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_chatgpt_exec payload => CommandPayload.encode (List.nth 41 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_read_card payload => CommandPayload.encode (List.nth 41 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_chatgpt_cancel payload => CommandPayload.encode (List.nth 42 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_configure_chatgpt_connections payload => CommandPayload.encode (List.nth 42 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_chatgpt_forget payload => CommandPayload.encode (List.nth 43 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_chatgpt_exec payload => CommandPayload.encode (List.nth 43 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_chatgpt_projects payload => CommandPayload.encode (List.nth 44 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_chatgpt_cancel payload => CommandPayload.encode (List.nth 44 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_chatgpt_project payload => CommandPayload.encode (List.nth 45 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_chatgpt_forget payload => CommandPayload.encode (List.nth 45 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_chatgpt_operation payload => CommandPayload.encode (List.nth 46 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_chatgpt_projects payload => CommandPayload.encode (List.nth 46 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_chatgpt_operations payload => CommandPayload.encode (List.nth 47 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_chatgpt_project payload => CommandPayload.encode (List.nth 47 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_remote_enable payload => CommandPayload.encode (List.nth 48 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_chatgpt_operation payload => CommandPayload.encode (List.nth 48 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_remote_disable payload => CommandPayload.encode (List.nth 49 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_chatgpt_operations payload => CommandPayload.encode (List.nth 49 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_remote_grant payload => CommandPayload.encode (List.nth 50 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_remote_enable payload => CommandPayload.encode (List.nth 50 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_remote_revoke payload => CommandPayload.encode (List.nth 51 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_remote_disable payload => CommandPayload.encode (List.nth 51 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_remote_status payload => CommandPayload.encode (List.nth 52 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_remote_grant payload => CommandPayload.encode (List.nth 52 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_create_task_graph payload => CommandPayload.encode (List.nth 53 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_remote_revoke payload => CommandPayload.encode (List.nth 53 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_update_task_graph payload => CommandPayload.encode (List.nth 54 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_remote_status payload => CommandPayload.encode (List.nth 54 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_delete_task_graph payload => CommandPayload.encode (List.nth 55 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_create_task_graph payload => CommandPayload.encode (List.nth 55 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_list_task_graphs payload => CommandPayload.encode (List.nth 56 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_update_task_graph payload => CommandPayload.encode (List.nth 56 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_read_task_graph payload => CommandPayload.encode (List.nth 57 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_delete_task_graph payload => CommandPayload.encode (List.nth 57 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_read_title_settings payload => CommandPayload.encode (List.nth 58 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_list_task_graphs payload => CommandPayload.encode (List.nth 58 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_configure_title_settings payload => CommandPayload.encode (List.nth 59 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_read_task_graph payload => CommandPayload.encode (List.nth 59 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_create_work payload => CommandPayload.encode (List.nth 60 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_read_title_settings payload => CommandPayload.encode (List.nth 60 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_rename_work payload => CommandPayload.encode (List.nth 61 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_configure_title_settings payload => CommandPayload.encode (List.nth 61 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_create_work_task payload => CommandPayload.encode (List.nth 62 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_create_work payload => CommandPayload.encode (List.nth 62 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_list_works payload => CommandPayload.encode (List.nth 63 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_rename_work payload => CommandPayload.encode (List.nth 63 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_read_work payload => CommandPayload.encode (List.nth 64 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_create_work_task payload => CommandPayload.encode (List.nth 64 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_read_work_ui payload => CommandPayload.encode (List.nth 65 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_list_works payload => CommandPayload.encode (List.nth 65 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_apply_work_ui_patch payload => CommandPayload.encode (List.nth 66 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_read_work payload => CommandPayload.encode (List.nth 66 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_create_worktree_task payload => CommandPayload.encode (List.nth 67 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_read_work_ui payload => CommandPayload.encode (List.nth 67 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_create_workspace_task payload => CommandPayload.encode (List.nth 68 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_apply_work_ui_patch payload => CommandPayload.encode (List.nth 68 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_list_worktrees payload => CommandPayload.encode (List.nth 69 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_create_worktree_task payload => CommandPayload.encode (List.nth 69 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_read_worktree payload => CommandPayload.encode (List.nth 70 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_create_workspace_task payload => CommandPayload.encode (List.nth 70 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_retry_worktree_archive payload => CommandPayload.encode (List.nth 71 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_list_worktrees payload => CommandPayload.encode (List.nth 71 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_resolve_workspace payload => CommandPayload.encode (List.nth 72 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_read_worktree payload => CommandPayload.encode (List.nth 72 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_create_workflow payload => CommandPayload.encode (List.nth 73 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_retry_worktree_archive payload => CommandPayload.encode (List.nth 73 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_update_workflow payload => CommandPayload.encode (List.nth 74 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_resolve_workspace payload => CommandPayload.encode (List.nth 74 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_start_workflow payload => CommandPayload.encode (List.nth 75 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_create_workflow payload => CommandPayload.encode (List.nth 75 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_list_workflows payload => CommandPayload.encode (List.nth 76 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_update_workflow payload => CommandPayload.encode (List.nth 76 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_read_workflow_instance payload => CommandPayload.encode (List.nth 77 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_start_workflow payload => CommandPayload.encode (List.nth 77 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_choose_workflow_connection payload => CommandPayload.encode (List.nth 78 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_list_workflows payload => CommandPayload.encode (List.nth 78 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_configure_ticket_workflow payload => CommandPayload.encode (List.nth 79 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_read_workflow_instance payload => CommandPayload.encode (List.nth 79 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
-| Cmd_start_ticket_workflow payload => CommandPayload.encode (List.nth 80 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+| Cmd_choose_workflow_connection payload => CommandPayload.encode (List.nth 80 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+
+| Cmd_configure_ticket_workflow payload => CommandPayload.encode (List.nth 81 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
+
+| Cmd_start_ticket_workflow payload => CommandPayload.encode (List.nth 82 Selvedge.Kernel.Commands.command_specs (Command "" [])) payload
 
 end.
 
@@ -1728,6 +1766,10 @@ Record handler_table (A : Type) := Handlers {
  handle_archive : archive_payload -> A;
 
  handle_fork : fork_payload -> A;
+
+ handle_monitor_task : monitor_task_payload -> A;
+
+ handle_unmonitor_task : unmonitor_task_payload -> A;
 
  handle_open_side_conversation : open_side_conversation_payload -> A;
 
@@ -1895,6 +1937,10 @@ Arguments handle_archive {A}.
 
 Arguments handle_fork {A}.
 
+Arguments handle_monitor_task {A}.
+
+Arguments handle_unmonitor_task {A}.
+
 Arguments handle_open_side_conversation {A}.
 
 Arguments handle_return_side_conversation {A}.
@@ -2058,6 +2104,10 @@ Definition dispatch {A : Type} (handlers : handler_table A) (value : command) : 
 | Cmd_archive payload => handle_archive handlers payload
 
 | Cmd_fork payload => handle_fork handlers payload
+
+| Cmd_monitor_task payload => handle_monitor_task handlers payload
+
+| Cmd_unmonitor_task payload => handle_unmonitor_task handlers payload
 
 | Cmd_open_side_conversation payload => handle_open_side_conversation handlers payload
 

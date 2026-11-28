@@ -39,6 +39,7 @@ Definition inherited_call (parent : N) (invocation : call) :=
   "; its execution was not copied. Read that task for its eventual result.")) true.
 Definition pending_invocations (phase : activity) := match phase with
  | PendingCalls calls => calls
+ | WaitingForInput invocation remaining => invocation :: remaining
  | ReadyForHooks invocation _ remaining | CheckingHook _ _ invocation _ remaining => invocation :: remaining
  | _ => [] end.
 Definition snapshot_operations (parent : N) (value : task) :=
@@ -72,7 +73,7 @@ Definition cancelled_call (value : call) := FunctionOutput (call_id value)
  | InitialAttempt => failure "cancelled_before_execution" "This tool was cancelled before dispatch"
  | RecoveryAttempt => failure "outcome_unknown" "This tool may already have run; cancellation does not undo it" end) true.
 Definition interrupted_phase (phase : activity) := match phase with
- | PendingCalls calls | ReadyForHooks _ _ calls => map cancelled_call (pending_invocations phase)
+ | PendingCalls _ | ReadyForHooks _ _ _ | WaitingForInput _ _ => map cancelled_call (pending_invocations phase)
  | CheckingHook _ _ invocation _ remaining =>
    FunctionOutput (call_id invocation) (failure "hook_cancelled"
     "Authorization was interrupted; the tool was not dispatched. The plugin callback may already have run.") true :: map cancelled_call remaining

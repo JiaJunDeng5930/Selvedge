@@ -865,7 +865,7 @@ Proof.
    + destruct (A.find_entry id (A.registry value));
        destruct (A.enabled_target current (A.registry value)); inversion Outcome; subst result;
        unfold A.wait_for_resource;
-       destruct (task_activity current) as [| | | ticket revision continuation | | | | |] eqn:Activity;
+       destruct (task_activity current) as [| | | ticket revision continuation | | | | | |] eqn:Activity;
        try (destruct continuation);
        cbn [A.commit A.commit_change CommandResult.accept CommandResult.change_value CommandResult.change_world CommandResult.change_effects A.acknowledged K.accept K.decision_effects];
        now rewrite NoCancel, NoContext.

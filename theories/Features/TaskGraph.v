@@ -265,13 +265,7 @@ Definition handle_delete_task_graph (payload:Selvedge.Generated.Commands.delete_
  end.
 Fixpoint expand (message:Selvedge.Features.Domain.graph_message) (output:string) :string := match message with
  | Selvedge.Features.Domain.GraphOutput=>output | Selvedge.Features.Domain.GraphLiteral text=>text | Selvedge.Features.Domain.GraphConcat parts=>fold_right (fun part rest=>String.append (expand part output) rest) "" parts end.
-Definition assistant_output (item:message) : option (output_origin * string) :=
- match item with
- | AssistantMessage origin text=>Some (origin,text)
- | ModelContext origin content=>
-   if Conversation.provider_assistant_message content
-   then Some (origin,Conversation.provider_text content) else None
- | _=>None end.
+Definition assistant_output := Conversation.assistant_output.
 Definition new_outputs (before:world) (id:N) (task:task) :=
  let added:=skipn (match Selvedge.Kernel.State.find_task id before with Some previous=>List.length (task_history previous) | None=>0%nat end) (task_history task) in
  if existsb (fun message=>match message with FunctionCall _=>true | _=>false end) added then [] else
